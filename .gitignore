@@ -12,6 +12,10 @@ client/dist/
 .env.*.local
 server/.env
 client/.env.local
+client/env.local.txt
+
+# Claude Code local settings
+.claude/
 
 # Logs
 *.log

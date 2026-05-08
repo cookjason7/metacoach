@@ -2,6 +2,7 @@ import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import path from 'path'
+import { existsSync } from 'fs'
 import { fileURLToPath } from 'url'
 import { clerkMiddleware } from '@clerk/express'
 import { migrate } from './db.js'
@@ -44,10 +45,11 @@ app.use('/api/recipes',         clerkMiddleware(), recipesRouter)
 app.use('/api/custom-foods',    clerkMiddleware(), customFoodsRouter)
 app.use('/api/workouts',        clerkMiddleware(), workoutsRouter)
 
-// Serve React client in production — must come after all API routes
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../client/dist')))
-  app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../client/dist/index.html')))
+// Serve React client whenever the dist folder exists (i.e. after a production build)
+const distPath = path.join(__dirname, '../client/dist')
+if (existsSync(distPath)) {
+  app.use(express.static(distPath))
+  app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')))
 }
 
 // Global JSON error handler — must be last, must have 4 params

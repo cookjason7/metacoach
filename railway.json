@@ -3,6 +3,6 @@
     "buildCommand": "npm install --prefix server && npm run build"
   },
   "deploy": {
-    "startCommand": "npm start"
+    "startCommand": "NODE_ENV=production node server/index.js"
   }
 }
