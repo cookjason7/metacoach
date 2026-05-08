@@ -36,6 +36,7 @@ createRoot(document.getElementById('root')).render(
         publishableKey={publishableKey}
         afterSignInUrl="/"
         afterSignUpUrl="/"
+        clerkJSUrl="https://clerk.app.lwcvip.com/npm/@clerk/clerk-js@latest/dist/clerk.browser.js"
       >
         <App />
       </ClerkProvider>
