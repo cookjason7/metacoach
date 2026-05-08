@@ -1,8 +1,8 @@
 {
   "build": {
-    "buildCommand": "npm install --prefix server && npm run build"
+    "buildCommand": "npm run build"
   },
   "deploy": {
-    "startCommand": "NODE_ENV=production node server/index.js"
+    "startCommand": "npm start"
   }
 }
