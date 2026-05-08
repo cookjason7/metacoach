@@ -3,9 +3,6 @@ node_modules/
 client/node_modules/
 server/node_modules/
 
-# Build output
-client/dist/
-
 # Environment files — never commit secrets
 .env
 .env.local

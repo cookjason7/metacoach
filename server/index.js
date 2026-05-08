@@ -2,8 +2,6 @@ import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import path from 'path'
-import { existsSync } from 'fs'
-import { execSync } from 'child_process'
 import { fileURLToPath } from 'url'
 import { clerkMiddleware } from '@clerk/express'
 import { migrate } from './db.js'
@@ -22,17 +20,6 @@ import { runInactivityAlert } from './jobs/inactivityAlert.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname  = path.dirname(__filename)
-
-// Build client if dist doesn't exist (Railway deployment)
-const distPath = path.join(__dirname, '../client/dist')
-if (!existsSync(distPath)) {
-  console.log('Building client...')
-  execSync('npm install --prefix client && npm run build --prefix client', {
-    stdio: 'inherit',
-    cwd: path.join(__dirname, '..'),
-  })
-  console.log('Client built successfully')
-}
 
 const app = express()
 const PORT = process.env.PORT || 3001
