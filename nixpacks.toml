@@ -1,8 +1,5 @@
 [phases.install]
 cmds = ["npm install"]
 
-[phases.build]
-cmds = ["npm install --prefix client", "npm run build --prefix client"]
-
 [start]
 cmd = "NODE_ENV=production node server/index.js"
