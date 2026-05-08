@@ -25,8 +25,12 @@ const app = express()
 const PORT = process.env.PORT || 3001
 
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' ? true : 'http://localhost:5173',
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  origin: [
+    'http://localhost:5173',
+    'https://app.lwcvip.com',
+    'https://metacoach-production.up.railway.app',
+  ],
+  credentials: true,
 }))
 app.use(express.json())
 
