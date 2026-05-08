@@ -46,19 +46,26 @@ function LoadingScreen() {
 function ProtectedLayout() {
   const { isSignedIn, isLoaded, getToken } = useAuth()
 
-  // window.__userState is set by Onboarding (after submit) and Payment (after
-  // activate/skip). It overrides the module cache so the next guard check
-  // reflects the freshest state without an extra API round-trip.
   if (window.__userState !== undefined) {
     userStateCache = window.__userState
     delete window.__userState
   }
 
   const [userState, setUserState] = useState(userStateCache)
-  const [checking,  setChecking]  = useState(userStateCache === null)
+  const [checking, setChecking] = useState(userStateCache === null)
 
   useEffect(() => {
-    if (!isLoaded || !isSignedIn || userStateCache !== null) return
+    if (!isLoaded) return
+    if (!isSignedIn) {
+      setChecking(false)
+      return
+    }
+    if (userStateCache !== null) {
+      setUserState(userStateCache)
+      setChecking(false)
+      return
+    }
+
     let cancelled = false
     async function check() {
       try {
@@ -73,7 +80,6 @@ function ProtectedLayout() {
           paid: !!data.paid,
         }
       } catch {
-        // On error assume complete + paid so a network blip doesn't lock users out
         userStateCache = { onboardingComplete: true, paid: true }
       } finally {
         if (!cancelled) {
@@ -86,11 +92,11 @@ function ProtectedLayout() {
     return () => { cancelled = true }
   }, [isLoaded, isSignedIn, getToken])
 
-  if (!isLoaded)                        return <LoadingScreen />
-  if (!isSignedIn)                     return <Navigate to="/sign-in" replace />
-  if (checking)                        return <LoadingScreen />
-  if (!userState?.onboardingComplete)  return <Navigate to="/onboarding" replace />
-  if (!userState?.paid)                return <Navigate to="/payment" replace />
+  if (!isLoaded) return <LoadingScreen />
+  if (!isSignedIn) return <Navigate to="/sign-in" replace />
+  if (checking) return <LoadingScreen />
+  if (!userState?.onboardingComplete) return <Navigate to="/onboarding" replace />
+  if (!userState?.paid) return <Navigate to="/payment" replace />
   return <Layout />
 }
 
