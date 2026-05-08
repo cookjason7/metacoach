@@ -32,7 +32,11 @@ function MissingKeyScreen() {
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     {publishableKey ? (
-      <ClerkProvider publishableKey={publishableKey}>
+      <ClerkProvider
+        publishableKey={publishableKey}
+        afterSignInUrl="/"
+        afterSignUpUrl="/"
+      >
         <App />
       </ClerkProvider>
     ) : (
