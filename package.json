@@ -3,12 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "npm --prefix client install && npm --prefix client run build",
+    "build": "cd client && npm install && npm run build",
     "start": "node server/index.js",
-    "dev": "concurrently -n client,server -c cyan,green \"npm --prefix client run dev\" \"npm --prefix server run dev\"",
-    "dev:client": "npm --prefix client run dev",
-    "dev:server": "npm --prefix server run dev",
-    "install:all": "npm install && npm install --prefix client && npm install --prefix server"
+    "dev": "concurrently \"npm --prefix server run dev\" \"npm --prefix client run dev\""
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
