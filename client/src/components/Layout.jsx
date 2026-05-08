@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { UserButton, useUser, useAuth } from '@clerk/clerk-react'
+import { API_URL } from '../config.js'
 
 const NAV_ITEMS = [
   { to: '/dashboard',    label: 'Dashboard' },
@@ -25,7 +26,7 @@ export default function Layout() {
     if (!isLoaded || !user) return
     try {
       const token = await getToken()
-      const res   = await fetch('/api/users/me', { headers: { Authorization: `Bearer ${token}` } })
+      const res   = await fetch(`${API_URL}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
       if (!res.ok) {
         console.warn('[layout] /api/users/me returned', res.status)
         return
@@ -41,7 +42,7 @@ export default function Layout() {
   const fetchNotifCount = useCallback(async () => {
     try {
       const token = await getToken()
-      const res   = await fetch('/api/community/notifications/count', {
+      const res   = await fetch(`${API_URL}/api/community/notifications/count`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok) return

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useAuth } from '@clerk/clerk-react'
+import { API_URL } from '../config.js'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -54,7 +55,7 @@ function Questionnaire({ onGenerate }) {
     setError(null)
     try {
       const token = await getToken()
-      const res = await fetch('/api/workouts/generate', {
+      const res = await fetch(`${API_URL}/api/workouts/generate`, {
         method:  'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -231,7 +232,7 @@ function PlanReview({ plan, form, onSave, onRegenerate, onDiscard }) {
     setError(null)
     try {
       const token = await getToken()
-      const res = await fetch('/api/workouts', {
+      const res = await fetch(`${API_URL}/api/workouts`, {
         method:  'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(plan),
@@ -330,7 +331,7 @@ function LogModal({ program, onClose, onLogged }) {
     setError(null)
     try {
       const token = await getToken()
-      const res = await fetch(`/api/workouts/${program.id}/log`, {
+      const res = await fetch(`${API_URL}/api/workouts/${program.id}/log`, {
         method:  'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes: notes.trim() || null }),
@@ -395,7 +396,7 @@ function ProgramDetail({ program, onBack, onDeleted }) {
     async function load() {
       try {
         const token = await getToken()
-        const res   = await fetch(`/api/workouts/${program.id}`, { headers: { Authorization: `Bearer ${token}` } })
+        const res   = await fetch(`${API_URL}/api/workouts/${program.id}`, { headers: { Authorization: `Bearer ${token}` } })
         if (!res.ok) return
         const data = await res.json()
         setExercises(data.exercises ?? [])
@@ -424,7 +425,7 @@ function ProgramDetail({ program, onBack, onDeleted }) {
     setDeleting(true)
     try {
       const token = await getToken()
-      await fetch(`/api/workouts/${program.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+      await fetch(`${API_URL}/api/workouts/${program.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
       onDeleted(program.id)
     } catch {
       setDeleting(false)
@@ -601,7 +602,7 @@ export default function Workouts() {
   const loadPrograms = useCallback(async () => {
     try {
       const token = await getToken()
-      const res   = await fetch('/api/workouts', { headers: { Authorization: `Bearer ${token}` } })
+      const res   = await fetch(`${API_URL}/api/workouts`, { headers: { Authorization: `Bearer ${token}` } })
       if (!res.ok) return
       const data = await res.json()
       setPrograms(data)

@@ -1,6 +1,7 @@
-﻿import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { Link } from 'react-router-dom'
+import { API_URL } from '../config.js'
 
 function StatCard({ label, value, sub, color = 'text-gray-900' }) {
   return (
@@ -87,11 +88,11 @@ export default function Dashboard() {
         const headers = { Authorization: `Bearer ${token}` }
 
         const [r1, r2, r3, r4, r5] = await Promise.all([
-          fetch('/api/meals/today',      { headers }),
-          fetch('/api/daily-logs/today', { headers }),
-          fetch('/api/meals/week',       { headers }),
-          fetch('/api/daily-logs/week',  { headers }),
-          fetch('/api/users/me',         { headers }),
+          fetch(`${API_URL}/api/meals/today`,      { headers }),
+          fetch(`${API_URL}/api/daily-logs/today`, { headers }),
+          fetch(`${API_URL}/api/meals/week`,       { headers }),
+          fetch(`${API_URL}/api/daily-logs/week`,  { headers }),
+          fetch(`${API_URL}/api/users/me`,         { headers }),
         ])
 
         if (!r1.ok || !r2.ok || !r3.ok || !r4.ok || !r5.ok) throw new Error('Failed to load dashboard data')
@@ -116,7 +117,7 @@ export default function Dashboard() {
 
   async function saveTracker(field, value) {
     const token = await getToken()
-    const res = await fetch('/api/daily-logs', {
+    const res = await fetch(`${API_URL}/api/daily-logs`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ [field]: value }),

@@ -1,6 +1,7 @@
-﻿import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { useUser } from '@clerk/clerk-react'
+import { API_URL } from '../config.js'
 
 const ACTIVITY_OPTIONS = [
   { value: 'sedentary',         label: 'Sedentary (little or no exercise)' },
@@ -34,7 +35,7 @@ function ProgressPhotoPanel({ angle, photos, getToken, onUploaded }) {
       const body  = new FormData()
       body.append('photo', file)
       body.append('angle', angle)
-      const res = await fetch('/api/progress-photos', {
+      const res = await fetch(`${API_URL}/api/progress-photos`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body,
@@ -108,8 +109,8 @@ export default function Settings() {
     async function load() {
       const token = await getToken()
       const [profileRes, photosRes] = await Promise.all([
-        fetch('/api/users/me',         { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('/api/progress-photos',  { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/users/me`,         { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/progress-photos`,  { headers: { Authorization: `Bearer ${token}` } }),
       ])
       if (profileRes.ok) {
         const data = await profileRes.json()
@@ -161,7 +162,7 @@ export default function Settings() {
         phone_number:   form.phone_number.trim()  || null,
       }
 
-      const res = await fetch('/api/users/me', {
+      const res = await fetch(`${API_URL}/api/users/me`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { Link } from 'react-router-dom'
+import { API_URL } from '../config.js'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -527,7 +528,7 @@ export default function MealHistory() {
     async function loadGoals() {
       try {
         const token = await getToken()
-        const res   = await fetch('/api/users/me', { headers: { Authorization: `Bearer ${token}` } })
+        const res   = await fetch(`${API_URL}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
         if (res.ok) setGoals(await res.json())
       } catch {}
     }
@@ -540,7 +541,7 @@ export default function MealHistory() {
       setError(null)
       try {
         const token = await getToken()
-        const res   = await fetch(`/api/meals?date=${toDateStr(selectedDate)}`, {
+        const res   = await fetch(`${API_URL}/api/meals?date=${toDateStr(selectedDate)}`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (!res.ok) throw new Error(`Server error ${res.status}`)
@@ -556,7 +557,7 @@ export default function MealHistory() {
 
   const updateMeal = useCallback(async (mealId, updates) => {
     const token = await getToken()
-    const res   = await fetch(`/api/meals/${mealId}`, {
+    const res   = await fetch(`${API_URL}/api/meals/${mealId}`, {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
@@ -568,7 +569,7 @@ export default function MealHistory() {
 
   const deleteMeal = useCallback(async (mealId) => {
     const token = await getToken()
-    const res   = await fetch(`/api/meals/${mealId}`, {
+    const res   = await fetch(`${API_URL}/api/meals/${mealId}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -578,7 +579,7 @@ export default function MealHistory() {
 
   const copyMeal = useCallback(async (mealId, date, slot) => {
     const token = await getToken()
-    const res   = await fetch(`/api/meals/${mealId}/copy`, {
+    const res   = await fetch(`${API_URL}/api/meals/${mealId}/copy`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ date, slot }),
@@ -592,7 +593,7 @@ export default function MealHistory() {
 
   const copyDay = useCallback(async (fromDate, toDate) => {
     const token = await getToken()
-    const res   = await fetch('/api/meals/copy-day', {
+    const res   = await fetch(`${API_URL}/api/meals/copy-day`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ from_date: fromDate, to_date: toDate }),

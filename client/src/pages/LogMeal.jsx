@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@clerk/clerk-react'
+import { API_URL } from '../config.js'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -129,7 +130,7 @@ function PhotoMode({ slot }) {
       const token = await getToken()
       const body  = new FormData()
       body.append('photo', photo)
-      const res = await fetch('/api/meals/analyze', {
+      const res = await fetch(`${API_URL}/api/meals/analyze`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body,
@@ -161,7 +162,7 @@ function PhotoMode({ slot }) {
       body.append('fat_g',     analysis.fat_g)
       body.append('meal_slot', slot)
       if (analysis.fiber_g != null) body.append('fiber_g', analysis.fiber_g)
-      const res = await fetch('/api/meals', {
+      const res = await fetch(`${API_URL}/api/meals`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body,
@@ -326,7 +327,7 @@ function ManualMode({ slot }) {
         fiber_g:   form.fiber_g   !== '' ? Number(form.fiber_g)   : null,
         meal_slot: slot,
       }
-      const res = await fetch('/api/meals/manual', {
+      const res = await fetch(`${API_URL}/api/meals/manual`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -410,7 +411,7 @@ function SearchMode({ slot }) {
     setSearching(true)
     try {
       const token = await getToken()
-      const res   = await fetch(`/api/foods/search?q=${encodeURIComponent(q)}&limit=20`, {
+      const res   = await fetch(`${API_URL}/api/foods/search?q=${encodeURIComponent(q)}&limit=20`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok) throw new Error()
@@ -442,7 +443,7 @@ function SearchMode({ slot }) {
       if (isNaN(g) || g <= 0) throw new Error('Enter a valid gram amount')
       const macros = calcMacros(selected, g)
       const token  = await getToken()
-      const res    = await fetch('/api/meals/manual', {
+      const res    = await fetch(`${API_URL}/api/meals/manual`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -608,7 +609,7 @@ function CreateRecipeForm({ onSave, onCancel }) {
     setError(null)
     try {
       const token = await getToken()
-      const res = await fetch('/api/recipes', {
+      const res = await fetch(`${API_URL}/api/recipes`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim(), servings: srv, ingredients }),
@@ -767,7 +768,7 @@ function RecipesMode({ slot }) {
     setLoading(true)
     try {
       const token = await getToken()
-      const res   = await fetch('/api/recipes', { headers: { Authorization: `Bearer ${token}` } })
+      const res   = await fetch(`${API_URL}/api/recipes`, { headers: { Authorization: `Bearer ${token}` } })
       if (res.ok) setRecipes(await res.json())
     } finally {
       setLoading(false)
@@ -781,7 +782,7 @@ function RecipesMode({ slot }) {
     setError(null)
     try {
       const token = await getToken()
-      const res   = await fetch(`/api/recipes/${recipe.id}/log`, {
+      const res   = await fetch(`${API_URL}/api/recipes/${recipe.id}/log`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ meal_slot: slot }),
@@ -799,7 +800,7 @@ function RecipesMode({ slot }) {
   async function deleteRecipe(id) {
     try {
       const token = await getToken()
-      await fetch(`/api/recipes/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+      await fetch(`${API_URL}/api/recipes/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
       setRecipes(prev => prev.filter(r => r.id !== id))
     } catch {}
   }
@@ -916,8 +917,8 @@ function MyFoodsMode() {
     async function init() {
       const token = await getToken()
       const [foodsRes, meRes] = await Promise.all([
-        fetch('/api/custom-foods', { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('/api/users/me',     { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/custom-foods`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/users/me`,     { headers: { Authorization: `Bearer ${token}` } }),
       ])
       if (foodsRes.ok) setFoods(await foodsRes.json())
       if (meRes.ok) {
@@ -941,7 +942,7 @@ function MyFoodsMode() {
     setError(null)
     try {
       const token = await getToken()
-      const res   = await fetch('/api/custom-foods', {
+      const res   = await fetch(`${API_URL}/api/custom-foods`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -974,7 +975,7 @@ function MyFoodsMode() {
   async function deleteFood(id) {
     try {
       const token = await getToken()
-      await fetch(`/api/custom-foods/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+      await fetch(`${API_URL}/api/custom-foods/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
       setFoods(prev => prev.filter(f => f.id !== id))
     } catch {}
   }
@@ -1137,7 +1138,7 @@ function BarcodeMode({ slot }) {
     setError(null)
     try {
       const token = await getToken()
-      const res   = await fetch(`/api/foods/barcode/${code}`, { headers: { Authorization: `Bearer ${token}` } })
+      const res   = await fetch(`${API_URL}/api/foods/barcode/${code}`, { headers: { Authorization: `Bearer ${token}` } })
       if (!res.ok) {
         const { error: msg } = await res.json().catch(() => ({}))
         throw new Error(msg || 'Product not found')
@@ -1155,7 +1156,7 @@ function BarcodeMode({ slot }) {
     try {
       const srv   = parseFloat(servings) || 1
       const token = await getToken()
-      const res   = await fetch('/api/meals/manual', {
+      const res   = await fetch(`${API_URL}/api/meals/manual`, {
         method:  'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({

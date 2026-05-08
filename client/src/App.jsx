@@ -16,6 +16,7 @@ import FoodList from './pages/FoodList'
 import Admin from './pages/Admin'
 import Workouts from './pages/Workouts'
 import Journal from './pages/Journal'
+import { API_URL } from './config.js'
 
 // Module-level cache: null | { onboardingComplete: bool, paid: bool }
 // Persists across React re-renders; resets on hard page refresh.
@@ -62,7 +63,7 @@ function ProtectedLayout() {
     async function check() {
       try {
         const token = await getToken()
-        const res = await fetch('/api/users/me', {
+        const res = await fetch(`${API_URL}/api/users/me`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (!res.ok) throw new Error()

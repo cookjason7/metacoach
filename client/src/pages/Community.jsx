@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { linkify } from '../utils/linkify'
+import { API_URL } from '../config.js'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -190,7 +191,7 @@ function PollDisplay({ postId, getToken }) {
     async function load() {
       try {
         const token = await getToken()
-        const res = await fetch(`/api/community/posts/${postId}/poll`, {
+        const res = await fetch(`${API_URL}/api/community/posts/${postId}/poll`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (res.ok) setPoll(await res.json())
@@ -204,7 +205,7 @@ function PollDisplay({ postId, getToken }) {
     if (!poll || poll.myVote !== null) return
     try {
       const token = await getToken()
-      const res = await fetch(`/api/community/polls/${poll.id}/vote`, {
+      const res = await fetch(`${API_URL}/api/community/polls/${poll.id}/vote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ option_id: optionId }),
@@ -275,7 +276,7 @@ function CommentItem({ comment, getToken, isAdmin, onDelete, members }) {
     async function fetchReactions() {
       try {
         const token = await getToken()
-        const res   = await fetch(`/api/community/comments/${comment.id}/reactions`, {
+        const res   = await fetch(`${API_URL}/api/community/comments/${comment.id}/reactions`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (!res.ok) return
@@ -301,7 +302,7 @@ function CommentItem({ comment, getToken, isAdmin, onDelete, members }) {
     setReactions(r => ({ ...r, [myKey]: !was, [countKey]: r[countKey] + (was ? -1 : 1) }))
     try {
       const token = await getToken()
-      const res   = await fetch(`/api/community/comments/${comment.id}/reactions`, {
+      const res   = await fetch(`${API_URL}/api/community/comments/${comment.id}/reactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ reaction_type: type }),
@@ -377,7 +378,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
     async function fetchPostReactions() {
       try {
         const token = await getToken()
-        const res   = await fetch(`/api/community/posts/${post.id}/reactions`, {
+        const res   = await fetch(`${API_URL}/api/community/posts/${post.id}/reactions`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (!res.ok) return
@@ -402,7 +403,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
     setPostReactions(r => ({ ...r, [myKey]: !was, [countKey]: r[countKey] + (was ? -1 : 1) }))
     try {
       const token = await getToken()
-      const res   = await fetch(`/api/community/posts/${post.id}/reactions`, {
+      const res   = await fetch(`${API_URL}/api/community/posts/${post.id}/reactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ reaction_type: type }),
@@ -429,7 +430,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
       setLoadingComments(true)
       try {
         const token = await getToken()
-        const res   = await fetch(`/api/community/posts/${post.id}/comments`, {
+        const res   = await fetch(`${API_URL}/api/community/posts/${post.id}/comments`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (res.ok) setComments(await res.json())
@@ -455,7 +456,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
     if (!window.confirm('Delete this comment?')) return
     try {
       const token = await getToken()
-      const res = await fetch(`/api/community/comments/${commentId}`, {
+      const res = await fetch(`${API_URL}/api/community/comments/${commentId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -471,7 +472,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
     setSaving(true)
     try {
       const token = await getToken()
-      const res = await fetch(`/api/community/posts/${post.id}`, {
+      const res = await fetch(`${API_URL}/api/community/posts/${post.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ content: editContent.trim(), category: editCategory }),
@@ -660,7 +661,7 @@ function Leaderboard({ getToken }) {
     async function load() {
       try {
         const token = await getToken()
-        const res = await fetch('/api/community/leaderboard', {
+        const res = await fetch(`${API_URL}/api/community/leaderboard`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (res.ok) setEntries(await res.json())
@@ -714,7 +715,7 @@ function HybridTab({ getToken, isAdmin, currentUserId, members }) {
     async function load() {
       try {
         const token = await getToken()
-        const res   = await fetch('/api/community/posts', { headers: { Authorization: `Bearer ${token}` } })
+        const res   = await fetch(`${API_URL}/api/community/posts`, { headers: { Authorization: `Bearer ${token}` } })
         if (!res.ok) throw new Error(`Server error ${res.status}`)
         setPosts(await res.json())
       } catch (err) { setError(err.message) }
@@ -755,7 +756,7 @@ function HybridTab({ getToken, isAdmin, currentUserId, members }) {
         body.append('poll_options', JSON.stringify(poll.options.filter(o => o.trim())))
       }
 
-      const res = await fetch('/api/community/posts', {
+      const res = await fetch(`${API_URL}/api/community/posts`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body,
@@ -780,7 +781,7 @@ function HybridTab({ getToken, isAdmin, currentUserId, members }) {
     }))
     try {
       const token = await getToken()
-      const res   = await fetch(`/api/community/posts/${postId}/like`, {
+      const res   = await fetch(`${API_URL}/api/community/posts/${postId}/like`, {
         method: 'POST', headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok) throw new Error()
@@ -801,7 +802,7 @@ function HybridTab({ getToken, isAdmin, currentUserId, members }) {
     if (!window.confirm('Delete this post? This cannot be undone.')) return
     try {
       const token = await getToken()
-      const res = await fetch(`/api/community/posts/${postId}`, {
+      const res = await fetch(`${API_URL}/api/community/posts/${postId}`, {
         method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
       })
       if (res.ok) setPosts(prev => prev.filter(p => p.id !== postId))
@@ -811,7 +812,7 @@ function HybridTab({ getToken, isAdmin, currentUserId, members }) {
   const pinPost = useCallback(async (postId) => {
     try {
       const token = await getToken()
-      const res = await fetch(`/api/community/posts/${postId}/pin`, {
+      const res = await fetch(`${API_URL}/api/community/posts/${postId}/pin`, {
         method: 'POST', headers: { Authorization: `Bearer ${token}` },
       })
       if (res.ok) {
@@ -831,7 +832,7 @@ function HybridTab({ getToken, isAdmin, currentUserId, members }) {
   const submitComment = useCallback(async (postId, content) => {
     try {
       const token = await getToken()
-      const res   = await fetch(`/api/community/posts/${postId}/comments`, {
+      const res   = await fetch(`${API_URL}/api/community/posts/${postId}/comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ content }),
@@ -1092,7 +1093,7 @@ export default function Community() {
     async function init() {
       try {
         const token = await getToken()
-        const res = await fetch('/api/users/me', { headers: { Authorization: `Bearer ${token}` } })
+        const res = await fetch(`${API_URL}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
         if (!res.ok) return
         const data = await res.json()
         setIsAdmin(data.role === 'admin')
@@ -1102,7 +1103,7 @@ export default function Community() {
       // Mark all notifications as read when Community opens
       try {
         const token = await getToken()
-        await fetch('/api/community/notifications/read', {
+        await fetch(`${API_URL}/api/community/notifications/read`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` },
         })
@@ -1116,7 +1117,7 @@ export default function Community() {
     async function loadMembers() {
       try {
         const token = await getToken()
-        const res = await fetch('/api/community/members', {
+        const res = await fetch(`${API_URL}/api/community/members`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (res.ok) setMembers(await res.json())

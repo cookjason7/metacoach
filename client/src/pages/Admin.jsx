@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { useNavigate } from 'react-router-dom'
+import { API_URL } from '../config.js'
 
 function daysSince(isoString) {
   if (!isoString) return null
@@ -26,7 +27,7 @@ function MacroForm({ client, getToken, onSaved }) {
     setError(null)
     try {
       const token = await getToken()
-      const res = await fetch(`/api/admin/users/${client.id}/macros`, {
+      const res = await fetch(`${API_URL}/api/admin/users/${client.id}/macros`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
@@ -144,7 +145,7 @@ export default function Admin() {
     async function load() {
       try {
         const token = await getToken()
-        const res = await fetch('/api/admin/users', { headers: { Authorization: `Bearer ${token}` } })
+        const res = await fetch(`${API_URL}/api/admin/users`, { headers: { Authorization: `Bearer ${token}` } })
         if (res.status === 403) {
           navigate('/dashboard', { replace: true })
           return

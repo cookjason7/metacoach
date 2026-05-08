@@ -1,6 +1,7 @@
-﻿import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { linkify } from '../utils/linkify'
+import { API_URL } from '../config.js'
 
 function MessageBubble({ role, content }) {
   const isKatie = role === 'assistant'
@@ -50,7 +51,7 @@ export default function AICoach() {
 
     try {
       const token = await getToken()
-      const res = await fetch('/api/coach/chat', {
+      const res = await fetch(`${API_URL}/api/coach/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -101,7 +102,7 @@ export default function AICoach() {
     async function init() {
       try {
         const token = await getToken()
-        const res   = await fetch('/api/coach/history', {
+        const res   = await fetch(`${API_URL}/api/coach/history`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (!res.ok) throw new Error('Failed to load history')

@@ -1,6 +1,7 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { useNavigate } from 'react-router-dom'
+import { API_URL } from '../config.js'
 
 const TRAITS = [
   "Shows up when it's inconvenient, not just when it's easy",
@@ -86,7 +87,7 @@ export default function Onboarding() {
     try {
       const token = await getToken()
       const height_inches = parseInt(form.height_feet, 10) * 12 + parseInt(form.height_in, 10)
-      const res = await fetch('/api/users/me', {
+      const res = await fetch(`${API_URL}/api/users/me`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({

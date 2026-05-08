@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { useNavigate } from 'react-router-dom'
+import { API_URL } from '../config.js'
 
 const STRIPE_URL = 'https://buy.stripe.com/14A00j6qpdwPcnN4zGes00D'
 
@@ -16,7 +17,7 @@ export default function Payment() {
     setError(null)
     try {
       const token = await getToken()
-      const res   = await fetch('/api/users/me/activate', {
+      const res   = await fetch(`${API_URL}/api/users/me/activate`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
