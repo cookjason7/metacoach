@@ -1107,15 +1107,30 @@ function BarcodeMode({ slot }) {
     setScanError(null)
     setFood(null)
     setError(null)
+
+    const isSecure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+    if (!isSecure) {
+      setScanError('Camera requires a secure connection (HTTPS). Please open this app over HTTPS.')
+      return
+    }
+
     try {
-      const { Html5QrcodeScanner } = await import('html5-qrcode')
+      const { Html5QrcodeScanner, Html5QrcodeScanType } = await import('html5-qrcode')
       if (scannerInstanceRef.current) {
         await scannerInstanceRef.current.clear().catch(() => {})
         scannerInstanceRef.current = null
       }
       const scanner = new Html5QrcodeScanner(
         'barcode-reader',
-        { fps: 10, qrbox: { width: 280, height: 140 }, rememberLastUsedCamera: true },
+        {
+          fps: 10,
+          qrbox: (w, h) => {
+            const size = Math.min(w, h, 280)
+            return { width: size, height: Math.round(size * 0.5) }
+          },
+          rememberLastUsedCamera: true,
+          supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA],
+        },
         false,
       )
       scannerInstanceRef.current = scanner
@@ -1129,8 +1144,12 @@ function BarcodeMode({ slot }) {
         () => {},
       )
       setScanning(true)
-    } catch {
-      setScanError('Camera access denied or not available.')
+    } catch (err) {
+      if (err?.name === 'NotAllowedError' || String(err).includes('NotAllowed')) {
+        setScanError('Camera permission denied. Please allow camera access in your browser settings.')
+      } else {
+        setScanError('Camera not available. Please check permissions and try again.')
+      }
     }
   }
 

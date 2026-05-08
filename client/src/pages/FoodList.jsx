@@ -138,12 +138,12 @@ export default function FoodList() {
       </p>
 
       {/* Main 4-column grid */}
-      <div className="grid grid-cols-4 gap-4 mb-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
         {MAIN_COLS.map(col => <Column key={col.category} {...col} />)}
       </div>
 
       {/* Bottom 3-column grid */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         {BOTTOM_COLS.map(col => <BottomColumn key={col.category} {...col} />)}
       </div>
 
