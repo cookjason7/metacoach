@@ -70,9 +70,13 @@ function ProtectedLayout() {
     async function check() {
       try {
         const token = await getToken()
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 8000)
         const res = await fetch(`${API_URL}/api/users/me`, {
           headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
         })
+        clearTimeout(timeoutId)
         if (!res.ok) throw new Error()
         const data = await res.json()
         userStateCache = {
