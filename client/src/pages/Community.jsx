@@ -843,8 +843,8 @@ function HybridTab({ getToken, isAdmin, currentUserId, members }) {
   }, [getToken])
 
   return (
-    <div className="flex gap-6 items-start">
-      <div className="flex-1 min-w-0">
+    <div className="flex flex-col lg:flex-row gap-6 items-start">
+      <div className="flex-1 min-w-0 w-full">
         {/* Search */}
         <div className="relative mb-3">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">🔍</span>
@@ -974,7 +974,7 @@ function HybridTab({ getToken, isAdmin, currentUserId, members }) {
       </div>
 
       {/* Leaderboard sidebar */}
-      <div className="w-52 shrink-0">
+      <div className="w-full lg:w-52 shrink-0">
         <Leaderboard getToken={getToken} />
       </div>
     </div>
@@ -1132,7 +1132,7 @@ export default function Community() {
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Community</h1>
       <p className="text-sm text-gray-500 mb-6">Connect with your Life Warrior community</p>
 
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6 max-w-lg">
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6 overflow-x-auto">
         {TABS.map(t => (
           <button
             key={t.id}

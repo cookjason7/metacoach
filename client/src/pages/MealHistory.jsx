@@ -93,6 +93,8 @@ function DateNav({ date, onChange }) {
   today.setHours(0, 0, 0, 0)
   const minDate = new Date(today)
   minDate.setDate(today.getDate() - 90)
+  const maxDate = new Date(today)
+  maxDate.setDate(today.getDate() + 30)
 
   function shift(days) {
     const next = new Date(date)
@@ -112,7 +114,7 @@ function DateNav({ date, onChange }) {
       <span className="text-sm font-semibold text-gray-800">{formatDateLabel(date)}</span>
       <button
         onClick={() => shift(1)}
-        disabled={date >= today}
+        disabled={date >= maxDate}
         className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-lg leading-none"
       >
         →

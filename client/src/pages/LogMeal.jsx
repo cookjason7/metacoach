@@ -19,6 +19,10 @@ function getDefaultSlot() {
 
 const ING_UNITS = ['g', 'oz', 'cup', 'tbsp', 'tsp', 'pc', 'slice', 'ml']
 
+const SERVING_UNITS = ['g', 'oz', 'lb', 'tsp', 'tbsp', 'cup', 'fl oz', 'ml']
+const UNIT_TO_G = { g: 1, oz: 28.35, lb: 453.59, tsp: 5, tbsp: 15, cup: 240, 'fl oz': 30, ml: 1 }
+function toGrams(amount, unit) { return amount * (UNIT_TO_G[unit] ?? 1) }
+
 // ── Shared UI pieces ──────────────────────────────────────────────────────────
 
 function MacroCard({ label, value, unit, color }) {
@@ -100,7 +104,7 @@ function SavedState({ name, onReset, resetLabel = 'Log Another Meal' }) {
 
 // ── Photo mode ────────────────────────────────────────────────────────────────
 
-function PhotoMode({ slot }) {
+function PhotoMode({ slot, logDate }) {
   const { getToken } = useAuth()
   const inputRef = useRef(null)
 
@@ -161,6 +165,7 @@ function PhotoMode({ slot }) {
       body.append('carbs_g',   analysis.carbs_g)
       body.append('fat_g',     analysis.fat_g)
       body.append('meal_slot', slot)
+      body.append('log_date',  logDate)
       if (analysis.fiber_g != null) body.append('fiber_g', analysis.fiber_g)
       const res = await fetch(`${API_URL}/api/meals`, {
         method: 'POST',
@@ -299,7 +304,7 @@ function PhotoMode({ slot }) {
 
 const EMPTY_MANUAL = { meal_name: '', calories: '', protein_g: '', carbs_g: '', fat_g: '', fiber_g: '' }
 
-function ManualMode({ slot }) {
+function ManualMode({ slot, logDate }) {
   const { getToken } = useAuth()
   const [form,   setForm]   = useState(EMPTY_MANUAL)
   const [saving, setSaving] = useState(false)
@@ -326,6 +331,7 @@ function ManualMode({ slot }) {
         fat_g:     form.fat_g     !== '' ? Number(form.fat_g)     : null,
         fiber_g:   form.fiber_g   !== '' ? Number(form.fiber_g)   : null,
         meal_slot: slot,
+        log_date:  logDate,
       }
       const res = await fetch(`${API_URL}/api/meals/manual`, {
         method: 'POST',
@@ -385,7 +391,7 @@ function ManualMode({ slot }) {
 
 // ── Food Search mode ──────────────────────────────────────────────────────────
 
-function SearchMode({ slot }) {
+function SearchMode({ slot, logDate }) {
   const { getToken } = useAuth()
   const debounceRef  = useRef(null)
 
@@ -393,7 +399,8 @@ function SearchMode({ slot }) {
   const [results,   setResults]   = useState([])
   const [searching, setSearching] = useState(false)
   const [selected,  setSelected]  = useState(null)
-  const [grams,     setGrams]     = useState('100')
+  const [amount,    setAmount]    = useState('100')
+  const [unit,      setUnit]      = useState('g')
   const [saving,    setSaving]    = useState(false)
   const [saved,     setSaved]     = useState(false)
   const [error,     setError]     = useState(null)
@@ -439,21 +446,24 @@ function SearchMode({ slot }) {
     setSaving(true)
     setError(null)
     try {
-      const g = parseFloat(grams)
-      if (isNaN(g) || g <= 0) throw new Error('Enter a valid gram amount')
+      const raw = parseFloat(amount)
+      if (isNaN(raw) || raw <= 0) throw new Error('Enter a valid amount')
+      const g      = toGrams(raw, unit)
       const macros = calcMacros(selected, g)
       const token  = await getToken()
       const res    = await fetch(`${API_URL}/api/meals/manual`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          meal_name: selected.name,
-          calories:  macros.calories,
-          protein_g: macros.protein,
-          carbs_g:   macros.carbs,
-          fat_g:     macros.fat,
-          fiber_g:   macros.fiber,
-          meal_slot: slot,
+          meal_name:    selected.name,
+          calories:     macros.calories,
+          protein_g:    macros.protein,
+          carbs_g:      macros.carbs,
+          fat_g:        macros.fat,
+          fiber_g:      macros.fiber,
+          meal_slot:    slot,
+          log_date:     logDate,
+          serving_unit: unit,
         }),
       })
       if (!res.ok) throw new Error('Failed to save')
@@ -467,13 +477,14 @@ function SearchMode({ slot }) {
 
   function reset() {
     setQuery(''); setResults([]); setSelected(null)
-    setGrams('100'); setSaved(false); setError(null)
+    setAmount('100'); setUnit('g'); setSaved(false); setError(null)
   }
 
   if (saved) return <SavedState name={selected.name} onReset={reset} resetLabel="Search Again" />
 
-  const g       = parseFloat(grams)
-  const preview = selected && !isNaN(g) && g > 0 ? calcMacros(selected, g) : null
+  const raw     = parseFloat(amount)
+  const g       = !isNaN(raw) && raw > 0 ? toGrams(raw, unit) : 0
+  const preview = selected && g > 0 ? calcMacros(selected, g) : null
 
   return (
     <div className="max-w-lg space-y-4">
@@ -529,14 +540,24 @@ function SearchMode({ slot }) {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Portion size (grams)</label>
-            <input
-              type="number"
-              value={grams}
-              onChange={e => setGrams(e.target.value)}
-              min="1"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-            />
+            <label className="block text-xs font-medium text-gray-600 mb-1">Portion size</label>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                min="0.1"
+                step="any"
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+              />
+              <select
+                value={unit}
+                onChange={e => setUnit(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
+              >
+                {SERVING_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
           </div>
 
           {preview && (
@@ -755,7 +776,7 @@ function CreateRecipeForm({ onSave, onCancel }) {
   )
 }
 
-function RecipesMode({ slot }) {
+function RecipesMode({ slot, logDate }) {
   const { getToken } = useAuth()
   const [recipes,   setRecipes]   = useState([])
   const [loading,   setLoading]   = useState(true)
@@ -785,7 +806,7 @@ function RecipesMode({ slot }) {
       const res   = await fetch(`${API_URL}/api/recipes/${recipe.id}/log`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ meal_slot: slot }),
+        body: JSON.stringify({ meal_slot: slot, log_date: logDate }),
       })
       if (!res.ok) throw new Error('Failed to log recipe')
       setLoggedId(recipe.id)
@@ -1086,7 +1107,7 @@ function MyFoodsMode() {
 
 // ── Barcode Scanner mode ──────────────────────────────────────────────────────
 
-function BarcodeMode({ slot }) {
+function BarcodeMode({ slot, logDate }) {
   const { getToken } = useAuth()
   const scannerInstanceRef = useRef(null)
   const [scanning, setScanning] = useState(false)
@@ -1186,6 +1207,7 @@ function BarcodeMode({ slot }) {
           fat_g:     food.fat_g     != null ? +((food.fat_g     * srv).toFixed(1)) : null,
           fiber_g:   food.fiber_g   != null ? +((food.fiber_g   * srv).toFixed(1)) : null,
           meal_slot: slot,
+          log_date:  logDate,
         }),
       })
       if (!res.ok) throw new Error('Failed to save')
@@ -1304,13 +1326,27 @@ const TABS = [
 const SLOT_TABS = ['photo', 'barcode', 'manual', 'search', 'recipes']
 
 export default function LogMeal() {
-  const [tab,  setTab]  = useState('photo')
-  const [slot, setSlot] = useState(getDefaultSlot)
+  const [tab,     setTab]     = useState('photo')
+  const [slot,    setSlot]    = useState(getDefaultSlot)
+  const [logDate, setLogDate] = useState(() => new Date().toISOString().slice(0, 10))
 
   return (
     <div>
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Log Meal</h1>
-      <p className="text-sm text-gray-500 mb-5">Add a meal via photo analysis, manual entry, or food search</p>
+      <p className="text-sm text-gray-500 mb-4">Add a meal via photo analysis, manual entry, or food search</p>
+
+      {/* Date picker — shown for all logging tabs */}
+      {SLOT_TABS.includes(tab) && (
+        <div className="mb-4">
+          <label className="block text-xs font-medium text-gray-500 mb-1 uppercase tracking-wide">Log Date</label>
+          <input
+            type="date"
+            value={logDate}
+            onChange={e => setLogDate(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+          />
+        </div>
+      )}
 
       {/* Slot picker — shown for all logging tabs */}
       {SLOT_TABS.includes(tab) && <SlotPicker value={slot} onChange={setSlot} />}
@@ -1330,11 +1366,11 @@ export default function LogMeal() {
         ))}
       </div>
 
-      {tab === 'photo'   && <PhotoMode   slot={slot} />}
-      {tab === 'barcode' && <BarcodeMode slot={slot} />}
-      {tab === 'manual'  && <ManualMode  slot={slot} />}
-      {tab === 'search'  && <SearchMode  slot={slot} />}
-      {tab === 'recipes' && <RecipesMode slot={slot} />}
+      {tab === 'photo'   && <PhotoMode   slot={slot} logDate={logDate} />}
+      {tab === 'barcode' && <BarcodeMode slot={slot} logDate={logDate} />}
+      {tab === 'manual'  && <ManualMode  slot={slot} logDate={logDate} />}
+      {tab === 'search'  && <SearchMode  slot={slot} logDate={logDate} />}
+      {tab === 'recipes' && <RecipesMode slot={slot} logDate={logDate} />}
       {tab === 'myfoods' && <MyFoodsMode />}
     </div>
   )

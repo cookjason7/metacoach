@@ -50,6 +50,8 @@ export default function Onboarding() {
 
   const [form, setForm] = useState({
     first_name:          '',
+    last_name:           '',
+    gender:              '',
     age:                 '',
     height_feet:         '5',
     height_in:           '4',
@@ -92,6 +94,8 @@ export default function Onboarding() {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           first_name:          form.first_name,
+          last_name:           form.last_name,
+          gender:              form.gender,
           age:                 Number(form.age),
           height_inches,
           starting_weight_lbs: Number(form.starting_weight_lbs),
@@ -126,15 +130,46 @@ export default function Onboarding() {
             <p className="text-sm text-gray-500 mb-6">Let's start with the basics.</p>
 
             <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">First name</label>
+                  <input
+                    type="text"
+                    value={form.first_name}
+                    onChange={(e) => set('first_name', e.target.value)}
+                    placeholder="Jane"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Last name</label>
+                  <input
+                    type="text"
+                    value={form.last_name}
+                    onChange={(e) => set('last_name', e.target.value)}
+                    placeholder="Doe"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                  />
+                </div>
+              </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">First name</label>
-                <input
-                  type="text"
-                  value={form.first_name}
-                  onChange={(e) => set('first_name', e.target.value)}
-                  placeholder="Jane"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-2">Gender</label>
+                <div className="flex gap-3">
+                  {['Male', 'Female'].map(g => (
+                    <button
+                      key={g}
+                      type="button"
+                      onClick={() => set('gender', g.toLowerCase())}
+                      className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                        form.gender === g.toLowerCase()
+                          ? 'bg-[#E8670A] text-white border-[#E8670A]'
+                          : 'bg-white text-gray-600 border-gray-300 hover:border-[#E8670A]'
+                      }`}
+                    >
+                      {g}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Age</label>
