@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.61.6",
+    "@zxing/browser": "^0.2.0",
+    "@zxing/library": "^0.22.0",
     "html5-qrcode": "^2.3.8",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

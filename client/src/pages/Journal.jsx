@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
+import BarcodeScannerWidget from '../components/BarcodeScanner.jsx'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -985,62 +986,121 @@ function ManualLogger({ slotName, onSaved, logDate }) {
 
 // ── Barcode Logger ─────────────────────────────────────────────────────────────
 
+// Extract gram weight from strings like "30g", "2 cookies (30g)", "1/4 cup (28 g)"
+function parseServingGrams(s) {
+  if (!s) return null
+  const m = s.match(/\b(\d+(?:\.\d+)?)\s*g(?:\b|$|\))/i)
+  return m ? parseFloat(m[1]) : null
+}
+
+// Normalise food macros to per-100 g so the unit selector works consistently.
+// Returns { base (per-100g macros), defaultGrams }.
+function normaliseFoodTo100g(food) {
+  if (!food.is_per_serving) return { base: food, defaultGrams: 100 }
+  const sg = parseServingGrams(food.serving_size)
+  if (!sg) return { base: food, defaultGrams: 100 } // can't parse — treat as per-100g
+  const f = 100 / sg
+  return {
+    base: {
+      calories:  Math.round((food.calories  ?? 0) * f),
+      protein_g: food.protein_g != null ? +((food.protein_g * f).toFixed(2)) : null,
+      carbs_g:   food.carbs_g   != null ? +((food.carbs_g   * f).toFixed(2)) : null,
+      fat_g:     food.fat_g     != null ? +((food.fat_g     * f).toFixed(2)) : null,
+      fiber_g:   food.fiber_g   != null ? +((food.fiber_g   * f).toFixed(2)) : null,
+    },
+    defaultGrams: sg,
+  }
+}
+
 function BarcodeLogger({ slotName, onSaved, logDate }) {
   const { getToken } = useAuth()
-  const scannerRef   = useRef(null)
   const [scanning, setScanning] = useState(false)
-  const [food,     setFood]     = useState(null)
-  const [servings, setServings] = useState('1')
+  const [loading,  setLoading]  = useState(false)
+  const [food,     setFood]     = useState(null)   // raw food from API
+  const [base,     setBase]     = useState(null)   // per-100g normalised macros
+  const [amount,   setAmount]   = useState('100')
+  const [unit,     setUnit]     = useState('g')
   const [saving,   setSaving]   = useState(false)
   const [saved,    setSaved]    = useState(false)
   const [error,    setError]    = useState(null)
 
-  useEffect(() => () => { scannerRef.current?.clear().catch(() => {}) }, [])
+  function handleUnitChange(newUnit) {
+    const g = toGrams(parseFloat(amount) || 0, unit)
+    setAmount(+(g / (UNIT_TO_G[newUnit] ?? 1)).toFixed(2) + '')
+    setUnit(newUnit)
+  }
 
-  async function startScanner() {
-    setError(null); setFood(null)
+  async function handleScan(barcode) {
+    setScanning(false)
+    setLoading(true)
+    setError(null)
     try {
-      const { Html5QrcodeScanner } = await import('html5-qrcode')
-      if (scannerRef.current) { await scannerRef.current.clear().catch(() => {}); scannerRef.current = null }
-      const scanner = new Html5QrcodeScanner('barcode-reader-journal', { fps: 10, qrbox: { width: 260, height: 130 }, rememberLastUsedCamera: true }, false)
-      scannerRef.current = scanner
-      scanner.render(async (code) => {
-        await scanner.clear().catch(() => {}); scannerRef.current = null; setScanning(false)
-        const token = await getToken()
-        const res = await fetch(`${API_URL}/api/foods/barcode/${code}`, { headers: { Authorization: `Bearer ${token}` } })
-        if (!res.ok) { setError('Product not found'); return }
-        setFood(await res.json())
-      }, () => {})
-      setScanning(true)
-    } catch { setError('Camera access denied') }
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/foods/barcode/${barcode}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) {
+        const { error: msg } = await res.json().catch(() => ({}))
+        throw new Error(msg || 'Product not found. Try logging manually.')
+      }
+      const f = await res.json()
+      const { base: b, defaultGrams } = normaliseFoodTo100g(f)
+      setFood(f)
+      setBase(b)
+      setAmount(String(defaultGrams))
+      setUnit('g')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function calcPreview() {
+    if (!base) return null
+    const g = toGrams(parseFloat(amount) || 0, unit)
+    if (g <= 0) return null
+    const r = g / 100
+    return {
+      calories: Math.round((base.calories  ?? 0) * r),
+      protein:  +((base.protein_g ?? 0) * r).toFixed(1),
+      carbs:    +((base.carbs_g   ?? 0) * r).toFixed(1),
+      fat:      +((base.fat_g     ?? 0) * r).toFixed(1),
+      fiber:    base.fiber_g != null ? +((base.fiber_g * r).toFixed(1)) : null,
+    }
   }
 
   async function save() {
-    if (!food) return
+    const preview = calcPreview()
+    if (!food || !preview) return
     setSaving(true); setError(null)
     try {
-      const srv = parseFloat(servings) || 1
       const token = await getToken()
       const res = await fetch(`${API_URL}/api/meals/manual`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           meal_name: food.brand ? `${food.name} (${food.brand})` : food.name,
-          calories:  Math.round((food.calories  ?? 0) * srv),
-          protein_g: food.protein_g != null ? +((food.protein_g * srv).toFixed(1)) : null,
-          carbs_g:   food.carbs_g   != null ? +((food.carbs_g   * srv).toFixed(1)) : null,
-          fat_g:     food.fat_g     != null ? +((food.fat_g     * srv).toFixed(1)) : null,
-          fiber_g:   food.fiber_g   != null ? +((food.fiber_g   * srv).toFixed(1)) : null,
+          calories:  preview.calories,
+          protein_g: preview.protein,
+          carbs_g:   preview.carbs,
+          fat_g:     preview.fat,
+          fiber_g:   preview.fiber,
           meal_slot: slotName,
           log_date:  logDate,
         }),
       })
       if (!res.ok) throw new Error('Save failed')
-      const meal = await res.json(); setSaved(true); onSaved(meal)
+      const meal = await res.json()
+      setSaved(true)
+      onSaved(meal)
     } catch (err) { setError(err.message) } finally { setSaving(false) }
   }
 
-  const srv = parseFloat(servings) || 1
+  function reset() {
+    setScanning(false); setFood(null); setBase(null)
+    setAmount('100'); setUnit('g'); setSaved(false); setError(null)
+  }
 
   if (saved) return (
     <div className="space-y-4">
@@ -1048,48 +1108,91 @@ function BarcodeLogger({ slotName, onSaved, logDate }) {
         <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0">✓</div>
         <p className="text-sm font-semibold text-gray-900">{food?.name}</p>
       </div>
-      <button onClick={() => { setFood(null); setSaved(false); setServings('1') }}
+      <button onClick={reset}
         className="w-full py-2.5 rounded-xl text-sm font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
         Scan Another
       </button>
     </div>
   )
 
+  if (scanning) {
+    return (
+      <BarcodeScannerWidget
+        onScan={handleScan}
+        onCancel={() => setScanning(false)}
+      />
+    )
+  }
+
+  const preview = calcPreview()
+
   return (
     <div className="space-y-4">
-      {!scanning && !food && (
-        <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center">
-          <p className="text-3xl mb-2">🏷️</p>
-          <p className="text-sm font-medium text-gray-700 mb-4">Scan a product barcode</p>
-          <button onClick={startScanner} className="bg-[#E8670A] text-white px-6 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors">
+      {!food && !loading && (
+        <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center space-y-3">
+          <p className="text-3xl">🏷️</p>
+          <p className="text-sm font-medium text-gray-700">Scan a product barcode</p>
+          <p className="text-xs text-gray-400">Point your camera at any food product barcode</p>
+          <button
+            onClick={() => { setError(null); setScanning(true) }}
+            className="bg-[#E8670A] text-white px-6 py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors"
+          >
             Open Camera
           </button>
+          {error && <p className="text-sm text-red-500 mt-1">{error}</p>}
         </div>
       )}
-      <div id="barcode-reader-journal" className={scanning ? '' : 'hidden'} />
-      {error && <p className="text-sm text-red-500 text-center">{error}</p>}
-      {food && (
-        <div className="border border-gray-200 rounded-xl p-4 space-y-3">
+
+      {loading && (
+        <div className="flex items-center justify-center gap-2 py-8">
+          <span className="animate-spin inline-block w-5 h-5 border-2 border-[#E8670A] border-t-transparent rounded-full" />
+          <span className="text-sm text-gray-500">Looking up product…</span>
+        </div>
+      )}
+
+      {food && base && (
+        <div className="border border-gray-200 rounded-xl p-4 bg-white space-y-3">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-sm font-semibold text-gray-900">{food.name}</p>
+              {food.brand && <p className="text-xs text-gray-400">{food.brand}</p>}
+              <p className="text-xs text-gray-500 mt-0.5">{food.serving_size}</p>
+            </div>
+            <button onClick={reset} className="text-xs text-gray-400 hover:text-gray-600 shrink-0 ml-2">
+              Scan Again
+            </button>
+          </div>
+
+          {/* Portion + unit selector */}
           <div>
-            <p className="text-sm font-semibold text-gray-900">{food.name}</p>
-            {food.brand && <p className="text-xs text-gray-400">{food.brand}</p>}
-            <p className="text-xs text-gray-500 mt-0.5">Serving: {food.serving_size}</p>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Portion</label>
+            <div className="flex gap-2">
+              <input
+                type="number" value={amount} onChange={e => setAmount(e.target.value)}
+                min="0.01" step="any"
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+              />
+              <select value={unit} onChange={e => handleUnitChange(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white">
+                {SERVING_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Servings</label>
-            <input type="number" value={servings} onChange={e => setServings(e.target.value)} min="0.5" step="0.5"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
-          </div>
-          <div className="grid grid-cols-4 gap-2 text-center text-xs">
-            {[['Cal', Math.round((food.calories ?? 0) * srv), 'text-[#E8670A]'], ['P', `${((food.protein_g ?? 0) * srv).toFixed(1)}g`, 'text-pink-500'], ['C', `${((food.carbs_g ?? 0) * srv).toFixed(1)}g`, 'text-blue-500'], ['F', `${((food.fat_g ?? 0) * srv).toFixed(1)}g`, 'text-green-500']].map(([l, v, c]) => (
-              <div key={l} className="bg-gray-50 rounded-lg py-2">
-                <p className={`font-bold text-sm ${c}`}>{v}</p>
-                <p className="text-gray-400">{l}</p>
-              </div>
-            ))}
-          </div>
+
+          {/* Macro preview chips */}
+          {preview && (
+            <div className="grid grid-cols-4 gap-2 text-center text-xs">
+              {[['Cal', preview.calories, 'text-[#E8670A]'], ['P', `${preview.protein}g`, 'text-pink-500'], ['C', `${preview.carbs}g`, 'text-blue-500'], ['F', `${preview.fat}g`, 'text-green-500']].map(([l, v, c]) => (
+                <div key={l} className="bg-gray-50 rounded-lg py-2">
+                  <p className={`font-bold text-sm ${c}`}>{v}</p>
+                  <p className="text-gray-400">{l}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
           {error && <p className="text-sm text-red-500">{error}</p>}
-          <button onClick={save} disabled={saving}
+          <button onClick={save} disabled={saving || !preview}
             className="w-full bg-[#E8670A] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
             {saving ? 'Saving…' : 'Log It'}
           </button>
