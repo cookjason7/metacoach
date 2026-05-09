@@ -327,6 +327,35 @@ router.post('/', requireAuth(), upload.single('photo'), async (req, res, next) =
   }
 })
 
+// GET /api/meals/recent?slot=Breakfast&limit=5 — most recently logged unique meals
+router.get('/recent', requireAuth(), async (req, res, next) => {
+  try {
+    const { userId } = getAuth(req)
+    const slot  = req.query.slot ?? null
+    const limit = Math.min(Math.max(parseInt(req.query.limit ?? '5', 10), 1), 20)
+
+    const { rows } = await pool.query(
+      `SELECT * FROM (
+         SELECT DISTINCT ON (LOWER(m.meal_name))
+           m.meal_name, m.calories, m.protein, m.carbs, m.fat, m.fiber,
+           m.serving_size, m.serving_unit, m.source_type, m.source_label, m.is_verified,
+           COALESCE(m.log_date, m.logged_at::date) AS last_logged
+         FROM meals m
+         JOIN users u ON u.id = m.user_id
+         WHERE u.clerk_user_id = $1
+           AND ($2::text IS NULL OR m.meal_slot = $2)
+         ORDER BY LOWER(m.meal_name), COALESCE(m.log_date, m.logged_at::date) DESC
+       ) sub
+       ORDER BY last_logged DESC
+       LIMIT $3`,
+      [userId, slot, limit],
+    )
+    res.json(rows)
+  } catch (err) {
+    next(err)
+  }
+})
+
 // GET /api/meals/active-dates?start=YYYY-MM-DD&end=YYYY-MM-DD — dates that have meals
 router.get('/active-dates', requireAuth(), async (req, res, next) => {
   try {
@@ -422,7 +451,7 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
     const dbUserId = await getOrCreateUser(userId)
     const mealId   = parseInt(req.params.id, 10)
 
-    const { meal_name, calories, protein, carbs, fat, fiber, portion_notes, meal_slot, log_date } = req.body
+    const { meal_name, calories, protein, carbs, fat, fiber, portion_notes, meal_slot, log_date, serving_size, serving_unit } = req.body
 
     const { rows } = await pool.query(
       `UPDATE meals SET
@@ -434,13 +463,18 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
          fiber         = COALESCE($6, fiber),
          portion_notes = COALESCE($7, portion_notes),
          meal_slot     = COALESCE($8, meal_slot),
-         log_date      = COALESCE($9::date, log_date)
-       WHERE id = $10 AND user_id = $11
+         log_date      = COALESCE($9::date, log_date),
+         serving_size  = COALESCE($10, serving_size),
+         serving_unit  = COALESCE($11, serving_unit)
+       WHERE id = $12 AND user_id = $13
        RETURNING *`,
       [
         meal_name ?? null, calories ?? null, protein ?? null,
         carbs ?? null, fat ?? null, fiber ?? null, portion_notes ?? null,
-        meal_slot ?? null, log_date ?? null, mealId, dbUserId,
+        meal_slot ?? null, log_date ?? null,
+        serving_size != null ? Number(serving_size) : null,
+        serving_unit ?? null,
+        mealId, dbUserId,
       ],
     )
     if (!rows.length) return res.status(404).json({ error: 'Meal not found' })

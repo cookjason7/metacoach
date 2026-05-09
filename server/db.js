@@ -395,6 +395,29 @@ export async function migrate() {
       UNIQUE (user_id, badge_id)
     )
   `)
+
+  // ── Global milk foods ────────────────────────────────────────────────────────
+  // Stored per-serving (244 ml = 1 cup). Search query normalises to per-100ml.
+  await pool.query(`
+    INSERT INTO custom_foods (is_global, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit)
+    SELECT TRUE, 'Whole Milk', 149, 8, 12, 8, 0, 244, 'ml'
+    WHERE NOT EXISTS (SELECT 1 FROM custom_foods WHERE food_name = 'Whole Milk' AND is_global = TRUE)
+  `)
+  await pool.query(`
+    INSERT INTO custom_foods (is_global, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit)
+    SELECT TRUE, '2% Reduced Fat Milk', 122, 8, 12, 5, 0, 244, 'ml'
+    WHERE NOT EXISTS (SELECT 1 FROM custom_foods WHERE food_name = '2% Reduced Fat Milk' AND is_global = TRUE)
+  `)
+  await pool.query(`
+    INSERT INTO custom_foods (is_global, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit)
+    SELECT TRUE, '1% Low Fat Milk', 102, 8, 12, 2.4, 0, 244, 'ml'
+    WHERE NOT EXISTS (SELECT 1 FROM custom_foods WHERE food_name = '1% Low Fat Milk' AND is_global = TRUE)
+  `)
+  await pool.query(`
+    INSERT INTO custom_foods (is_global, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit)
+    SELECT TRUE, 'Skim Milk (Fat Free)', 83, 8, 12, 0.2, 0, 244, 'ml'
+    WHERE NOT EXISTS (SELECT 1 FROM custom_foods WHERE food_name = 'Skim Milk (Fat Free)' AND is_global = TRUE)
+  `)
 }
 
 export async function getOrCreateUser(clerkUserId) {

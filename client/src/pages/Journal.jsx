@@ -318,9 +318,20 @@ function MealEntry({ meal, onEdit, onDelete, onCopy, onMove }) {
 // ── Slot Section ───────────────────────────────────────────────────────────────
 
 function SlotSection({ name, meals, onAddClick, onEdit, onDelete, onCopy, onMove }) {
-  const [open, setOpen] = useState(true)
+  const lsKey = `journal_slot_${name.toLowerCase().replace(/\s+/g, '_')}`
+  const [open, setOpen] = useState(() => {
+    try { const v = localStorage.getItem(lsKey); return v === null ? true : v === 'true' } catch { return true }
+  })
   const t     = sumMacros(meals)
   const count = meals.length
+
+  function toggle() {
+    setOpen(o => {
+      const next = !o
+      try { localStorage.setItem(lsKey, String(next)) } catch {}
+      return next
+    })
+  }
 
   return (
     <div className="mb-3 rounded-2xl border border-gray-200 bg-white overflow-hidden" style={{ borderLeft: '4px solid #E8670A' }}>
@@ -328,7 +339,7 @@ function SlotSection({ name, meals, onAddClick, onEdit, onDelete, onCopy, onMove
       {/* ── Header row — always visible ─────────────────────────────────────── */}
       <div
         className="flex items-center gap-3 px-4 py-3.5 cursor-pointer select-none"
-        onClick={() => setOpen(o => !o)}
+        onClick={toggle}
       >
         {/* Slot name + macro summary */}
         <div className="flex-1 min-w-0">
@@ -400,17 +411,51 @@ function SlotSection({ name, meals, onAddClick, onEdit, onDelete, onCopy, onMove
 function EditMealModal({ meal, onSave, onClose }) {
   const { getToken } = useAuth()
   const [form, setForm] = useState({
-    meal_name: meal.meal_name,
-    calories:  meal.calories  != null ? String(meal.calories)  : '',
-    protein:   meal.protein   != null ? String(meal.protein)   : '',
-    carbs:     meal.carbs     != null ? String(meal.carbs)     : '',
-    fat:       meal.fat       != null ? String(meal.fat)       : '',
-    fiber:     meal.fiber     != null ? String(meal.fiber)     : '',
+    meal_name:    meal.meal_name,
+    calories:     meal.calories  != null ? String(meal.calories)  : '',
+    protein:      meal.protein   != null ? String(meal.protein)   : '',
+    carbs:        meal.carbs     != null ? String(meal.carbs)     : '',
+    fat:          meal.fat       != null ? String(meal.fat)       : '',
+    fiber:        meal.fiber     != null ? String(meal.fiber)     : '',
+    serving_size: meal.serving_size != null ? String(meal.serving_size) : '',
+    serving_unit: meal.serving_unit ?? 'g',
   })
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState(null)
 
+  // Auto-recalculate macros when serving size / unit changes (only when original serving is known)
+  useEffect(() => {
+    if (!meal.serving_size || !meal.serving_unit) return
+    const origGrams = toGrams(parseFloat(meal.serving_size), meal.serving_unit)
+    if (origGrams <= 0) return
+    const a = parseFloat(form.serving_size)
+    if (isNaN(a) || a <= 0) return
+    const g = toGrams(a, form.serving_unit)
+    if (g <= 0) return
+    setForm(f => ({
+      ...f,
+      calories: String(Math.round((parseFloat(meal.calories) || 0) / origGrams * g)),
+      protein:  String(+(((parseFloat(meal.protein) || 0) / origGrams * g)).toFixed(1)),
+      carbs:    String(+(((parseFloat(meal.carbs)   || 0) / origGrams * g)).toFixed(1)),
+      fat:      String(+(((parseFloat(meal.fat)     || 0) / origGrams * g)).toFixed(1)),
+      fiber:    meal.fiber != null
+        ? String(+(((parseFloat(meal.fiber) || 0) / origGrams * g)).toFixed(1))
+        : f.fiber,
+    }))
+  }, [form.serving_size, form.serving_unit]) // eslint-disable-line react-hooks/exhaustive-deps
+
   function set(e) { setForm(f => ({ ...f, [e.target.name]: e.target.value })) }
+
+  function handleEditUnitChange(newUnit) {
+    const a = parseFloat(form.serving_size)
+    if (!isNaN(a) && a > 0) {
+      const grams = toGrams(a, form.serving_unit)
+      const newAmt = grams / (UNIT_TO_G[newUnit] ?? 1)
+      setForm(f => ({ ...f, serving_unit: newUnit, serving_size: +(newAmt.toFixed(2)) + '' }))
+    } else {
+      setForm(f => ({ ...f, serving_unit: newUnit }))
+    }
+  }
 
   async function submit(e) {
     e.preventDefault()
@@ -423,12 +468,14 @@ function EditMealModal({ meal, onSave, onClose }) {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          meal_name: form.meal_name.trim(),
-          calories:  form.calories !== '' ? Number(form.calories) : undefined,
-          protein:   form.protein  !== '' ? Number(form.protein)  : undefined,
-          carbs:     form.carbs    !== '' ? Number(form.carbs)    : undefined,
-          fat:       form.fat      !== '' ? Number(form.fat)      : undefined,
-          fiber:     form.fiber    !== '' ? Number(form.fiber)    : undefined,
+          meal_name:    form.meal_name.trim(),
+          calories:     form.calories     !== '' ? Number(form.calories)     : undefined,
+          protein:      form.protein      !== '' ? Number(form.protein)      : undefined,
+          carbs:        form.carbs        !== '' ? Number(form.carbs)        : undefined,
+          fat:          form.fat          !== '' ? Number(form.fat)          : undefined,
+          fiber:        form.fiber        !== '' ? Number(form.fiber)        : undefined,
+          serving_size: form.serving_size !== '' ? Number(form.serving_size) : undefined,
+          serving_unit: form.serving_unit || undefined,
         }),
       })
       if (!res.ok) throw new Error('Failed to save')
@@ -454,6 +501,24 @@ function EditMealModal({ meal, onSave, onClose }) {
           <input type="text" name="meal_name" value={form.meal_name} onChange={set} required
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
         </div>
+
+        {/* Serving size + unit — updates macros automatically */}
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Serving</label>
+          <div className="flex gap-2">
+            <input type="number" name="serving_size" value={form.serving_size} onChange={set} min="0.01" step="any"
+              placeholder="100"
+              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+            <select value={form.serving_unit} onChange={e => handleEditUnitChange(e.target.value)}
+              className="border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+              {SERVING_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+          {meal.serving_size && (
+            <p className="text-[10px] text-gray-400 mt-0.5">Changing serving recalculates macros</p>
+          )}
+        </div>
+
         <div className="grid grid-cols-2 gap-2">
           {[['Calories', 'calories'], ['Protein g', 'protein'], ['Carbs g', 'carbs'], ['Fat g', 'fat'], ['Fiber g', 'fiber']].map(([lbl, nm]) => (
             <div key={nm}>
@@ -761,18 +826,64 @@ function TextLogger({ slotName, onSaved, logDate }) {
 
 // ── Search Logger ──────────────────────────────────────────────────────────────
 
+function recentToFoodItem(recent) {
+  const servingSize = parseFloat(recent.serving_size) || 100
+  const servingUnit = recent.serving_unit || 'g'
+  const grams  = toGrams(servingSize, servingUnit)
+  const factor = grams > 0 ? (100 / grams) : 1
+  return {
+    id:           `recent_${recent.meal_name}`,
+    name:         recent.meal_name,
+    calories:     Math.round((Number(recent.calories) || 0) * factor),
+    protein_g:    +((Number(recent.protein) || 0) * factor).toFixed(1),
+    carbs_g:      +((Number(recent.carbs)   || 0) * factor).toFixed(1),
+    fat_g:        +((Number(recent.fat)     || 0) * factor).toFixed(1),
+    fiber_g:      recent.fiber ? +((Number(recent.fiber) || 0) * factor).toFixed(1) : null,
+    _source:      recent.source_type || 'logged',
+    source_label: recent.source_label || 'Previously logged',
+    is_verified:  !!recent.is_verified,
+    _defaultServingSize: servingSize,
+    _defaultServingUnit: servingUnit,
+  }
+}
+
 function SearchLogger({ slotName, onSaved, logDate }) {
   const { getToken } = useAuth()
   const debounceRef  = useRef(null)
-  const [query,     setQuery]     = useState('')
-  const [results,   setResults]   = useState([])
-  const [searching, setSearching] = useState(false)
-  const [selected,  setSelected]  = useState(null)
-  const [amount,    setAmount]    = useState('100')
-  const [unit,      setUnit]      = useState('g')
-  const [saving,    setSaving]    = useState(false)
-  const [saved,     setSaved]     = useState(false)
-  const [error,     setError]     = useState(null)
+  const [query,        setQuery]        = useState('')
+  const [results,      setResults]      = useState([])
+  const [searching,    setSearching]    = useState(false)
+  const [selected,     setSelected]     = useState(null)
+  const [amount,       setAmount]       = useState('100')
+  const [unit,         setUnit]         = useState('g')
+  const [saving,       setSaving]       = useState(false)
+  const [saved,        setSaved]        = useState(false)
+  const [error,        setError]        = useState(null)
+  const [recentFoods,  setRecentFoods]  = useState([])
+  const [recentLoading, setRecentLoading] = useState(true)
+
+  useEffect(() => {
+    async function loadRecent() {
+      try {
+        const token = await getToken()
+        const res = await fetch(
+          `${API_URL}/api/meals/recent?slot=${encodeURIComponent(slotName)}&limit=5`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        )
+        if (res.ok) setRecentFoods(await res.json())
+      } catch {} finally { setRecentLoading(false) }
+    }
+    loadRecent()
+  }, [slotName, getToken])
+
+  function handleSelectRecent(recent) {
+    const food = recentToFoodItem(recent)
+    setSelected(food)
+    setAmount(String(food._defaultServingSize))
+    setUnit(food._defaultServingUnit)
+    setResults([])
+    setQuery('')
+  }
 
   function handleQuery(e) {
     const val = e.target.value
@@ -876,6 +987,33 @@ function SearchLogger({ slotName, onSaved, logDate }) {
           className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
         {searching && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">Searching…</span>}
       </div>
+
+      {/* Recent foods — show when no query typed yet and nothing selected */}
+      {!query && !selected && !recentLoading && recentFoods.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Recent</p>
+          <div className="border border-gray-200 rounded-xl divide-y divide-gray-100 bg-white">
+            {recentFoods.map((recent, i) => (
+              <button key={i} onClick={() => handleSelectRecent(recent)}
+                className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-medium text-gray-900 leading-snug">{recent.meal_name}</p>
+                  <span className="text-xs text-gray-400 shrink-0">
+                    {recent.calories != null ? `${Math.round(recent.calories)} cal` : ''}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {recent.serving_size
+                    ? `${recent.serving_size}${recent.serving_unit ?? 'g'}`
+                    : '100g'}
+                  {recent.protein != null ? ` · ${Number(recent.protein).toFixed(0)}g P` : ''}
+                </p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {results.length > 0 && !selected && (
         <div className="border border-gray-200 rounded-xl divide-y divide-gray-100 max-h-60 overflow-y-auto bg-white">
           {results.map((food, i) => (

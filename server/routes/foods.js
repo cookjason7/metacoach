@@ -224,7 +224,16 @@ router.get('/barcode/:code', requireAuth(), async (req, res, next) => {
     const response = await fetch(`https://world.openfoodfacts.org/api/v0/product/${code}.json`)
     if (!response.ok) return res.status(502).json({ error: 'Could not reach Open Food Facts' })
 
-    const data = await response.json()
+    let data = await response.json()
+
+    // Retry with EAN-13 (prepend leading zero) for 12-digit UPC-A barcodes
+    if ((data.status !== 1 || !data.product) && code.length === 12) {
+      try {
+        const response2 = await fetch(`https://world.openfoodfacts.org/api/v0/product/0${code}.json`)
+        if (response2.ok) data = await response2.json()
+      } catch {}
+    }
+
     if (data.status !== 1 || !data.product) {
       return res.status(404).json({ error: 'Product not found in Open Food Facts' })
     }
