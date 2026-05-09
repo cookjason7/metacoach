@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { to: '/journal',      label: 'Log Food' },
   { to: '/food-list',    label: 'Food List' },
   { to: '/workouts',     label: 'Workouts' },
+  { to: '/badges',       label: 'Achievements' },
   { to: '/community',    label: 'Community' },
   { to: '/settings',     label: 'Settings' },
 ]

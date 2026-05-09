@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
+import { checkWaterGoal } from '../gamification.js'
 
 const router = Router()
 
@@ -65,6 +66,11 @@ router.post('/', requireAuth(), async (req, res, next) => {
       [dbUserId, water_oz, steps, weight_lbs],
     )
 
+    const today = new Date().toISOString().slice(0, 10)
+    if (rows[0].water_oz != null) {
+      checkWaterGoal(pool, dbUserId, parseFloat(rows[0].water_oz), today)
+        .catch(e => console.error('[gami water]', e.message))
+    }
     res.json(rows[0])
   } catch (err) {
     next(err)

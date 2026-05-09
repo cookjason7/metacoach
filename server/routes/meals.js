@@ -4,6 +4,15 @@ import Anthropic from '@anthropic-ai/sdk'
 import { v2 as cloudinary } from 'cloudinary'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
+import { awardAction, checkFullDay, checkProteinGoal } from '../gamification.js'
+
+// Fire gamification hooks non-blocking so they never fail the main request
+function fireGamification(pool, dbUserId, dateStr) {
+  const d = dateStr ?? new Date().toISOString().slice(0, 10)
+  awardAction(pool, dbUserId, 'food_log', d).catch(e => console.error('[gami food_log]', e.message))
+  checkFullDay(pool, dbUserId, d).catch(e => console.error('[gami full_day]', e.message))
+  checkProteinGoal(pool, dbUserId, d).catch(e => console.error('[gami protein]', e.message))
+}
 
 const router = Router()
 
@@ -144,6 +153,7 @@ router.post('/manual', requireAuth(), async (req, res, next) => {
        meta.serving_size, meta.serving_unit, meta.source_type, meta.source_label,
        meta.is_verified, meta.micronutrients],
     )
+    fireGamification(pool, dbUserId, log_date ?? null)
     res.status(201).json(rows[0])
   } catch (err) {
     next(err)
@@ -195,6 +205,7 @@ Return only valid JSON, no markdown.`,
        parsed.carbs_g ?? null, parsed.fat_g ?? null, parsed.fiber_g ?? null,
        parsed.sugar_g ?? null, meal_slot ?? null, log_date ?? null],
     )
+    fireGamification(pool, dbUserId, log_date ?? null)
     res.status(201).json(rows[0])
   } catch (err) {
     next(err)
@@ -309,6 +320,7 @@ router.post('/', requireAuth(), upload.single('photo'), async (req, res, next) =
        meta.serving_size, meta.serving_unit, meta.source_type, meta.source_label,
        meta.is_verified, meta.micronutrients],
     )
+    fireGamification(pool, dbUserId, log_date ?? null)
     res.status(201).json(rows[0])
   } catch (err) {
     next(err)

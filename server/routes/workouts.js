@@ -2,6 +2,7 @@ import { Router } from 'express'
 import Anthropic from '@anthropic-ai/sdk'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
+import { awardAction } from '../gamification.js'
 
 const router = Router()
 const anthropic = new Anthropic()
@@ -169,6 +170,8 @@ router.post('/:id/log', requireAuth(), async (req, res, next) => {
       'INSERT INTO workout_logs (user_id, workout_id, notes) VALUES ($1, $2, $3) RETURNING *',
       [dbUserId, workoutId, notes ?? null],
     )
+    const today = new Date().toISOString().slice(0, 10)
+    awardAction(pool, dbUserId, 'workout', today).catch(e => console.error('[gami workout]', e.message))
     res.status(201).json(log)
   } catch (err) {
     next(err)

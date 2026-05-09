@@ -344,6 +344,57 @@ export async function migrate() {
   await pool.query(`ALTER TABLE coaching_conversations ADD COLUMN IF NOT EXISTS read_at         TIMESTAMPTZ`)
   await pool.query(`ALTER TABLE coaching_conversations ADD COLUMN IF NOT EXISTS proactive_trigger TEXT`)
   await pool.query(`ALTER TABLE coaching_conversations ADD COLUMN IF NOT EXISTS trigger_date    DATE`)
+
+  // ── Gamification ─────────────────────────────────────────────────────────────
+
+  // Cumulative XP and current rank per user
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_xp (
+      id           SERIAL PRIMARY KEY,
+      user_id      INTEGER UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      total_xp     INTEGER NOT NULL DEFAULT 0,
+      current_rank TEXT    NOT NULL DEFAULT 'Recruit',
+      updated_at   TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+
+  // Append-only log of every XP award (used for dedup and history)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS xp_log (
+      id          SERIAL PRIMARY KEY,
+      user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      action_type TEXT    NOT NULL,
+      xp_earned   INTEGER NOT NULL,
+      earned_date DATE    NOT NULL DEFAULT CURRENT_DATE,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS xp_log_user_date_idx ON xp_log (user_id, earned_date)
+  `)
+
+  // Per-behavior streak counters
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_streaks (
+      id             SERIAL PRIMARY KEY,
+      user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      streak_type    TEXT    NOT NULL,
+      current_streak INTEGER NOT NULL DEFAULT 0,
+      last_log_date  DATE,
+      UNIQUE (user_id, streak_type)
+    )
+  `)
+
+  // Earned achievement badges (one row per user+badge, UNIQUE prevents duplicates)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_badges (
+      id        SERIAL PRIMARY KEY,
+      user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      badge_id  TEXT    NOT NULL,
+      earned_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (user_id, badge_id)
+    )
+  `)
 }
 
 export async function getOrCreateUser(clerkUserId) {

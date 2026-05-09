@@ -17,6 +17,7 @@ import adminRouter from './routes/admin.js'
 import recipesRouter from './routes/recipes.js'
 import customFoodsRouter from './routes/customFoods.js'
 import workoutsRouter from './routes/workouts.js'
+import gamificationRouter from './routes/gamification.js'
 import { runInactivityAlert } from './jobs/inactivityAlert.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -48,6 +49,7 @@ app.use('/api/admin',           clerkMiddleware(), adminRouter)
 app.use('/api/recipes',         clerkMiddleware(), recipesRouter)
 app.use('/api/custom-foods',    clerkMiddleware(), customFoodsRouter)
 app.use('/api/workouts',        clerkMiddleware(), workoutsRouter)
+app.use('/api/gamification',   clerkMiddleware(), gamificationRouter)
 
 // Serve React client if dist exists — must come after all API routes
 const distPath = path.join(__dirname, '../client/dist')

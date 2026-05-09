@@ -4,6 +4,124 @@ import { Link } from 'react-router-dom'
 import { API_URL } from '../config.js'
 import MicronutrientTotals from '../components/MicronutrientTotals.jsx'
 
+// ── Gamification Card ──────────────────────────────────────────────────────────
+
+function GamificationCard({ data, loading }) {
+  if (loading) {
+    return (
+      <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-8 animate-pulse">
+        <div className="h-4 bg-gray-100 rounded w-1/3 mb-3" />
+        <div className="h-8 bg-gray-100 rounded w-1/2 mb-4" />
+        <div className="grid grid-cols-4 gap-2">
+          {[...Array(4)].map((_, i) => <div key={i} className="h-16 bg-gray-100 rounded-xl" />)}
+        </div>
+      </div>
+    )
+  }
+  if (!data) return null
+
+  const STREAK_ITEMS = [
+    { label: 'Food',    icon: '🔥', key: 'food_log',     unit: 'days' },
+    { label: 'Water',   icon: '💧', key: 'water_goal',   unit: 'days' },
+    { label: 'Protein', icon: '💪', key: 'protein_goal', unit: 'days' },
+    { label: 'Workout', icon: '🏋️', key: 'workout',      unit: 'wks'  },
+  ]
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-8">
+      {/* Rank row */}
+      <div className="flex items-center gap-3 mb-3">
+        <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0"
+          style={{ backgroundColor: data.rank_bg }}>
+          {data.rank_icon}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[11px] text-gray-500 uppercase tracking-wide">Your Rank</p>
+          <p className="text-lg font-bold leading-tight" style={{ color: data.rank_color }}>
+            {data.rank}
+          </p>
+        </div>
+        <div className="text-right shrink-0">
+          <p className="text-[11px] text-gray-500 uppercase tracking-wide">Total XP</p>
+          <p className="text-xl font-bold text-gray-900">{data.total_xp.toLocaleString()}</p>
+        </div>
+      </div>
+
+      {/* XP progress bar */}
+      {data.next_rank ? (
+        <div className="mb-4">
+          <div className="flex justify-between text-[11px] text-gray-500 mb-1">
+            <span>{data.rank}</span>
+            <span className="font-medium" style={{ color: data.rank_color }}>
+              {data.xp_to_next_rank} XP to {data.next_rank}
+            </span>
+          </div>
+          <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-700"
+              style={{ width: `${data.progress_pct}%`, backgroundColor: data.rank_color }}
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="mb-4 text-xs font-semibold text-center py-1 rounded-lg"
+          style={{ color: data.rank_color, backgroundColor: data.rank_bg }}>
+          🎉 Maximum rank achieved!
+        </div>
+      )}
+
+      {/* Streak row */}
+      <div className="grid grid-cols-4 gap-2 mb-4">
+        {STREAK_ITEMS.map(s => {
+          const count = data.streaks[s.key] ?? 0
+          const hot   = count >= 3
+          return (
+            <div key={s.key} className={`rounded-xl p-2.5 text-center ${hot ? 'bg-orange-50' : 'bg-gray-50'}`}>
+              <span className="text-xl leading-none">{s.icon}</span>
+              <p className={`text-lg font-bold leading-tight mt-0.5 ${hot ? 'text-[#E8670A]' : 'text-gray-700'}`}>
+                {count}
+              </p>
+              <p className="text-[9px] text-gray-500 leading-none mt-0.5 uppercase tracking-wide">
+                {s.label}
+              </p>
+              <p className="text-[9px] text-gray-400 leading-none">{s.unit}</p>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Recent badges */}
+      {data.recent_badges?.length > 0 && (
+        <div className="mb-3">
+          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
+            Recent Badges
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {data.recent_badges.map(b => (
+              <div key={b.badge_id}
+                className="flex items-center gap-1.5 bg-[#fff7ed] border border-orange-200 rounded-lg px-2.5 py-1.5">
+                <span className="text-base leading-none">{b.icon}</span>
+                <span className="text-xs font-medium text-gray-700">{b.name}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="flex items-center justify-between pt-1">
+        <span className="text-xs text-gray-400">
+          {data.badges_count} badge{data.badges_count !== 1 ? 's' : ''} earned
+        </span>
+        <Link to="/badges"
+          className="text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] transition-colors">
+          View all achievements →
+        </Link>
+      </div>
+    </div>
+  )
+}
+
 function KatieBanner({ message, onDismiss }) {
   if (!message) return null
   return (
@@ -117,6 +235,8 @@ export default function Dashboard() {
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState(null)
   const [katieBanner,  setKatieBanner]  = useState(null)
+  const [gamData,      setGamData]      = useState(null)
+  const [gamLoading,   setGamLoading]   = useState(true)
 
   useEffect(() => {
     let cancelled = false
@@ -129,7 +249,7 @@ export default function Dashboard() {
         // Fire proactive check non-blocking, then fetch latest banner
         fetch(`${API_URL}/api/coach/check-proactive`, { method: 'POST', headers }).catch(() => {})
 
-        const [r1, r2, r3, r4, r5, r6, r7] = await Promise.all([
+        const [r1, r2, r3, r4, r5, r6, r7, r8] = await Promise.all([
           fetch(`${API_URL}/api/meals/today?date=${today}`, { headers }),
           fetch(`${API_URL}/api/daily-logs/today`, { headers }),
           fetch(`${API_URL}/api/meals/week`,       { headers }),
@@ -137,6 +257,7 @@ export default function Dashboard() {
           fetch(`${API_URL}/api/users/me`,         { headers }),
           fetch(`${API_URL}/api/meals?date=${today}`, { headers }),
           fetch(`${API_URL}/api/coach/latest-proactive`, { headers }),
+          fetch(`${API_URL}/api/gamification/me`,  { headers }),
         ])
 
         if (!r1.ok || !r2.ok || !r3.ok || !r4.ok || !r5.ok || !r6.ok) throw new Error('Failed to load dashboard data')
@@ -153,11 +274,13 @@ export default function Dashboard() {
             const bannerData = await r7.json()
             setKatieBanner(bannerData.message ?? null)
           }
+          if (r8.ok) setGamData(await r8.json())
+          setGamLoading(false)
         }
       } catch (err) {
         if (!cancelled) setError(err.message)
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) { setLoading(false); setGamLoading(false) }
       }
     }
     load()
@@ -290,6 +413,10 @@ export default function Dashboard() {
           <StatCard key={s.label} label={s.label} value={loading ? '…' : s.value} color={s.color} sub="set by coach" />
         ))}
       </div>
+
+      {/* Gamification */}
+      <h2 className="text-sm font-semibold text-gray-700 mb-3">Your Progress</h2>
+      <GamificationCard data={gamData} loading={gamLoading} />
 
       {/* Daily Tracking inputs */}
       <h2 className="text-sm font-semibold text-gray-700 mb-3">Log Today</h2>
