@@ -6,7 +6,7 @@
   "scripts": {
     "build": "cd client && npm install && npm run build",
     "start": "node server/index.js",
-    "dev": "concurrently \"npm --prefix server run dev\" \"npm --prefix client run dev\""
+    "dev": "concurrently \"node server/index.js\" \"npm --prefix client run dev\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.93.0",
