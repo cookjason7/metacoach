@@ -23,6 +23,12 @@ const NUTRIENT_FIELDS = {
   1004: 'fat_g',
   1005: 'carbs_g',
   1079: 'fiber_g',
+  1093: 'sodium_mg',
+  1092: 'potassium_mg',
+  1087: 'calcium_mg',
+  1089: 'iron_mg',
+  1114: 'vitamin_d_mcg',
+  1090: 'magnesium_mg',
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -81,6 +87,12 @@ function formatFood(raw) {
     fat_g:      macros.fat_g     ?? null,
     carbs_g:    macros.carbs_g   ?? null,
     fiber_g:    macros.fiber_g   ?? null,
+    sodium_mg:  macros.sodium_mg ?? null,
+    potassium_mg: macros.potassium_mg ?? null,
+    calcium_mg: macros.calcium_mg ?? null,
+    iron_mg: macros.iron_mg ?? null,
+    vitamin_d_mcg: macros.vitamin_d_mcg ?? null,
+    magnesium_mg: macros.magnesium_mg ?? null,
     _source:    'usda',
     is_verified: true,
     verification_source: 'USDA',

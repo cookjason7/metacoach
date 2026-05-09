@@ -4,6 +4,7 @@ import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 import BarcodeScannerWidget from '../components/BarcodeScanner.jsx'
 import FoodSourceBadge from '../components/FoodSourceBadge.jsx'
+import MicronutrientGrid from '../components/MicronutrientGrid.jsx'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -579,9 +580,7 @@ function SearchMode({ slot, logDate }) {
                 <MacroCard label="Carbs"    value={`${preview.carbs}g`}   unit="carbs"   color="text-yellow-500" />
                 <MacroCard label="Fat"      value={`${preview.fat}g`}     unit="fat"     color="text-pink-500" />
               </div>
-              {preview.fiber != null && (
-                <p className="text-xs text-gray-500">Fiber: <span className="font-medium text-[#E8670A]">{preview.fiber}g</span></p>
-              )}
+              <MicronutrientGrid food={selected} grams={g} />
             </>
           )}
 
@@ -1138,6 +1137,12 @@ function normaliseFoodTo100g(food) {
       carbs_g:   food.carbs_g   != null ? +((food.carbs_g   * f).toFixed(2)) : null,
       fat_g:     food.fat_g     != null ? +((food.fat_g     * f).toFixed(2)) : null,
       fiber_g:   food.fiber_g   != null ? +((food.fiber_g   * f).toFixed(2)) : null,
+      sodium_mg: food.sodium_mg != null ? +((food.sodium_mg * f).toFixed(2)) : null,
+      potassium_mg: food.potassium_mg != null ? +((food.potassium_mg * f).toFixed(2)) : null,
+      calcium_mg: food.calcium_mg != null ? +((food.calcium_mg * f).toFixed(2)) : null,
+      iron_mg: food.iron_mg != null ? +((food.iron_mg * f).toFixed(2)) : null,
+      vitamin_d_mcg: food.vitamin_d_mcg != null ? +((food.vitamin_d_mcg * f).toFixed(2)) : null,
+      magnesium_mg: food.magnesium_mg != null ? +((food.magnesium_mg * f).toFixed(2)) : null,
     },
     defaultGrams: sg,
   }
@@ -1324,11 +1329,10 @@ function BarcodeMode({ slot, logDate }) {
                 <MacroCard label="Carbs"    value={`${preview.carbs}g`}        unit="carbs"   color="text-yellow-500" />
                 <MacroCard label="Fat"      value={`${preview.fat}g`}          unit="fat"     color="text-pink-500" />
               </div>
-              <div className="flex gap-4 text-xs text-gray-500 flex-wrap">
-                {preview.fiber  != null && <span>Fiber: <span className="font-medium text-[#E8670A]">{preview.fiber}g</span></span>}
-                {preview.sugar  != null && <span>Sugar: <span className="font-medium text-gray-700">{preview.sugar}g</span></span>}
-                {preview.sodium != null && <span>Sodium: <span className="font-medium text-gray-700">{preview.sodium}mg</span></span>}
-              </div>
+              {preview.sugar != null && (
+                <p className="text-xs text-gray-500">Sugar: <span className="font-medium text-gray-700">{preview.sugar}g</span></p>
+              )}
+              <MicronutrientGrid food={base} grams={toGrams(parseFloat(amount) || 0, unit)} />
             </>
           )}
 

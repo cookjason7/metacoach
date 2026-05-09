@@ -51,6 +51,12 @@ async function localSearch(q, limit, offset) {
       ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1004 THEN fn.amount END)::numeric, 1) AS fat_g,
       ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1005 THEN fn.amount END)::numeric, 1) AS carbs_g,
       ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1079 THEN fn.amount END)::numeric, 1) AS fiber_g,
+      ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1093 THEN fn.amount END)::numeric, 0) AS sodium_mg,
+      ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1092 THEN fn.amount END)::numeric, 0) AS potassium_mg,
+      ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1087 THEN fn.amount END)::numeric, 0) AS calcium_mg,
+      ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1089 THEN fn.amount END)::numeric, 1) AS iron_mg,
+      ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1114 THEN fn.amount END)::numeric, 1) AS vitamin_d_mcg,
+      ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1090 THEN fn.amount END)::numeric, 0) AS magnesium_mg,
       CASE
         WHEN f.name ILIKE $1            THEN 0
         WHEN f.name ILIKE ($1 || '%')   THEN 1
@@ -61,7 +67,7 @@ async function localSearch(q, limit, offset) {
     LEFT JOIN food_nutrients fn ON fn.food_id = f.id
     LEFT JOIN nutrients n
       ON  n.id = fn.nutrient_id
-      AND n.fdc_nutrient_id IN (1003, 1004, 1005, 1079)
+      AND n.fdc_nutrient_id IN (1003, 1004, 1005, 1079, 1093, 1092, 1087, 1089, 1114, 1090)
     WHERE
       f.name ILIKE $1
       OR f.name ILIKE ($1 || '%')
@@ -80,6 +86,12 @@ async function localSearch(q, limit, offset) {
     fat_g:     food.fat_g     != null ? parseFloat(food.fat_g)     : null,
     carbs_g:   food.carbs_g   != null ? parseFloat(food.carbs_g)   : null,
     fiber_g:   food.fiber_g   != null ? parseFloat(food.fiber_g)   : null,
+    sodium_mg: food.sodium_mg != null ? parseFloat(food.sodium_mg) : null,
+    potassium_mg: food.potassium_mg != null ? parseFloat(food.potassium_mg) : null,
+    calcium_mg: food.calcium_mg != null ? parseFloat(food.calcium_mg) : null,
+    iron_mg: food.iron_mg != null ? parseFloat(food.iron_mg) : null,
+    vitamin_d_mcg: food.vitamin_d_mcg != null ? parseFloat(food.vitamin_d_mcg) : null,
+    magnesium_mg: food.magnesium_mg != null ? parseFloat(food.magnesium_mg) : null,
   }))
 }
 
@@ -223,6 +235,11 @@ router.get('/barcode/:code', requireAuth(), async (req, res, next) => {
       return v != null ? +parseFloat(v).toFixed(1) : null
     }
 
+    function mg(key100, keySrv) {
+      const v = hasSrv ? n[keySrv] : n[key100]
+      return v != null ? Math.round(parseFloat(v) * 1000) : null
+    }
+
     res.json({
       barcode:         code,
       name:            p.product_name || p.product_name_en || 'Unknown Product',
@@ -241,6 +258,17 @@ router.get('/barcode/:code', requireAuth(), async (req, res, next) => {
         const v = hasSrv ? n.sodium_serving : n.sodium_100g
         return v != null ? Math.round(parseFloat(v) * 1000) : null
       })(),
+      potassium_mg:    mg('potassium_100g', 'potassium_serving'),
+      calcium_mg:      mg('calcium_100g',   'calcium_serving'),
+      iron_mg:         (() => {
+        const v = hasSrv ? n.iron_serving : n.iron_100g
+        return v != null ? +((parseFloat(v) * 1000).toFixed(1)) : null
+      })(),
+      vitamin_d_mcg:   (() => {
+        const v = hasSrv ? n['vitamin-d_serving'] : n['vitamin-d_100g']
+        return v != null ? +parseFloat(v).toFixed(1) : null
+      })(),
+      magnesium_mg:    mg('magnesium_100g', 'magnesium_serving'),
       _source: 'barcode',
       is_verified: false,
       verification_source: 'Open Food Facts',

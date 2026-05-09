@@ -4,6 +4,7 @@ import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 import BarcodeScannerWidget from '../components/BarcodeScanner.jsx'
 import FoodSourceBadge from '../components/FoodSourceBadge.jsx'
+import MicronutrientGrid from '../components/MicronutrientGrid.jsx'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -904,6 +905,7 @@ function SearchLogger({ slotName, onSaved, logDate }) {
               ))}
             </div>
           )}
+          <MicronutrientGrid food={selected} grams={grams} />
           {error && <p className="text-sm text-red-500">{error}</p>}
           <button onClick={save} disabled={saving || !preview}
             className="w-full bg-[#E8670A] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
@@ -1016,6 +1018,12 @@ function normaliseFoodTo100g(food) {
       carbs_g:   food.carbs_g   != null ? +((food.carbs_g   * f).toFixed(2)) : null,
       fat_g:     food.fat_g     != null ? +((food.fat_g     * f).toFixed(2)) : null,
       fiber_g:   food.fiber_g   != null ? +((food.fiber_g   * f).toFixed(2)) : null,
+      sodium_mg: food.sodium_mg != null ? +((food.sodium_mg * f).toFixed(2)) : null,
+      potassium_mg: food.potassium_mg != null ? +((food.potassium_mg * f).toFixed(2)) : null,
+      calcium_mg: food.calcium_mg != null ? +((food.calcium_mg * f).toFixed(2)) : null,
+      iron_mg: food.iron_mg != null ? +((food.iron_mg * f).toFixed(2)) : null,
+      vitamin_d_mcg: food.vitamin_d_mcg != null ? +((food.vitamin_d_mcg * f).toFixed(2)) : null,
+      magnesium_mg: food.magnesium_mg != null ? +((food.magnesium_mg * f).toFixed(2)) : null,
     },
     defaultGrams: sg,
   }
@@ -1202,6 +1210,7 @@ function BarcodeLogger({ slotName, onSaved, logDate }) {
               ))}
             </div>
           )}
+          <MicronutrientGrid food={base} grams={toGrams(parseFloat(amount) || 0, unit)} />
 
           {error && <p className="text-sm text-red-500">{error}</p>}
           <button onClick={save} disabled={saving || !preview}
