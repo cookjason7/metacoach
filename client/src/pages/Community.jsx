@@ -917,7 +917,7 @@ function HybridTab({ getToken, isAdmin, currentUserId, members }) {
                 📷
               </button>
               <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={e => handlePhotoSelect(e.target.files[0])} />
-              {!poll && (
+              {!poll && isAdmin && (
                 <button type="button" onClick={() => setPoll({ question: '', options: ['', ''] })} className="text-gray-400 hover:text-blue-500 transition-colors text-sm" title="Poll">
                   📊
                 </button>

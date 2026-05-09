@@ -385,12 +385,44 @@ function LogModal({ program, onClose, onLogged }) {
 
 function ProgramDetail({ program, onBack, onDeleted }) {
   const { getToken } = useAuth()
-  const [exercises, setExercises] = useState([])
-  const [logs,      setLogs]      = useState([])
-  const [loading,   setLoading]   = useState(true)
-  const [showLog,   setShowLog]   = useState(false)
-  const [loggedAt,  setLoggedAt]  = useState(null)
-  const [deleting,  setDeleting]  = useState(false)
+  const [exercises,  setExercises]  = useState([])
+  const [logs,       setLogs]       = useState([])
+  const [loading,    setLoading]    = useState(true)
+  const [showLog,    setShowLog]    = useState(false)
+  const [loggedAt,   setLoggedAt]   = useState(null)
+  const [deleting,   setDeleting]   = useState(false)
+  const [editingId,  setEditingId]  = useState(null)
+  const [editForm,   setEditForm]   = useState({})
+  const [editSaving, setEditSaving] = useState(false)
+
+  function startEdit(ex) {
+    setEditingId(ex.id)
+    setEditForm({ exercise_name: ex.exercise_name ?? '', sets: ex.sets ?? '', reps: ex.reps ?? '', weight: ex.weight ?? '' })
+  }
+
+  async function saveEdit(exId) {
+    setEditSaving(true)
+    try {
+      const token = await getToken()
+      const res   = await fetch(`${API_URL}/api/workouts/exercises/${exId}`, {
+        method:  'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          exercise_name: editForm.exercise_name,
+          sets:          editForm.sets !== '' ? Number(editForm.sets) : null,
+          reps:          editForm.reps !== '' ? editForm.reps : null,
+          weight:        editForm.weight !== '' ? editForm.weight : null,
+        }),
+      })
+      if (res.ok) {
+        const updated = await res.json()
+        setExercises(prev => prev.map(e => e.id === exId ? { ...e, ...updated } : e))
+      }
+    } finally {
+      setEditSaving(false)
+      setEditingId(null)
+    }
+  }
 
   useEffect(() => {
     async function load() {
@@ -483,18 +515,74 @@ function ProgramDetail({ program, onBack, onDeleted }) {
                   <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500">Exercise</th>
                   <th className="text-center px-3 py-2 text-xs font-semibold text-gray-500 w-16">Sets</th>
                   <th className="text-center px-3 py-2 text-xs font-semibold text-gray-500 w-24">Reps</th>
-                  <th className="text-center px-3 py-2 text-xs font-semibold text-gray-500 w-20">Rest</th>
+                  <th className="text-center px-3 py-2 text-xs font-semibold text-gray-500 w-20">Weight</th>
                   <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500">Notes</th>
+                  <th className="w-10" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {exs.map(ex => (
+                {exs.map(ex => editingId === ex.id ? (
+                  <tr key={ex.id} className="bg-orange-50">
+                    <td className="px-3 py-2">
+                      <input
+                        value={editForm.exercise_name}
+                        onChange={e => setEditForm(f => ({ ...f, exercise_name: e.target.value }))}
+                        className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#E8670A]"
+                      />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input
+                        type="number" min="0"
+                        value={editForm.sets}
+                        onChange={e => setEditForm(f => ({ ...f, sets: e.target.value }))}
+                        className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-[#E8670A]"
+                      />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input
+                        value={editForm.reps}
+                        onChange={e => setEditForm(f => ({ ...f, reps: e.target.value }))}
+                        placeholder="e.g. 8-12"
+                        className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-[#E8670A]"
+                      />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input
+                        value={editForm.weight}
+                        onChange={e => setEditForm(f => ({ ...f, weight: e.target.value }))}
+                        placeholder="lbs"
+                        className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-[#E8670A]"
+                      />
+                    </td>
+                    <td className="px-2 py-2 text-xs text-gray-400">{ex.notes ?? ''}</td>
+                    <td className="px-2 py-2">
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => saveEdit(ex.id)}
+                          disabled={editSaving}
+                          className="px-2 py-1 bg-[#E8670A] text-white rounded text-xs font-semibold disabled:opacity-60"
+                        >✓</button>
+                        <button
+                          onClick={() => setEditingId(null)}
+                          className="px-2 py-1 text-gray-400 hover:text-gray-600 rounded text-xs border border-gray-200"
+                        >✕</button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
                   <tr key={ex.id} className="hover:bg-gray-50/50">
                     <td className="px-4 py-3 font-medium text-gray-900">{ex.exercise_name}</td>
                     <td className="px-3 py-3 text-center text-gray-600">{ex.sets ?? '—'}</td>
                     <td className="px-3 py-3 text-center text-gray-600">{ex.reps ?? '—'}</td>
-                    <td className="px-3 py-3 text-center text-gray-500 text-xs">{ex.rest_seconds ? `${ex.rest_seconds}s` : '—'}</td>
+                    <td className="px-3 py-3 text-center text-gray-500 text-xs">{ex.weight ?? (ex.rest_seconds ? `${ex.rest_seconds}s rest` : '—')}</td>
                     <td className="px-4 py-3 text-xs text-gray-500">{ex.notes ?? ''}</td>
+                    <td className="px-2 py-3">
+                      <button
+                        onClick={() => startEdit(ex)}
+                        className="text-gray-300 hover:text-[#E8670A] transition-colors text-xs"
+                        title="Edit"
+                      >✎</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

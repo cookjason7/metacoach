@@ -480,14 +480,14 @@ function SearchMode({ slot, logDate }) {
     setAmount('100'); setUnit('g'); setSaved(false); setError(null)
   }
 
-  if (saved) return <SavedState name={selected.name} onReset={reset} resetLabel="Search Again" />
+  if (saved) return <SavedState name={selected?.name} onReset={reset} resetLabel="Search Again" />
 
   const raw     = parseFloat(amount)
   const g       = !isNaN(raw) && raw > 0 ? toGrams(raw, unit) : 0
   const preview = selected && g > 0 ? calcMacros(selected, g) : null
 
   return (
-    <div className="max-w-lg space-y-4">
+    <div className="max-w-lg space-y-4 pb-20">
       <div className="relative">
         <input
           type="text"
@@ -1331,7 +1331,7 @@ export default function LogMeal() {
   const [logDate, setLogDate] = useState(() => new Date().toISOString().slice(0, 10))
 
   return (
-    <div>
+    <div className="pb-24">
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Log Meal</h1>
       <p className="text-sm text-gray-500 mb-4">Add a meal via photo analysis, manual entry, or food search</p>
 
@@ -1342,6 +1342,7 @@ export default function LogMeal() {
           <input
             type="date"
             value={logDate}
+            max={(() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10) })()}
             onChange={e => setLogDate(e.target.value)}
             className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
           />

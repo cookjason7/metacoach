@@ -16,6 +16,7 @@ import FoodList from './pages/FoodList'
 import Admin from './pages/Admin'
 import Workouts from './pages/Workouts'
 import Journal from './pages/Journal'
+import Calendar from './pages/Calendar'
 import { API_URL } from './config.js'
 
 // Module-level cache: null | { onboardingComplete: bool, paid: bool }
@@ -138,6 +139,7 @@ export default function App() {
           <Route path="/food-list"    element={<FoodList />} />
           <Route path="/workouts"     element={<Workouts />} />
           <Route path="/settings"     element={<Settings />} />
+          <Route path="/calendar"     element={<Calendar />} />
           <Route path="/admin"        element={<Admin />} />
         </Route>
       </Routes>

@@ -1139,14 +1139,14 @@ function RecipesLogger({ slotName, onSaved }) {
 
 const ADD_OPTIONS = [
   { id: 'photo',   icon: '📷', label: 'Photo' },
-  { id: 'text',    icon: '💬', label: 'Quick Text' },
+  { id: 'text',    icon: '💬', label: 'Text Entry' },
   { id: 'search',  icon: '🔍', label: 'Search Foods' },
   { id: 'manual',  icon: '✏️', label: 'Manual' },
   { id: 'barcode', icon: '🏷️', label: 'Barcode' },
   { id: 'recipes', icon: '📋', label: 'Recipes' },
 ]
 
-const MODE_TITLES = { photo: 'Photo', text: 'Quick Text', search: 'Search Foods', manual: 'Manual Entry', barcode: 'Scan Barcode', recipes: 'Recipes' }
+const MODE_TITLES = { photo: 'Photo', text: 'Text Entry', search: 'Search Foods', manual: 'Manual Entry', barcode: 'Scan Barcode', recipes: 'Recipes' }
 const LOGGERS = { photo: PhotoLogger, text: TextLogger, search: SearchLogger, manual: ManualLogger, barcode: BarcodeLogger, recipes: RecipesLogger }
 
 function AddFoodDrawer({ slotName, onClose, onSaved }) {
@@ -1175,7 +1175,7 @@ function AddFoodDrawer({ slotName, onClose, onSaved }) {
           </button>
         </div>
 
-        <div className="p-5">
+        <div className="p-5 pb-24">
           {!mode && (
             <div className="grid grid-cols-3 gap-3">
               {ADD_OPTIONS.map(opt => (

@@ -14,13 +14,16 @@ function StatCard({ label, value, sub, color = 'text-gray-900' }) {
 }
 
 function TrackerCard({ label, unit, field, currentValue, onSave }) {
-  const [input, setInput]   = useState('')
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved]   = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [input,   setInput]   = useState('')
+  const [saving,  setSaving]  = useState(false)
 
-  useEffect(() => {
-    if (currentValue != null) setInput(String(currentValue))
-  }, [currentValue])
+  function openEdit() {
+    setInput(currentValue != null ? String(currentValue) : '')
+    setEditing(true)
+  }
+
+  function cancel() { setEditing(false) }
 
   async function handleSave() {
     const num = parseFloat(input)
@@ -28,43 +31,53 @@ function TrackerCard({ label, unit, field, currentValue, onSave }) {
     setSaving(true)
     try {
       await onSave(field, num)
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
+      setEditing(false)
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5">
-      <p className="text-sm text-gray-500 mb-1">{label}</p>
-      <p className="text-2xl font-bold text-gray-900 mb-4">
-        {currentValue != null ? (
-          <>{currentValue}<span className="text-sm font-normal text-gray-400 ml-1">{unit}</span></>
-        ) : (
-          <span className="text-gray-300">—</span>
-        )}
-      </p>
-      <div className="flex gap-2">
-        <input
-          type="number"
-          min="0"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSave()}
-          placeholder="0"
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-        />
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap disabled:opacity-60 ${
-            saved ? 'bg-[#E8670A] text-white' : 'bg-[#E8670A] text-white hover:bg-[#c45e09]'
-          }`}
-        >
-          {saving ? '…' : saved ? '✓' : 'Save'}
-        </button>
-      </div>
+    <div
+      className="bg-white rounded-xl border border-gray-200 p-3 flex flex-col items-center text-center cursor-pointer select-none"
+      onClick={!editing ? openEdit : undefined}
+    >
+      <p className="text-xs text-gray-400 mb-1">{label}</p>
+      {editing ? (
+        <div className="w-full" onClick={(e) => e.stopPropagation()}>
+          <input
+            autoFocus
+            type="number"
+            min="0"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') cancel() }}
+            className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#E8670A] mb-2"
+          />
+          <div className="flex gap-1.5 justify-center">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex-1 bg-[#E8670A] text-white text-xs font-medium py-1.5 rounded-lg disabled:opacity-60"
+            >
+              {saving ? '…' : '✓'}
+            </button>
+            <button
+              onClick={cancel}
+              className="flex-1 bg-gray-100 text-gray-600 text-xs font-medium py-1.5 rounded-lg"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="text-2xl font-bold text-gray-900 leading-none">
+            {currentValue != null ? currentValue : <span className="text-gray-300">—</span>}
+          </p>
+          <p className="text-xs text-gray-400 mt-1">{unit}</p>
+        </>
+      )}
     </div>
   )
 }
@@ -238,7 +251,7 @@ export default function Dashboard() {
 
       {/* Daily Tracking inputs */}
       <h2 className="text-sm font-semibold text-gray-700 mb-3">Log Today</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
+      <div className="grid grid-cols-3 gap-3 mb-10">
         {trackers.map((t) => (
           <TrackerCard
             key={t.field}
