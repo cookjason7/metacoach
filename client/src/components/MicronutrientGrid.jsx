@@ -14,7 +14,7 @@ function formatValue(value, decimals) {
   return String(rounded).replace(/\.0$/, '')
 }
 
-export default function MicronutrientGrid({ food, grams, title = 'Micronutrients' }) {
+export default function MicronutrientGrid({ food, grams = 100, title = 'Micronutrients', defaultOpen = false }) {
   if (!food || !grams || grams <= 0) return null
 
   const ratio = grams / 100
@@ -28,21 +28,25 @@ export default function MicronutrientGrid({ food, grams, title = 'Micronutrients
     })
     .filter(Boolean)
 
-  if (nutrients.length === 0) return null
-
   return (
-    <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">{title}</p>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {nutrients.map(n => (
-          <div key={n.key} className="rounded-lg bg-white px-3 py-2">
-            <p className="text-[11px] text-gray-400">{n.label}</p>
-            <p className="text-sm font-semibold text-gray-800">
-              {n.value}<span className="ml-0.5 text-[11px] font-medium text-gray-400">{n.unit}</span>
-            </p>
-          </div>
-        ))}
-      </div>
-    </div>
+    <details className="rounded-xl border border-gray-200 bg-gray-50 p-3" open={defaultOpen}>
+      <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-wide text-gray-500">
+        {title}
+      </summary>
+      {nutrients.length > 0 ? (
+        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {nutrients.map(n => (
+            <div key={n.key} className="rounded-lg bg-white px-3 py-2">
+              <p className="text-[11px] text-gray-400">{n.label}</p>
+              <p className="text-sm font-semibold text-gray-800">
+                {n.value}<span className="ml-0.5 text-[11px] font-medium text-gray-400">{n.unit}</span>
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2 text-xs text-gray-400">Micronutrients not available for this food yet.</p>
+      )}
+    </details>
   )
 }

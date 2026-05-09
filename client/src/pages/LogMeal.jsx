@@ -26,6 +26,17 @@ const SERVING_UNITS = ['g', 'oz', 'lb', 'cup', 'tbsp', 'tsp', 'ml', 'fl oz']
 const UNIT_TO_G = { g: 1, oz: 28.35, lb: 453.59, cup: 240, tbsp: 15, tsp: 5, ml: 1, 'fl oz': 29.57 }
 function toGrams(amount, unit) { return amount * (UNIT_TO_G[unit] ?? 1) }
 
+const MICRO_KEYS = ['fiber_g', 'sodium_mg', 'potassium_mg', 'calcium_mg', 'iron_mg', 'vitamin_d_mcg', 'magnesium_mg']
+function scaledMicronutrients(food, grams) {
+  if (!food || !grams || grams <= 0) return null
+  const ratio = grams / 100
+  const out = {}
+  for (const key of MICRO_KEYS) {
+    if (food[key] != null && Number(food[key]) > 0) out[key] = +(Number(food[key]) * ratio).toFixed(2)
+  }
+  return Object.keys(out).length ? out : null
+}
+
 // ── Shared UI pieces ──────────────────────────────────────────────────────────
 
 function MacroCard({ label, value, unit, color }) {
@@ -453,6 +464,7 @@ function SearchMode({ slot, logDate }) {
       if (isNaN(raw) || raw <= 0) throw new Error('Enter a valid amount')
       const g      = toGrams(raw, unit)
       const macros = calcMacros(selected, g)
+      const micronutrients = scaledMicronutrients(selected, g)
       const token  = await getToken()
       const res    = await fetch(`${API_URL}/api/meals/manual`, {
         method: 'POST',
@@ -468,6 +480,10 @@ function SearchMode({ slot, logDate }) {
           log_date:     logDate,
           serving_size: raw,
           serving_unit: unit,
+          source_type:  selected._source,
+          source_label: selected.source_label,
+          is_verified:  !!selected.is_verified,
+          micronutrients,
         }),
       })
       if (!res.ok) throw new Error('Failed to save')
@@ -1150,7 +1166,7 @@ function normaliseFoodTo100g(food) {
 
 function BarcodeMode({ slot, logDate }) {
   const { getToken } = useAuth()
-  const [scanning, setScanning] = useState(false)
+  const [scanning, setScanning] = useState(true)
   const [loading,  setLoading]  = useState(false)
   const [food,     setFood]     = useState(null)
   const [base,     setBase]     = useState(null)
@@ -1214,6 +1230,8 @@ function BarcodeMode({ slot, logDate }) {
     setSaving(true); setError(null)
     try {
       const token = await getToken()
+      const grams = toGrams(parseFloat(amount) || 0, unit)
+      const micronutrients = scaledMicronutrients(base, grams)
       const res = await fetch(`${API_URL}/api/meals/manual`, {
         method:  'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -1226,6 +1244,12 @@ function BarcodeMode({ slot, logDate }) {
           fiber_g:   preview.fiber,
           meal_slot: slot,
           log_date:  logDate,
+          serving_size: parseFloat(amount) || null,
+          serving_unit: unit,
+          source_type: food._source,
+          source_label: food.source_label,
+          is_verified: !!food.is_verified,
+          micronutrients,
         }),
       })
       if (!res.ok) throw new Error('Failed to save')

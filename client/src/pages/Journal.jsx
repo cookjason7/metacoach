@@ -16,6 +16,17 @@ const SERVING_UNITS = ['g', 'oz', 'lb', 'cup', 'tbsp', 'tsp', 'ml', 'fl oz']
 const UNIT_TO_G = { g: 1, oz: 28.3495, lb: 453.592, cup: 240, tbsp: 15, tsp: 5, ml: 1, 'fl oz': 29.5735 }
 function toGrams(amount, unit) { return amount * (UNIT_TO_G[unit] ?? 1) }
 
+const MICRO_KEYS = ['fiber_g', 'sodium_mg', 'potassium_mg', 'calcium_mg', 'iron_mg', 'vitamin_d_mcg', 'magnesium_mg']
+function scaledMicronutrients(food, grams) {
+  if (!food || !grams || grams <= 0) return null
+  const ratio = grams / 100
+  const out = {}
+  for (const key of MICRO_KEYS) {
+    if (food[key] != null && Number(food[key]) > 0) out[key] = +(Number(food[key]) * ratio).toFixed(2)
+  }
+  return Object.keys(out).length ? out : null
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function toDateStr(d) {
@@ -247,31 +258,12 @@ function QuickStats({ totals, waterOz, isToday, onAddWater }) {
 // ── Meal Entry ─────────────────────────────────────────────────────────────────
 
 function MealEntry({ meal, onEdit, onDelete, onCopy, onMove }) {
-  const { getToken } = useAuth()
   const [confirm,  setConfirm]  = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [moving,   setMoving]   = useState(false)
-  const [moveSlot, setMoveSlot] = useState(meal.meal_slot || SLOTS[0])
-  const [saving,   setSaving]   = useState(false)
 
   async function handleDelete() {
     setDeleting(true)
     try { await onDelete(meal.id) } finally { setDeleting(false); setConfirm(false) }
-  }
-
-  async function handleMove(slot) {
-    if (slot === meal.meal_slot) { setMoving(false); return }
-    setSaving(true)
-    try {
-      const token = await getToken()
-      const res = await fetch(`${API_URL}/api/meals/${meal.id}`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ meal_slot: slot }),
-      })
-      if (!res.ok) throw new Error()
-      onMove(meal.id, slot)
-    } catch {} finally { setSaving(false); setMoving(false) }
   }
 
   return (
@@ -284,7 +276,10 @@ function MealEntry({ meal, onEdit, onDelete, onCopy, onMove }) {
         )}
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
-            <p className="text-sm font-semibold text-gray-900 leading-snug truncate">{meal.meal_name}</p>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-gray-900 leading-snug truncate">{meal.meal_name}</p>
+              <FoodSourceBadge food={{ ...meal, _source: meal.source_type }} className="mt-1" />
+            </div>
             <span className="text-sm font-bold text-[#E8670A] shrink-0">{meal.calories ?? '?'}<span className="text-xs font-normal text-gray-400"> cal</span></span>
           </div>
           <div className="flex gap-2 mt-0.5 text-xs text-gray-500 flex-wrap">
@@ -292,38 +287,17 @@ function MealEntry({ meal, onEdit, onDelete, onCopy, onMove }) {
             {meal.carbs    != null && <span><span className="font-medium" style={{ color: MACRO_COLORS.carbs }}>{Number(meal.carbs).toFixed(0)}g</span> C</span>}
             {meal.fat      != null && <span><span className="font-medium" style={{ color: MACRO_COLORS.fat }}>{Number(meal.fat).toFixed(0)}g</span> F</span>}
           </div>
+          <MicronutrientGrid food={meal.micronutrients || {}} grams={100} title="Micronutrients" />
 
           {/* Action row */}
-          {!confirm && !moving && (
-            <div className="flex gap-3 mt-1.5">
-              <button onClick={() => onEdit(meal)} className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors">Edit</button>
-              <button onClick={() => setMoving(true)} className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors">Move</button>
-              <button onClick={() => onCopy(meal)} className="text-[11px] text-[#E8670A] hover:text-[#a34506] transition-colors">Copy</button>
-              <button onClick={() => setConfirm(true)} className="text-[11px] text-gray-400 hover:text-red-500 transition-colors">Delete</button>
+          {!confirm && (
+            <div className="flex flex-wrap gap-2 mt-2">
+              <button onClick={() => onEdit(meal)} className="min-h-8 px-2 text-[11px] text-gray-500 hover:text-gray-700 transition-colors">Edit</button>
+              <button onClick={() => onMove(meal)} className="min-h-8 px-2 text-[11px] text-gray-500 hover:text-gray-700 transition-colors">Move</button>
+              <button onClick={() => onCopy(meal)} className="min-h-8 px-2 text-[11px] text-[#E8670A] hover:text-[#a34506] transition-colors">Copy</button>
+              <button onClick={() => setConfirm(true)} className="min-h-8 px-2 text-[11px] text-gray-500 hover:text-red-500 transition-colors">Delete</button>
             </div>
           )}
-
-          {/* Move slot picker */}
-          {moving && (
-            <div className="flex items-center gap-2 mt-1.5">
-              <select
-                value={moveSlot}
-                onChange={e => setMoveSlot(e.target.value)}
-                className="text-[11px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#E8670A]"
-              >
-                {SLOTS.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <button
-                onClick={() => handleMove(moveSlot)}
-                disabled={saving}
-                className="text-[11px] font-semibold text-[#E8670A] hover:text-[#a34506] transition-colors"
-              >
-                {saving ? '…' : 'Move'}
-              </button>
-              <button onClick={() => setMoving(false)} className="text-[11px] text-gray-400 hover:text-gray-600">Cancel</button>
-            </div>
-          )}
-
           {/* Delete confirm */}
           {confirm && (
             <div className="flex items-center gap-2 mt-1.5">
@@ -475,13 +449,16 @@ function EditMealModal({ meal, onSave, onClose }) {
 
 // ── Copy Meal Modal ────────────────────────────────────────────────────────────
 
-function CopyMealModal({ meal, onConfirm, onClose }) {
+function CopyMealModal({ meal, mode = 'copy', onConfirm, onClose }) {
   const todayStr = toDateStr(new Date())
+  const maxStr   = toDateStr((() => { const d = new Date(); d.setDate(d.getDate() + 7); return d })())
   const minStr   = toDateStr((() => { const d = new Date(); d.setDate(d.getDate() - 90); return d })())
-  const [date, setDate] = useState(todayStr)
+  const currentDate = meal.log_date || (meal.logged_at ? meal.logged_at.slice(0, 10) : todayStr)
+  const [date, setDate] = useState(mode === 'move' ? currentDate : todayStr)
   const [slot, setSlot] = useState(SLOTS.includes(meal.meal_slot) ? meal.meal_slot : SLOTS[0])
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState(null)
+  const isMove = mode === 'move'
 
   async function handleConfirm() {
     setSaving(true)
@@ -493,10 +470,11 @@ function CopyMealModal({ meal, onConfirm, onClose }) {
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl p-5 w-full max-w-sm shadow-xl space-y-3" onClick={e => e.stopPropagation()}>
-        <h3 className="text-base font-semibold text-gray-900">Copy Meal</h3>
+        <h3 className="text-base font-semibold text-gray-900">{isMove ? 'Move Meal' : 'Copy Meal'}</h3>
+        <p className="text-xs text-gray-500">{meal.meal_name}</p>
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
-          <input type="date" value={date} min={minStr} max={todayStr}
+          <input type="date" value={date} min={minStr} max={maxStr}
             onChange={e => setDate(e.target.value)}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
         </div>
@@ -511,7 +489,7 @@ function CopyMealModal({ meal, onConfirm, onClose }) {
         <div className="flex gap-2">
           <button onClick={handleConfirm} disabled={saving}
             className="flex-1 bg-[#E8670A] text-white py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
-            {saving ? 'Saving…' : 'Copy'}
+            {saving ? 'Saving...' : isMove ? 'Move' : 'Copy'}
           </button>
           <button onClick={onClose}
             className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
@@ -809,6 +787,7 @@ function SearchLogger({ slotName, onSaved, logDate }) {
       const g = toGrams(a, unit)
       const macros = calcMacros(selected, g)
       const token  = await getToken()
+      const micronutrients = scaledMicronutrients(selected, g)
       const res = await fetch(`${API_URL}/api/meals/manual`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -821,6 +800,12 @@ function SearchLogger({ slotName, onSaved, logDate }) {
           fiber_g: macros.fiber,
           meal_slot: slotName,
           log_date: logDate,
+          serving_size: a,
+          serving_unit: unit,
+          source_type: selected._source,
+          source_label: selected.source_label,
+          is_verified: !!selected.is_verified,
+          micronutrients,
         }),
       })
       if (!res.ok) throw new Error('Failed to save')
@@ -1031,7 +1016,7 @@ function normaliseFoodTo100g(food) {
 
 function BarcodeLogger({ slotName, onSaved, logDate }) {
   const { getToken } = useAuth()
-  const [scanning, setScanning] = useState(false)
+  const [scanning, setScanning] = useState(true)
   const [loading,  setLoading]  = useState(false)
   const [food,     setFood]     = useState(null)   // raw food from API
   const [base,     setBase]     = useState(null)   // per-100g normalised macros
@@ -1093,6 +1078,8 @@ function BarcodeLogger({ slotName, onSaved, logDate }) {
     setSaving(true); setError(null)
     try {
       const token = await getToken()
+      const grams = toGrams(parseFloat(amount) || 0, unit)
+      const micronutrients = scaledMicronutrients(base, grams)
       const res = await fetch(`${API_URL}/api/meals/manual`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -1105,6 +1092,12 @@ function BarcodeLogger({ slotName, onSaved, logDate }) {
           fiber_g:   preview.fiber,
           meal_slot: slotName,
           log_date:  logDate,
+          serving_size: parseFloat(amount) || null,
+          serving_unit: unit,
+          source_type: food._source,
+          source_label: food.source_label,
+          is_verified: !!food.is_verified,
+          micronutrients,
         }),
       })
       if (!res.ok) throw new Error('Save failed')
@@ -1375,6 +1368,7 @@ export default function Journal() {
   const [addSlot,     setAddSlot]     = useState(null)
   const [editingMeal, setEditingMeal] = useState(null)
   const [copyingMeal, setCopyingMeal] = useState(null)
+  const [movingMeal,  setMovingMeal]  = useState(null)
 
   const weekDays = getWeekDays(weekStart)
   const todayStr = toDateStr(new Date())
@@ -1481,9 +1475,23 @@ export default function Journal() {
     } catch {}
   }, [getToken])
 
-  const handleMealMoved = useCallback((mealId, newSlot) => {
-    setMeals(prev => prev.map(m => m.id === mealId ? { ...m, meal_slot: newSlot } : m))
-  }, [])
+  const handleMealMoved = useCallback(async (mealId, date, slot) => {
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/meals/${mealId}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ log_date: date, meal_slot: slot }),
+    })
+    if (!res.ok) throw new Error('Failed to move meal')
+    const updated = await res.json()
+    if (date === toDateStr(selectedDate)) {
+      setMeals(prev => prev.map(m => m.id === mealId ? { ...m, ...updated } : m))
+    } else {
+      setMeals(prev => prev.filter(m => m.id !== mealId))
+    }
+    setActiveDates(prev => new Set([...prev, date]))
+    setMovingMeal(null)
+  }, [getToken, selectedDate])
 
   const handleMealCopied = useCallback(async (mealId, date, slot) => {
     const token = await getToken()
@@ -1495,6 +1503,7 @@ export default function Journal() {
     if (!res.ok) throw new Error('Failed to copy meal')
     const newMeal = await res.json()
     if (date === toDateStr(selectedDate)) setMeals(prev => [...prev, newMeal])
+    setActiveDates(prev => new Set([...prev, date]))
     setCopyingMeal(null)
   }, [getToken, selectedDate])
 
@@ -1544,7 +1553,7 @@ export default function Journal() {
             onEdit={setEditingMeal}
             onDelete={handleMealDeleted}
             onCopy={setCopyingMeal}
-            onMove={handleMealMoved}
+            onMove={setMovingMeal}
           />
         ))
       )}
@@ -1574,6 +1583,16 @@ export default function Journal() {
           meal={copyingMeal}
           onConfirm={handleMealCopied}
           onClose={() => setCopyingMeal(null)}
+        />
+      )}
+
+      {/* Move meal modal */}
+      {movingMeal && (
+        <CopyMealModal
+          mode="move"
+          meal={movingMeal}
+          onConfirm={handleMealMoved}
+          onClose={() => setMovingMeal(null)}
         />
       )}
 

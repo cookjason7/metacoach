@@ -315,6 +315,12 @@ export async function migrate() {
   // ── Custom foods ─────────────────────────────────────────────────────────────
   await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS sugar NUMERIC(6,1)`)
   await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS log_date DATE`)
+  await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS serving_size NUMERIC(8,2)`)
+  await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS serving_unit TEXT`)
+  await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS source_type TEXT`)
+  await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS source_label TEXT`)
+  await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE`)
+  await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS micronutrients JSONB`)
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS custom_foods (

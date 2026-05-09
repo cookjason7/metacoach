@@ -31,6 +31,23 @@ function uploadToCloudinary(buffer) {
   })
 }
 
+function parseMicronutrients(value) {
+  if (value == null || value === '') return null
+  if (typeof value === 'object') return value
+  try { return JSON.parse(value) } catch { return null }
+}
+
+function mealMetaFromBody(body) {
+  return {
+    serving_size: body.serving_size !== undefined && body.serving_size !== '' ? Number(body.serving_size) : null,
+    serving_unit: body.serving_unit ?? null,
+    source_type: body.source_type ?? body._source ?? null,
+    source_label: body.source_label ?? null,
+    is_verified: body.is_verified === true || body.is_verified === 'true',
+    micronutrients: parseMicronutrients(body.micronutrients),
+  }
+}
+
 const WARRIOR_FOODS = `Aligned Warrior Foods: lean proteins (chicken breast, turkey, fish, tuna, salmon, eggs, Greek yogurt, cottage cheese, whey protein), vegetables (broccoli, spinach, green beans, zucchini, sweet potato, asparagus, cauliflower), fruits (berries, apples, bananas), whole grains (oatmeal, brown rice, quinoa), healthy fats (avocado, almonds, walnuts, olive oil).
 Off-list foods: fast food, fried foods, alcohol, candy, chips, soda, white bread, pastries, processed meats, ice cream.`
 
@@ -111,15 +128,21 @@ router.post('/manual', requireAuth(), async (req, res, next) => {
     const { userId } = getAuth(req)
     const dbUserId = await getOrCreateUser(userId)
     const { meal_name, calories, protein_g, carbs_g, fat_g, fiber_g, meal_slot, log_date } = req.body
+    const meta = mealMetaFromBody(req.body)
 
     if (!meal_name?.trim()) return res.status(400).json({ error: 'Meal name required' })
 
     const { rows } = await pool.query(
-      `INSERT INTO meals (user_id, meal_name, calories, protein, carbs, fat, fiber, meal_slot, log_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO meals (
+         user_id, meal_name, calories, protein, carbs, fat, fiber, meal_slot, log_date,
+         serving_size, serving_unit, source_type, source_label, is_verified, micronutrients
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        RETURNING *`,
       [dbUserId, meal_name.trim(), calories ?? null, protein_g ?? null,
-       carbs_g ?? null, fat_g ?? null, fiber_g ?? null, meal_slot ?? null, log_date ?? null],
+       carbs_g ?? null, fat_g ?? null, fiber_g ?? null, meal_slot ?? null, log_date ?? null,
+       meta.serving_size, meta.serving_unit, meta.source_type, meta.source_label,
+       meta.is_verified, meta.micronutrients],
     )
     res.status(201).json(rows[0])
   } catch (err) {
@@ -188,11 +211,11 @@ router.post('/copy-day', requireAuth(), async (req, res, next) => {
     if (!from_date || !to_date) return res.status(400).json({ error: 'from_date and to_date required' })
 
     const { rows: srcMeals } = await pool.query(
-      `SELECT meal_name, photo_url, calories, protein, carbs, fat, fiber, portion_notes, meal_slot
+      `SELECT meal_name, photo_url, calories, protein, carbs, fat, fiber, portion_notes, meal_slot,
+              serving_size, serving_unit, source_type, source_label, is_verified, micronutrients
        FROM meals
        WHERE user_id = $1
-         AND logged_at >= $2::date
-         AND logged_at <  $2::date + INTERVAL '1 day'
+         AND COALESCE(log_date, logged_at::date) = $2::date
        ORDER BY logged_at`,
       [dbUserId, from_date],
     )
@@ -202,11 +225,15 @@ router.post('/copy-day', requireAuth(), async (req, res, next) => {
     const inserted = []
     for (const m of srcMeals) {
       const { rows } = await pool.query(
-        `INSERT INTO meals (user_id, meal_name, photo_url, calories, protein, carbs, fat, fiber, portion_notes, meal_slot, logged_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::date + TIME '12:00:00')
+        `INSERT INTO meals (
+           user_id, meal_name, photo_url, calories, protein, carbs, fat, fiber, portion_notes,
+           meal_slot, log_date, serving_size, serving_unit, source_type, source_label, is_verified, micronutrients
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::date, $12, $13, $14, $15, $16, $17)
          RETURNING *`,
         [dbUserId, m.meal_name, m.photo_url, m.calories, m.protein, m.carbs, m.fat,
-         m.fiber, m.portion_notes, m.meal_slot, to_date],
+         m.fiber, m.portion_notes, m.meal_slot, to_date, m.serving_size, m.serving_unit,
+         m.source_type, m.source_label, m.is_verified, m.micronutrients],
       )
       inserted.push(rows[0])
     }
@@ -226,7 +253,8 @@ router.post('/:id/copy', requireAuth(), async (req, res, next) => {
     const { date, slot } = req.body
 
     const { rows: src } = await pool.query(
-      `SELECT meal_name, calories, protein, carbs, fat, fiber, photo_url, portion_notes, meal_slot
+      `SELECT meal_name, calories, protein, carbs, fat, fiber, photo_url, portion_notes, meal_slot,
+              serving_size, serving_unit, source_type, source_label, is_verified, micronutrients
        FROM meals WHERE id = $1 AND user_id = $2`,
       [mealId, dbUserId],
     )
@@ -234,12 +262,16 @@ router.post('/:id/copy', requireAuth(), async (req, res, next) => {
 
     const m = src[0]
     const { rows } = await pool.query(
-      `INSERT INTO meals (user_id, meal_name, photo_url, calories, protein, carbs, fat, fiber, portion_notes, meal_slot, logged_at)
+      `INSERT INTO meals (
+         user_id, meal_name, photo_url, calories, protein, carbs, fat, fiber, portion_notes,
+         meal_slot, log_date, serving_size, serving_unit, source_type, source_label, is_verified, micronutrients
+       )
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-               COALESCE($11::date + TIME '12:00:00', NOW()))
+               COALESCE($11::date, CURRENT_DATE), $12, $13, $14, $15, $16, $17)
        RETURNING *`,
       [dbUserId, m.meal_name, m.photo_url, m.calories, m.protein, m.carbs, m.fat, m.fiber,
-       m.portion_notes, slot ?? m.meal_slot, date ?? null],
+       m.portion_notes, slot ?? m.meal_slot, date ?? null, m.serving_size, m.serving_unit,
+       m.source_type, m.source_label, m.is_verified, m.micronutrients],
     )
     res.status(201).json(rows[0])
   } catch (err) {
@@ -252,6 +284,7 @@ router.post('/', requireAuth(), upload.single('photo'), async (req, res, next) =
   try {
     const { userId } = getAuth(req)
     const { meal_name, calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, meal_slot, log_date } = req.body
+    const meta = mealMetaFromBody(req.body)
     const dbUserId = await getOrCreateUser(userId)
 
     let photo_url = null
@@ -265,11 +298,16 @@ router.post('/', requireAuth(), upload.single('photo'), async (req, res, next) =
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO meals (user_id, meal_name, photo_url, calories, protein, carbs, fat, fiber, sugar, meal_slot, log_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO meals (
+         user_id, meal_name, photo_url, calories, protein, carbs, fat, fiber, sugar, meal_slot, log_date,
+         serving_size, serving_unit, source_type, source_label, is_verified, micronutrients
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
        RETURNING *`,
       [dbUserId, meal_name, photo_url, calories, protein_g, carbs_g, fat_g,
-       fiber_g ?? null, sugar_g ?? null, meal_slot ?? null, log_date ?? null],
+       fiber_g ?? null, sugar_g ?? null, meal_slot ?? null, log_date ?? null,
+       meta.serving_size, meta.serving_unit, meta.source_type, meta.source_label,
+       meta.is_verified, meta.micronutrients],
     )
     res.status(201).json(rows[0])
   } catch (err) {
@@ -284,11 +322,11 @@ router.get('/active-dates', requireAuth(), async (req, res, next) => {
     const { start, end } = req.query
     if (!start || !end) return res.json([])
     const { rows } = await pool.query(
-      `SELECT DISTINCT DATE(m.logged_at) AS date
+      `SELECT DISTINCT COALESCE(m.log_date, m.logged_at::date) AS date
        FROM meals m JOIN users u ON u.id = m.user_id
        WHERE u.clerk_user_id = $1
-         AND m.logged_at >= $2::date
-         AND m.logged_at <  $3::date + INTERVAL '1 day'
+         AND COALESCE(m.log_date, m.logged_at::date) >= $2::date
+         AND COALESCE(m.log_date, m.logged_at::date) <= $3::date
        ORDER BY date`,
       [userId, start, end],
     )
@@ -313,7 +351,9 @@ router.get('/', requireAuth(), async (req, res, next) => {
     const baseSelect = `
       SELECT m.id, m.meal_name, m.photo_url,
              m.calories, m.protein, m.carbs, m.fat, m.fiber, m.sugar,
-             m.portion_notes, m.logged_at, m.meal_slot
+             m.portion_notes, m.logged_at, m.log_date, m.meal_slot,
+             m.serving_size, m.serving_unit, m.source_type, m.source_label,
+             m.is_verified, m.micronutrients
       FROM meals m
       JOIN users u ON u.id = m.user_id
       WHERE u.clerk_user_id = $1`
@@ -321,8 +361,7 @@ router.get('/', requireAuth(), async (req, res, next) => {
     const { rows } = date
       ? await pool.query(
           `${baseSelect}
-             AND m.logged_at >= $2::date
-             AND m.logged_at <  $2::date + INTERVAL '1 day'
+             AND COALESCE(m.log_date, m.logged_at::date) = $2::date
            ORDER BY m.logged_at ASC`,
           [userId, date],
         )
@@ -371,7 +410,7 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
     const dbUserId = await getOrCreateUser(userId)
     const mealId   = parseInt(req.params.id, 10)
 
-    const { meal_name, calories, protein, carbs, fat, fiber, portion_notes, meal_slot } = req.body
+    const { meal_name, calories, protein, carbs, fat, fiber, portion_notes, meal_slot, log_date } = req.body
 
     const { rows } = await pool.query(
       `UPDATE meals SET
@@ -382,13 +421,14 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
          fat           = COALESCE($5, fat),
          fiber         = COALESCE($6, fiber),
          portion_notes = COALESCE($7, portion_notes),
-         meal_slot     = COALESCE($8, meal_slot)
-       WHERE id = $9 AND user_id = $10
+         meal_slot     = COALESCE($8, meal_slot),
+         log_date      = COALESCE($9::date, log_date)
+       WHERE id = $10 AND user_id = $11
        RETURNING *`,
       [
         meal_name ?? null, calories ?? null, protein ?? null,
         carbs ?? null, fat ?? null, fiber ?? null, portion_notes ?? null,
-        meal_slot ?? null, mealId, dbUserId,
+        meal_slot ?? null, log_date ?? null, mealId, dbUserId,
       ],
     )
     if (!rows.length) return res.status(404).json({ error: 'Meal not found' })
