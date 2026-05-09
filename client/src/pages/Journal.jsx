@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 import BarcodeScannerWidget from '../components/BarcodeScanner.jsx'
+import FoodSourceBadge from '../components/FoodSourceBadge.jsx'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -862,7 +863,10 @@ function SearchLogger({ slotName, onSaved, logDate }) {
           {results.map((food, i) => (
             <button key={food.id ?? i} onClick={() => { setSelected(food); setResults([]) }}
               className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors">
-              <p className="text-sm font-medium text-gray-900">{food.name}</p>
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-sm font-medium text-gray-900 leading-snug">{food.name}</p>
+                <FoodSourceBadge food={food} className="mt-0.5" />
+              </div>
               <p className="text-xs text-gray-500">{Math.round(food.calories)} cal · {(food.protein_g ?? 0).toFixed(1)}g P per 100g</p>
             </button>
           ))}
@@ -870,8 +874,13 @@ function SearchLogger({ slotName, onSaved, logDate }) {
       )}
       {selected && (
         <div className="border border-gray-200 rounded-xl p-4 bg-white space-y-3">
-          <div className="flex justify-between items-start">
-            <p className="text-sm font-semibold text-gray-900">{selected.name}</p>
+          <div className="flex justify-between items-start gap-3">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-semibold text-gray-900 leading-snug">{selected.name}</p>
+                <FoodSourceBadge food={selected} />
+              </div>
+            </div>
             <button onClick={() => setSelected(null)} className="text-xs text-gray-400 hover:text-gray-600">Change</button>
           </div>
           <div>
@@ -1153,8 +1162,11 @@ function BarcodeLogger({ slotName, onSaved, logDate }) {
       {food && base && (
         <div className="border border-gray-200 rounded-xl p-4 bg-white space-y-3">
           <div className="flex justify-between items-start">
-            <div>
-              <p className="text-sm font-semibold text-gray-900">{food.name}</p>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-semibold text-gray-900 leading-snug">{food.name}</p>
+                <FoodSourceBadge food={food} />
+              </div>
               {food.brand && <p className="text-xs text-gray-400">{food.brand}</p>}
               <p className="text-xs text-gray-500 mt-0.5">{food.serving_size}</p>
             </div>

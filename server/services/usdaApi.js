@@ -82,6 +82,9 @@ function formatFood(raw) {
     carbs_g:    macros.carbs_g   ?? null,
     fiber_g:    macros.fiber_g   ?? null,
     _source:    'usda',
+    is_verified: true,
+    verification_source: 'USDA',
+    source_label: 'Verified USDA',
   }
 }
 

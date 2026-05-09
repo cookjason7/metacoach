@@ -7,6 +7,22 @@ const router = Router()
 
 // Minimum local results before we call out to the USDA API for supplements
 const LOCAL_THRESHOLD = 5
+const USDA_DATA_TYPES = new Set(['SR Legacy', 'Foundation', 'Branded'])
+
+function isVerifiedFood(food) {
+  return !!food.fdc_id && USDA_DATA_TYPES.has(food.data_type)
+}
+
+function withFoodSource(food, fallbackSource = 'local') {
+  const verified = isVerifiedFood(food)
+  return {
+    ...food,
+    _source: fallbackSource,
+    is_verified: verified,
+    verification_source: verified ? 'USDA' : null,
+    source_label: verified ? 'Verified USDA' : 'Food database',
+  }
+}
 
 // ── Local search ──────────────────────────────────────────────────────────────
 
@@ -57,14 +73,13 @@ async function localSearch(q, limit, offset) {
     OFFSET $3
   `, [q, limit, offset])
 
-  return rows.map(({ _rank, ...food }) => ({
+  return rows.map(({ _rank, ...food }) => withFoodSource({
     ...food,
     calories:  food.calories  != null ? parseFloat(food.calories)  : null,
     protein_g: food.protein_g != null ? parseFloat(food.protein_g) : null,
     fat_g:     food.fat_g     != null ? parseFloat(food.fat_g)     : null,
     carbs_g:   food.carbs_g   != null ? parseFloat(food.carbs_g)   : null,
     fiber_g:   food.fiber_g   != null ? parseFloat(food.fiber_g)   : null,
-    _source: 'local',
   }))
 }
 
@@ -111,6 +126,7 @@ router.get('/search', requireAuth(), async (req, res, next) => {
          NULL::integer AS fdc_id,
          cf.food_name AS name,
          'Custom' AS data_type,
+         cf.is_global,
          CASE WHEN cf.serving_size > 0
            THEN ROUND((cf.calories_per_serving / cf.serving_size * 100)::numeric, 1)
            ELSE ROUND(cf.calories_per_serving::numeric, 1)
@@ -144,6 +160,9 @@ router.get('/search', requireAuth(), async (req, res, next) => {
       fat_g:     r.fat_g     != null ? parseFloat(r.fat_g)     : null,
       fiber_g:   r.fiber_g   != null ? parseFloat(r.fiber_g)   : null,
       _source: 'custom',
+      is_verified: false,
+      verification_source: null,
+      source_label: r.is_global ? 'Coach food' : 'My food',
     }))
 
     // ── Local search ─────────────────────────────────────────────────────────
@@ -222,6 +241,10 @@ router.get('/barcode/:code', requireAuth(), async (req, res, next) => {
         const v = hasSrv ? n.sodium_serving : n.sodium_100g
         return v != null ? Math.round(parseFloat(v) * 1000) : null
       })(),
+      _source: 'barcode',
+      is_verified: false,
+      verification_source: 'Open Food Facts',
+      source_label: 'Open Food Facts',
     })
   } catch (err) {
     next(err)
@@ -257,7 +280,7 @@ router.get('/fdc/:fdcId', requireAuth(), async (req, res, next) => {
       GROUP BY f.id
     `, [fdcId])
 
-    if (local) return res.json({ ...local, _source: 'local' })
+    if (local) return res.json(withFoodSource(local))
 
     // Not in local DB — fetch from USDA API
     try {
@@ -295,7 +318,7 @@ router.get('/:id', requireAuth(), async (req, res, next) => {
     `, [req.params.id])
 
     if (!food) return res.status(404).json({ error: 'Food not found' })
-    res.json({ ...food, _source: 'local' })
+    res.json(withFoodSource(food))
   } catch (err) {
     next(err)
   }

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 import BarcodeScannerWidget from '../components/BarcodeScanner.jsx'
+import FoodSourceBadge from '../components/FoodSourceBadge.jsx'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -523,12 +524,7 @@ function SearchMode({ slot, logDate }) {
             >
               <div className="flex items-start justify-between gap-2">
                 <p className="text-sm font-medium text-gray-900 leading-snug">{food.name}</p>
-                {food._source === 'usda' && (
-                  <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded shrink-0 mt-0.5">USDA</span>
-                )}
-                {food._source === 'custom' && (
-                  <span className="text-[10px] text-[#E8670A] bg-orange-50 px-1.5 py-0.5 rounded shrink-0 mt-0.5">Custom</span>
-                )}
+                <FoodSourceBadge food={food} className="mt-0.5" />
               </div>
               <p className="text-xs text-gray-500 mt-0.5">
                 {Math.round(food.calories)} cal · {(food.protein_g ?? 0).toFixed(1)}g protein · {(food.carbs_g ?? 0).toFixed(1)}g carbs · {(food.fat_g ?? 0).toFixed(1)}g fat
@@ -542,8 +538,11 @@ function SearchMode({ slot, logDate }) {
       {selected && (
         <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold text-gray-900 leading-snug">{selected.name}</p>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-semibold text-gray-900 leading-snug">{selected.name}</p>
+                <FoodSourceBadge food={selected} />
+              </div>
               <p className="text-xs text-gray-400 mt-0.5">
                 Per 100g: {Math.round(selected.calories)} cal · {(selected.protein_g ?? 0).toFixed(1)}g P · {(selected.carbs_g ?? 0).toFixed(1)}g C · {(selected.fat_g ?? 0).toFixed(1)}g F
               </p>
@@ -1288,8 +1287,11 @@ function BarcodeMode({ slot, logDate }) {
           )}
 
           <div className="flex justify-between items-start gap-2">
-            <div>
-              <p className="text-base font-semibold text-gray-900">{food.name}</p>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-base font-semibold text-gray-900 leading-snug">{food.name}</p>
+                <FoodSourceBadge food={food} />
+              </div>
               {food.brand && <p className="text-xs text-gray-400 mt-0.5">{food.brand}</p>}
               <p className="text-xs text-gray-500 mt-1">Serving size: {food.serving_size}</p>
             </div>
