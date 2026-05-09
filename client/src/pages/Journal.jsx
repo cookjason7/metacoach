@@ -5,6 +5,7 @@ import { API_URL } from '../config.js'
 import BarcodeScannerWidget from '../components/BarcodeScanner.jsx'
 import FoodSourceBadge from '../components/FoodSourceBadge.jsx'
 import MicronutrientGrid from '../components/MicronutrientGrid.jsx'
+import MicronutrientTotals from '../components/MicronutrientTotals.jsx'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -1539,6 +1540,10 @@ export default function Journal() {
 
       {/* Quick stats */}
       <QuickStats totals={totals} waterOz={waterOz} isToday={isToday} onAddWater={addWater} />
+
+      <div className="mb-5">
+        <MicronutrientTotals meals={meals} loading={loading} title="Daily Micronutrients" />
+      </div>
 
       {/* Meal slots */}
       {loading ? (

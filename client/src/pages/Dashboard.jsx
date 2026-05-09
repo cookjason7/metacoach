@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { Link } from 'react-router-dom'
 import { API_URL } from '../config.js'
+import MicronutrientTotals from '../components/MicronutrientTotals.jsx'
 
 function StatCard({ label, value, sub, color = 'text-gray-900' }) {
   return (
@@ -86,6 +87,7 @@ export default function Dashboard() {
   const { getToken } = useAuth()
 
   const [todayMeals,   setTodayMeals]   = useState(null)
+  const [mealRows,     setMealRows]     = useState([])
   const [todayLog,     setTodayLog]     = useState(null)
   const [weekMeals,    setWeekMeals]    = useState(null)
   const [weekLog,      setWeekLog]      = useState(null)
@@ -99,20 +101,23 @@ export default function Dashboard() {
       try {
         const token   = await getToken()
         const headers = { Authorization: `Bearer ${token}` }
+        const today   = new Date().toLocaleDateString('sv')
 
-        const [r1, r2, r3, r4, r5] = await Promise.all([
-          fetch(`${API_URL}/api/meals/today?date=${new Date().toLocaleDateString('sv')}`, { headers }),
+        const [r1, r2, r3, r4, r5, r6] = await Promise.all([
+          fetch(`${API_URL}/api/meals/today?date=${today}`, { headers }),
           fetch(`${API_URL}/api/daily-logs/today`, { headers }),
           fetch(`${API_URL}/api/meals/week`,       { headers }),
           fetch(`${API_URL}/api/daily-logs/week`,  { headers }),
           fetch(`${API_URL}/api/users/me`,         { headers }),
+          fetch(`${API_URL}/api/meals?date=${today}`, { headers }),
         ])
 
-        if (!r1.ok || !r2.ok || !r3.ok || !r4.ok || !r5.ok) throw new Error('Failed to load dashboard data')
+        if (!r1.ok || !r2.ok || !r3.ok || !r4.ok || !r5.ok || !r6.ok) throw new Error('Failed to load dashboard data')
 
         if (!cancelled) {
-          const [m, l, wm, wl, u] = await Promise.all([r1.json(), r2.json(), r3.json(), r4.json(), r5.json()])
+          const [m, l, wm, wl, u, rows] = await Promise.all([r1.json(), r2.json(), r3.json(), r4.json(), r5.json(), r6.json()])
           setTodayMeals(m)
+          setMealRows(rows)
           setTodayLog(l)
           setWeekMeals(wm)
           setWeekLog(wl)
@@ -187,6 +192,10 @@ export default function Dashboard() {
         {todayStats.map((s) => (
           <StatCard key={s.label} label={s.label} value={loading ? '…' : s.value} color={s.color} />
         ))}
+      </div>
+
+      <div className="mb-8">
+        <MicronutrientTotals meals={mealRows} loading={loading} title="Today's Micronutrients" periodLabel="Today" />
       </div>
 
       {!loading && todayMeals?.meal_count === 0 && (
