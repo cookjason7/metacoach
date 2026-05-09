@@ -338,6 +338,12 @@ export async function migrate() {
       created_at           TIMESTAMPTZ DEFAULT NOW()
     )
   `)
+
+  // ── Proactive Katie messages ─────────────────────────────────────────────────
+  await pool.query(`ALTER TABLE coaching_conversations ADD COLUMN IF NOT EXISTS is_proactive    BOOLEAN    DEFAULT FALSE`)
+  await pool.query(`ALTER TABLE coaching_conversations ADD COLUMN IF NOT EXISTS read_at         TIMESTAMPTZ`)
+  await pool.query(`ALTER TABLE coaching_conversations ADD COLUMN IF NOT EXISTS proactive_trigger TEXT`)
+  await pool.query(`ALTER TABLE coaching_conversations ADD COLUMN IF NOT EXISTS trigger_date    DATE`)
 }
 
 export async function getOrCreateUser(clerkUserId) {

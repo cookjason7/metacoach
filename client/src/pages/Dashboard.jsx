@@ -4,6 +4,28 @@ import { Link } from 'react-router-dom'
 import { API_URL } from '../config.js'
 import MicronutrientTotals from '../components/MicronutrientTotals.jsx'
 
+function KatieBanner({ message, onDismiss }) {
+  if (!message) return null
+  return (
+    <Link
+      to="/ai-coach"
+      className="flex items-start gap-3 bg-[#fff7ed] border border-[#fed7aa] rounded-xl px-4 py-3 mb-6 group hover:bg-[#ffedd5] transition-colors"
+      onClick={onDismiss}
+    >
+      <div className="w-8 h-8 rounded-full bg-[#fde8c8] flex items-center justify-center text-[#E8670A] font-bold text-xs shrink-0 mt-0.5">
+        K
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-semibold text-[#E8670A] mb-0.5">New message from Coach Katie</p>
+        <p className="text-sm text-gray-700 line-clamp-2">{message}</p>
+      </div>
+      <svg className="w-4 h-4 text-[#E8670A] shrink-0 mt-1 group-hover:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+      </svg>
+    </Link>
+  )
+}
+
 function StatCard({ label, value, sub, color = 'text-gray-900' }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -94,6 +116,7 @@ export default function Dashboard() {
   const [userProfile,  setUserProfile]  = useState(null)
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState(null)
+  const [katieBanner,  setKatieBanner]  = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -103,13 +126,17 @@ export default function Dashboard() {
         const headers = { Authorization: `Bearer ${token}` }
         const today   = new Date().toLocaleDateString('sv')
 
-        const [r1, r2, r3, r4, r5, r6] = await Promise.all([
+        // Fire proactive check non-blocking, then fetch latest banner
+        fetch(`${API_URL}/api/coach/check-proactive`, { method: 'POST', headers }).catch(() => {})
+
+        const [r1, r2, r3, r4, r5, r6, r7] = await Promise.all([
           fetch(`${API_URL}/api/meals/today?date=${today}`, { headers }),
           fetch(`${API_URL}/api/daily-logs/today`, { headers }),
           fetch(`${API_URL}/api/meals/week`,       { headers }),
           fetch(`${API_URL}/api/daily-logs/week`,  { headers }),
           fetch(`${API_URL}/api/users/me`,         { headers }),
           fetch(`${API_URL}/api/meals?date=${today}`, { headers }),
+          fetch(`${API_URL}/api/coach/latest-proactive`, { headers }),
         ])
 
         if (!r1.ok || !r2.ok || !r3.ok || !r4.ok || !r5.ok || !r6.ok) throw new Error('Failed to load dashboard data')
@@ -122,6 +149,10 @@ export default function Dashboard() {
           setWeekMeals(wm)
           setWeekLog(wl)
           setUserProfile(u)
+          if (r7.ok) {
+            const bannerData = await r7.json()
+            setKatieBanner(bannerData.message ?? null)
+          }
         }
       } catch (err) {
         if (!cancelled) setError(err.message)
@@ -179,6 +210,8 @@ export default function Dashboard() {
     <div>
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Dashboard</h1>
       <p className="text-sm text-gray-500 mb-8">Today's overview</p>
+
+      <KatieBanner message={katieBanner} onDismiss={() => setKatieBanner(null)} />
 
       {error && (
         <div className="mb-6 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">

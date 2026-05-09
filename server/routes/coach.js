@@ -392,4 +392,232 @@ router.post('/chat', requireAuth(), async (req, res, next) => {
   }
 })
 
+// ── Proactive message trigger prompts ────────────────────────────────────────
+
+const TRIGGER_PROMPTS = {
+  no_activity_2days:
+    'The client has not logged anything for 2 days. Send one short, warm check-in in the Life Warrior voice. Do not say "fell off", "back on track", or use shame language. One sentence acknowledging the quiet, one invitation to reset and log one meal today. Sign as Katie.',
+  missed_logging_yesterday:
+    'The client did not log any meals yesterday. One short coaching note. Normalize it without excusing it. Invite one small action today. Life Warrior voice. Sign as Katie.',
+  low_protein_yesterday:
+    (p, goal) => `The client logged meals yesterday but only hit ${p}g of protein, well below her target of ${goal}g. One short note connecting protein to metabolic health and energy. One small suggestion for today. Sign as Katie.`,
+  low_calories_yesterday:
+    (cal, goal) => `The client logged only ${cal} calories yesterday, which seems very low. One short curious check-in about how she is feeling and fueling. Not alarming. Life Warrior voice. Sign as Katie.`,
+  low_water_yesterday:
+    (water) => `The client tracked only ${water} oz of water yesterday. One short note about hydration and metabolic health. One small action for today. Life Warrior voice. Sign as Katie.`,
+  consistency_win:
+    (streak) => `The client has been logging consistently for ${streak} days in a row. Send a genuine 1-2 sentence acknowledgment. Celebrate the identity behavior, not just the streak number. Life Warrior voice. Sign as Katie.`,
+  general_checkin:
+    'Send a warm proactive check-in from Katie. One short open question or observation to start a coaching conversation. Do not reference data you do not have. Life Warrior voice. 1-2 sentences max. Sign as Katie.',
+}
+
+function buildTriggerPrompt(trigger, ctx) {
+  const p = TRIGGER_PROMPTS[trigger]
+  if (typeof p === 'function') {
+    if (trigger === 'low_protein_yesterday')  return p(ctx.protein, ctx.goal)
+    if (trigger === 'low_calories_yesterday') return p(ctx.cal, ctx.goal)
+    if (trigger === 'low_water_yesterday')    return p(ctx.water)
+    if (trigger === 'consistency_win')        return p(ctx.streak)
+  }
+  return p ?? TRIGGER_PROMPTS.general_checkin
+}
+
+// POST /api/coach/check-proactive
+// Analyses client activity, picks the right trigger, generates a proactive
+// Katie message if one hasn't been sent today.  Idempotent.
+router.post('/check-proactive', requireAuth(), async (req, res, next) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId   = await getOrCreateUser(userId)
+
+    // ── Cooldown: max 1 proactive message per calendar day ──────────────────
+    const { rows: todayRows } = await pool.query(
+      `SELECT id FROM coaching_conversations
+       WHERE user_id = $1
+         AND is_proactive = TRUE
+         AND DATE(created_at) = CURRENT_DATE`,
+      [dbUserId],
+    )
+    if (todayRows.length > 0) return res.json({ generated: false, reason: 'already_sent_today' })
+
+    // ── Gather activity data ────────────────────────────────────────────────
+    const todayStr    = new Date().toISOString().slice(0, 10)
+    const yesterday   = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)
+    const twoDaysAgo  = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10)
+    const sevenAgo    = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10)
+
+    const [{ rows: userRows }, { rows: mealDays }, { rows: streakDays }, { rows: dailyLogs }] =
+      await Promise.all([
+        pool.query(
+          `SELECT first_name, goal_protein, goal_calories, identity_anchors FROM users WHERE id = $1`,
+          [dbUserId],
+        ),
+        pool.query(
+          `SELECT COALESCE(log_date, logged_at::date)::text AS day,
+                  COUNT(*)::int AS meal_count,
+                  SUM(calories)::int AS total_cal,
+                  SUM(protein)::numeric AS total_protein
+           FROM meals
+           WHERE user_id = $1 AND COALESCE(log_date, logged_at::date) >= $2::date
+           GROUP BY 1 ORDER BY 1 DESC`,
+          [dbUserId, twoDaysAgo],
+        ),
+        pool.query(
+          `SELECT DISTINCT COALESCE(log_date, logged_at::date)::text AS day
+           FROM meals
+           WHERE user_id = $1 AND COALESCE(log_date, logged_at::date) >= $2::date
+           ORDER BY 1 DESC`,
+          [dbUserId, sevenAgo],
+        ),
+        pool.query(
+          `SELECT logged_date::text AS day, water_oz FROM daily_logs
+           WHERE user_id = $1 AND logged_date >= $2::date ORDER BY 1 DESC`,
+          [dbUserId, twoDaysAgo],
+        ),
+      ])
+
+    const user    = userRows[0] ?? {}
+    const mealMap = Object.fromEntries(mealDays.map(r => [r.day, r]))
+    const logMap  = Object.fromEntries(dailyLogs.map(r => [r.day, r]))
+
+    const yMeals  = mealMap[yesterday]
+    const y2Meals = mealMap[twoDaysAgo]
+    const yLog    = logMap[yesterday]
+
+    // ── Pick highest-priority trigger ────────────────────────────────────────
+    let trigger    = null
+    let triggerCtx = {}
+
+    if (!yMeals && !y2Meals) {
+      trigger = 'no_activity_2days'
+    } else if (!yMeals) {
+      trigger = 'missed_logging_yesterday'
+    } else if (user.goal_protein && parseFloat(yMeals.total_protein ?? 0) < user.goal_protein * 0.6) {
+      trigger    = 'low_protein_yesterday'
+      triggerCtx = { protein: Math.round(parseFloat(yMeals.total_protein ?? 0)), goal: user.goal_protein }
+    } else if (user.goal_calories && (yMeals.total_cal ?? 0) < user.goal_calories * 0.6) {
+      trigger    = 'low_calories_yesterday'
+      triggerCtx = { cal: yMeals.total_cal ?? 0, goal: user.goal_calories }
+    } else if (yLog?.water_oz != null && parseFloat(yLog.water_oz) < 48) {
+      trigger    = 'low_water_yesterday'
+      triggerCtx = { water: yLog.water_oz }
+    } else {
+      // Consecutive-streak check (5+ days)
+      let streak = 0
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10)
+        if (streakDays.find(s => s.day === d)) streak++
+        else break
+      }
+      if (streak >= 5) {
+        trigger    = 'consistency_win'
+        triggerCtx = { streak }
+      }
+    }
+
+    // General check-in only if no specific trigger AND no proactive msg in last 3 days
+    if (!trigger) {
+      const { rows: recentRows } = await pool.query(
+        `SELECT id FROM coaching_conversations
+         WHERE user_id = $1 AND is_proactive = TRUE AND created_at >= NOW() - INTERVAL '3 days'`,
+        [dbUserId],
+      )
+      if (recentRows.length > 0) return res.json({ generated: false, reason: 'no_trigger_and_recent_message' })
+      trigger = 'general_checkin'
+    }
+
+    // ── Duplicate guard: same trigger already sent for this date ─────────────
+    const { rows: dupRows } = await pool.query(
+      `SELECT id FROM coaching_conversations
+       WHERE user_id = $1 AND is_proactive = TRUE AND proactive_trigger = $2 AND trigger_date = $3`,
+      [dbUserId, trigger, todayStr],
+    )
+    if (dupRows.length > 0) return res.json({ generated: false, reason: 'duplicate_trigger' })
+
+    // ── Generate proactive message via Claude ─────────────────────────────────
+    const prompt = buildTriggerPrompt(trigger, triggerCtx)
+
+    const claudeMsg = await anthropic.messages.create({
+      model:      'claude-sonnet-4-6',
+      max_tokens: 200,
+      system:     `${KATIE_BASE_PROMPT}\n\nClient name: ${user.first_name ?? 'there'}. Identity anchors: ${user.identity_anchors?.join(', ') ?? 'not set yet'}.`,
+      messages:   [{ role: 'user', content: prompt }],
+    })
+
+    const katieMsgText = claudeMsg.content[0].text.trim()
+
+    // ── Persist with proactive flags ─────────────────────────────────────────
+    const { rows: saved } = await pool.query(
+      `INSERT INTO coaching_conversations
+         (user_id, role, message, is_proactive, proactive_trigger, trigger_date)
+       VALUES ($1, 'assistant', $2, TRUE, $3, $4)
+       RETURNING id, created_at`,
+      [dbUserId, katieMsgText, trigger, todayStr],
+    )
+
+    res.json({ generated: true, trigger, message: katieMsgText, id: saved[0].id })
+
+  } catch (err) {
+    next(err)
+  }
+})
+
+// GET /api/coach/unread-count
+// Returns { count: N } — unread proactive messages for the badge.
+router.get('/unread-count', requireAuth(), async (req, res, next) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId   = await getOrCreateUser(userId)
+
+    const { rows } = await pool.query(
+      `SELECT COUNT(*)::int AS count
+       FROM coaching_conversations
+       WHERE user_id = $1 AND is_proactive = TRUE AND read_at IS NULL`,
+      [dbUserId],
+    )
+    res.json({ count: rows[0].count })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// POST /api/coach/mark-read
+// Marks all unread proactive messages as read (clears the badge).
+router.post('/mark-read', requireAuth(), async (req, res, next) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId   = await getOrCreateUser(userId)
+
+    await pool.query(
+      `UPDATE coaching_conversations
+       SET read_at = NOW()
+       WHERE user_id = $1 AND is_proactive = TRUE AND read_at IS NULL`,
+      [dbUserId],
+    )
+    res.json({ ok: true })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// GET /api/coach/latest-proactive
+// Returns the most recent unread proactive message for the Dashboard banner.
+router.get('/latest-proactive', requireAuth(), async (req, res, next) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId   = await getOrCreateUser(userId)
+
+    const { rows } = await pool.query(
+      `SELECT id, message, proactive_trigger, created_at
+       FROM coaching_conversations
+       WHERE user_id = $1 AND is_proactive = TRUE AND read_at IS NULL
+       ORDER BY created_at DESC LIMIT 1`,
+      [dbUserId],
+    )
+    res.json(rows[0] ?? {})
+  } catch (err) {
+    next(err)
+  }
+})
+
 export default router

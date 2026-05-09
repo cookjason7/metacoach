@@ -102,9 +102,15 @@ export default function AICoach() {
     async function init() {
       try {
         const token = await getToken()
-        const res   = await fetch(`${API_URL}/api/coach/history`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
+        const headers = { Authorization: `Bearer ${token}` }
+
+        // Fire check-proactive (non-blocking — generates a message if triggered)
+        fetch(`${API_URL}/api/coach/check-proactive`, { method: 'POST', headers }).catch(() => {})
+
+        // Mark all unread proactive messages as read (clears sidebar/mobile badge)
+        fetch(`${API_URL}/api/coach/mark-read`, { method: 'POST', headers }).catch(() => {})
+
+        const res = await fetch(`${API_URL}/api/coach/history`, { headers })
         if (!res.ok) throw new Error('Failed to load history')
         const data = await res.json()
 
