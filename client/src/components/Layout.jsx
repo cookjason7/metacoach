@@ -141,10 +141,10 @@ export default function Layout() {
       </div>
 
       {/* Logout — always visible, pinned to bottom */}
-      <div className="px-4 pb-4">
+      <div className="px-4 pb-20 lg:pb-4">
         <button
           onClick={() => signOut(() => navigate('/sign-in'))}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-white/70 hover:bg-red-600/20 hover:text-red-400"
+          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors bg-red-600/20 text-red-400 hover:bg-red-600 hover:text-white"
         >
           <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v1" />
