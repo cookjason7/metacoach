@@ -260,7 +260,27 @@ function PlanReview({ plan, form, onSave, onRegenerate, onDiscard }) {
             <p className="text-sm font-semibold text-white">{day.day_name}</p>
             {day.focus && <p className="text-xs text-white/60 mt-0.5">{day.focus}</p>}
           </div>
-          <div className="overflow-x-auto">
+
+          {/* Mobile cards */}
+          <div className="lg:hidden divide-y divide-gray-100">
+            {day.exercises?.map((ex, ei) => (
+              <div key={ei} className="p-4">
+                <p className="text-sm font-semibold text-gray-900 mb-3">{ex.name}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {[['Sets', ex.sets], ['Reps', ex.reps], ['Weight', ex.weight ?? '—'], ['Rest', ex.rest_seconds ? `${ex.rest_seconds}s` : '—']].map(([lbl, val]) => (
+                    <div key={lbl} className="bg-gray-50 rounded-lg py-2 px-3 text-center">
+                      <p className="text-[10px] text-gray-400 uppercase tracking-wide">{lbl}</p>
+                      <p className="text-sm font-medium text-gray-700 mt-0.5">{val ?? '—'}</p>
+                    </div>
+                  ))}
+                </div>
+                {ex.notes && <p className="text-xs text-gray-400 mt-2">{ex.notes}</p>}
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden lg:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
@@ -508,7 +528,84 @@ function ProgramDetail({ program, onBack, onDeleted }) {
           <div className="bg-[#0F1E35] px-5 py-3">
             <p className="text-sm font-semibold text-white">{dayName}</p>
           </div>
-          <div className="overflow-x-auto">
+
+          {/* Mobile cards */}
+          <div className="lg:hidden divide-y divide-gray-100">
+            {exs.map(ex => editingId === ex.id ? (
+              <div key={ex.id} className="p-4 bg-orange-50 space-y-3">
+                <input
+                  autoFocus
+                  value={editForm.exercise_name}
+                  onChange={e => setEditForm(f => ({ ...f, exercise_name: e.target.value }))}
+                  placeholder="Exercise name"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                />
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[10px] text-gray-400 uppercase tracking-wide mb-1">Sets</label>
+                    <input
+                      type="number" min="0"
+                      value={editForm.sets}
+                      onChange={e => setEditForm(f => ({ ...f, sets: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-gray-400 uppercase tracking-wide mb-1">Reps</label>
+                    <input
+                      value={editForm.reps}
+                      onChange={e => setEditForm(f => ({ ...f, reps: e.target.value }))}
+                      placeholder="8-12"
+                      className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-gray-400 uppercase tracking-wide mb-1">Weight</label>
+                    <input
+                      value={editForm.weight}
+                      onChange={e => setEditForm(f => ({ ...f, weight: e.target.value }))}
+                      placeholder="lbs"
+                      className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => saveEdit(ex.id)}
+                    disabled={editSaving}
+                    className="flex-1 bg-[#E8670A] text-white py-2 rounded-lg text-sm font-semibold disabled:opacity-60"
+                  >{editSaving ? '…' : '✓ Save'}</button>
+                  <button
+                    onClick={() => setEditingId(null)}
+                    className="flex-1 bg-gray-100 text-gray-600 py-2 rounded-lg text-sm font-medium"
+                  >Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <div key={ex.id} className="p-4">
+                <div className="flex items-start justify-between gap-2 mb-3">
+                  <p className="text-sm font-semibold text-gray-900">{ex.exercise_name}</p>
+                  <button
+                    onClick={() => startEdit(ex)}
+                    className="text-gray-300 hover:text-[#E8670A] transition-colors p-1 -m-1 min-w-[44px] min-h-[44px] flex items-center justify-center"
+                    title="Edit"
+                  >✎</button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {[['Sets', ex.sets], ['Reps', ex.reps], ['Weight', ex.weight ?? '—'], ['Rest', ex.rest_seconds ? `${ex.rest_seconds}s` : '—']].map(([lbl, val]) => (
+                    <div key={lbl} className="bg-gray-50 rounded-lg py-2 px-3 text-center">
+                      <p className="text-[10px] text-gray-400 uppercase tracking-wide">{lbl}</p>
+                      <p className="text-sm font-medium text-gray-700 mt-0.5">{val ?? '—'}</p>
+                    </div>
+                  ))}
+                </div>
+                {ex.notes && <p className="text-xs text-gray-400 mt-2">{ex.notes}</p>}
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden lg:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
@@ -557,15 +654,8 @@ function ProgramDetail({ program, onBack, onDeleted }) {
                     <td className="px-2 py-2 text-xs text-gray-400">{ex.notes ?? ''}</td>
                     <td className="px-2 py-2">
                       <div className="flex gap-1">
-                        <button
-                          onClick={() => saveEdit(ex.id)}
-                          disabled={editSaving}
-                          className="px-2 py-1 bg-[#E8670A] text-white rounded text-xs font-semibold disabled:opacity-60"
-                        >✓</button>
-                        <button
-                          onClick={() => setEditingId(null)}
-                          className="px-2 py-1 text-gray-400 hover:text-gray-600 rounded text-xs border border-gray-200"
-                        >✕</button>
+                        <button onClick={() => saveEdit(ex.id)} disabled={editSaving} className="px-2 py-1 bg-[#E8670A] text-white rounded text-xs font-semibold disabled:opacity-60">✓</button>
+                        <button onClick={() => setEditingId(null)} className="px-2 py-1 text-gray-400 hover:text-gray-600 rounded text-xs border border-gray-200">✕</button>
                       </div>
                     </td>
                   </tr>
@@ -577,11 +667,7 @@ function ProgramDetail({ program, onBack, onDeleted }) {
                     <td className="px-3 py-3 text-center text-gray-500 text-xs">{ex.weight ?? (ex.rest_seconds ? `${ex.rest_seconds}s rest` : '—')}</td>
                     <td className="px-4 py-3 text-xs text-gray-500">{ex.notes ?? ''}</td>
                     <td className="px-2 py-3">
-                      <button
-                        onClick={() => startEdit(ex)}
-                        className="text-gray-300 hover:text-[#E8670A] transition-colors text-xs"
-                        title="Edit"
-                      >✎</button>
+                      <button onClick={() => startEdit(ex)} className="text-gray-300 hover:text-[#E8670A] transition-colors text-xs" title="Edit">✎</button>
                     </td>
                   </tr>
                 ))}

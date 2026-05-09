@@ -19,8 +19,8 @@ function getDefaultSlot() {
 
 const ING_UNITS = ['g', 'oz', 'cup', 'tbsp', 'tsp', 'pc', 'slice', 'ml']
 
-const SERVING_UNITS = ['g', 'oz', 'lb', 'tsp', 'tbsp', 'cup', 'fl oz', 'ml']
-const UNIT_TO_G = { g: 1, oz: 28.35, lb: 453.59, tsp: 5, tbsp: 15, cup: 240, 'fl oz': 30, ml: 1 }
+const SERVING_UNITS = ['g', 'oz', 'lb']
+const UNIT_TO_G = { g: 1, oz: 28.35, lb: 453.59 }
 function toGrams(amount, unit) { return amount * (UNIT_TO_G[unit] ?? 1) }
 
 // ── Shared UI pieces ──────────────────────────────────────────────────────────
@@ -475,6 +475,16 @@ function SearchMode({ slot, logDate }) {
     }
   }
 
+  function handleUnitChange(newUnit) {
+    const raw = parseFloat(amount)
+    if (!isNaN(raw) && raw > 0) {
+      const grams = raw * (UNIT_TO_G[unit] ?? 1)
+      const converted = grams / (UNIT_TO_G[newUnit] ?? 1)
+      setAmount((Math.round(converted * 1000) / 1000).toString())
+    }
+    setUnit(newUnit)
+  }
+
   function reset() {
     setQuery(''); setResults([]); setSelected(null)
     setAmount('100'); setUnit('g'); setSaved(false); setError(null)
@@ -552,7 +562,7 @@ function SearchMode({ slot, logDate }) {
               />
               <select
                 value={unit}
-                onChange={e => setUnit(e.target.value)}
+                onChange={e => handleUnitChange(e.target.value)}
                 className="border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
               >
                 {SERVING_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
