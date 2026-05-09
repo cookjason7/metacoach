@@ -31,6 +31,34 @@ const NUTRIENT_FIELDS = {
   1090: 'magnesium_mg',
 }
 
+const NUTRIENT_NUMBERS = {
+  208: 'calories',
+  203: 'protein_g',
+  204: 'fat_g',
+  205: 'carbs_g',
+  291: 'fiber_g',
+  307: 'sodium_mg',
+  306: 'potassium_mg',
+  301: 'calcium_mg',
+  303: 'iron_mg',
+  328: 'vitamin_d_mcg',
+  304: 'magnesium_mg',
+}
+
+const NUTRIENT_NAME_FIELDS = [
+  [/energy|calorie/i, 'calories'],
+  [/protein/i, 'protein_g'],
+  [/total lipid|total fat|fat/i, 'fat_g'],
+  [/carbohydrate/i, 'carbs_g'],
+  [/fiber|fibre/i, 'fiber_g'],
+  [/sodium/i, 'sodium_mg'],
+  [/potassium/i, 'potassium_mg'],
+  [/calcium/i, 'calcium_mg'],
+  [/iron/i, 'iron_mg'],
+  [/vitamin d/i, 'vitamin_d_mcg'],
+  [/magnesium/i, 'magnesium_mg'],
+]
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
@@ -60,13 +88,27 @@ async function fetchWithTimeout(url) {
  *
  * Both formats are handled here.
  */
+function nutrientField(fn) {
+  const id = Number(fn.nutrientId ?? fn.nutrient?.id ?? fn.nutrient?.nutrientId)
+  if (NUTRIENT_FIELDS[id]) return NUTRIENT_FIELDS[id]
+
+  const number = Number(fn.nutrientNumber ?? fn.nutrient?.number ?? fn.nutrient?.nutrientNumber)
+  if (NUTRIENT_NUMBERS[number]) return NUTRIENT_NUMBERS[number]
+
+  const name = fn.nutrientName ?? fn.nutrient?.name
+  if (!name) return null
+  const found = NUTRIENT_NAME_FIELDS.find(([pattern]) => pattern.test(name))
+  return found?.[1] ?? null
+}
+
 function extractMacros(foodNutrients = []) {
   const out = {}
   for (const fn of foodNutrients) {
-    const id     = fn.nutrientId ?? fn.nutrient?.id
-    const amount = fn.value      ?? fn.amount
-    const field  = NUTRIENT_FIELDS[id]
-    if (field && amount != null) out[field] = Math.round(amount * 10) / 10
+    const amount = fn.value ?? fn.amount
+    const field = nutrientField(fn)
+    if (field && amount != null && !Number.isNaN(Number(amount))) {
+      out[field] = Math.round(Number(amount) * 10) / 10
+    }
   }
   return out
 }

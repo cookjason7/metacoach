@@ -24,6 +24,23 @@ function withFoodSource(food, fallbackSource = 'local') {
   }
 }
 
+function parseNutrientNumbers(food) {
+  return {
+    ...food,
+    calories: food.calories != null ? parseFloat(food.calories) : null,
+    protein_g: food.protein_g != null ? parseFloat(food.protein_g) : null,
+    fat_g: food.fat_g != null ? parseFloat(food.fat_g) : null,
+    carbs_g: food.carbs_g != null ? parseFloat(food.carbs_g) : null,
+    fiber_g: food.fiber_g != null ? parseFloat(food.fiber_g) : null,
+    sodium_mg: food.sodium_mg != null ? parseFloat(food.sodium_mg) : null,
+    potassium_mg: food.potassium_mg != null ? parseFloat(food.potassium_mg) : null,
+    calcium_mg: food.calcium_mg != null ? parseFloat(food.calcium_mg) : null,
+    iron_mg: food.iron_mg != null ? parseFloat(food.iron_mg) : null,
+    vitamin_d_mcg: food.vitamin_d_mcg != null ? parseFloat(food.vitamin_d_mcg) : null,
+    magnesium_mg: food.magnesium_mg != null ? parseFloat(food.magnesium_mg) : null,
+  }
+}
+
 // ── Local search ──────────────────────────────────────────────────────────────
 
 /**
@@ -79,20 +96,7 @@ async function localSearch(q, limit, offset) {
     OFFSET $3
   `, [q, limit, offset])
 
-  return rows.map(({ _rank, ...food }) => withFoodSource({
-    ...food,
-    calories:  food.calories  != null ? parseFloat(food.calories)  : null,
-    protein_g: food.protein_g != null ? parseFloat(food.protein_g) : null,
-    fat_g:     food.fat_g     != null ? parseFloat(food.fat_g)     : null,
-    carbs_g:   food.carbs_g   != null ? parseFloat(food.carbs_g)   : null,
-    fiber_g:   food.fiber_g   != null ? parseFloat(food.fiber_g)   : null,
-    sodium_mg: food.sodium_mg != null ? parseFloat(food.sodium_mg) : null,
-    potassium_mg: food.potassium_mg != null ? parseFloat(food.potassium_mg) : null,
-    calcium_mg: food.calcium_mg != null ? parseFloat(food.calcium_mg) : null,
-    iron_mg: food.iron_mg != null ? parseFloat(food.iron_mg) : null,
-    vitamin_d_mcg: food.vitamin_d_mcg != null ? parseFloat(food.vitamin_d_mcg) : null,
-    magnesium_mg: food.magnesium_mg != null ? parseFloat(food.magnesium_mg) : null,
-  }))
+  return rows.map(({ _rank, ...food }) => withFoodSource(parseNutrientNumbers(food)))
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
@@ -294,8 +298,19 @@ router.get('/fdc/:fdcId', requireAuth(), async (req, res, next) => {
     // Try local first — faster and works offline
     const { rows: [local] } = await pool.query(`
       SELECT
-        f.id, f.fdc_id, f.name, f.data_type, f.calories,
+        f.id, f.fdc_id, f.name, f.data_type,
+        ROUND(f.calories::numeric, 1) AS calories,
         f.serving_size, f.serving_size_unit,
+        ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1003 THEN fn.amount END)::numeric, 1) AS protein_g,
+        ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1004 THEN fn.amount END)::numeric, 1) AS fat_g,
+        ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1005 THEN fn.amount END)::numeric, 1) AS carbs_g,
+        ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1079 THEN fn.amount END)::numeric, 1) AS fiber_g,
+        ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1093 THEN fn.amount END)::numeric, 0) AS sodium_mg,
+        ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1092 THEN fn.amount END)::numeric, 0) AS potassium_mg,
+        ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1087 THEN fn.amount END)::numeric, 0) AS calcium_mg,
+        ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1089 THEN fn.amount END)::numeric, 1) AS iron_mg,
+        ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1114 THEN fn.amount END)::numeric, 1) AS vitamin_d_mcg,
+        ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1090 THEN fn.amount END)::numeric, 0) AS magnesium_mg,
         json_agg(json_build_object(
           'name',      n.name,
           'unit_name', n.unit_name,
@@ -308,7 +323,7 @@ router.get('/fdc/:fdcId', requireAuth(), async (req, res, next) => {
       GROUP BY f.id
     `, [fdcId])
 
-    if (local) return res.json(withFoodSource(local))
+    if (local) return res.json(withFoodSource(parseNutrientNumbers(local)))
 
     // Not in local DB — fetch from USDA API
     try {
@@ -331,8 +346,19 @@ router.get('/:id', requireAuth(), async (req, res, next) => {
   try {
     const { rows: [food] } = await pool.query(`
       SELECT
-        f.id, f.fdc_id, f.name, f.data_type, f.calories,
+        f.id, f.fdc_id, f.name, f.data_type,
+        ROUND(f.calories::numeric, 1) AS calories,
         f.serving_size, f.serving_size_unit,
+        ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1003 THEN fn.amount END)::numeric, 1) AS protein_g,
+        ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1004 THEN fn.amount END)::numeric, 1) AS fat_g,
+        ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1005 THEN fn.amount END)::numeric, 1) AS carbs_g,
+        ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1079 THEN fn.amount END)::numeric, 1) AS fiber_g,
+        ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1093 THEN fn.amount END)::numeric, 0) AS sodium_mg,
+        ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1092 THEN fn.amount END)::numeric, 0) AS potassium_mg,
+        ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1087 THEN fn.amount END)::numeric, 0) AS calcium_mg,
+        ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1089 THEN fn.amount END)::numeric, 1) AS iron_mg,
+        ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1114 THEN fn.amount END)::numeric, 1) AS vitamin_d_mcg,
+        ROUND(MAX(CASE WHEN n.fdc_nutrient_id = 1090 THEN fn.amount END)::numeric, 0) AS magnesium_mg,
         json_agg(json_build_object(
           'name',      n.name,
           'unit_name', n.unit_name,
@@ -346,7 +372,7 @@ router.get('/:id', requireAuth(), async (req, res, next) => {
     `, [req.params.id])
 
     if (!food) return res.status(404).json({ error: 'Food not found' })
-    res.json(withFoodSource(food))
+    res.json(withFoodSource(parseNutrientNumbers(food)))
   } catch (err) {
     next(err)
   }
