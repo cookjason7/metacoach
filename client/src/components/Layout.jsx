@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { UserButton, useUser, useAuth } from '@clerk/clerk-react'
+import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { UserButton, useUser, useAuth, useClerk } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 
 const NAV_ITEMS = [
@@ -19,6 +19,8 @@ const SIDEBAR_BG = '#0F1E35'
 export default function Layout() {
   const { user, isLoaded } = useUser()
   const { getToken }       = useAuth()
+  const { signOut }        = useClerk()
+  const navigate           = useNavigate()
   const [isAdmin,     setIsAdmin]     = useState(false)
   const [notifCount,  setNotifCount]  = useState(0)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -80,7 +82,7 @@ export default function Layout() {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 space-y-0.5">
+      <nav className="flex-1 overflow-y-auto px-3 space-y-0.5">
         {navItems.map(({ to, href, label }) =>
           href ? (
             <a
@@ -126,7 +128,7 @@ export default function Layout() {
       </div>
 
       {/* User */}
-      <div className="px-4 py-4 flex items-center gap-3" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+      <div className="px-4 pt-3 pb-2 flex items-center gap-3" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
         <UserButton afterSignOutUrl="/sign-in" />
         <div className="min-w-0">
           <p className="text-sm font-medium text-white truncate">
@@ -136,6 +138,19 @@ export default function Layout() {
             {user?.primaryEmailAddress?.emailAddress}
           </p>
         </div>
+      </div>
+
+      {/* Logout — always visible, pinned to bottom */}
+      <div className="px-4 pb-4">
+        <button
+          onClick={() => signOut(() => navigate('/sign-in'))}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-white/70 hover:bg-red-600/20 hover:text-red-400"
+        >
+          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v1" />
+          </svg>
+          Log Out
+        </button>
       </div>
     </>
   )
