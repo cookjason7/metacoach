@@ -4,121 +4,82 @@ import { Link } from 'react-router-dom'
 import { API_URL } from '../config.js'
 import MicronutrientTotals from '../components/MicronutrientTotals.jsx'
 
-// ── Gamification Card ──────────────────────────────────────────────────────────
+// ── Gamification Banner (compact, tappable) ───────────────────────────────────
+
+const STREAK_ITEMS = [
+  { icon: '🔥', key: 'food_log' },
+  { icon: '💧', key: 'water_goal' },
+  { icon: '💪', key: 'protein_goal' },
+  { icon: '🏋️', key: 'workout' },
+]
 
 function GamificationCard({ data, loading }) {
   if (loading) {
     return (
-      <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-8 animate-pulse">
-        <div className="h-4 bg-gray-100 rounded w-1/3 mb-3" />
-        <div className="h-8 bg-gray-100 rounded w-1/2 mb-4" />
-        <div className="grid grid-cols-4 gap-2">
-          {[...Array(4)].map((_, i) => <div key={i} className="h-16 bg-gray-100 rounded-xl" />)}
+      <div className="bg-white rounded-2xl border border-gray-200 px-4 py-3 mb-5 animate-pulse">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-6 h-6 bg-gray-100 rounded" />
+          <div className="h-3.5 bg-gray-100 rounded w-20" />
+          <div className="ml-auto flex gap-3">
+            {[...Array(4)].map((_, i) => <div key={i} className="w-8 h-3.5 bg-gray-100 rounded" />)}
+          </div>
         </div>
+        <div className="h-1.5 bg-gray-100 rounded-full" />
       </div>
     )
   }
   if (!data) return null
 
-  const STREAK_ITEMS = [
-    { label: 'Food',    icon: '🔥', key: 'food_log',     unit: 'days' },
-    { label: 'Water',   icon: '💧', key: 'water_goal',   unit: 'days' },
-    { label: 'Protein', icon: '💪', key: 'protein_goal', unit: 'days' },
-    { label: 'Workout', icon: '🏋️', key: 'workout',      unit: 'wks'  },
-  ]
-
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-8">
-      {/* Rank row */}
-      <div className="flex items-center gap-3 mb-3">
-        <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0"
-          style={{ backgroundColor: data.rank_bg }}>
-          {data.rank_icon}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-[11px] text-gray-500 uppercase tracking-wide">Your Rank</p>
-          <p className="text-lg font-bold leading-tight" style={{ color: data.rank_color }}>
-            {data.rank}
-          </p>
-        </div>
-        <div className="text-right shrink-0">
-          <p className="text-[11px] text-gray-500 uppercase tracking-wide">Total XP</p>
-          <p className="text-xl font-bold text-gray-900">{data.total_xp.toLocaleString()}</p>
-        </div>
-      </div>
-
-      {/* XP progress bar */}
-      {data.next_rank ? (
-        <div className="mb-4">
-          <div className="flex justify-between text-[11px] text-gray-500 mb-1">
-            <span>{data.rank}</span>
-            <span className="font-medium" style={{ color: data.rank_color }}>
-              {data.xp_to_next_rank} XP to {data.next_rank}
-            </span>
-          </div>
-          <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all duration-700"
-              style={{ width: `${data.progress_pct}%`, backgroundColor: data.rank_color }}
-            />
-          </div>
-        </div>
-      ) : (
-        <div className="mb-4 text-xs font-semibold text-center py-1 rounded-lg"
-          style={{ color: data.rank_color, backgroundColor: data.rank_bg }}>
-          🎉 Maximum rank achieved!
-        </div>
-      )}
-
-      {/* Streak row */}
-      <div className="grid grid-cols-4 gap-2 mb-4">
-        {STREAK_ITEMS.map(s => {
-          const count = data.streaks[s.key] ?? 0
-          const hot   = count >= 3
-          return (
-            <div key={s.key} className={`rounded-xl p-2.5 text-center ${hot ? 'bg-orange-50' : 'bg-gray-50'}`}>
-              <span className="text-xl leading-none">{s.icon}</span>
-              <p className={`text-lg font-bold leading-tight mt-0.5 ${hot ? 'text-[#E8670A]' : 'text-gray-700'}`}>
-                {count}
-              </p>
-              <p className="text-[9px] text-gray-500 leading-none mt-0.5 uppercase tracking-wide">
-                {s.label}
-              </p>
-              <p className="text-[9px] text-gray-400 leading-none">{s.unit}</p>
-            </div>
-          )
-        })}
-      </div>
-
-      {/* Recent badges */}
-      {data.recent_badges?.length > 0 && (
-        <div className="mb-3">
-          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            Recent Badges
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {data.recent_badges.map(b => (
-              <div key={b.badge_id}
-                className="flex items-center gap-1.5 bg-[#fff7ed] border border-orange-200 rounded-lg px-2.5 py-1.5">
-                <span className="text-base leading-none">{b.icon}</span>
-                <span className="text-xs font-medium text-gray-700">{b.name}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Footer */}
-      <div className="flex items-center justify-between pt-1">
-        <span className="text-xs text-gray-400">
-          {data.badges_count} badge{data.badges_count !== 1 ? 's' : ''} earned
+    <Link
+      to="/badges"
+      className="block bg-white rounded-2xl border border-gray-200 px-4 py-3 mb-5 hover:border-gray-300 active:bg-gray-50 transition-colors group"
+    >
+      {/* Row 1 — rank icon · rank name · XP · streaks · chevron */}
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-lg leading-none shrink-0">{data.rank_icon}</span>
+        <span className="text-sm font-bold leading-none shrink-0" style={{ color: data.rank_color }}>
+          {data.rank}
         </span>
-        <Link to="/badges"
-          className="text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] transition-colors">
-          View all achievements →
-        </Link>
+        <span className="text-xs text-gray-400 leading-none shrink-0">
+          {data.total_xp.toLocaleString()} XP
+        </span>
+
+        {/* Streaks pushed to the right */}
+        <div className="ml-auto flex items-center gap-3">
+          {STREAK_ITEMS.map(s => {
+            const count = data.streaks[s.key] ?? 0
+            const hot   = count >= 3
+            return (
+              <span key={s.key}
+                className={`text-xs font-bold leading-none tabular-nums ${hot ? 'text-[#E8670A]' : 'text-gray-400'}`}>
+                {s.icon} {count}
+              </span>
+            )
+          })}
+          <svg className="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-500 transition-colors shrink-0"
+            fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
       </div>
-    </div>
+
+      {/* Row 2 — XP progress bar */}
+      <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-700"
+          style={{
+            width: `${data.next_rank ? data.progress_pct : 100}%`,
+            backgroundColor: data.rank_color,
+          }}
+        />
+      </div>
+      {data.next_rank && (
+        <p className="text-[10px] text-gray-400 mt-0.5 text-right leading-none">
+          {data.xp_to_next_rank} XP to {data.next_rank}
+        </p>
+      )}
+    </Link>
   )
 }
 
@@ -332,7 +293,10 @@ export default function Dashboard() {
   return (
     <div>
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Dashboard</h1>
-      <p className="text-sm text-gray-500 mb-8">Today's overview</p>
+      <p className="text-sm text-gray-500 mb-4">Today's overview</p>
+
+      {/* Gamification — compact rank/XP/streak bar */}
+      <GamificationCard data={gamData} loading={gamLoading} />
 
       <KatieBanner message={katieBanner} onDismiss={() => setKatieBanner(null)} />
 
@@ -413,10 +377,6 @@ export default function Dashboard() {
           <StatCard key={s.label} label={s.label} value={loading ? '…' : s.value} color={s.color} sub="set by coach" />
         ))}
       </div>
-
-      {/* Gamification */}
-      <h2 className="text-sm font-semibold text-gray-700 mb-3">Your Progress</h2>
-      <GamificationCard data={gamData} loading={gamLoading} />
 
       {/* Daily Tracking inputs */}
       <h2 className="text-sm font-semibold text-gray-700 mb-3">Log Today</h2>
