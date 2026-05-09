@@ -319,47 +319,78 @@ function MealEntry({ meal, onEdit, onDelete, onCopy, onMove }) {
 
 function SlotSection({ name, meals, onAddClick, onEdit, onDelete, onCopy, onMove }) {
   const [open, setOpen] = useState(true)
-  const t = sumMacros(meals)
+  const t     = sumMacros(meals)
+  const count = meals.length
 
   return (
-    <div className="mb-3 rounded-2xl overflow-hidden border border-gray-200 bg-white" style={{ borderLeft: '4px solid #E8670A' }}>
+    <div className="mb-3 rounded-2xl border border-gray-200 bg-white overflow-hidden" style={{ borderLeft: '4px solid #E8670A' }}>
+
+      {/* ── Header row — always visible ─────────────────────────────────────── */}
       <div
-        className="flex items-center justify-between px-4 py-3 cursor-pointer select-none"
+        className="flex items-center gap-3 px-4 py-3.5 cursor-pointer select-none"
         onClick={() => setOpen(o => !o)}
       >
-        <div>
-          <p className="text-base font-bold text-gray-900 leading-none">{name}</p>
-          {meals.length > 0 && (
-            <p className="text-xs text-gray-500 mt-1">
-              <span className="font-semibold" style={{ color: MACRO_COLORS.protein }}>{t.protein.toFixed(0)}P</span>
-              {' · '}
-              <span className="font-semibold" style={{ color: MACRO_COLORS.carbs }}>{t.carbs.toFixed(0)}C</span>
-              {' · '}
-              <span className="font-semibold" style={{ color: MACRO_COLORS.fat }}>{t.fat.toFixed(0)}F</span>
-              {' · '}
-              <span className="font-semibold text-[#E8670A]">{Math.round(t.calories)} cal</span>
-            </p>
+        {/* Slot name + macro summary */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-bold text-gray-900">{name}</span>
+            {count > 0 && (
+              <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 rounded-full px-1.5 py-0.5 leading-none">
+                {count} item{count !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+
+          {count > 0 ? (
+            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+              <span className="text-xs font-bold text-[#E8670A]">{Math.round(t.calories)} cal</span>
+              <span className="text-gray-300 text-[10px]">·</span>
+              <span className="text-[11px] font-semibold" style={{ color: MACRO_COLORS.protein }}>{t.protein.toFixed(0)}g P</span>
+              <span className="text-gray-300 text-[10px]">·</span>
+              <span className="text-[11px] font-semibold" style={{ color: MACRO_COLORS.carbs }}>{t.carbs.toFixed(0)}g C</span>
+              <span className="text-gray-300 text-[10px]">·</span>
+              <span className="text-[11px] font-semibold" style={{ color: MACRO_COLORS.fat }}>{t.fat.toFixed(0)}g F</span>
+            </div>
+          ) : (
+            <p className="text-xs text-gray-400 mt-0.5">Nothing logged yet</p>
           )}
-          {meals.length === 0 && <p className="text-xs text-gray-400 mt-0.5">No food logged</p>}
         </div>
+
+        {/* Add button + chevron */}
         <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={e => { e.stopPropagation(); onAddClick() }}
             className="w-8 h-8 bg-[#E8670A] text-white rounded-full text-xl font-light flex items-center justify-center hover:bg-[#c45e09] transition-colors shadow-sm"
+            aria-label={`Add food to ${name}`}
           >
             +
           </button>
-          <span className={`text-gray-300 text-sm transition-transform ${open ? '' : '-rotate-90'}`}>▾</span>
+          <svg
+            className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${open ? 'rotate-0' : '-rotate-90'}`}
+            fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
         </div>
       </div>
 
-      {open && meals.length > 0 && (
-        <div className="border-t border-gray-100">
-          {meals.map(meal => (
-            <MealEntry key={meal.id} meal={meal} onEdit={onEdit} onDelete={onDelete} onCopy={onCopy} onMove={onMove} />
-          ))}
+      {/* ── Animated content area ────────────────────────────────────────────── */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateRows: open && count > 0 ? '1fr' : '0fr',
+          transition: 'grid-template-rows 200ms ease',
+        }}
+      >
+        <div style={{ overflow: 'hidden' }}>
+          <div className="border-t border-gray-100">
+            {meals.map(meal => (
+              <MealEntry key={meal.id} meal={meal} onEdit={onEdit} onDelete={onDelete} onCopy={onCopy} onMove={onMove} />
+            ))}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }
