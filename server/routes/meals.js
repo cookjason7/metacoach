@@ -110,16 +110,16 @@ router.post('/manual', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const dbUserId = await getOrCreateUser(userId)
-    const { meal_name, calories, protein_g, carbs_g, fat_g, fiber_g, meal_slot } = req.body
+    const { meal_name, calories, protein_g, carbs_g, fat_g, fiber_g, meal_slot, log_date } = req.body
 
     if (!meal_name?.trim()) return res.status(400).json({ error: 'Meal name required' })
 
     const { rows } = await pool.query(
-      `INSERT INTO meals (user_id, meal_name, calories, protein, carbs, fat, fiber, meal_slot)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO meals (user_id, meal_name, calories, protein, carbs, fat, fiber, meal_slot, log_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
       [dbUserId, meal_name.trim(), calories ?? null, protein_g ?? null,
-       carbs_g ?? null, fat_g ?? null, fiber_g ?? null, meal_slot ?? null],
+       carbs_g ?? null, fat_g ?? null, fiber_g ?? null, meal_slot ?? null, log_date ?? null],
     )
     res.status(201).json(rows[0])
   } catch (err) {
@@ -132,7 +132,7 @@ router.post('/text-log', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const dbUserId = await getOrCreateUser(userId)
-    const { text, meal_slot } = req.body
+    const { text, meal_slot, log_date } = req.body
 
     if (!text?.trim()) return res.status(400).json({ error: 'Text required' })
 
@@ -166,11 +166,11 @@ Return only valid JSON, no markdown.`,
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO meals (user_id, meal_name, calories, protein, carbs, fat, fiber, sugar, meal_slot)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      `INSERT INTO meals (user_id, meal_name, calories, protein, carbs, fat, fiber, sugar, meal_slot, log_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
       [dbUserId, parsed.meal_name, parsed.calories ?? null, parsed.protein_g ?? null,
        parsed.carbs_g ?? null, parsed.fat_g ?? null, parsed.fiber_g ?? null,
-       parsed.sugar_g ?? null, meal_slot ?? null],
+       parsed.sugar_g ?? null, meal_slot ?? null, log_date ?? null],
     )
     res.status(201).json(rows[0])
   } catch (err) {
@@ -251,7 +251,7 @@ router.post('/:id/copy', requireAuth(), async (req, res, next) => {
 router.post('/', requireAuth(), upload.single('photo'), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
-    const { meal_name, calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, meal_slot } = req.body
+    const { meal_name, calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, meal_slot, log_date } = req.body
     const dbUserId = await getOrCreateUser(userId)
 
     let photo_url = null
@@ -265,11 +265,11 @@ router.post('/', requireAuth(), upload.single('photo'), async (req, res, next) =
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO meals (user_id, meal_name, photo_url, calories, protein, carbs, fat, fiber, sugar, meal_slot)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO meals (user_id, meal_name, photo_url, calories, protein, carbs, fat, fiber, sugar, meal_slot, log_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
       [dbUserId, meal_name, photo_url, calories, protein_g, carbs_g, fat_g,
-       fiber_g ?? null, sugar_g ?? null, meal_slot ?? null],
+       fiber_g ?? null, sugar_g ?? null, meal_slot ?? null, log_date ?? null],
     )
     res.status(201).json(rows[0])
   } catch (err) {
@@ -337,10 +337,12 @@ router.get('/', requireAuth(), async (req, res, next) => {
   }
 })
 
-// GET /api/meals/today — daily macro totals
+// GET /api/meals/today — daily macro totals (accepts optional ?date=YYYY-MM-DD)
 router.get('/today', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
+    // Client passes its local date; fall back to server CURRENT_DATE if not provided
+    const date = req.query.date ?? new Date().toISOString().slice(0, 10)
 
     const { rows } = await pool.query(
       `SELECT
@@ -353,9 +355,8 @@ router.get('/today', requireAuth(), async (req, res, next) => {
        FROM meals m
        JOIN users u ON u.id = m.user_id
        WHERE u.clerk_user_id = $1
-         AND m.logged_at >= CURRENT_DATE
-         AND m.logged_at <  CURRENT_DATE + INTERVAL '1 day'`,
-      [userId],
+         AND COALESCE(m.log_date, m.logged_at::date) = $2::date`,
+      [userId, date],
     )
     res.json(rows[0])
   } catch (err) {

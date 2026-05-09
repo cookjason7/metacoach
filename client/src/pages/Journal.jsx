@@ -9,6 +9,10 @@ const SLOTS = ['Breakfast', 'AM Snack', 'Lunch', 'PM Snack', 'Dinner', 'Late Sna
 const DAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 const MACRO_COLORS = { protein: '#EC4899', carbs: '#3B82F6', fat: '#10B981', calories: '#E8670A' }
 
+const SERVING_UNITS = ['g', 'oz', 'lb', 'cup', 'tbsp', 'tsp', 'ml', 'fl oz']
+const UNIT_TO_G = { g: 1, oz: 28.3495, lb: 453.592, cup: 240, tbsp: 15, tsp: 5, ml: 1, 'fl oz': 29.5735 }
+function toGrams(amount, unit) { return amount * (UNIT_TO_G[unit] ?? 1) }
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function toDateStr(d) {
@@ -106,8 +110,10 @@ function MacroRing({ label, value, goal, color, unit = 'g' }) {
 // ── Week Strip ─────────────────────────────────────────────────────────────────
 
 function WeekStrip({ weekDays, selected, onChange, activeDates, onShift }) {
-  const todayStr = toDateStr(new Date())
-  const selStr   = toDateStr(selected)
+  const todayStr   = toDateStr(new Date())
+  const maxDate    = new Date(); maxDate.setDate(maxDate.getDate() + 7)
+  const maxDateStr = toDateStr(maxDate)
+  const selStr     = toDateStr(selected)
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 px-3 py-3 mb-4">
@@ -125,7 +131,7 @@ function WeekStrip({ weekDays, selected, onChange, activeDates, onShift }) {
         </span>
         <button
           onClick={() => onShift(7)}
-          disabled={toDateStr(weekDays[6]) >= todayStr}
+          disabled={toDateStr(weekDays[6]) >= maxDateStr}
           className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm"
         >
           ›
@@ -138,7 +144,7 @@ function WeekStrip({ weekDays, selected, onChange, activeDates, onShift }) {
           const isSel   = ds === selStr
           const isToday = ds === todayStr
           const hasMeal = activeDates.has(ds)
-          const isFuture = ds > todayStr
+          const isFuture = ds > maxDateStr
 
           return (
             <button
@@ -516,7 +522,7 @@ function CopyMealModal({ meal, onConfirm, onClose }) {
 
 // ── Photo Logger (auto-save) ───────────────────────────────────────────────────
 
-function PhotoLogger({ slotName, onSaved }) {
+function PhotoLogger({ slotName, onSaved, logDate }) {
   const { getToken } = useAuth()
   const inputRef = useRef(null)
   const [photo,       setPhoto]       = useState(null)
@@ -560,6 +566,7 @@ function PhotoLogger({ slotName, onSaved }) {
       sf.append('meal_slot', slotName)
       if (a.fiber_g  != null) sf.append('fiber_g',  a.fiber_g)
       if (a.sugar_g  != null) sf.append('sugar_g',  a.sugar_g)
+      if (logDate)            sf.append('log_date', logDate)
       const sRes = await fetch(`${API_URL}/api/meals`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: sf })
       if (!sRes.ok) throw new Error(`Save failed (${sRes.status})`)
       const saved = await sRes.json()
@@ -662,7 +669,7 @@ function PhotoLogger({ slotName, onSaved }) {
 
 // ── Text Logger ────────────────────────────────────────────────────────────────
 
-function TextLogger({ slotName, onSaved }) {
+function TextLogger({ slotName, onSaved, logDate }) {
   const { getToken } = useAuth()
   const [text,   setText]   = useState('')
   const [phase,  setPhase]  = useState('idle')
@@ -678,7 +685,7 @@ function TextLogger({ slotName, onSaved }) {
       const res = await fetch(`${API_URL}/api/meals/text-log`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: text.trim(), meal_slot: slotName }),
+        body: JSON.stringify({ text: text.trim(), meal_slot: slotName, log_date: logDate }),
       })
       if (!res.ok) {
         const { error: msg } = await res.json().catch(() => ({}))
@@ -741,14 +748,15 @@ function TextLogger({ slotName, onSaved }) {
 
 // ── Search Logger ──────────────────────────────────────────────────────────────
 
-function SearchLogger({ slotName, onSaved }) {
+function SearchLogger({ slotName, onSaved, logDate }) {
   const { getToken } = useAuth()
   const debounceRef  = useRef(null)
   const [query,     setQuery]     = useState('')
   const [results,   setResults]   = useState([])
   const [searching, setSearching] = useState(false)
   const [selected,  setSelected]  = useState(null)
-  const [grams,     setGrams]     = useState('100')
+  const [amount,    setAmount]    = useState('100')
+  const [unit,      setUnit]      = useState('g')
   const [saving,    setSaving]    = useState(false)
   const [saved,     setSaved]     = useState(false)
   const [error,     setError]     = useState(null)
@@ -771,6 +779,13 @@ function SearchLogger({ slotName, onSaved }) {
     } catch { setResults([]) } finally { setSearching(false) }
   }
 
+  function handleUnitChange(newUnit) {
+    const grams = toGrams(parseFloat(amount) || 0, unit)
+    const newAmount = grams / (UNIT_TO_G[newUnit] ?? 1)
+    setAmount(+newAmount.toFixed(2) + '')
+    setUnit(newUnit)
+  }
+
   function calcMacros(food, g) {
     const r = g / 100
     return {
@@ -786,14 +801,24 @@ function SearchLogger({ slotName, onSaved }) {
     if (!selected) return
     setSaving(true); setError(null)
     try {
-      const g = parseFloat(grams)
-      if (isNaN(g) || g <= 0) throw new Error('Enter a valid gram amount')
+      const a = parseFloat(amount)
+      if (isNaN(a) || a <= 0) throw new Error('Enter a valid amount')
+      const g = toGrams(a, unit)
       const macros = calcMacros(selected, g)
       const token  = await getToken()
       const res = await fetch(`${API_URL}/api/meals/manual`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ meal_name: selected.name, ...macros, protein_g: macros.protein, carbs_g: macros.carbs, fat_g: macros.fat, fiber_g: macros.fiber, meal_slot: slotName }),
+        body: JSON.stringify({
+          meal_name: selected.name,
+          ...macros,
+          protein_g: macros.protein,
+          carbs_g: macros.carbs,
+          fat_g: macros.fat,
+          fiber_g: macros.fiber,
+          meal_slot: slotName,
+          log_date: logDate,
+        }),
       })
       if (!res.ok) throw new Error('Failed to save')
       const meal = await res.json()
@@ -802,6 +827,9 @@ function SearchLogger({ slotName, onSaved }) {
     } catch (err) { setError(err.message) } finally { setSaving(false) }
   }
 
+  const grams = toGrams(parseFloat(amount) || 0, unit)
+  const preview = selected && grams > 0 ? calcMacros(selected, grams) : null
+
   if (saved && selected) {
     return (
       <div className="space-y-4">
@@ -809,19 +837,16 @@ function SearchLogger({ slotName, onSaved }) {
           <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0">✓</div>
           <div>
             <p className="text-sm font-semibold text-gray-900">{selected.name}</p>
-            <p className="text-xs text-gray-500">{calcMacros(selected, parseFloat(grams)).calories} cal</p>
+            <p className="text-xs text-gray-500">{preview?.calories ?? 0} cal</p>
           </div>
         </div>
-        <button onClick={() => { setQuery(''); setResults([]); setSelected(null); setGrams('100'); setSaved(false) }}
+        <button onClick={() => { setQuery(''); setResults([]); setSelected(null); setAmount('100'); setUnit('g'); setSaved(false) }}
           className="w-full py-2.5 rounded-xl text-sm font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
           Search Again
         </button>
       </div>
     )
   }
-
-  const g = parseFloat(grams)
-  const preview = selected && !isNaN(g) && g > 0 ? calcMacros(selected, g) : null
 
   return (
     <div className="space-y-3">
@@ -849,9 +874,15 @@ function SearchLogger({ slotName, onSaved }) {
             <button onClick={() => setSelected(null)} className="text-xs text-gray-400 hover:text-gray-600">Change</button>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Portion (grams)</label>
-            <input type="number" value={grams} onChange={e => setGrams(e.target.value)} min="1"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+            <label className="block text-xs font-medium text-gray-600 mb-1">Portion</label>
+            <div className="flex gap-2">
+              <input type="number" value={amount} onChange={e => setAmount(e.target.value)} min="0.01" step="any"
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+              <select value={unit} onChange={e => handleUnitChange(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white">
+                {SERVING_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
           </div>
           {preview && (
             <div className="grid grid-cols-4 gap-2 text-center text-xs">
@@ -876,7 +907,7 @@ function SearchLogger({ slotName, onSaved }) {
 
 // ── Manual Logger ──────────────────────────────────────────────────────────────
 
-function ManualLogger({ slotName, onSaved }) {
+function ManualLogger({ slotName, onSaved, logDate }) {
   const { getToken } = useAuth()
   const [form,   setForm]   = useState({ meal_name: '', calories: '', protein_g: '', carbs_g: '', fat_g: '', fiber_g: '' })
   const [saving, setSaving] = useState(false)
@@ -902,6 +933,7 @@ function ManualLogger({ slotName, onSaved }) {
           fat_g:     form.fat_g     !== '' ? Number(form.fat_g)     : null,
           fiber_g:   form.fiber_g   !== '' ? Number(form.fiber_g)   : null,
           meal_slot: slotName,
+          log_date:  logDate,
         }),
       })
       if (!res.ok) throw new Error('Save failed')
@@ -953,7 +985,7 @@ function ManualLogger({ slotName, onSaved }) {
 
 // ── Barcode Logger ─────────────────────────────────────────────────────────────
 
-function BarcodeLogger({ slotName, onSaved }) {
+function BarcodeLogger({ slotName, onSaved, logDate }) {
   const { getToken } = useAuth()
   const scannerRef   = useRef(null)
   const [scanning, setScanning] = useState(false)
@@ -1000,6 +1032,7 @@ function BarcodeLogger({ slotName, onSaved }) {
           fat_g:     food.fat_g     != null ? +((food.fat_g     * srv).toFixed(1)) : null,
           fiber_g:   food.fiber_g   != null ? +((food.fiber_g   * srv).toFixed(1)) : null,
           meal_slot: slotName,
+          log_date:  logDate,
         }),
       })
       if (!res.ok) throw new Error('Save failed')
@@ -1068,7 +1101,7 @@ function BarcodeLogger({ slotName, onSaved }) {
 
 // ── Recipes Logger ─────────────────────────────────────────────────────────────
 
-function RecipesLogger({ slotName, onSaved }) {
+function RecipesLogger({ slotName, onSaved, logDate }) {
   const { getToken } = useAuth()
   const [recipes, setRecipes]   = useState([])
   const [loading, setLoading]   = useState(true)
@@ -1094,7 +1127,7 @@ function RecipesLogger({ slotName, onSaved }) {
       const res = await fetch(`${API_URL}/api/recipes/${recipe.id}/log`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ meal_slot: slotName }),
+        body: JSON.stringify({ meal_slot: slotName, log_date: logDate }),
       })
       if (!res.ok) throw new Error('Failed to log recipe')
       const meal = await res.json()
@@ -1149,7 +1182,7 @@ const ADD_OPTIONS = [
 const MODE_TITLES = { photo: 'Photo', text: 'Text Entry', search: 'Search Foods', manual: 'Manual Entry', barcode: 'Scan Barcode', recipes: 'Recipes' }
 const LOGGERS = { photo: PhotoLogger, text: TextLogger, search: SearchLogger, manual: ManualLogger, barcode: BarcodeLogger, recipes: RecipesLogger }
 
-function AddFoodDrawer({ slotName, onClose, onSaved }) {
+function AddFoodDrawer({ slotName, onClose, onSaved, logDate }) {
   const [mode, setMode] = useState(null)
   const Logger = mode ? LOGGERS[mode] : null
 
@@ -1191,6 +1224,7 @@ function AddFoodDrawer({ slotName, onClose, onSaved }) {
           {Logger && (
             <Logger
               slotName={slotName}
+              logDate={logDate}
               onSaved={(meal, analysis) => { onSaved(meal, analysis); }}
             />
           )}
@@ -1273,11 +1307,12 @@ export default function Journal() {
     loadActive()
   }, [weekStart, getToken])
 
-  // Shift week
+  // Shift week (allow up to today+7)
   function shiftWeek(days) {
     const next = new Date(weekStart)
     next.setDate(weekStart.getDate() + days)
-    if (toDateStr(next) > todayStr) return
+    const maxDate = new Date(); maxDate.setDate(maxDate.getDate() + 7)
+    if (toDateStr(next) > toDateStr(maxDate)) return
     setWeekStart(next)
   }
 
@@ -1394,6 +1429,7 @@ export default function Journal() {
       {addSlot && (
         <AddFoodDrawer
           slotName={addSlot}
+          logDate={toDateStr(selectedDate)}
           onClose={() => setAddSlot(null)}
           onSaved={handleMealSaved}
         />

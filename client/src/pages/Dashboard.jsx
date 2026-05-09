@@ -101,7 +101,7 @@ export default function Dashboard() {
         const headers = { Authorization: `Bearer ${token}` }
 
         const [r1, r2, r3, r4, r5] = await Promise.all([
-          fetch(`${API_URL}/api/meals/today`,      { headers }),
+          fetch(`${API_URL}/api/meals/today?date=${new Date().toLocaleDateString('sv')}`, { headers }),
           fetch(`${API_URL}/api/daily-logs/today`, { headers }),
           fetch(`${API_URL}/api/meals/week`,       { headers }),
           fetch(`${API_URL}/api/daily-logs/week`,  { headers }),

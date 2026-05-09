@@ -401,6 +401,28 @@ function LogModal({ program, onClose, onLogged }) {
   )
 }
 
+// ── Program Description (collapsible at 150 chars) ───────────────────────────
+
+function ProgramDescription({ text }) {
+  const LIMIT = 150
+  const [expanded, setExpanded] = useState(false)
+  if (!text) return null
+  if (text.length <= LIMIT) return <p className="text-sm text-gray-500 mt-1">{text}</p>
+  return (
+    <div className="mt-1">
+      <p className="text-sm text-gray-500">
+        {expanded ? text : `${text.slice(0, LIMIT)}…`}
+      </p>
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="text-xs text-[#E8670A] font-medium mt-0.5 hover:text-[#c45e09] transition-colors"
+      >
+        {expanded ? 'Read less' : 'Read more'}
+      </button>
+    </div>
+  )
+}
+
 // ── Program Detail ────────────────────────────────────────────────────────────
 
 function ProgramDetail({ program, onBack, onDeleted }) {
@@ -490,28 +512,32 @@ function ProgramDetail({ program, onBack, onDeleted }) {
         <LogModal program={program} onClose={() => setShowLog(false)} onLogged={handleLogged} />
       )}
 
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <button onClick={onBack} className="text-xs text-gray-400 hover:text-gray-600 mb-2 flex items-center gap-1">
-            ← All Programs
-          </button>
-          <h2 className="text-xl font-bold text-gray-900">{program.name}</h2>
-          {program.description && <p className="text-sm text-gray-500 mt-1">{program.description}</p>}
-        </div>
-        <div className="flex gap-2 shrink-0">
-          <button
-            onClick={() => setShowLog(true)}
-            className="bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors"
-          >
-            Log Workout
-          </button>
-          <button
-            onClick={deleteProgram}
-            disabled={deleting}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-gray-400 border border-gray-200 hover:text-red-500 hover:border-red-200 disabled:opacity-60 transition-colors"
-          >
-            Delete
-          </button>
+      <div>
+        <button onClick={onBack} className="text-xs text-gray-400 hover:text-gray-600 mb-2 flex items-center gap-1">
+          ← All Programs
+        </button>
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold text-gray-900">{program.name}</h2>
+            {program.description && (
+              <ProgramDescription text={program.description} />
+            )}
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <button
+              onClick={() => setShowLog(true)}
+              className="bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors"
+            >
+              Log Workout
+            </button>
+            <button
+              onClick={deleteProgram}
+              disabled={deleting}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-gray-400 border border-gray-200 hover:text-red-500 hover:border-red-200 disabled:opacity-60 transition-colors"
+            >
+              Delete
+            </button>
+          </div>
         </div>
       </div>
 

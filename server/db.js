@@ -314,6 +314,7 @@ export async function migrate() {
 
   // ── Custom foods ─────────────────────────────────────────────────────────────
   await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS sugar NUMERIC(6,1)`)
+  await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS log_date DATE`)
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS custom_foods (

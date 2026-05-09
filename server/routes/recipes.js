@@ -90,7 +90,7 @@ router.post('/:id/log', requireAuth(), async (req, res, next) => {
     const { userId } = getAuth(req)
     const dbUserId  = await getOrCreateUser(userId)
     const recipeId  = parseInt(req.params.id, 10)
-    const { meal_slot } = req.body
+    const { meal_slot, log_date } = req.body
 
     const { rows } = await pool.query(
       'SELECT * FROM recipes WHERE id = $1 AND user_id = $2',
@@ -102,8 +102,8 @@ router.post('/:id/log', requireAuth(), async (req, res, next) => {
     const srv = parseFloat(r.servings) || 1
 
     const { rows: [meal] } = await pool.query(
-      `INSERT INTO meals (user_id, meal_name, calories, protein, carbs, fat, fiber, meal_slot)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO meals (user_id, meal_name, calories, protein, carbs, fat, fiber, meal_slot, log_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
       [
         dbUserId, r.name,
@@ -113,6 +113,7 @@ router.post('/:id/log', requireAuth(), async (req, res, next) => {
         r.fat      != null ? +(r.fat      / srv).toFixed(1)            : null,
         r.fiber    != null ? +(r.fiber    / srv).toFixed(1)            : null,
         meal_slot ?? null,
+        log_date ?? null,
       ],
     )
     res.status(201).json(meal)
