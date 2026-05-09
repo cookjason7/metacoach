@@ -411,36 +411,36 @@ function ProgramDetail({ program, onBack, onDeleted }) {
   const [showLog,    setShowLog]    = useState(false)
   const [loggedAt,   setLoggedAt]   = useState(null)
   const [deleting,   setDeleting]   = useState(false)
-  const [editingId,  setEditingId]  = useState(null)
-  const [editForm,   setEditForm]   = useState({})
-  const [editSaving, setEditSaving] = useState(false)
+  const [editCell,   setEditCell]   = useState(null)  // { exId, field }
+  const [editVal,    setEditVal]    = useState('')
+  const [cellSaving, setCellSaving] = useState(false)
 
-  function startEdit(ex) {
-    setEditingId(ex.id)
-    setEditForm({ exercise_name: ex.exercise_name ?? '', sets: ex.sets ?? '', reps: ex.reps ?? '', weight: ex.weight ?? '' })
+  function startCellEdit(exId, field, currentVal) {
+    setEditCell({ exId, field })
+    setEditVal(currentVal != null ? String(currentVal) : '')
   }
 
-  async function saveEdit(exId) {
-    setEditSaving(true)
+  function cancelCellEdit() { setEditCell(null) }
+
+  async function saveCellEdit(exId, field) {
+    setCellSaving(true)
     try {
       const token = await getToken()
+      const body  = field === 'sets'
+        ? { sets: editVal !== '' ? Number(editVal) : null }
+        : { [field]: editVal !== '' ? editVal : null }
       const res   = await fetch(`${API_URL}/api/workouts/exercises/${exId}`, {
         method:  'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          exercise_name: editForm.exercise_name,
-          sets:          editForm.sets !== '' ? Number(editForm.sets) : null,
-          reps:          editForm.reps !== '' ? editForm.reps : null,
-          weight:        editForm.weight !== '' ? editForm.weight : null,
-        }),
+        body:    JSON.stringify(body),
       })
       if (res.ok) {
         const updated = await res.json()
         setExercises(prev => prev.map(e => e.id === exId ? { ...e, ...updated } : e))
       }
     } finally {
-      setEditSaving(false)
-      setEditingId(null)
+      setCellSaving(false)
+      setEditCell(null)
     }
   }
 
@@ -529,150 +529,169 @@ function ProgramDetail({ program, onBack, onDeleted }) {
             <p className="text-sm font-semibold text-white">{dayName}</p>
           </div>
 
-          {/* Mobile cards */}
+          {/* ── Mobile cards (tap any value to edit inline, save on blur) ── */}
           <div className="lg:hidden divide-y divide-gray-100">
-            {exs.map(ex => editingId === ex.id ? (
-              <div key={ex.id} className="p-4 bg-orange-50 space-y-3">
-                <input
-                  autoFocus
-                  value={editForm.exercise_name}
-                  onChange={e => setEditForm(f => ({ ...f, exercise_name: e.target.value }))}
-                  placeholder="Exercise name"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-                />
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <label className="block text-[10px] text-gray-400 uppercase tracking-wide mb-1">Sets</label>
+            {exs.map(ex => {
+              const isEditingName = editCell?.exId === ex.id && editCell?.field === 'exercise_name'
+              return (
+                <div key={ex.id} className="p-4">
+                  {/* Exercise name */}
+                  {isEditingName ? (
                     <input
-                      type="number" min="0"
-                      value={editForm.sets}
-                      onChange={e => setEditForm(f => ({ ...f, sets: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                      autoFocus
+                      value={editVal}
+                      onChange={e => setEditVal(e.target.value)}
+                      onBlur={() => saveCellEdit(ex.id, 'exercise_name')}
+                      onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') cancelCellEdit() }}
+                      className="w-full border-2 border-[#E8670A] rounded-lg px-3 py-2 text-sm font-semibold focus:outline-none mb-3"
                     />
+                  ) : (
+                    <button
+                      onClick={() => startCellEdit(ex.id, 'exercise_name', ex.exercise_name)}
+                      className="text-left w-full text-sm font-semibold text-gray-900 mb-3 min-h-[44px] flex items-center hover:text-[#E8670A] transition-colors"
+                    >
+                      {ex.exercise_name}
+                    </button>
+                  )}
+
+                  {/* 2×2 stat chips — Sets/Reps top row, Weight/Rest bottom row */}
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { label: 'Sets',   field: 'sets',   val: ex.sets,   editable: true  },
+                      { label: 'Reps',   field: 'reps',   val: ex.reps,   editable: true  },
+                      { label: 'Weight', field: 'weight', val: ex.weight, editable: true  },
+                      { label: 'Rest',   field: null,     val: ex.rest_seconds ? `${ex.rest_seconds}s` : null, editable: false },
+                    ].map(({ label, field, val, editable }) => {
+                      const isEditingChip = editable && editCell?.exId === ex.id && editCell?.field === field
+                      return isEditingChip ? (
+                        <div key={label} className="bg-orange-50 border border-[#E8670A] rounded-lg py-2 px-3 text-center">
+                          <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">{label}</p>
+                          <input
+                            autoFocus
+                            value={editVal}
+                            onChange={e => setEditVal(e.target.value)}
+                            onBlur={() => saveCellEdit(ex.id, field)}
+                            onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') cancelCellEdit() }}
+                            className="w-full bg-transparent border-b border-[#E8670A] text-sm text-center focus:outline-none py-0.5"
+                          />
+                        </div>
+                      ) : (
+                        <button
+                          key={label}
+                          onClick={() => editable && startCellEdit(ex.id, field, val)}
+                          disabled={!editable}
+                          className={`rounded-lg py-3 px-3 text-center min-h-[44px] w-full transition-colors ${
+                            editable ? 'bg-gray-50 hover:bg-orange-50 active:bg-orange-100' : 'bg-gray-50 cursor-default'
+                          }`}
+                        >
+                          <p className="text-[10px] text-gray-400 uppercase tracking-wide">{label}</p>
+                          <p className="text-sm font-medium text-gray-700 mt-0.5">{val ?? '—'}</p>
+                        </button>
+                      )
+                    })}
                   </div>
-                  <div>
-                    <label className="block text-[10px] text-gray-400 uppercase tracking-wide mb-1">Reps</label>
-                    <input
-                      value={editForm.reps}
-                      onChange={e => setEditForm(f => ({ ...f, reps: e.target.value }))}
-                      placeholder="8-12"
-                      className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] text-gray-400 uppercase tracking-wide mb-1">Weight</label>
-                    <input
-                      value={editForm.weight}
-                      onChange={e => setEditForm(f => ({ ...f, weight: e.target.value }))}
-                      placeholder="lbs"
-                      className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-                    />
-                  </div>
+
+                  {ex.notes && <p className="text-xs text-gray-400 mt-2 italic">{ex.notes}</p>}
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => saveEdit(ex.id)}
-                    disabled={editSaving}
-                    className="flex-1 bg-[#E8670A] text-white py-2 rounded-lg text-sm font-semibold disabled:opacity-60"
-                  >{editSaving ? '…' : '✓ Save'}</button>
-                  <button
-                    onClick={() => setEditingId(null)}
-                    className="flex-1 bg-gray-100 text-gray-600 py-2 rounded-lg text-sm font-medium"
-                  >Cancel</button>
-                </div>
-              </div>
-            ) : (
-              <div key={ex.id} className="p-4">
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <p className="text-sm font-semibold text-gray-900">{ex.exercise_name}</p>
-                  <button
-                    onClick={() => startEdit(ex)}
-                    className="text-gray-300 hover:text-[#E8670A] transition-colors p-1 -m-1 min-w-[44px] min-h-[44px] flex items-center justify-center"
-                    title="Edit"
-                  >✎</button>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {[['Sets', ex.sets], ['Reps', ex.reps], ['Weight', ex.weight ?? '—'], ['Rest', ex.rest_seconds ? `${ex.rest_seconds}s` : '—']].map(([lbl, val]) => (
-                    <div key={lbl} className="bg-gray-50 rounded-lg py-2 px-3 text-center">
-                      <p className="text-[10px] text-gray-400 uppercase tracking-wide">{lbl}</p>
-                      <p className="text-sm font-medium text-gray-700 mt-0.5">{val ?? '—'}</p>
-                    </div>
-                  ))}
-                </div>
-                {ex.notes && <p className="text-xs text-gray-400 mt-2">{ex.notes}</p>}
-              </div>
-            ))}
+              )
+            })}
           </div>
 
-          {/* Desktop table */}
-          <div className="hidden lg:block overflow-x-auto">
+          {/* ── Desktop table (click any cell value to edit inline, save on blur) ── */}
+          <div className="hidden lg:block">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
                   <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500">Exercise</th>
                   <th className="text-center px-3 py-2 text-xs font-semibold text-gray-500 w-16">Sets</th>
                   <th className="text-center px-3 py-2 text-xs font-semibold text-gray-500 w-24">Reps</th>
-                  <th className="text-center px-3 py-2 text-xs font-semibold text-gray-500 w-20">Weight</th>
+                  <th className="text-center px-3 py-2 text-xs font-semibold text-gray-500 w-24">Weight</th>
+                  <th className="text-center px-3 py-2 text-xs font-semibold text-gray-500 w-16">Rest</th>
                   <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500">Notes</th>
-                  <th className="w-10" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {exs.map(ex => editingId === ex.id ? (
-                  <tr key={ex.id} className="bg-orange-50">
-                    <td className="px-3 py-2">
-                      <input
-                        value={editForm.exercise_name}
-                        onChange={e => setEditForm(f => ({ ...f, exercise_name: e.target.value }))}
-                        className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#E8670A]"
-                      />
+                {exs.map(ex => (
+                  <tr key={ex.id} className="hover:bg-gray-50/30">
+                    {/* Exercise name cell */}
+                    <td className="px-4 py-3 font-medium text-gray-900">
+                      {editCell?.exId === ex.id && editCell?.field === 'exercise_name' ? (
+                        <input
+                          autoFocus value={editVal}
+                          onChange={e => setEditVal(e.target.value)}
+                          onBlur={() => saveCellEdit(ex.id, 'exercise_name')}
+                          onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') cancelCellEdit() }}
+                          className="w-full border border-[#E8670A] rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-[#E8670A]"
+                        />
+                      ) : (
+                        <span
+                          onClick={() => startCellEdit(ex.id, 'exercise_name', ex.exercise_name)}
+                          className="cursor-pointer hover:text-[#E8670A] transition-colors"
+                          title="Click to edit"
+                        >{ex.exercise_name}</span>
+                      )}
                     </td>
-                    <td className="px-2 py-2">
-                      <input
-                        type="number" min="0"
-                        value={editForm.sets}
-                        onChange={e => setEditForm(f => ({ ...f, sets: e.target.value }))}
-                        className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-[#E8670A]"
-                      />
+                    {/* Sets */}
+                    <td className="px-3 py-3 text-center text-gray-600">
+                      {editCell?.exId === ex.id && editCell?.field === 'sets' ? (
+                        <input
+                          autoFocus type="number" min="0" value={editVal}
+                          onChange={e => setEditVal(e.target.value)}
+                          onBlur={() => saveCellEdit(ex.id, 'sets')}
+                          onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') cancelCellEdit() }}
+                          className="w-14 border border-[#E8670A] rounded px-1 py-1 text-xs text-center focus:outline-none"
+                        />
+                      ) : (
+                        <span onClick={() => startCellEdit(ex.id, 'sets', ex.sets)} className="cursor-pointer hover:text-[#E8670A] transition-colors" title="Click to edit">
+                          {ex.sets ?? '—'}
+                        </span>
+                      )}
                     </td>
-                    <td className="px-2 py-2">
-                      <input
-                        value={editForm.reps}
-                        onChange={e => setEditForm(f => ({ ...f, reps: e.target.value }))}
-                        placeholder="e.g. 8-12"
-                        className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-[#E8670A]"
-                      />
+                    {/* Reps */}
+                    <td className="px-3 py-3 text-center text-gray-600">
+                      {editCell?.exId === ex.id && editCell?.field === 'reps' ? (
+                        <input
+                          autoFocus value={editVal}
+                          onChange={e => setEditVal(e.target.value)}
+                          onBlur={() => saveCellEdit(ex.id, 'reps')}
+                          onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') cancelCellEdit() }}
+                          className="w-20 border border-[#E8670A] rounded px-1 py-1 text-xs text-center focus:outline-none"
+                        />
+                      ) : (
+                        <span onClick={() => startCellEdit(ex.id, 'reps', ex.reps)} className="cursor-pointer hover:text-[#E8670A] transition-colors" title="Click to edit">
+                          {ex.reps ?? '—'}
+                        </span>
+                      )}
                     </td>
-                    <td className="px-2 py-2">
-                      <input
-                        value={editForm.weight}
-                        onChange={e => setEditForm(f => ({ ...f, weight: e.target.value }))}
-                        placeholder="lbs"
-                        className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-[#E8670A]"
-                      />
+                    {/* Weight */}
+                    <td className="px-3 py-3 text-center text-gray-600">
+                      {editCell?.exId === ex.id && editCell?.field === 'weight' ? (
+                        <input
+                          autoFocus value={editVal}
+                          onChange={e => setEditVal(e.target.value)}
+                          onBlur={() => saveCellEdit(ex.id, 'weight')}
+                          onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') cancelCellEdit() }}
+                          className="w-20 border border-[#E8670A] rounded px-1 py-1 text-xs text-center focus:outline-none"
+                          placeholder="lbs"
+                        />
+                      ) : (
+                        <span onClick={() => startCellEdit(ex.id, 'weight', ex.weight)} className="cursor-pointer hover:text-[#E8670A] transition-colors" title="Click to edit">
+                          {ex.weight ?? '—'}
+                        </span>
+                      )}
                     </td>
-                    <td className="px-2 py-2 text-xs text-gray-400">{ex.notes ?? ''}</td>
-                    <td className="px-2 py-2">
-                      <div className="flex gap-1">
-                        <button onClick={() => saveEdit(ex.id)} disabled={editSaving} className="px-2 py-1 bg-[#E8670A] text-white rounded text-xs font-semibold disabled:opacity-60">✓</button>
-                        <button onClick={() => setEditingId(null)} className="px-2 py-1 text-gray-400 hover:text-gray-600 rounded text-xs border border-gray-200">✕</button>
-                      </div>
+                    {/* Rest — display only */}
+                    <td className="px-3 py-3 text-center text-gray-400 text-xs">
+                      {ex.rest_seconds ? `${ex.rest_seconds}s` : '—'}
                     </td>
-                  </tr>
-                ) : (
-                  <tr key={ex.id} className="hover:bg-gray-50/50">
-                    <td className="px-4 py-3 font-medium text-gray-900">{ex.exercise_name}</td>
-                    <td className="px-3 py-3 text-center text-gray-600">{ex.sets ?? '—'}</td>
-                    <td className="px-3 py-3 text-center text-gray-600">{ex.reps ?? '—'}</td>
-                    <td className="px-3 py-3 text-center text-gray-500 text-xs">{ex.weight ?? (ex.rest_seconds ? `${ex.rest_seconds}s rest` : '—')}</td>
-                    <td className="px-4 py-3 text-xs text-gray-500">{ex.notes ?? ''}</td>
-                    <td className="px-2 py-3">
-                      <button onClick={() => startEdit(ex)} className="text-gray-300 hover:text-[#E8670A] transition-colors text-xs" title="Edit">✎</button>
-                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-400">{ex.notes ?? ''}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {cellSaving && (
+              <p className="text-[10px] text-gray-400 px-4 py-1">Saving…</p>
+            )}
           </div>
         </div>
       ))}

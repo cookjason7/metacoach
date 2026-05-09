@@ -19,8 +19,8 @@ function getDefaultSlot() {
 
 const ING_UNITS = ['g', 'oz', 'cup', 'tbsp', 'tsp', 'pc', 'slice', 'ml']
 
-const SERVING_UNITS = ['g', 'oz', 'lb']
-const UNIT_TO_G = { g: 1, oz: 28.35, lb: 453.59 }
+const SERVING_UNITS = ['g', 'oz', 'lb', 'cup', 'tbsp', 'tsp', 'ml', 'fl oz']
+const UNIT_TO_G = { g: 1, oz: 28.35, lb: 453.59, cup: 240, tbsp: 15, tsp: 5, ml: 1, 'fl oz': 29.57 }
 function toGrams(amount, unit) { return amount * (UNIT_TO_G[unit] ?? 1) }
 
 // ── Shared UI pieces ──────────────────────────────────────────────────────────
@@ -463,6 +463,7 @@ function SearchMode({ slot, logDate }) {
           fiber_g:      macros.fiber,
           meal_slot:    slot,
           log_date:     logDate,
+          serving_size: raw,
           serving_unit: unit,
         }),
       })
@@ -550,7 +551,7 @@ function SearchMode({ slot, logDate }) {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Portion size</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Portion</label>
             <div className="flex gap-2">
               <input
                 type="number"
@@ -1346,18 +1347,21 @@ export default function LogMeal() {
       <p className="text-sm text-gray-500 mb-4">Add a meal via photo analysis, manual entry, or food search</p>
 
       {/* Date picker — shown for all logging tabs */}
-      {SLOT_TABS.includes(tab) && (
-        <div className="mb-4">
-          <label className="block text-xs font-medium text-gray-500 mb-1 uppercase tracking-wide">Log Date</label>
-          <input
-            type="date"
-            value={logDate}
-            max={(() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10) })()}
-            onChange={e => setLogDate(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-          />
-        </div>
-      )}
+      {SLOT_TABS.includes(tab) && (() => {
+        const maxDate = (() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10) })()
+        return (
+          <div className="mb-4">
+            <label className="block text-xs font-medium text-gray-500 mb-1 uppercase tracking-wide">Log Date</label>
+            <input
+              type="date"
+              value={logDate}
+              max={maxDate}
+              onChange={e => { const v = e.target.value; setLogDate(v > maxDate ? maxDate : v) }}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+            />
+          </div>
+        )
+      })()}
 
       {/* Slot picker — shown for all logging tabs */}
       {SLOT_TABS.includes(tab) && <SlotPicker value={slot} onChange={setSlot} />}
