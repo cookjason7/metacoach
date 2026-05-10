@@ -396,27 +396,120 @@ export async function migrate() {
     )
   `)
 
+  // ── Custom foods schema additions ────────────────────────────────────────────
+  // FIX 1: is_coach_food distinguishes admin-curated foods (Coach food badge)
+  // from global utility foods (Food database badge). Default FALSE means all
+  // existing global entries (milk etc.) get retagged automatically.
+  await pool.query(`ALTER TABLE custom_foods ADD COLUMN IF NOT EXISTS is_coach_food BOOLEAN DEFAULT FALSE`)
+  await pool.query(`ALTER TABLE custom_foods ADD COLUMN IF NOT EXISTS notes TEXT`)
+
   // ── Global milk foods ────────────────────────────────────────────────────────
   // Stored per-serving (244 ml = 1 cup). Search query normalises to per-100ml.
   await pool.query(`
-    INSERT INTO custom_foods (is_global, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit)
-    SELECT TRUE, 'Whole Milk', 149, 8, 12, 8, 0, 244, 'ml'
+    INSERT INTO custom_foods (is_global, is_coach_food, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit)
+    SELECT TRUE, FALSE, 'Whole Milk', 149, 8, 12, 8, 0, 244, 'ml'
     WHERE NOT EXISTS (SELECT 1 FROM custom_foods WHERE food_name = 'Whole Milk' AND is_global = TRUE)
   `)
   await pool.query(`
-    INSERT INTO custom_foods (is_global, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit)
-    SELECT TRUE, '2% Reduced Fat Milk', 122, 8, 12, 5, 0, 244, 'ml'
+    INSERT INTO custom_foods (is_global, is_coach_food, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit)
+    SELECT TRUE, FALSE, '2% Reduced Fat Milk', 122, 8, 12, 5, 0, 244, 'ml'
     WHERE NOT EXISTS (SELECT 1 FROM custom_foods WHERE food_name = '2% Reduced Fat Milk' AND is_global = TRUE)
   `)
   await pool.query(`
-    INSERT INTO custom_foods (is_global, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit)
-    SELECT TRUE, '1% Low Fat Milk', 102, 8, 12, 2.4, 0, 244, 'ml'
+    INSERT INTO custom_foods (is_global, is_coach_food, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit)
+    SELECT TRUE, FALSE, '1% Low Fat Milk', 102, 8, 12, 2.4, 0, 244, 'ml'
     WHERE NOT EXISTS (SELECT 1 FROM custom_foods WHERE food_name = '1% Low Fat Milk' AND is_global = TRUE)
   `)
   await pool.query(`
-    INSERT INTO custom_foods (is_global, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit)
-    SELECT TRUE, 'Skim Milk (Fat Free)', 83, 8, 12, 0.2, 0, 244, 'ml'
+    INSERT INTO custom_foods (is_global, is_coach_food, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit)
+    SELECT TRUE, FALSE, 'Skim Milk (Fat Free)', 83, 8, 12, 0.2, 0, 244, 'ml'
     WHERE NOT EXISTS (SELECT 1 FROM custom_foods WHERE food_name = 'Skim Milk (Fat Free)' AND is_global = TRUE)
+  `)
+
+  // ── FIX 2: Common food database (per 100 g/ml, is_coach_food = FALSE) ────────
+  // All values from USDA FoodData Central. is_coach_food = FALSE so they show
+  // as "Food database" badge, NOT "Coach food".
+  await pool.query(`
+    INSERT INTO custom_foods
+      (is_global, is_coach_food, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit)
+    SELECT TRUE, FALSE, v.name, v.cal, v.pro, v.carb, v.fat, v.fib, 100, 'g'
+    FROM (VALUES
+      -- Dairy (per 100 g)
+      ('Cottage Cheese',         98,  11.1, 3.4,  4.3,  0.0),
+      ('Greek Yogurt Plain',     73,   9.9, 5.7,  1.9,  0.0),
+      ('Regular Yogurt Plain',   63,   3.5, 5.0,  3.3,  0.0),
+      ('Butter',                717,   0.9, 0.1, 81.0,  0.0),
+      ('Cream Cheese',          342,   6.0, 4.1, 34.0,  0.0),
+      ('Heavy Cream',           340,   2.8, 2.8, 36.0,  0.0),
+      ('Sour Cream',            193,   2.4, 4.6, 19.0,  0.0),
+      ('Cheddar Cheese',        403,  25.0, 1.3, 33.0,  0.0),
+      ('Mozzarella',            280,  28.0, 2.2, 17.0,  0.0),
+      ('Parmesan',              431,  38.0, 4.0, 29.0,  0.0),
+      -- Proteins (per 100 g raw)
+      ('Chicken Breast',        120,  22.5, 0.0,  2.6,  0.0),
+      ('Chicken Thigh',         177,  18.0, 0.0, 11.0,  0.0),
+      ('Ground Beef 80/20',     254,  17.0, 0.0, 20.0,  0.0),
+      ('Ground Beef 93% Lean',  152,  20.0, 0.0,  8.0,  0.0),
+      ('Ground Turkey',         149,  19.0, 0.0,  8.0,  0.0),
+      ('Atlantic Salmon',       208,  20.0, 0.0, 13.0,  0.0),
+      ('Tuna Canned in Water',  128,  30.0, 0.0,  0.9,  0.0),
+      ('Whole Egg',             143,  13.0, 0.7,  9.5,  0.0),
+      ('Egg White',              52,  11.0, 0.7,  0.2,  0.0),
+      ('Tilapia',                96,  20.0, 0.0,  1.7,  0.0),
+      ('Shrimp',                 85,  18.0, 0.9,  0.5,  0.0),
+      ('Pork Tenderloin',       109,  21.0, 0.0,  2.7,  0.0),
+      ('Bacon',                 541,  37.0, 1.4, 42.0,  0.0),
+      ('Turkey Bacon',          218,  15.0, 2.8, 16.0,  0.0),
+      -- Carbs (per 100 g, raw/dry unless noted)
+      ('White Rice',            365,   7.1,80.0,  0.7,  1.3),
+      ('Brown Rice',            370,   7.9,77.0,  2.9,  3.5),
+      ('Rolled Oats',           389,  16.9,66.0,  6.9, 10.6),
+      ('Sweet Potato',           86,   1.6,20.0,  0.1,  3.0),
+      ('White Potato',           77,   2.0,17.0,  0.1,  2.2),
+      ('White Bread',           265,   9.0,49.0,  3.2,  2.7),
+      ('Whole Wheat Bread',     247,  13.0,41.0,  4.2,  6.0),
+      ('Pasta',                 371,  13.0,75.0,  1.5,  2.7),
+      ('Quinoa',                368,  14.0,64.0,  6.0,  7.0),
+      ('Banana',                 89,   1.1,23.0,  0.3,  2.6),
+      ('Apple',                  52,   0.3,14.0,  0.2,  2.4),
+      ('Blueberries',            57,   0.7,14.0,  0.3,  2.4),
+      ('Strawberries',           32,   0.7, 7.7,  0.3,  2.0),
+      ('Orange',                 47,   0.9,12.0,  0.1,  2.4),
+      -- Vegetables (per 100 g raw)
+      ('Broccoli',               34,   2.8, 7.0,  0.4,  2.6),
+      ('Spinach',                23,   2.9, 3.6,  0.4,  2.2),
+      ('Kale',                   49,   4.3, 9.0,  0.9,  3.6),
+      ('Green Beans',            31,   1.8, 7.0,  0.2,  2.7),
+      ('Asparagus',              20,   2.2, 3.9,  0.1,  2.1),
+      ('Zucchini',               17,   1.2, 3.1,  0.3,  1.0),
+      ('Bell Pepper',            31,   1.0, 6.0,  0.3,  2.1),
+      ('Cucumber',               16,   0.7, 3.6,  0.1,  0.5),
+      ('Avocado',               160,   2.0, 9.0, 15.0,  6.7),
+      ('Tomato',                 18,   0.9, 3.9,  0.2,  1.2),
+      ('Onion',                  40,   1.1, 9.3,  0.1,  1.7),
+      ('Garlic',                149,   6.4,33.0,  0.5,  2.1),
+      -- Fats (per 100 g)
+      ('Olive Oil',             884,   0.0, 0.0,100.0,  0.0),
+      ('Coconut Oil',           862,   0.0, 0.0,100.0,  0.0),
+      ('Almonds',               579,  21.0,22.0, 50.0, 12.5),
+      ('Peanut Butter',         588,  25.0,20.0, 50.0,  5.7),
+      ('Almond Butter',         614,  21.0,19.0, 55.0, 10.3),
+      ('Walnuts',               654,  15.0,14.0, 65.0,  6.7),
+      ('Cashews',               553,  18.0,30.0, 44.0,  3.3),
+      -- Common packaged (per 100 g)
+      ('Whey Protein Powder',   370,  82.0, 8.0,  4.0,  0.0)
+    ) AS v(name, cal, pro, carb, fat, fib)
+    WHERE NOT EXISTS (
+      SELECT 1 FROM custom_foods cf2
+      WHERE cf2.is_global = TRUE AND LOWER(cf2.food_name) = LOWER(v.name)
+    )
+  `)
+
+  // Fairlife milk uses per-240ml serving
+  await pool.query(`
+    INSERT INTO custom_foods (is_global, is_coach_food, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit)
+    SELECT TRUE, FALSE, 'Fairlife Whole Milk', 150, 13, 6, 8, 0, 240, 'ml'
+    WHERE NOT EXISTS (SELECT 1 FROM custom_foods WHERE food_name = 'Fairlife Whole Milk' AND is_global = TRUE)
   `)
 }
 

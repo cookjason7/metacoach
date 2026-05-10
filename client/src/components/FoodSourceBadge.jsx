@@ -7,13 +7,27 @@ function getBadge(food) {
       className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
     }
   }
+  // Admin-curated Coach food — visually distinct with star
+  if (food._source === 'coach') {
+    return {
+      label: '⭐ Coach food',
+      title: 'Recommended by your coach',
+      className: 'border-orange-300 bg-orange-100 text-[#E8670A] font-bold',
+    }
+  }
+  // Global utility food (Food database) — standard gray
+  if (food._source === 'global') {
+    return {
+      label: 'Food database',
+      title: 'Common food from the database',
+      className: 'border-gray-200 bg-gray-50 text-gray-500',
+    }
+  }
   if (food._source === 'custom') {
     return {
-      label: food.source_label || (food.is_global ? 'Coach food' : 'My food'),
-      title: food.is_global ? 'Coach-created food' : 'User-created custom food',
-      className: food.is_global
-        ? 'border-orange-200 bg-orange-50 text-[#E8670A]'
-        : 'border-gray-200 bg-gray-50 text-gray-500',
+      label: food.source_label || 'My food',
+      title: 'User-created custom food',
+      className: 'border-gray-200 bg-gray-50 text-gray-500',
     }
   }
   if (food._source === 'barcode') {

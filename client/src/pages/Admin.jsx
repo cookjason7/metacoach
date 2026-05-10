@@ -1,12 +1,19 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { useNavigate } from 'react-router-dom'
 import { API_URL } from '../config.js'
+import FoodSourceBadge from '../components/FoodSourceBadge.jsx'
+
+const SERVING_UNITS = ['g', 'oz', 'lb', 'cup', 'tbsp', 'tsp', 'ml', 'fl oz']
+
+// ── helpers ──────────────────────────────────────────────────────────────────
 
 function daysSince(isoString) {
   if (!isoString) return null
   return Math.floor((Date.now() - new Date(isoString)) / (1000 * 60 * 60 * 24))
 }
+
+// ── Clients section ───────────────────────────────────────────────────────────
 
 function MacroForm({ client, getToken, onSaved }) {
   const [form, setForm] = useState({
@@ -18,13 +25,10 @@ function MacroForm({ client, getToken, onSaved }) {
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState(null)
 
-  function set(field, value) {
-    setForm(f => ({ ...f, [field]: value }))
-  }
+  function set(field, value) { setForm(f => ({ ...f, [field]: value })) }
 
   async function save() {
-    setSaving(true)
-    setError(null)
+    setSaving(true); setError(null)
     try {
       const token = await getToken()
       const res = await fetch(`${API_URL}/api/admin/users/${client.id}/macros`, {
@@ -38,13 +42,8 @@ function MacroForm({ client, getToken, onSaved }) {
         }),
       })
       if (!res.ok) throw new Error('Save failed')
-      const updated = await res.json()
-      onSaved(updated)
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setSaving(false)
-    }
+      onSaved(await res.json())
+    } catch (err) { setError(err.message) } finally { setSaving(false) }
   }
 
   return (
@@ -59,9 +58,7 @@ function MacroForm({ client, getToken, onSaved }) {
           <div key={field}>
             <label className="block text-xs text-gray-500 mb-1">{label}</label>
             <input
-              type="number"
-              value={form[field]}
-              onChange={e => set(field, e.target.value)}
+              type="number" value={form[field]} onChange={e => set(field, e.target.value)}
               placeholder={placeholder}
               className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
             />
@@ -70,17 +67,11 @@ function MacroForm({ client, getToken, onSaved }) {
       </div>
       {error && <p className="text-xs text-red-500 mb-2">{error}</p>}
       <div className="flex gap-2">
-        <button
-          onClick={save}
-          disabled={saving}
-          className="bg-[#E8670A] text-white px-4 py-1.5 rounded-lg text-xs font-semibold hover:bg-[#c45e09] disabled:opacity-40 transition-colors"
-        >
+        <button onClick={save} disabled={saving}
+          className="bg-[#E8670A] text-white px-4 py-1.5 rounded-lg text-xs font-semibold hover:bg-[#c45e09] disabled:opacity-40 transition-colors">
           {saving ? 'Saving…' : 'Save'}
         </button>
-        <button
-          onClick={() => onSaved(null)}
-          className="text-xs text-gray-500 hover:text-gray-700 transition-colors"
-        >
+        <button onClick={() => onSaved(null)} className="text-xs text-gray-500 hover:text-gray-700 transition-colors">
           Cancel
         </button>
       </div>
@@ -92,51 +83,317 @@ function ClientRow({ client, getToken, onUpdate }) {
   const [editing, setEditing] = useState(false)
   const inactive = daysSince(client.last_meal_at)
 
-  function handleSaved(updated) {
-    if (updated) onUpdate(updated)
-    setEditing(false)
-  }
+  function handleSaved(updated) { if (updated) onUpdate(updated); setEditing(false) }
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-900">
-            {client.first_name ?? 'Unknown'}
-          </p>
+          <p className="text-sm font-semibold text-gray-900">{client.first_name ?? 'Unknown'}</p>
           <p className="text-xs text-gray-400 mt-0.5">
-            {inactive === null
-              ? 'No meals logged'
-              : inactive === 0
-              ? 'Logged today'
-              : `Last log: ${inactive}d ago`}
+            {inactive === null ? 'No meals logged' : inactive === 0 ? 'Logged today' : `Last log: ${inactive}d ago`}
           </p>
         </div>
-
         <div className="flex items-center gap-4 text-xs text-gray-500 shrink-0">
           <span title="Calories">{client.goal_calories ? `${client.goal_calories} cal` : '—'}</span>
           <span title="Protein">{client.goal_protein  ? `${client.goal_protein}g P`  : '—'}</span>
           <span title="Carbs">{client.goal_carbs    ? `${client.goal_carbs}g C`    : '—'}</span>
           <span title="Fat">{client.goal_fat      ? `${client.goal_fat}g F`      : '—'}</span>
-          <button
-            onClick={() => setEditing(e => !e)}
-            className="text-[#E8670A] hover:text-[#c45e09] font-medium transition-colors"
-          >
+          <button onClick={() => setEditing(e => !e)}
+            className="text-[#E8670A] hover:text-[#c45e09] font-medium transition-colors">
             {editing ? 'Close' : 'Edit'}
           </button>
         </div>
       </div>
-
-      {editing && (
-        <MacroForm client={client} getToken={getToken} onSaved={handleSaved} />
-      )}
+      {editing && <MacroForm client={client} getToken={getToken} onSaved={handleSaved} />}
     </div>
   )
 }
 
+// ── Coach Foods section ───────────────────────────────────────────────────────
+
+const EMPTY_FORM = {
+  food_name: '', calories: '', protein: '', carbs: '', fat: '', fiber: '',
+  serving_size: '100', serving_unit: 'g', notes: '',
+}
+
+function CoachFoodsSection({ getToken }) {
+  const [coachFoods,    setCoachFoods]    = useState([])
+  const [loading,       setLoading]       = useState(true)
+  const [showCreate,    setShowCreate]    = useState(false)
+  const [form,          setForm]          = useState(EMPTY_FORM)
+  const [saving,        setSaving]        = useState(false)
+  const [saveErr,       setSaveErr]       = useState(null)
+  const [searchQ,       setSearchQ]       = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [searching,     setSearching]     = useState(false)
+  const [deletingId,    setDeletingId]    = useState(null)
+  const debounceRef = useRef(null)
+
+  // Load all current coach foods
+  useEffect(() => {
+    async function load() {
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/admin/coach-foods`, { headers: { Authorization: `Bearer ${token}` } })
+        if (res.ok) setCoachFoods(await res.json())
+      } finally { setLoading(false) }
+    }
+    load()
+  }, [getToken])
+
+  // Search existing foods to prefill create form
+  function handleSearch(e) {
+    const val = e.target.value
+    setSearchQ(val)
+    clearTimeout(debounceRef.current)
+    if (!val.trim()) { setSearchResults([]); return }
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true)
+      try {
+        const token = await getToken()
+        const res = await fetch(
+          `${API_URL}/api/foods/search?q=${encodeURIComponent(val.trim())}&limit=10`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        )
+        if (res.ok) setSearchResults(await res.json())
+      } finally { setSearching(false) }
+    }, 350)
+  }
+
+  // Prefill the create form from a search result
+  function prefillFromFood(food) {
+    // All search results are per-100g — default serving 100g
+    setForm({
+      food_name:    food.name,
+      calories:     food.calories     != null ? String(Math.round(food.calories))    : '',
+      protein:      food.protein_g    != null ? String(Number(food.protein_g))       : '',
+      carbs:        food.carbs_g      != null ? String(Number(food.carbs_g))         : '',
+      fat:          food.fat_g        != null ? String(Number(food.fat_g))           : '',
+      fiber:        food.fiber_g      != null ? String(Number(food.fiber_g))         : '',
+      serving_size: '100',
+      serving_unit: 'g',
+      notes:        '',
+    })
+    setSearchQ('')
+    setSearchResults([])
+    setShowCreate(true)
+  }
+
+  function setF(e) { setForm(f => ({ ...f, [e.target.name]: e.target.value })) }
+
+  async function createCoachFood(e) {
+    e.preventDefault()
+    if (!form.food_name.trim()) return
+    setSaving(true); setSaveErr(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/admin/coach-foods`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          food_name:    form.food_name.trim(),
+          calories:     form.calories     !== '' ? Number(form.calories)     : null,
+          protein:      form.protein      !== '' ? Number(form.protein)      : null,
+          carbs:        form.carbs        !== '' ? Number(form.carbs)        : null,
+          fat:          form.fat          !== '' ? Number(form.fat)          : null,
+          fiber:        form.fiber        !== '' ? Number(form.fiber)        : null,
+          serving_size: form.serving_size !== '' ? Number(form.serving_size) : 100,
+          serving_unit: form.serving_unit || 'g',
+          notes:        form.notes.trim() || null,
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Failed')
+      const created = await res.json()
+      setCoachFoods(prev => [...prev, created].sort((a, b) => a.food_name.localeCompare(b.food_name)))
+      setForm(EMPTY_FORM)
+      setShowCreate(false)
+    } catch (err) { setSaveErr(err.message) } finally { setSaving(false) }
+  }
+
+  async function removeCoachFood(id) {
+    setDeletingId(id)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/admin/coach-foods/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) setCoachFoods(prev => prev.filter(f => f.id !== id))
+    } finally { setDeletingId(null) }
+  }
+
+  return (
+    <div>
+      <p className="text-sm text-gray-500 mb-4">
+        Coach foods appear to all clients with a <span className="font-semibold text-[#E8670A]">⭐ Coach food</span> badge in search results.
+      </p>
+
+      {/* ── Search to prefill ── */}
+      <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4">
+        <h3 className="text-sm font-semibold text-gray-900 mb-2">Find &amp; promote an existing food</h3>
+        <div className="relative">
+          <input
+            type="text" value={searchQ} onChange={handleSearch}
+            placeholder="Search foods to add as coach food…"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+          />
+          {searching && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">Searching…</span>}
+        </div>
+        {searchResults.length > 0 && (
+          <div className="mt-2 border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-52 overflow-y-auto">
+            {searchResults.map((food, i) => (
+              <button key={food.id ?? i} onClick={() => prefillFromFood(food)}
+                className="w-full text-left px-3 py-2.5 hover:bg-orange-50 transition-colors">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-gray-900 truncate">{food.name}</p>
+                  <FoodSourceBadge food={food} />
+                </div>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {food.calories != null ? `${Math.round(food.calories)} cal` : ''} ·
+                  {food.protein_g != null ? ` ${Number(food.protein_g).toFixed(1)}g P` : ''} per 100g
+                </p>
+              </button>
+            ))}
+          </div>
+        )}
+        <p className="text-xs text-gray-400 mt-2">Click a food to pre-fill the create form below.</p>
+      </div>
+
+      {/* ── Create form ── */}
+      <div className="bg-white border border-gray-200 rounded-xl mb-4 overflow-hidden">
+        <button
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-gray-900 hover:bg-gray-50 transition-colors"
+          onClick={() => setShowCreate(v => !v)}
+        >
+          <span>+ Create / add coach food</span>
+          <span className="text-gray-400 text-lg">{showCreate ? '−' : '+'}</span>
+        </button>
+
+        {showCreate && (
+          <form onSubmit={createCoachFood} className="px-4 pb-4 border-t border-gray-100 space-y-3 pt-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Food name *</label>
+              <input name="food_name" value={form.food_name} onChange={setF} required
+                placeholder="e.g. Grilled Chicken Breast"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {[
+                ['Calories (per serving)', 'calories', '120'],
+                ['Protein g',             'protein',  '22'],
+                ['Carbs g',               'carbs',    '0'],
+                ['Fat g',                 'fat',      '2.6'],
+                ['Fiber g',               'fiber',    '0'],
+              ].map(([lbl, nm, ph]) => (
+                <div key={nm}>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{lbl}</label>
+                  <input type="number" name={nm} value={form[nm]} onChange={setF} min="0" step="any" placeholder={ph}
+                    className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+                </div>
+              ))}
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Serving size &amp; unit</label>
+              <div className="flex gap-2">
+                <input type="number" name="serving_size" value={form.serving_size} onChange={setF} min="0.01" step="any"
+                  placeholder="100"
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+                <select name="serving_unit" value={form.serving_unit} onChange={setF}
+                  className="border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+                  {SERVING_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-0.5">Enter macros for the serving size above (e.g. 120 cal per 100g)</p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Coach notes (optional)</label>
+              <input name="notes" value={form.notes} onChange={setF}
+                placeholder="e.g. Jason recommends this for post-workout"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+            </div>
+
+            {saveErr && <p className="text-xs text-red-500">{saveErr}</p>}
+
+            <div className="flex gap-2">
+              <button type="submit" disabled={saving}
+                className="bg-[#E8670A] text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
+                {saving ? 'Saving…' : 'Add Coach Food'}
+              </button>
+              <button type="button" onClick={() => { setShowCreate(false); setForm(EMPTY_FORM) }}
+                className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2">
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      {/* ── Current coach foods list ── */}
+      <h3 className="text-sm font-semibold text-gray-700 mb-2">
+        Current coach foods ({coachFoods.length})
+      </h3>
+
+      {loading && <p className="text-sm text-gray-400 text-center py-6">Loading…</p>}
+
+      {!loading && coachFoods.length === 0 && (
+        <div className="text-center py-8 text-sm text-gray-400">
+          <p className="text-2xl mb-2">⭐</p>
+          <p>No coach foods yet. Search above or create one to get started.</p>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {coachFoods.map(food => {
+          const cal = food.serving_size > 0
+            ? Math.round(food.calories_per_serving / food.serving_size * 100)
+            : Math.round(food.calories_per_serving ?? 0)
+          const pro = food.serving_size > 0
+            ? +((food.protein / food.serving_size * 100).toFixed(1))
+            : +(food.protein ?? 0)
+          return (
+            <div key={food.id} className="bg-white border border-orange-200 rounded-xl px-4 py-3 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-semibold text-gray-900">{food.food_name}</p>
+                  <span className="inline-flex items-center rounded-full border border-orange-300 bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-[#E8670A]">
+                    ⭐ Coach food
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {cal} cal · {pro}g P per 100{food.serving_unit === 'ml' ? 'ml' : 'g'}
+                  {food.serving_size && food.serving_unit
+                    ? ` · Serving: ${food.serving_size}${food.serving_unit}`
+                    : ''}
+                </p>
+                {food.notes && (
+                  <p className="text-xs text-[#E8670A] mt-0.5 italic">"{food.notes}"</p>
+                )}
+              </div>
+              <button
+                onClick={() => removeCoachFood(food.id)}
+                disabled={deletingId === food.id}
+                className="shrink-0 text-xs text-red-400 hover:text-red-600 disabled:opacity-40 transition-colors font-medium"
+              >
+                {deletingId === food.id ? '…' : 'Remove'}
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── Main Admin page ───────────────────────────────────────────────────────────
+
 export default function Admin() {
   const { getToken } = useAuth()
   const navigate     = useNavigate()
+  const [section, setSection] = useState('clients')
   const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(null)
@@ -146,17 +403,10 @@ export default function Admin() {
       try {
         const token = await getToken()
         const res = await fetch(`${API_URL}/api/admin/users`, { headers: { Authorization: `Bearer ${token}` } })
-        if (res.status === 403) {
-          navigate('/dashboard', { replace: true })
-          return
-        }
+        if (res.status === 403) { navigate('/dashboard', { replace: true }); return }
         if (!res.ok) throw new Error(`Server error ${res.status}`)
         setClients(await res.json())
-      } catch (err) {
-        setError(err.message)
-      } finally {
-        setLoading(false)
-      }
+      } catch (err) { setError(err.message) } finally { setLoading(false) }
     }
     load()
   }, [getToken, navigate])
@@ -165,28 +415,53 @@ export default function Admin() {
     setClients(prev => prev.map(c => c.id === updated.id ? { ...c, ...updated } : c))
   }
 
+  const tabs = [
+    { id: 'clients',     label: 'Clients' },
+    { id: 'coach-foods', label: 'Coach Foods' },
+  ]
+
   return (
     <div className="max-w-3xl">
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Admin</h1>
-      <p className="text-sm text-gray-500 mb-6">Manage client macro targets</p>
 
-      {loading && <p className="text-sm text-gray-400 py-8 text-center">Loading…</p>}
-      {error   && <p className="text-sm text-red-500 py-4">{error}</p>}
-
-      {!loading && !error && clients.length === 0 && (
-        <p className="text-sm text-gray-400 py-8 text-center">No onboarded clients yet.</p>
-      )}
-
-      <div className="space-y-3">
-        {clients.map(client => (
-          <ClientRow
-            key={client.id}
-            client={client}
-            getToken={getToken}
-            onUpdate={handleUpdate}
-          />
+      {/* Tab switcher */}
+      <div className="flex gap-1 mb-6 bg-gray-100 rounded-xl p-1 w-fit">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setSection(tab.id)}
+            className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+              section === tab.id
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {tab.label}
+          </button>
         ))}
       </div>
+
+      {/* ── Clients section ── */}
+      {section === 'clients' && (
+        <>
+          <p className="text-sm text-gray-500 mb-4">Manage client macro targets</p>
+          {loading && <p className="text-sm text-gray-400 py-8 text-center">Loading…</p>}
+          {error   && <p className="text-sm text-red-500 py-4">{error}</p>}
+          {!loading && !error && clients.length === 0 && (
+            <p className="text-sm text-gray-400 py-8 text-center">No onboarded clients yet.</p>
+          )}
+          <div className="space-y-3">
+            {clients.map(client => (
+              <ClientRow key={client.id} client={client} getToken={getToken} onUpdate={handleUpdate} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* ── Coach Foods section ── */}
+      {section === 'coach-foods' && (
+        <CoachFoodsSection getToken={getToken} />
+      )}
     </div>
   )
 }

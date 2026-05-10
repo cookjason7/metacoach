@@ -143,6 +143,8 @@ router.get('/search', requireAuth(), async (req, res, next) => {
          cf.food_name AS name,
          'Custom' AS data_type,
          cf.is_global,
+         cf.is_coach_food,
+         cf.notes,
          CASE WHEN cf.serving_size > 0
            THEN ROUND((cf.calories_per_serving / cf.serving_size * 100)::numeric, 1)
            ELSE ROUND(cf.calories_per_serving::numeric, 1)
@@ -165,7 +167,8 @@ router.get('/search', requireAuth(), async (req, res, next) => {
          END AS fiber_g
        FROM custom_foods cf
        WHERE (cf.is_global = TRUE OR cf.user_id = $1)
-         AND cf.food_name ILIKE $2`,
+         AND cf.food_name ILIKE $2
+       ORDER BY cf.is_coach_food DESC, cf.food_name`,
       [dbUserId, `%${q}%`],
     )
     const customResults = customRows.map(r => ({
@@ -175,10 +178,13 @@ router.get('/search', requireAuth(), async (req, res, next) => {
       carbs_g:   r.carbs_g   != null ? parseFloat(r.carbs_g)   : null,
       fat_g:     r.fat_g     != null ? parseFloat(r.fat_g)     : null,
       fiber_g:   r.fiber_g   != null ? parseFloat(r.fiber_g)   : null,
-      _source: 'custom',
-      is_verified: false,
+      // FIX 1: is_coach_food=TRUE → 'coach' source (distinct badge)
+      //        is_global=TRUE, is_coach_food=FALSE → 'global' (Food database badge)
+      //        user private food → 'custom' (My food badge)
+      _source:      r.is_coach_food ? 'coach' : r.is_global ? 'global' : 'custom',
+      is_verified:  false,
       verification_source: null,
-      source_label: r.is_global ? 'Coach food' : 'My food',
+      source_label: r.is_coach_food ? 'Coach food' : r.is_global ? 'Food database' : 'My food',
     }))
 
     // ── Local search ─────────────────────────────────────────────────────────
