@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { useNavigate } from 'react-router-dom'
 import { API_URL } from '../../config.js'
@@ -42,21 +42,57 @@ export default function ClientList() {
   const [search,  setSearch]  = useState('')
   const [filter,  setFilter]  = useState('all')   // 'all' | 'vip' | 'ai'
   const [statusFilter, setStatusFilter] = useState('all')
+  const [lifecycleFilter, setLifecycleFilter] = useState('active')  // 'active' | 'archived' | 'all'
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const token = await getToken()
-        const res = await fetch(`${API_URL}/api/coach-admin/clients`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (res.status === 403) { navigate('/dashboard', { replace: true }); return }
-        if (!res.ok) throw new Error(`Server ${res.status}`)
-        setClients(await res.json())
-      } catch (err) { setError(err.message) } finally { setLoading(false) }
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients?status=${lifecycleFilter}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.status === 403) { navigate('/dashboard', { replace: true }); return }
+      if (!res.ok) throw new Error(`Server ${res.status}`)
+      setClients(await res.json())
+    } catch (err) { setError(err.message) } finally { setLoading(false) }
+  }, [getToken, navigate, lifecycleFilter])
+
+  useEffect(() => { load() }, [load])
+
+  async function archiveClient(e, id) {
+    e.stopPropagation()
+    if (!confirm('Archive this client? They will be hidden from the active list but all their data is preserved.')) return
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/coach-admin/clients/${id}/archive`, {
+      method: 'PATCH', headers: { Authorization: `Bearer ${token}` },
+    })
+    if (res.ok) load()
+  }
+
+  async function reactivateClient(e, id) {
+    e.stopPropagation()
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/coach-admin/clients/${id}/reactivate`, {
+      method: 'PATCH', headers: { Authorization: `Bearer ${token}` },
+    })
+    if (res.ok) load()
+  }
+
+  async function deleteClient(e, id, name) {
+    e.stopPropagation()
+    if (!confirm(`Soft-delete ${name}? Their data is preserved and the row is hidden. Type DELETE in the next prompt to confirm.`)) return
+    const confirmText = prompt('Type DELETE to confirm:')
+    if (confirmText !== 'DELETE') return
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/coach-admin/clients/${id}`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+    })
+    if (res.ok) load()
+    else {
+      const err = await res.json().catch(() => ({}))
+      alert(err.error ?? 'Could not delete')
     }
-    load()
-  }, [getToken, navigate])
+  }
 
   const filtered = clients.filter(c => {
     if (filter === 'vip' && c.coaching_type !== 'vip') return false
@@ -107,6 +143,15 @@ export default function ClientList() {
             <option value="Needs Attention">Needs Attention</option>
             <option value="New Client">New Client</option>
           </select>
+          <select
+            value={lifecycleFilter}
+            onChange={e => setLifecycleFilter(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+          >
+            <option value="active">Active clients</option>
+            <option value="archived">Archived clients</option>
+            <option value="all">All (active + archived)</option>
+          </select>
         </div>
         <p className="text-xs text-gray-400 mt-2">{filtered.length} of {clients.length} clients</p>
       </div>
@@ -134,6 +179,7 @@ export default function ClientList() {
               <th className="text-center px-3 py-3 font-semibold">7d</th>
               <th className="text-center px-3 py-3 font-semibold">30d</th>
               <th className="text-left px-3 py-3 font-semibold">Status</th>
+              <th className="text-right px-3 py-3 font-semibold">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -169,7 +215,39 @@ export default function ClientList() {
                   <td className={`px-3 py-3 text-center font-bold ${adherenceColor(c.adherence_30d)}`}>
                     {Math.round(Number(c.adherence_30d) || 0)}%
                   </td>
-                  <td className="px-3 py-3"><StatusBadge status={c.status_tag} /></td>
+                  <td className="px-3 py-3">
+                    <div className="flex flex-col gap-1">
+                      <StatusBadge status={c.status_tag} />
+                      {c.client_status === 'archived' && (
+                        <span className="inline-flex items-center rounded-full border border-gray-300 bg-gray-100 px-2 py-0.5 text-[9px] font-bold text-gray-600 w-fit">
+                          📦 Archived
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 text-right whitespace-nowrap">
+                    {c.client_status === 'archived' ? (
+                      <button
+                        onClick={e => reactivateClient(e, c.id)}
+                        className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold mr-2"
+                      >
+                        Reactivate
+                      </button>
+                    ) : (
+                      <button
+                        onClick={e => archiveClient(e, c.id)}
+                        className="text-xs text-gray-500 hover:text-gray-700 font-medium mr-2"
+                      >
+                        Archive
+                      </button>
+                    )}
+                    <button
+                      onClick={e => deleteClient(e, c.id, c.first_name ?? 'this client')}
+                      className="text-xs text-red-400 hover:text-red-600 font-medium"
+                    >
+                      Delete
+                    </button>
+                  </td>
                 </tr>
               )
             })}
@@ -223,6 +301,32 @@ export default function ClientList() {
                 <div className="ml-auto flex gap-1.5">
                   <span className={c.onboarding_complete ? 'text-emerald-600' : 'text-gray-300'}>{c.onboarding_complete ? '✓' : '○'} Onb</span>
                   <span className={c.assessment_complete ? 'text-emerald-600' : 'text-gray-300'}>{c.assessment_complete ? '✓' : '○'} Assess</span>
+                </div>
+              </div>
+              {/* Lifecycle badge + actions */}
+              <div className="mt-3 pt-2 border-t border-gray-100 flex items-center justify-between gap-2">
+                {c.client_status === 'archived' ? (
+                  <span className="inline-flex items-center rounded-full border border-gray-300 bg-gray-100 px-2 py-0.5 text-[9px] font-bold text-gray-600">
+                    📦 Archived
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-700">
+                    ● Active
+                  </span>
+                )}
+                <div className="flex gap-3">
+                  {c.client_status === 'archived' ? (
+                    <span onClick={e => reactivateClient(e, c.id)} className="text-[11px] text-emerald-600 hover:text-emerald-700 font-semibold cursor-pointer">
+                      Reactivate
+                    </span>
+                  ) : (
+                    <span onClick={e => archiveClient(e, c.id)} className="text-[11px] text-gray-500 hover:text-gray-700 font-medium cursor-pointer">
+                      Archive
+                    </span>
+                  )}
+                  <span onClick={e => deleteClient(e, c.id, c.first_name ?? 'this client')} className="text-[11px] text-red-400 hover:text-red-600 font-medium cursor-pointer">
+                    Delete
+                  </span>
                 </div>
               </div>
             </button>

@@ -122,20 +122,44 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
         </div>
 
         {!editing ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-            <InfoRow label="Full name"       value={client.first_name} />
-            <InfoRow label="Email"           value={client.email} />
-            <InfoRow label="Phone"           value={client.phone_number} />
-            <InfoRow label="Coaching type"   value={client.coaching_type === 'ai' ? 'AI Coaching' : 'VIP Coaching'} />
-            <InfoRow label="Assigned coach"  value={client.assigned_coach_name ?? '—'} />
-            <InfoRow label="Start date"      value={displayStartDate} />
-            <InfoRow label="Payment"         value={client.paid ? `✓ Active${client.paid_at ? ` (since ${String(client.paid_at).slice(0,10)})` : ''}` : '○ Not activated'} />
-            <InfoRow label="Last login"      value={client.last_login_at ? new Date(client.last_login_at).toLocaleDateString() : '—'} />
-            <InfoRow label="Last meal log"   value={client.last_meal_at ? `${daysSince(client.last_meal_at)}d ago` : '—'} />
-            <InfoRow label="Onboarding"      value={client.onboarding_complete ? '✓ Complete' : '○ In progress'} />
-            <InfoRow label="Assessment"      value={client.assessment_complete ? '✓ Complete' : '○ In progress'} />
-            <InfoRow label="Role"            value={client.role} />
-          </div>
+          (() => {
+            // Fallback chain: users table → health_assessments → null
+            const fullName = [
+              client.display_first_name || client.first_name,
+              client.display_last_name,
+            ].filter(Boolean).join(' ') || null
+            const phone = client.display_phone || client.phone_number || null
+            const addr  = client.display_address
+            const addressLine = (addr?.street || addr?.city)
+              ? [
+                  addr.street,
+                  [addr.city, addr.state].filter(Boolean).join(', '),
+                  addr.zip,
+                  addr.country && addr.country !== 'United States' ? addr.country : null,
+                ].filter(Boolean).join(' · ')
+              : null
+            const dob = client.display_dob ? String(client.display_dob).slice(0, 10) : null
+            return (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                <InfoRow label="Full name"       value={fullName} />
+                <InfoRow label="Email"           value={client.email} />
+                <InfoRow label="Phone"           value={phone} />
+                <InfoRow label="Address"         value={addressLine} />
+                <InfoRow label="Date of birth"   value={dob} />
+                <InfoRow label="Shirt size"      value={client.display_shirt_size} />
+                <InfoRow label="Coaching type"   value={client.coaching_type === 'ai' ? 'AI Coaching' : 'VIP Coaching'} />
+                <InfoRow label="Assigned coach"  value={client.assigned_coach_name ?? '—'} />
+                <InfoRow label="Start date"      value={displayStartDate} />
+                <InfoRow label="Payment"         value={client.paid ? `✓ Active${client.paid_at ? ` (since ${String(client.paid_at).slice(0,10)})` : ''}` : '○ Not activated'} />
+                <InfoRow label="Last login"      value={client.last_login_at ? new Date(client.last_login_at).toLocaleDateString() : '—'} />
+                <InfoRow label="Last meal log"   value={client.last_meal_at ? `${daysSince(client.last_meal_at)}d ago` : '—'} />
+                <InfoRow label="Onboarding"      value={client.onboarding_complete ? '✓ Complete' : '○ In progress'} />
+                <InfoRow label="Assessment"      value={client.assessment_complete ? '✓ Complete' : '○ In progress'} />
+                <InfoRow label="Client status"   value={client.client_status ?? 'active'} />
+                <InfoRow label="Role"            value={client.role} />
+              </div>
+            )
+          })()
         ) : (
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
@@ -509,12 +533,8 @@ function HabitsTab({ clientId, getToken }) {
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Coach note</label>
-            <input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-              placeholder="Optional encouragement / context"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-          </div>
+          {/* Coach note field hidden — notes column preserved in DB; existing
+              notes still display on assigned habit cards below. */}
           <div className="flex gap-2">
             <button onClick={submit} className="bg-[#E8670A] text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09]">Assign Habit</button>
             <button onClick={() => setShowForm(false)} className="text-sm text-gray-500 px-3 py-2">Cancel</button>

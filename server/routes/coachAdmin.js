@@ -64,15 +64,24 @@ function computeMomentum(adh7, adh30) {
 
 // ─── Clients list ─────────────────────────────────────────────────────────────
 
-// GET /api/coach-admin/clients
+// GET /api/coach-admin/clients?status=active|archived|all (default active)
 router.get('/clients', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireStaff(req, res); if (!ctx) return
     const params = []
-    let where = `WHERE u.role IN ('client', 'admin')`
+    let where = `WHERE u.role IN ('client', 'admin') AND COALESCE(u.client_status, 'active') != 'deleted'`
+
+    const statusFilter = req.query.status ?? 'active'
+    if (statusFilter === 'active') {
+      where += ` AND COALESCE(u.client_status, 'active') = 'active'`
+    } else if (statusFilter === 'archived') {
+      where += ` AND u.client_status = 'archived'`
+    }
+    // 'all' → no extra filter (still excludes deleted)
+
     if (ctx.role === 'coach') {
       params.push(ctx.dbUserId)
-      where += ` AND u.assigned_coach_id = $1`
+      where += ` AND u.assigned_coach_id = $${params.length}`
     }
 
     const { rows } = await pool.query(`
@@ -81,6 +90,7 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
         u.coaching_type, u.assigned_coach_id, u.role,
         u.onboarding_complete, u.assessment_complete,
         u.last_login_at, u.start_date, u.paid, u.paid_at, u.created_at,
+        u.client_status, u.archived_at,
         -- Effective start date: explicit start_date → paid_at → created_at
         COALESCE(u.start_date, u.paid_at::date, u.created_at::date) AS effective_start_date,
         (SELECT first_name FROM users WHERE id = u.assigned_coach_id) AS assigned_coach_name,
@@ -139,17 +149,45 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
         COALESCE((SELECT AVG(completion_percentage)::numeric(5,1)
           FROM habit_completions
           WHERE user_id = u.id AND completion_date >= CURRENT_DATE - INTERVAL '30 days'), 0) AS adherence_30d,
-        (SELECT COUNT(*) FROM comeback_events WHERE user_id = u.id) AS comeback_count
-      FROM users u WHERE u.id = $1
+        (SELECT COUNT(*) FROM comeback_events WHERE user_id = u.id) AS comeback_count,
+        ha.first_name           AS assessment_first_name,
+        ha.last_name            AS assessment_last_name,
+        ha.phone                AS assessment_phone,
+        ha.date_of_birth        AS assessment_dob,
+        ha.shirt_size           AS assessment_shirt_size,
+        ha.street_address       AS assessment_street_address,
+        ha.city                 AS assessment_city,
+        ha.state                AS assessment_state,
+        ha.zip_code             AS assessment_zip_code,
+        ha.country              AS assessment_country
+      FROM users u
+      LEFT JOIN health_assessments ha ON ha.user_id = u.id
+      WHERE u.id = $1
     `, [id])
     if (!rows.length) return res.status(404).json({ error: 'Client not found' })
 
     const c = rows[0]
-    res.json({
+
+    // Field fallback chain: users table → health_assessments → null
+    const merged = {
       ...c,
+      // Build display name from first_name + assessment data
+      display_first_name: c.first_name || c.assessment_first_name || null,
+      display_last_name:  c.assessment_last_name || null,
+      display_phone:      c.phone_number || c.assessment_phone || null,
+      display_dob:        c.assessment_dob || null,
+      display_shirt_size: c.assessment_shirt_size || null,
+      display_address: {
+        street:  c.assessment_street_address || null,
+        city:    c.assessment_city || null,
+        state:   c.assessment_state || null,
+        zip:     c.assessment_zip_code || null,
+        country: c.assessment_country || null,
+      },
       status_tag: computeStatusTag(c),
       momentum: computeMomentum(c.adherence_7d, c.adherence_30d),
-    })
+    }
+    res.json(merged)
   } catch (err) { next(err) }
 })
 
@@ -197,6 +235,81 @@ router.patch('/clients/:id', requireAuth(), async (req, res, next) => {
     )
     if (!rows.length) return res.status(404).json({ error: 'Client not found' })
     res.json(rows[0])
+  } catch (err) { next(err) }
+})
+
+// ─── Lifecycle: archive / reactivate / soft-delete ────────────────────────────
+
+// PATCH /api/coach-admin/clients/:id/archive
+router.patch('/clients/:id/archive', requireAuth(), async (req, res, next) => {
+  try {
+    if (await requireAdmin(req, res) === null) return
+    const id = parseInt(req.params.id, 10)
+    const { userId } = getAuth(req)
+    const adminDbId = await getOrCreateUser(userId)
+    const { rows } = await pool.query(`
+      UPDATE users
+      SET client_status = 'archived',
+          archived_at = NOW(),
+          archived_by = $2
+      WHERE id = $1 AND COALESCE(client_status, 'active') != 'deleted'
+      RETURNING id, client_status, archived_at
+    `, [id, adminDbId])
+    if (!rows.length) return res.status(404).json({ error: 'Client not found' })
+    res.json({ ok: true, ...rows[0] })
+  } catch (err) { next(err) }
+})
+
+// PATCH /api/coach-admin/clients/:id/reactivate
+router.patch('/clients/:id/reactivate', requireAuth(), async (req, res, next) => {
+  try {
+    if (await requireAdmin(req, res) === null) return
+    const id = parseInt(req.params.id, 10)
+    const { rows } = await pool.query(`
+      UPDATE users
+      SET client_status = 'active',
+          archived_at = NULL,
+          archived_by = NULL,
+          deleted_at = NULL,
+          deleted_by = NULL
+      WHERE id = $1
+      RETURNING id, client_status
+    `, [id])
+    if (!rows.length) return res.status(404).json({ error: 'Client not found' })
+    res.json({ ok: true, ...rows[0] })
+  } catch (err) { next(err) }
+})
+
+// DELETE /api/coach-admin/clients/:id — SOFT delete (preserves all data)
+// Pass ?hard=true to permanently remove (admin only, requires confirmation
+// at the API level by sending {confirm: 'PERMANENT_DELETE'} in the body).
+router.delete('/clients/:id', requireAuth(), async (req, res, next) => {
+  try {
+    if (await requireAdmin(req, res) === null) return
+    const id = parseInt(req.params.id, 10)
+    const { userId } = getAuth(req)
+    const adminDbId = await getOrCreateUser(userId)
+
+    if (id === adminDbId) {
+      return res.status(400).json({ error: 'Cannot delete your own account' })
+    }
+
+    // Hard delete only if explicitly confirmed
+    if (req.query.hard === 'true' && req.body?.confirm === 'PERMANENT_DELETE') {
+      await pool.query('DELETE FROM users WHERE id = $1', [id])
+      return res.json({ ok: true, hard_deleted: true })
+    }
+
+    const { rows } = await pool.query(`
+      UPDATE users
+      SET client_status = 'deleted',
+          deleted_at = NOW(),
+          deleted_by = $2
+      WHERE id = $1
+      RETURNING id, client_status, deleted_at
+    `, [id, adminDbId])
+    if (!rows.length) return res.status(404).json({ error: 'Client not found' })
+    res.json({ ok: true, soft_deleted: true, ...rows[0] })
   } catch (err) { next(err) }
 })
 

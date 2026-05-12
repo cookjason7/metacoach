@@ -549,6 +549,14 @@ export async function migrate() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at     TIMESTAMPTZ`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS paid_at           TIMESTAMPTZ`)
 
+  // Client lifecycle: active | archived | deleted (soft delete)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS client_status     TEXT DEFAULT 'active'`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS archived_at       TIMESTAMPTZ`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS archived_by       INTEGER REFERENCES users(id) ON DELETE SET NULL`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at        TIMESTAMPTZ`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_by        INTEGER REFERENCES users(id) ON DELETE SET NULL`)
+  await pool.query(`UPDATE users SET client_status = 'active' WHERE client_status IS NULL`)
+
   // Backfill paid_at for legacy users who were marked paid before paid_at existed.
   // Use created_at as a best-effort approximation of activation time.
   await pool.query(`UPDATE users SET paid_at = created_at WHERE paid = TRUE AND paid_at IS NULL`)

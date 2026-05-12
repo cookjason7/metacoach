@@ -338,7 +338,7 @@ export default function Calendar() {
       {/* Header */}
       <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Habit Calendar</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Calendar</h1>
           <p className="text-sm text-gray-500">Tap a circle to mark a habit done.</p>
         </div>
         {/* View mode switcher */}
