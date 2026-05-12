@@ -19,6 +19,8 @@ import Journal from './pages/Journal'
 import Calendar from './pages/Calendar'
 import Badges from './pages/Badges'
 import HealthAssessment from './pages/HealthAssessment'
+import ClientList from './pages/admin/ClientList'
+import ClientProfile from './pages/admin/ClientProfile'
 import { API_URL } from './config.js'
 
 // Module-level cache: null | { onboardingComplete: bool, paid: bool }
@@ -154,7 +156,9 @@ export default function App() {
           <Route path="/badges"       element={<Badges />} />
           <Route path="/settings"     element={<Settings />} />
           <Route path="/calendar"     element={<Calendar />} />
-          <Route path="/admin"        element={<Admin />} />
+          <Route path="/admin"               element={<Admin />} />
+          <Route path="/admin/clients"       element={<ClientList />} />
+          <Route path="/admin/clients/:id"   element={<ClientProfile />} />
         </Route>
       </Routes>
     </BrowserRouter>

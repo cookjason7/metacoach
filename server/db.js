@@ -524,6 +524,104 @@ export async function migrate() {
   await pool.query(`ALTER TABLE health_assessments ADD COLUMN IF NOT EXISTS zip_code       TEXT`)
   await pool.query(`ALTER TABLE health_assessments ADD COLUMN IF NOT EXISTS country        TEXT DEFAULT 'United States'`)
 
+  // ── Coaching command center ──────────────────────────────────────────────────
+  // Role expansion: 'client' (default), 'coach', 'admin'
+  // coaching_type: 'vip' (default — has human coach) | 'ai' (AI-only client)
+  // assigned_coach_id: which coach owns this client (NULL = unassigned / Jason)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS coaching_type     TEXT DEFAULT 'vip'`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_coach_id INTEGER REFERENCES users(id) ON DELETE SET NULL`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS start_date        DATE`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at     TIMESTAMPTZ`)
+
+  // Coach-assigned habits — the structured habit assignments coaches give clients
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS coach_assigned_habits (
+      id                  SERIAL PRIMARY KEY,
+      user_id             INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      assigned_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      habit_name          TEXT NOT NULL,
+      habit_type          TEXT NOT NULL DEFAULT 'boolean',    -- 'boolean' | 'numeric' | 'completion'
+      target_value        NUMERIC(10,2),
+      unit                TEXT,
+      frequency           TEXT NOT NULL DEFAULT 'daily',      -- 'daily' | 'weekly' | 'specific_days'
+      start_date          DATE NOT NULL,
+      end_date            DATE,
+      days_of_week        TEXT,                                -- comma-separated 0-6 (Sun=0)
+      notes               TEXT,
+      active              BOOLEAN DEFAULT TRUE,
+      created_at          TIMESTAMPTZ DEFAULT NOW(),
+      updated_at          TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_habits_user_date ON coach_assigned_habits (user_id, start_date)`)
+
+  // Daily habit completion records — one row per (habit, date)
+  // status: 'not_started' (0-49%) | 'partial' (50-79%) | 'complete' (80%+)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS habit_completions (
+      id                    SERIAL PRIMARY KEY,
+      user_id               INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      habit_id              INTEGER NOT NULL REFERENCES coach_assigned_habits(id) ON DELETE CASCADE,
+      completion_date       DATE NOT NULL,
+      completed_value       NUMERIC(10,2),
+      target_value          NUMERIC(10,2),
+      completion_percentage NUMERIC(5,2),
+      status                TEXT,
+      created_at            TIMESTAMPTZ DEFAULT NOW(),
+      updated_at            TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (habit_id, completion_date)
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_habit_completions_user_date ON habit_completions (user_id, completion_date)`)
+
+  // Client notes (internal staff notes with visibility scoping)
+  // visibility: 'shared_staff' (admin + assigned coaches) | 'admin_private' (admin only)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS client_notes (
+      id         SERIAL PRIMARY KEY,
+      client_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      author_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      note_body  TEXT NOT NULL,
+      visibility TEXT NOT NULL DEFAULT 'shared_staff',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_notes_client ON client_notes (client_id)`)
+
+  // Client messaging (with thread visibility scoping)
+  // thread_type: 'coach_thread' (visible to client + coach + admin)
+  //              'admin_private' (visible to client + admin only)
+  //              'ai_admin'      (visible to AI client + admin only)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS client_messages (
+      id           SERIAL PRIMARY KEY,
+      client_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      sender_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      sender_role  TEXT NOT NULL,
+      message_body TEXT NOT NULL,
+      thread_type  TEXT NOT NULL,
+      visibility   TEXT NOT NULL,
+      read_at      TIMESTAMPTZ,
+      created_at   TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_messages_thread ON client_messages (client_id, thread_type, created_at)`)
+
+  // Comeback events — captures gap-then-return patterns for future Comeback XP
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS comeback_events (
+      id             SERIAL PRIMARY KEY,
+      user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      gap_start_date DATE,
+      gap_end_date   DATE,
+      comeback_date  DATE NOT NULL,
+      comeback_type  TEXT NOT NULL,
+      created_at     TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_comeback_user_date ON comeback_events (user_id, comeback_date)`)
+
   // ── Grandfather existing users ───────────────────────────────────────────────
   // Any user who already completed onboarding before the assessment feature was
   // introduced should be treated as having completed the assessment so they are

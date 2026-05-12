@@ -23,6 +23,7 @@ export default function Layout() {
   const { signOut }        = useClerk()
   const navigate           = useNavigate()
   const [isAdmin,      setIsAdmin]      = useState(false)
+  const [isStaff,      setIsStaff]      = useState(false)
   const [notifCount,   setNotifCount]   = useState(0)
   const [katieUnread,  setKatieUnread]  = useState(0)
   const [sidebarOpen,  setSidebarOpen]  = useState(false)
@@ -39,6 +40,7 @@ export default function Layout() {
       const data = await res.json()
       console.log('[layout] role:', data.role)
       setIsAdmin(data.role === 'admin')
+      setIsStaff(data.role === 'admin' || data.role === 'coach')
     } catch (err) {
       console.error('[layout] fetchRole error:', err)
     }
@@ -85,7 +87,9 @@ export default function Layout() {
   }, [fetchKatieUnread])
 
   const navItems = isAdmin
-    ? [...NAV_ITEMS, { to: '/admin', label: 'Admin' }]
+    ? [...NAV_ITEMS, { to: '/admin/clients', label: 'Clients' }, { to: '/admin', label: 'Admin' }]
+    : isStaff
+    ? [...NAV_ITEMS, { to: '/admin/clients', label: 'Clients' }]
     : NAV_ITEMS
 
   const sidebarContent = (
