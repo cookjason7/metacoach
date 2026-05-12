@@ -102,7 +102,8 @@ function ProtectedLayout() {
   if (!isSignedIn) return <Navigate to="/sign-in" replace />
   if (checking) return <LoadingScreen />
   if (!userState?.onboardingComplete) return <Navigate to="/onboarding" replace />
-  if (!userState?.paid) return <Navigate to="/payment" replace />
+  // Payment gate disabled — open access
+  // if (!userState?.paid) return <Navigate to="/payment" replace />
   return <Layout />
 }
 
