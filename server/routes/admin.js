@@ -21,7 +21,7 @@ router.get('/users', requireAuth(), async (req, res, next) => {
     if (await requireAdmin(req, res) === null) return
     const { rows } = await pool.query(`
       SELECT id, first_name, email, goal_calories, goal_protein, goal_carbs, goal_fat,
-             onboarding_complete, paid, role,
+             onboarding_complete, assessment_complete, paid, role,
              (SELECT MAX(logged_at) FROM meals WHERE user_id = users.id) AS last_meal_at
       FROM users
       WHERE onboarding_complete = TRUE
@@ -143,6 +143,44 @@ router.delete('/coach-foods/:id', requireAuth(), async (req, res, next) => {
     )
     if (!rowCount) return res.status(404).json({ error: 'Coach food not found' })
     res.json({ ok: true })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ── DEV TOOLS ─────────────────────────────────────────────────────────────────
+// TODO: REMOVE BEFORE PRODUCTION LAUNCH
+// These endpoints exist only for testing the onboarding/assessment flow.
+// They reset flag columns only — no user data (meals, workouts, journal,
+// community posts, progress photos) is ever deleted.
+
+// PATCH /api/admin/users/:id/dev-reset
+// Body: { reset_onboarding?: boolean, reset_assessment?: boolean }
+router.patch('/users/:id/dev-reset', requireAuth(), async (req, res, next) => {
+  try {
+    if (await requireAdmin(req, res) === null) return
+    const targetId = parseInt(req.params.id, 10)
+    const { reset_onboarding = false, reset_assessment = false } = req.body
+
+    if (!reset_onboarding && !reset_assessment) {
+      return res.status(400).json({ error: 'Specify reset_onboarding and/or reset_assessment' })
+    }
+
+    // Build SET clause dynamically — only touch the requested flags
+    const setClauses = []
+    if (reset_onboarding) setClauses.push('onboarding_complete = FALSE')
+    if (reset_assessment)  setClauses.push('assessment_complete = FALSE')
+
+    const { rows } = await pool.query(
+      `UPDATE users SET ${setClauses.join(', ')}
+       WHERE id = $1
+       RETURNING id, first_name, email, onboarding_complete, assessment_complete`,
+      [targetId],
+    )
+    if (!rows.length) return res.status(404).json({ error: 'User not found' })
+
+    console.log(`[DEV] Reset flags for user ${targetId}:`, setClauses.join(', '))
+    res.json({ ok: true, user: rows[0] })
   } catch (err) {
     next(err)
   }

@@ -514,6 +514,25 @@ export async function migrate() {
 
   // ── Health Assessment ────────────────────────────────────────────────────────
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS assessment_complete BOOLEAN DEFAULT FALSE`)
+
+  // ── Grandfather existing users ───────────────────────────────────────────────
+  // Any user who already completed onboarding before the assessment feature was
+  // introduced should be treated as having completed the assessment so they are
+  // NOT forced through it again on their next login.
+  //
+  // Guard: only bulk-set when zero users have assessment_complete = TRUE.
+  // Once at least one user has it set (grandfathered or self-completed), this
+  // UPDATE becomes a no-op on every subsequent server restart, which means dev
+  // resets (assessment_complete = FALSE for a single user) survive restarts.
+  await pool.query(`
+    UPDATE users
+    SET assessment_complete = TRUE
+    WHERE onboarding_complete = TRUE
+      AND assessment_complete = FALSE
+      AND NOT EXISTS (
+        SELECT 1 FROM users WHERE assessment_complete = TRUE LIMIT 1
+      )
+  `)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS health_assessments (
       id                   SERIAL PRIMARY KEY,

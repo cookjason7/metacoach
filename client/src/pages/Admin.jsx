@@ -500,6 +500,149 @@ function CoachFoodsSection({ getToken }) {
   )
 }
 
+// ── DEV TOOLS section ────────────────────────────────────────────────────────
+// TODO: REMOVE BEFORE PRODUCTION LAUNCH
+// This section is for developer/admin testing of the onboarding & assessment flow only.
+// It resets flag columns only — no user data is ever deleted.
+
+function StatusPill({ label, value }) {
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${
+      value
+        ? 'bg-green-50 border-green-200 text-green-700'
+        : 'bg-red-50 border-red-200 text-red-500'
+    }`}>
+      {value ? '✓' : '✗'} {label}
+    </span>
+  )
+}
+
+// TODO: REMOVE BEFORE PRODUCTION LAUNCH
+function DevToolsSection({ clients, getToken }) {
+  const [resetting, setResetting] = useState({})  // { [clientId]: 'loading' | 'done' }
+  const [overrides, setOverrides] = useState({})  // { [clientId]: updated user object }
+
+  async function reset(clientId, opts) {
+    setResetting(r => ({ ...r, [clientId]: 'loading' }))
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/admin/users/${clientId}/dev-reset`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body:    JSON.stringify(opts),
+      })
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed')
+      const data = await res.json()
+      setOverrides(o => ({ ...o, [clientId]: data.user }))
+      setResetting(r => ({ ...r, [clientId]: 'done' }))
+    } catch (err) {
+      alert(`Reset failed: ${err.message}`)
+      setResetting(r => ({ ...r, [clientId]: null }))
+    }
+  }
+
+  // Hard navigate to /dashboard — clears the module-level userStateCache in App.jsx
+  // (module variables reset on full page load), causing a fresh /api/users/me fetch.
+  // If assessment_complete is now FALSE the app will redirect to /health-assessment.
+  function reloadAndTest() {
+    window.location.href = '/dashboard'
+  }
+
+  return (
+    <div>
+      {/* ── Warning banner ── */}
+      {/* TODO: REMOVE BEFORE PRODUCTION LAUNCH */}
+      <div className="bg-yellow-50 border-2 border-yellow-300 rounded-xl p-4 mb-5 flex gap-3">
+        <span className="text-xl shrink-0">⚠️</span>
+        <div>
+          <p className="text-sm font-bold text-yellow-800">DEV TOOLS — Testing Only</p>
+          <p className="text-xs text-yellow-700 mt-1">
+            Resets <code className="bg-yellow-100 px-0.5 rounded">onboarding_complete</code> and/or{' '}
+            <code className="bg-yellow-100 px-0.5 rounded">assessment_complete</code> flags.
+            No meals, workouts, journal entries, or community posts are affected.
+            <strong> Remove this tab before public launch.</strong>
+          </p>
+        </div>
+      </div>
+
+      {/* ── How-to guide ── */}
+      <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-5">
+        <p className="text-xs font-bold text-gray-700 mb-2">How to test the assessment flow:</p>
+        <ol className="text-xs text-gray-600 space-y-1.5 list-decimal list-inside">
+          <li>Find your own account in the list below.</li>
+          <li>Click <strong>Reset Assessment</strong> (or <strong>Reset Both</strong> to test from full onboarding).</li>
+          <li>Click <strong>Reload &amp; Test →</strong> — the page reloads, re-fetches your flags, and redirects to the assessment.</li>
+          <li>Complete the flow normally. Return here to reset again for another pass.</li>
+        </ol>
+        <p className="text-[10px] text-gray-400 mt-2">
+          Note: only users who completed onboarding appear here. If you need to test onboarding itself,
+          use <strong>Reset Both</strong>, then reload — you will be sent to /onboarding first.
+        </p>
+      </div>
+
+      {/* ── Client list ── */}
+      {clients.length === 0 && (
+        <p className="text-sm text-gray-400 text-center py-8">No onboarded users yet.</p>
+      )}
+
+      <div className="space-y-2">
+        {clients.map(client => {
+          const busy    = resetting[client.id] === 'loading'
+          const done    = resetting[client.id] === 'done'
+          const current = overrides[client.id] ?? client  // use post-reset data if available
+
+          return (
+            <div key={client.id} className="bg-white border border-gray-200 rounded-xl p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">
+                    {client.first_name ?? 'Unknown'}
+                    {client.email && <span className="text-xs text-gray-400 font-normal ml-2">{client.email}</span>}
+                  </p>
+                  <div className="flex gap-2 mt-1.5 flex-wrap">
+                    <StatusPill label="Onboarding"  value={current.onboarding_complete} />
+                    <StatusPill label="Assessment"  value={current.assessment_complete} />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2 items-center">
+                  {/* Reset assessment only */}
+                  <button
+                    onClick={() => reset(client.id, { reset_assessment: true })}
+                    disabled={busy}
+                    className="px-3 py-2 text-xs font-semibold rounded-lg border-2 border-yellow-400 text-yellow-700 hover:bg-yellow-50 disabled:opacity-40 transition-colors min-h-[36px]"
+                  >
+                    {busy ? '…' : 'Reset Assessment'}
+                  </button>
+
+                  {/* Reset onboarding + assessment */}
+                  <button
+                    onClick={() => reset(client.id, { reset_onboarding: true, reset_assessment: true })}
+                    disabled={busy}
+                    className="px-3 py-2 text-xs font-semibold rounded-lg border-2 border-red-300 text-red-600 hover:bg-red-50 disabled:opacity-40 transition-colors min-h-[36px]"
+                  >
+                    {busy ? '…' : 'Reset Both'}
+                  </button>
+
+                  {/* Reload button — only shown after a successful reset */}
+                  {done && (
+                    <button
+                      onClick={reloadAndTest}
+                      className="px-3 py-2 text-xs font-semibold rounded-lg bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors min-h-[36px]"
+                    >
+                      Reload &amp; Test →
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ── Main Admin page ───────────────────────────────────────────────────────────
 
 export default function Admin() {
@@ -530,6 +673,8 @@ export default function Admin() {
   const tabs = [
     { id: 'clients',     label: 'Clients' },
     { id: 'coach-foods', label: 'Coach Foods' },
+    // TODO: REMOVE BEFORE PRODUCTION LAUNCH — dev testing utility
+    { id: 'dev-tools',   label: '🛠 Dev Tools' },
   ]
 
   return (
@@ -573,6 +718,12 @@ export default function Admin() {
       {/* ── Coach Foods section ── */}
       {section === 'coach-foods' && (
         <CoachFoodsSection getToken={getToken} />
+      )}
+
+      {/* ── Dev Tools section ── */}
+      {/* TODO: REMOVE BEFORE PRODUCTION LAUNCH */}
+      {section === 'dev-tools' && (
+        <DevToolsSection clients={clients} getToken={getToken} />
       )}
     </div>
   )
