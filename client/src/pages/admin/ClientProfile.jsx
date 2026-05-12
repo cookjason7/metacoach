@@ -31,11 +31,16 @@ function daysSince(iso) {
 function OverviewTab({ client, role, getToken, onUpdate }) {
   const [coaches, setCoaches] = useState([])
   const [editing, setEditing] = useState(false)
+  const startDateInitial =
+    client.start_date ? String(client.start_date).slice(0, 10) :
+    client.effective_start_date ? String(client.effective_start_date).slice(0, 10) : ''
   const [form, setForm] = useState({
     coaching_type:     client.coaching_type ?? 'vip',
     assigned_coach_id: client.assigned_coach_id ?? '',
     role:              client.role ?? 'client',
-    start_date:        client.start_date ? String(client.start_date).slice(0, 10) : '',
+    start_date:        startDateInitial,
+    phone_number:      client.phone_number ?? '',
+    paid:              client.paid ?? false,
   })
 
   useEffect(() => {
@@ -60,6 +65,8 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
         assigned_coach_id: form.assigned_coach_id === '' ? null : Number(form.assigned_coach_id),
         role:              form.role,
         start_date:        form.start_date || null,
+        phone_number:      form.phone_number || null,
+        paid:              form.paid,
       }),
     })
     if (res.ok) { onUpdate(await res.json()); setEditing(false) }
@@ -67,6 +74,11 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
 
   const adh7  = Math.round(Number(client.adherence_7d)  || 0)
   const adh30 = Math.round(Number(client.adherence_30d) || 0)
+
+  const displayStartDate =
+    client.start_date ? String(client.start_date).slice(0, 10) :
+    client.effective_start_date ? `${String(client.effective_start_date).slice(0, 10)} (auto)` :
+    '—'
 
   return (
     <div className="space-y-4">
@@ -111,25 +123,39 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
 
         {!editing ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+            <InfoRow label="Full name"       value={client.first_name} />
             <InfoRow label="Email"           value={client.email} />
             <InfoRow label="Phone"           value={client.phone_number} />
             <InfoRow label="Coaching type"   value={client.coaching_type === 'ai' ? 'AI Coaching' : 'VIP Coaching'} />
             <InfoRow label="Assigned coach"  value={client.assigned_coach_name ?? '—'} />
-            <InfoRow label="Start date"      value={client.start_date ? String(client.start_date).slice(0, 10) : '—'} />
+            <InfoRow label="Start date"      value={displayStartDate} />
+            <InfoRow label="Payment"         value={client.paid ? `✓ Active${client.paid_at ? ` (since ${String(client.paid_at).slice(0,10)})` : ''}` : '○ Not activated'} />
             <InfoRow label="Last login"      value={client.last_login_at ? new Date(client.last_login_at).toLocaleDateString() : '—'} />
             <InfoRow label="Last meal log"   value={client.last_meal_at ? `${daysSince(client.last_meal_at)}d ago` : '—'} />
             <InfoRow label="Onboarding"      value={client.onboarding_complete ? '✓ Complete' : '○ In progress'} />
             <InfoRow label="Assessment"      value={client.assessment_complete ? '✓ Complete' : '○ In progress'} />
+            <InfoRow label="Role"            value={client.role} />
           </div>
         ) : (
           <div className="space-y-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Coaching type</label>
-              <select value={form.coaching_type} onChange={e => setForm(f => ({ ...f, coaching_type: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
-                <option value="vip">VIP Coaching</option>
-                <option value="ai">AI Coaching</option>
-              </select>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Coaching type</label>
+                <select value={form.coaching_type} onChange={e => setForm(f => ({ ...f, coaching_type: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+                  <option value="vip">VIP Coaching</option>
+                  <option value="ai">AI Coaching</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Role</label>
+                <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+                  <option value="client">Client</option>
+                  <option value="coach">Coach</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Assigned coach</label>
@@ -137,26 +163,32 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
                 <option value="">Unassigned</option>
                 {coaches.map(c => (
-                  <option key={c.id} value={c.id}>{c.first_name ?? c.email}</option>
+                  <option key={c.id} value={c.id}>{c.first_name ?? c.email} {c.email && c.first_name ? `· ${c.email}` : ''}</option>
                 ))}
               </select>
+              <p className="text-[10px] text-gray-400 mt-1">Only this coach (or admins) will see this client.</p>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Role</label>
-              <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
-                <option value="client">Client</option>
-                <option value="coach">Coach</option>
-                <option value="admin">Admin</option>
-              </select>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Phone number</label>
+                <input type="tel" value={form.phone_number} onChange={e => setForm(f => ({ ...f, phone_number: e.target.value }))}
+                  placeholder="(555) 000-0000"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Start date</label>
+                <input type="date" value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </div>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Start date</label>
-              <input type="date" value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-3">
+              <input type="checkbox" id="paid-check" checked={form.paid}
+                onChange={e => setForm(f => ({ ...f, paid: e.target.checked }))}
+                className="w-4 h-4 accent-[#E8670A]" />
+              <label htmlFor="paid-check" className="text-sm text-gray-800">Account activated / paid</label>
             </div>
-            <div className="flex gap-2">
-              <button onClick={save} className="bg-[#E8670A] text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg-[#c45e09]">Save</button>
+            <div className="flex gap-2 pt-1">
+              <button onClick={save} className="bg-[#E8670A] text-white px-5 py-2 rounded-lg text-xs font-semibold hover:bg-[#c45e09]">Save changes</button>
               <button onClick={() => setEditing(false)} className="text-xs text-gray-500 px-3 py-2">Cancel</button>
             </div>
           </div>
@@ -177,20 +209,113 @@ function InfoRow({ label, value }) {
 
 // ─── Habits Tab ───────────────────────────────────────────────────────────────
 
-const HABIT_PRESETS = [
-  { habit_name: 'Drink water',          habit_type: 'numeric',    target_value: 48, unit: 'oz',    frequency: 'daily' },
-  { habit_name: 'Hit step goal',        habit_type: 'numeric',    target_value: 8000, unit: 'steps', frequency: 'daily' },
-  { habit_name: 'Complete workout',     habit_type: 'completion', frequency: 'specific_days' },
-  { habit_name: 'Journal',              habit_type: 'boolean',    frequency: 'daily' },
-  { habit_name: 'Log food ahead',       habit_type: 'boolean',    frequency: 'daily' },
+// Quick-assign buttons — clean labels only, no goal amounts.
+// Admin/coach sets target value + dates in the form.
+const QUICK_PRESETS = [
+  { label: 'Drink water',     habit_name: 'Drink water',     habit_type: 'numeric',    unit: 'oz' },
+  { label: 'Step goal',       habit_name: 'Step goal',       habit_type: 'numeric',    unit: 'steps' },
+  { label: 'Complete workout',habit_name: 'Complete workout',habit_type: 'completion' },
+  { label: 'Journal',         habit_name: 'Journal',         habit_type: 'boolean' },
+  { label: 'Log food ahead',  habit_name: 'Log food ahead',  habit_type: 'boolean' },
+]
+
+// Full habit library grouped by category
+const HABIT_LIBRARY = [
+  {
+    category: 'Nutrition',
+    items: [
+      { habit_name: 'Hit protein goal',         habit_type: 'numeric', unit: 'g' },
+      { habit_name: 'Log food',                 habit_type: 'boolean' },
+      { habit_name: 'Log food ahead',           habit_type: 'boolean' },
+      { habit_name: 'Eat vegetables',           habit_type: 'boolean' },
+      { habit_name: 'Practice eating slowly',   habit_type: 'boolean' },
+      { habit_name: 'Stop eating at 80% full',  habit_type: 'boolean' },
+      { habit_name: 'Prepare your meals',       habit_type: 'boolean' },
+      { habit_name: 'Drink only zero-calorie drinks', habit_type: 'boolean' },
+      { habit_name: 'Follow portion guide',     habit_type: 'boolean' },
+    ],
+  },
+  {
+    category: 'Hydration',
+    items: [
+      { habit_name: 'Drink water',    habit_type: 'numeric', unit: 'oz' },
+      { habit_name: 'Hit water goal', habit_type: 'numeric', unit: 'oz' },
+    ],
+  },
+  {
+    category: 'Movement',
+    items: [
+      { habit_name: 'Step goal',          habit_type: 'numeric',    unit: 'steps' },
+      { habit_name: 'Complete workout',   habit_type: 'completion' },
+      { habit_name: 'Walk',               habit_type: 'boolean' },
+      { habit_name: 'Stretch',            habit_type: 'boolean' },
+      { habit_name: 'Mobility work',      habit_type: 'boolean' },
+      { habit_name: 'Take an active route', habit_type: 'boolean' },
+    ],
+  },
+  {
+    category: 'Mindset',
+    items: [
+      { habit_name: 'Journal',                     habit_type: 'boolean' },
+      { habit_name: 'Watch brain mapping training',habit_type: 'boolean' },
+      { habit_name: 'Complete mindset lesson',     habit_type: 'boolean' },
+      { habit_name: 'Practice gratitude',          habit_type: 'boolean' },
+      { habit_name: 'Self-care habit',             habit_type: 'boolean' },
+    ],
+  },
+  {
+    category: 'Sleep',
+    items: [
+      { habit_name: 'Bedtime routine',         habit_type: 'boolean' },
+      { habit_name: 'Digital detox before bed',habit_type: 'boolean' },
+      { habit_name: 'Sleep target',            habit_type: 'numeric', unit: 'hours' },
+    ],
+  },
+  {
+    category: 'Progress',
+    items: [
+      { habit_name: 'Daily weight',          habit_type: 'boolean' },
+      { habit_name: 'Progress photos',       habit_type: 'boolean' },
+      { habit_name: 'Complete check-in form',habit_type: 'boolean' },
+      { habit_name: 'Measurements',          habit_type: 'boolean' },
+    ],
+  },
 ]
 
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+
+// Build the next-N-days mini-calendar preview for the admin habit tab
+function buildHabitPreview(habits, days = 14) {
+  const result = []
+  const today = new Date(); today.setHours(0,0,0,0)
+  for (let i = 0; i < days; i++) {
+    const d = new Date(today); d.setDate(d.getDate() + i)
+    const dKey = d.toISOString().slice(0, 10)
+    const dDow = d.getDay()
+    const dayHabits = habits.filter(h => {
+      if (!h.active) return false
+      const hStart = new Date(`${String(h.start_date).slice(0,10)}T00:00:00`)
+      const hEnd   = h.end_date ? new Date(`${String(h.end_date).slice(0,10)}T00:00:00`) : null
+      if (d < hStart) return false
+      if (hEnd && d > hEnd) return false
+      if (h.frequency === 'specific_days') {
+        const allowed = (h.days_of_week ?? '').split(',').map(s => parseInt(s, 10))
+        if (!allowed.includes(dDow)) return false
+      }
+      if (h.frequency === 'weekly' && dDow !== hStart.getDay()) return false
+      return true
+    })
+    result.push({ date: d, dateKey: dKey, habits: dayHabits })
+  }
+  return result
+}
 
 function HabitsTab({ clientId, getToken }) {
   const [habits, setHabits] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
+  const [showLibrary, setShowLibrary] = useState(false)
+  const [showPreview, setShowPreview] = useState(false)
   const [form, setForm] = useState({
     habit_name: '', habit_type: 'boolean', target_value: '', unit: '',
     frequency: 'daily', start_date: new Date().toISOString().slice(0, 10),
@@ -213,11 +338,16 @@ function HabitsTab({ clientId, getToken }) {
       ...f,
       habit_name:   p.habit_name,
       habit_type:   p.habit_type,
-      target_value: p.target_value ? String(p.target_value) : '',
+      target_value: '',  // admin must set the goal
       unit:         p.unit ?? '',
-      frequency:    p.frequency,
+      frequency:    'daily',
+      start_date:   new Date().toISOString().slice(0, 10),
+      end_date:     '',
+      days_of_week: '',
+      notes:        '',
     }))
     setShowForm(true)
+    setShowLibrary(false)
   }
 
   function toggleDay(idx) {
@@ -259,24 +389,55 @@ function HabitsTab({ clientId, getToken }) {
     if (res.ok) setHabits(h => h.filter(x => x.id !== habitId))
   }
 
+  const previewDays = buildHabitPreview(habits, 14)
+
   return (
     <div className="space-y-4">
       {/* Quick presets */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <p className="text-xs font-semibold text-gray-700 mb-2">Quick assign</p>
         <div className="flex flex-wrap gap-2">
-          {HABIT_PRESETS.map(p => (
-            <button key={p.habit_name} onClick={() => applyPreset(p)}
+          {QUICK_PRESETS.map(p => (
+            <button key={p.label} onClick={() => applyPreset(p)}
               className="px-3 py-1.5 rounded-lg text-xs font-medium border-2 border-gray-200 text-gray-700 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors">
-              + {p.habit_name}{p.target_value ? ` (${p.target_value} ${p.unit})` : ''}
+              + {p.label}
             </button>
           ))}
           <button onClick={() => setShowForm(s => !s)}
             className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[#E8670A] text-white hover:bg-[#c45e09]">
             + Custom habit
           </button>
+          <button onClick={() => setShowLibrary(s => !s)}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium border-2 border-[#1e2a3a] text-[#1e2a3a] hover:bg-[#1e2a3a] hover:text-white transition-colors">
+            📚 Full habit library
+          </button>
         </div>
       </div>
+
+      {/* Full library (collapsed by default) */}
+      {showLibrary && (
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold text-gray-900">Habit library</p>
+            <button onClick={() => setShowLibrary(false)} className="text-xs text-gray-400 hover:text-gray-600">Close</button>
+          </div>
+          <div className="space-y-4">
+            {HABIT_LIBRARY.map(group => (
+              <div key={group.category}>
+                <p className="text-[10px] font-bold text-[#E8670A] uppercase tracking-wider mb-1.5">{group.category}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {group.items.map(item => (
+                    <button key={item.habit_name} onClick={() => applyPreset(item)}
+                      className="px-2.5 py-1 rounded-lg text-xs font-medium border border-gray-200 text-gray-700 hover:border-[#E8670A] hover:text-[#E8670A] hover:bg-orange-50 transition-colors">
+                      + {item.habit_name}{item.unit ? ` (${item.unit})` : ''}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Create form */}
       {showForm && (
@@ -394,6 +555,45 @@ function HabitsTab({ clientId, getToken }) {
           ))}
         </div>
       </div>
+
+      {/* Client calendar preview — 14-day strip showing what the client will see */}
+      {habits.length > 0 && (
+        <div>
+          <button onClick={() => setShowPreview(s => !s)}
+            className="text-xs text-[#E8670A] hover:text-[#c45e09] font-semibold mb-2 flex items-center gap-1">
+            {showPreview ? '▼' : '▶'} Preview client calendar (next 14 days)
+          </button>
+          {showPreview && (
+            <div className="bg-white border border-gray-200 rounded-xl p-3">
+              <div className="grid grid-cols-7 gap-1.5">
+                {previewDays.map(({ date, dateKey, habits: dayHabits }, i) => {
+                  const isToday = dateKey === new Date().toISOString().slice(0, 10)
+                  return (
+                    <div key={dateKey} className={`border rounded-lg p-1.5 min-h-[80px] ${
+                      isToday ? 'border-[#E8670A] bg-orange-50' : 'border-gray-200 bg-white'
+                    }`}>
+                      <p className={`text-[10px] font-bold mb-1 ${isToday ? 'text-[#E8670A]' : 'text-gray-500'}`}>
+                        {DAYS[date.getDay()]} {date.getDate()}
+                      </p>
+                      <div className="space-y-0.5">
+                        {dayHabits.map(h => (
+                          <div key={h.id} className="text-[9px] bg-emerald-50 text-emerald-800 px-1 py-0.5 rounded border border-emerald-100 truncate" title={h.habit_name}>
+                            ○ {h.habit_name}
+                          </div>
+                        ))}
+                        {dayHabits.length === 0 && <p className="text-[9px] text-gray-300">—</p>}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <p className="text-[10px] text-gray-400 mt-2 italic">
+                This is what {''}<span className="font-semibold text-gray-600">your client will see</span> on their Calendar page.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

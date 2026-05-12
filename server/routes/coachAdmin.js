@@ -80,8 +80,11 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
         u.id, u.first_name, u.email, u.phone_number,
         u.coaching_type, u.assigned_coach_id, u.role,
         u.onboarding_complete, u.assessment_complete,
-        u.last_login_at, u.start_date, u.created_at,
+        u.last_login_at, u.start_date, u.paid, u.paid_at, u.created_at,
+        -- Effective start date: explicit start_date → paid_at → created_at
+        COALESCE(u.start_date, u.paid_at::date, u.created_at::date) AS effective_start_date,
         (SELECT first_name FROM users WHERE id = u.assigned_coach_id) AS assigned_coach_name,
+        (SELECT email      FROM users WHERE id = u.assigned_coach_id) AS assigned_coach_email,
         (SELECT MAX(logged_at) FROM meals WHERE user_id = u.id) AS last_meal_at,
         COALESCE((
           SELECT AVG(completion_percentage)::numeric(5,1)
@@ -126,7 +129,9 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
 
     const { rows } = await pool.query(`
       SELECT u.*,
+        COALESCE(u.start_date, u.paid_at::date, u.created_at::date) AS effective_start_date,
         (SELECT first_name FROM users WHERE id = u.assigned_coach_id) AS assigned_coach_name,
+        (SELECT email      FROM users WHERE id = u.assigned_coach_id) AS assigned_coach_email,
         (SELECT MAX(logged_at) FROM meals WHERE user_id = u.id) AS last_meal_at,
         COALESCE((SELECT AVG(completion_percentage)::numeric(5,1)
           FROM habit_completions
@@ -148,20 +153,48 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-// PATCH /api/coach-admin/clients/:id — admin can update coaching_type, assigned_coach, role
+// PATCH /api/coach-admin/clients/:id — admin can update profile/coaching fields
+// Dynamic SET so `assigned_coach_id: null` actually unassigns the coach (unlike
+// COALESCE, which would preserve the existing value).
 router.patch('/clients/:id', requireAuth(), async (req, res, next) => {
   try {
     if (await requireAdmin(req, res) === null) return
     const id = parseInt(req.params.id, 10)
-    const { coaching_type, assigned_coach_id, role, start_date } = req.body
-    const { rows } = await pool.query(`
-      UPDATE users SET
-        coaching_type     = COALESCE($1, coaching_type),
-        assigned_coach_id = COALESCE($2, assigned_coach_id),
-        role              = COALESCE($3, role),
-        start_date        = COALESCE($4, start_date)
-      WHERE id = $5 RETURNING *
-    `, [coaching_type ?? null, assigned_coach_id ?? null, role ?? null, start_date ?? null, id])
+
+    const allowed = ['coaching_type', 'assigned_coach_id', 'role', 'start_date',
+                     'phone_number', 'paid', 'first_name']
+    const setClauses = []
+    const params = []
+    for (const key of allowed) {
+      if (key in req.body) {
+        let value = req.body[key]
+        // Normalize empty string → NULL for these fields
+        if (key === 'assigned_coach_id') {
+          value = (value === '' || value === null) ? null : Number(value)
+        }
+        if (key === 'start_date' && value === '') value = null
+        params.push(value)
+        setClauses.push(`${key} = $${params.length}`)
+      }
+    }
+
+    // When flipping paid → TRUE, also set paid_at if it's currently NULL
+    if (req.body.paid === true) {
+      setClauses.push('paid_at = COALESCE(paid_at, NOW())')
+    }
+
+    if (setClauses.length === 0) {
+      const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [id])
+      return res.json(rows[0] ?? null)
+    }
+
+    params.push(id)
+    const { rows } = await pool.query(
+      `UPDATE users SET ${setClauses.join(', ')}
+       WHERE id = $${params.length}
+       RETURNING *`,
+      params,
+    )
     if (!rows.length) return res.status(404).json({ error: 'Client not found' })
     res.json(rows[0])
   } catch (err) { next(err) }

@@ -1,93 +1,334 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useAuth } from '@clerk/clerk-react'
+import { API_URL } from '../config.js'
 
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+// Monday-first week order
+const WEEKDAY_HEADERS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December']
 
+// Supportive completion messages — never shame language
+const ENCOURAGE_DEFAULT = [
+  'Nice work. Small wins stack.',
+  'Momentum built.',
+  'You showed up today.',
+  'One step forward.',
+  'Consistency over perfection.',
+]
+const ENCOURAGE_REBUILD = [
+  "Let's rebuild momentum.",
+  'Back on track.',
+  'Every restart counts.',
+]
+
+function isoDate(d) { return d.toISOString().slice(0, 10) }
+function todayISO() { return isoDate(new Date()) }
+
+// Pad to Monday-first grid: returns offset (0-6) for first day of month
+function firstDayOffset(year, month) {
+  const dow = new Date(year, month, 1).getDay()  // Sun=0..Sat=6
+  return (dow + 6) % 7                            // Mon=0..Sun=6
+}
+
+// Detect "rebuild" — yesterday's same habit had no completion / not_started
+function isRebuild(calendar, habitId, isoToday) {
+  const yesterday = new Date(isoToday)
+  yesterday.setDate(yesterday.getDate() - 1)
+  const yKey = isoDate(yesterday)
+  const yEntries = calendar[yKey] ?? []
+  const y = yEntries.find(e => e.habit.id === habitId)
+  if (!y) return false  // not scheduled yesterday
+  return !y.completion || y.completion.status === 'not_started'
+}
+
+// Pick a random message from a pool
+function pickMessage(pool) {
+  return pool[Math.floor(Math.random() * pool.length)]
+}
+
+// ─── Habit pill (one habit on one day) ────────────────────────────────────────
+
+function HabitPill({ entry, dateISO, onComplete, isPast }) {
+  const { habit, completion } = entry
+  const isNumeric = habit.habit_type === 'numeric'
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(
+    completion?.completed_value != null ? String(completion.completed_value) : '',
+  )
+
+  const status = completion?.status ?? 'not_started'
+  const pct    = completion?.completion_percentage != null ? Number(completion.completion_percentage) : 0
+
+  const containerClass = {
+    complete:     'bg-emerald-50 border-emerald-200 hover:bg-emerald-100',
+    partial:      'bg-amber-50  border-amber-200  hover:bg-amber-100',
+    not_started:  'bg-white     border-gray-200   hover:bg-orange-50',
+  }[status]
+
+  function CircleIcon() {
+    if (status === 'complete')
+      return (
+        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500 text-white text-xs font-bold shrink-0">✓</span>
+      )
+    if (status === 'partial')
+      return (
+        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border-2 border-amber-400 bg-amber-200 shrink-0">
+          <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+        </span>
+      )
+    return (
+      <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border-2 border-gray-300 bg-white shrink-0" />
+    )
+  }
+
+  function commit(newValue) {
+    onComplete(habit.id, dateISO, newValue)
+    setEditing(false)
+  }
+
+  // For numeric habits: clicking circle opens an inline input
+  if (editing && isNumeric) {
+    return (
+      <div className={`flex items-center gap-1.5 rounded-md border px-1.5 py-1 ${containerClass}`}>
+        <CircleIcon />
+        <input
+          type="number"
+          autoFocus
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          onBlur={() => commit(value === '' ? 0 : Number(value))}
+          onKeyDown={e => {
+            if (e.key === 'Enter') commit(value === '' ? 0 : Number(value))
+            if (e.key === 'Escape') setEditing(false)
+          }}
+          className="w-12 text-xs px-1 py-0.5 border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#E8670A]"
+        />
+        <span className="text-[10px] text-gray-500">/ {habit.target_value}</span>
+      </div>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (isNumeric) {
+          setEditing(true)
+        } else {
+          // boolean / completion — toggle
+          const newVal = status === 'complete' ? 0 : 1
+          commit(newVal)
+        }
+      }}
+      className={`w-full flex items-center gap-1.5 rounded-md border px-1.5 py-1 text-left transition-colors ${containerClass}`}
+      title={habit.habit_name}
+    >
+      <CircleIcon />
+      <span className={`text-[11px] truncate ${status === 'complete' ? 'text-emerald-800 line-through' : 'text-gray-800'}`}>
+        {habit.habit_name}
+      </span>
+      {isNumeric && completion && (
+        <span className="ml-auto text-[10px] font-semibold text-gray-500 shrink-0">
+          {Math.round(pct)}%
+        </span>
+      )}
+    </button>
+  )
+}
+
+// ─── Day cell ─────────────────────────────────────────────────────────────────
+
+function DayCell({ date, inMonth, entries, onComplete, isToday }) {
+  const dateISO = isoDate(date)
+  const dayNum = date.getDate()
+  const isPast = date < new Date(new Date().toDateString())
+
+  return (
+    <div
+      className={`min-h-[90px] sm:min-h-[110px] border border-gray-100 p-1 sm:p-1.5 flex flex-col gap-1 ${
+        !inMonth ? 'bg-gray-50/50' : 'bg-white'
+      } ${isToday ? 'ring-2 ring-[#E8670A] ring-inset' : ''}`}
+    >
+      <div className="flex items-center justify-between">
+        <span className={`text-[10px] sm:text-xs font-bold ${
+          isToday ? 'text-[#E8670A]' :
+          inMonth ? 'text-gray-700' : 'text-gray-300'
+        }`}>
+          {dayNum}
+        </span>
+        {isToday && <span className="text-[8px] sm:text-[9px] font-bold text-[#E8670A] uppercase tracking-wider">Today</span>}
+      </div>
+      <div className="flex-1 space-y-0.5 overflow-hidden">
+        {entries.map((entry, i) => (
+          <HabitPill key={`${entry.habit.id}-${i}`} entry={entry} dateISO={dateISO} onComplete={onComplete} isPast={isPast} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Main Calendar ───────────────────────────────────────────────────────────
+
 export default function Calendar() {
+  const { getToken } = useAuth()
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  const [viewDate, setViewDate]   = useState(new Date(today.getFullYear(), today.getMonth(), 1))
-  const [tappedDay, setTappedDay] = useState(null)
+  const [viewDate, setViewDate] = useState(new Date(today.getFullYear(), today.getMonth(), 1))
+  const [calendar, setCalendar] = useState({})
+  const [loading, setLoading]   = useState(true)
+  const [toast, setToast]       = useState(null)
 
   const year  = viewDate.getFullYear()
   const month = viewDate.getMonth()
 
-  const firstDow    = new Date(year, month, 1).getDay()
+  // Window covers the visible grid (incl. padding from prev/next month)
+  const offset = firstDayOffset(year, month)
   const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const totalCells = Math.ceil((offset + daysInMonth) / 7) * 7
+  const gridStart = new Date(year, month, 1 - offset)
+  const gridEnd   = new Date(year, month, 1 - offset + totalCells - 1)
 
-  function prevMonth() { setViewDate(new Date(year, month - 1, 1)); setTappedDay(null) }
-  function nextMonth() { setViewDate(new Date(year, month + 1, 1)); setTappedDay(null) }
+  const loadCalendar = useCallback(async () => {
+    setLoading(true)
+    try {
+      const token = await getToken()
+      const start = isoDate(gridStart)
+      const end   = isoDate(gridEnd)
+      const res = await fetch(`${API_URL}/api/client-habits/me/calendar?start=${start}&end=${end}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setCalendar(data.calendar ?? {})
+      }
+    } finally { setLoading(false) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year, month, getToken])
 
-  function isToday(d) {
-    return new Date(year, month, d).toDateString() === today.toDateString()
+  useEffect(() => { loadCalendar() }, [loadCalendar])
+
+  function showToast(message) {
+    setToast(message)
+    setTimeout(() => setToast(null), 2500)
   }
 
-  function isTapped(d) { return tappedDay === d }
+  async function handleComplete(habitId, dateISO, value) {
+    const wasRebuild = isRebuild(calendar, habitId, dateISO)
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/client-habits/me/completions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        habit_id: habitId,
+        completion_date: dateISO,
+        completed_value: value,
+      }),
+    })
+    if (res.ok) {
+      const completion = await res.json()
+      // Patch local state instead of full refetch
+      setCalendar(prev => {
+        const next = { ...prev }
+        const dayEntries = (next[dateISO] ?? []).map(e =>
+          e.habit.id === habitId ? { ...e, completion } : e
+        )
+        next[dateISO] = dayEntries
+        return next
+      })
+      // Show supportive message if user marked complete
+      if (completion.status === 'complete') {
+        showToast(pickMessage(wasRebuild ? ENCOURAGE_REBUILD : ENCOURAGE_DEFAULT))
+      }
+    }
+  }
 
+  function prev() { setViewDate(new Date(year, month - 1, 1)) }
+  function next() { setViewDate(new Date(year, month + 1, 1)) }
+  function goToday() { setViewDate(new Date(today.getFullYear(), today.getMonth(), 1)) }
+
+  const todayISO_ = todayISO()
+
+  // Build cell list
   const cells = []
-  for (let i = 0; i < firstDow; i++) cells.push(null)
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d)
-  while (cells.length % 7 !== 0) cells.push(null)
+  for (let i = 0; i < totalCells; i++) {
+    const d = new Date(year, month, 1 - offset + i)
+    cells.push(d)
+  }
 
   return (
-    <div className="w-full max-w-lg pb-24">
-      <h1 className="text-2xl font-bold text-gray-900 mb-1">Calendar</h1>
-      <p className="text-sm text-gray-500 mb-6">Habit tracking coming soon</p>
-
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-        {/* Month nav */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-          <button
-            onClick={prevMonth}
-            className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500 transition-colors text-xl"
-            aria-label="Previous month"
-          >‹</button>
-          <p className="text-sm font-semibold text-gray-900">{MONTHS[month]} {year}</p>
-          <button
-            onClick={nextMonth}
-            className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500 transition-colors text-xl"
-            aria-label="Next month"
-          >›</button>
+    <div className="max-w-6xl">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Habit Calendar</h1>
+          <p className="text-sm text-gray-500">Tap a circle to mark a habit done.</p>
         </div>
-
-        {/* Day headers */}
-        <div className="grid grid-cols-7 border-b border-gray-100">
-          {DAYS.map(d => (
-            <div key={d} className="h-9 flex items-center justify-center text-xs font-semibold text-gray-400">{d}</div>
-          ))}
-        </div>
-
-        {/* Day cells */}
-        <div className="grid grid-cols-7">
-          {cells.map((d, i) => (
-            <div key={i} className="border-b border-r border-gray-50 last:border-r-0" style={{ minHeight: 44 }}>
-              {d != null && (
-                <button
-                  onClick={() => setTappedDay(isTapped(d) ? null : d)}
-                  className={`w-full h-full min-h-[44px] flex items-center justify-center text-sm transition-colors ${
-                    isTapped(d)
-                      ? 'bg-[#E8670A] text-white font-semibold'
-                      : isToday(d)
-                        ? 'bg-orange-50 text-[#E8670A] font-bold'
-                        : 'text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  {d}
-                </button>
-              )}
-            </div>
-          ))}
+        <div className="flex items-center gap-2">
+          <button onClick={prev} className="w-9 h-9 rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50">←</button>
+          <span className="text-base font-semibold text-gray-900 min-w-[160px] text-center">
+            {MONTHS[month]} {year}
+          </span>
+          <button onClick={next} className="w-9 h-9 rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50">→</button>
+          <button onClick={goToday} className="ml-1 text-xs text-[#E8670A] hover:text-[#c45e09] font-semibold px-2">Today</button>
         </div>
       </div>
 
-      {tappedDay != null && (
-        <div className="mt-4 bg-white rounded-xl border border-gray-200 p-5">
-          <p className="text-sm font-semibold text-gray-900 mb-1">
-            {MONTHS[month]} {tappedDay}, {year}
-          </p>
-          <p className="text-sm text-gray-500">Habit tracking coming soon.</p>
+      {/* Weekday header */}
+      <div className="grid grid-cols-7 gap-0 border-t border-l border-gray-200 rounded-t-xl overflow-hidden bg-white">
+        {WEEKDAY_HEADERS.map(d => (
+          <div key={d} className="text-[10px] sm:text-xs font-bold text-gray-500 uppercase tracking-wider px-1 py-2 text-center border-r border-b border-gray-200">
+            {d}
+          </div>
+        ))}
+      </div>
+
+      {/* Grid */}
+      <div className="grid grid-cols-7 gap-0 border-l border-gray-200 rounded-b-xl overflow-hidden">
+        {cells.map((d, i) => {
+          const inMonth = d.getMonth() === month
+          const dKey = isoDate(d)
+          const entries = calendar[dKey] ?? []
+          return (
+            <div key={i} className="border-r border-b border-gray-200">
+              <DayCell
+                date={d}
+                inMonth={inMonth}
+                entries={entries}
+                onComplete={handleComplete}
+                isToday={dKey === todayISO_}
+              />
+            </div>
+          )
+        })}
+      </div>
+
+      {loading && (
+        <p className="text-center text-xs text-gray-400 mt-3">Loading habits…</p>
+      )}
+
+      {/* Legend */}
+      <div className="mt-4 flex flex-wrap gap-3 text-xs">
+        <span className="flex items-center gap-1.5">
+          <span className="w-4 h-4 rounded-full border-2 border-gray-300 bg-white inline-block" />
+          <span className="text-gray-500">Not done</span>
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-4 h-4 rounded-full border-2 border-amber-400 bg-amber-200 inline-flex items-center justify-center">
+            <span className="w-2 h-2 rounded-full bg-amber-500" />
+          </span>
+          <span className="text-gray-500">Partial (50–79%)</span>
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-4 h-4 rounded-full bg-emerald-500 inline-flex items-center justify-center text-white text-[10px] font-bold">✓</span>
+          <span className="text-gray-500">Complete (80%+)</span>
+        </span>
+      </div>
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-[#1e2a3a] text-white px-5 py-3 rounded-xl shadow-2xl text-sm font-medium animate-fade-in">
+          {toast}
         </div>
       )}
     </div>

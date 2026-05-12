@@ -98,7 +98,14 @@ router.post('/me/activate', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const dbUserId = await getOrCreateUser(userId)
-    await pool.query('UPDATE users SET paid = TRUE WHERE id = $1', [dbUserId])
+    // Capture activation moment so start_date can default to it
+    await pool.query(
+      `UPDATE users
+       SET paid = TRUE,
+           paid_at = COALESCE(paid_at, NOW())
+       WHERE id = $1`,
+      [dbUserId],
+    )
     res.json({ ok: true })
   } catch (err) {
     next(err)
