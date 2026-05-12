@@ -157,7 +157,7 @@ function ProgressPhotoPanel({ angle, photos, getToken, onUploaded }) {
 const EMPTY_ASSESSMENT = {
   first_name: '', last_name: '', phone: '',
   street_address: '', city: '', state: '', zip_code: '', country: 'United States',
-  date_of_birth: '', shirt_size: '', coach_name: '',
+  date_of_birth: '', shirt_size: '',
   supplements: '', goals_6_months: '', injuries_limitations: '',
   num_kids: '', occupation: '',
   energy_level: null, sleep_hours: '', stress_management: null,
@@ -236,7 +236,6 @@ export default function Settings() {
             country:        data.country        ?? 'United States',
             date_of_birth:  data.date_of_birth  ? data.date_of_birth.slice(0, 10) : '',
             shirt_size:           data.shirt_size           ?? '',
-            coach_name:           data.coach_name           ?? '',
             supplements:          data.supplements          ?? '',
             goals_6_months:       data.goals_6_months       ?? '',
             injuries_limitations: data.injuries_limitations ?? '',
@@ -322,7 +321,6 @@ export default function Settings() {
         country:        aForm.country.trim()        || 'United States',
         date_of_birth:  aForm.date_of_birth         || null,
         shirt_size:           aForm.shirt_size                  || null,
-        coach_name:           aForm.coach_name.trim()           || null,
         supplements:          aForm.supplements.trim()          || null,
         goals_6_months:       aForm.goals_6_months.trim()       || null,
         injuries_limitations: aForm.injuries_limitations.trim() || null,
@@ -589,17 +587,10 @@ export default function Settings() {
               <input value={email} readOnly
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-400 cursor-not-allowed" />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Phone</label>
-                <input value={aForm.phone} onChange={setA('phone')} placeholder="(555) 000-0000" type="tel"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Coach name</label>
-                <input value={aForm.coach_name} onChange={setA('coach_name')} placeholder="Coach Katie"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
-              </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Phone</label>
+              <input value={aForm.phone} onChange={setA('phone')} placeholder="(555) 000-0000" type="tel"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Street address</label>
@@ -633,7 +624,7 @@ export default function Settings() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Date of birth</label>
-                <input value={aForm.date_of_birth} onChange={setA('date_of_birth')} type="date"
+                <input value={aForm.date_of_birth} onChange={setA('date_of_birth')} type="text" placeholder="MM/DD/YYYY"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
               </div>
               <div>

@@ -106,7 +106,6 @@ function ProtectedLayout() {
   if (!isLoaded) return <LoadingScreen />
   if (!isSignedIn) return <Navigate to="/sign-in" replace />
   if (checking) return <LoadingScreen />
-  if (!userState?.onboardingComplete) return <Navigate to="/onboarding" replace />
   if (!userState?.assessmentComplete) return <Navigate to="/health-assessment" replace />
   // Payment gate disabled — open access
   // if (!userState?.paid) return <Navigate to="/payment" replace />

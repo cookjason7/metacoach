@@ -702,6 +702,12 @@ export async function migrate() {
     )
   `)
 
+  // ── Remove old onboarding gate — mark all users as onboarding_complete ──────
+  // The multi-step onboarding form (name/gender/age/height/weight) is removed.
+  // New post-signup flow is: Health Assessment → Identity Traits → Enter app.
+  // Mark every existing user onboarding_complete=TRUE so nobody gets stuck.
+  await pool.query(`UPDATE users SET onboarding_complete = TRUE WHERE onboarding_complete = FALSE OR onboarding_complete IS NULL`)
+
   // ── Admin allowlist bootstrap ───────────────────────────────────────────────
   // Force role=admin for the hard-coded ADMIN_EMAILS list on every startup.
   // Existing user data (meals, workouts, journal, etc.) is preserved — this

@@ -24,12 +24,11 @@ const WATER_OPTIONS = [
   { value: '128_plus',      label: '128 oz+' },
 ]
 
-const ACTIVITY_OPTIONS = [
-  { value: 'sedentary',         label: 'Sedentary' },
-  { value: 'lightly_active',    label: 'Lightly Active' },
-  { value: 'moderately_active', label: 'Moderately Active' },
-  { value: 'very_active',       label: 'Very Active' },
-  { value: 'extra_active',      label: 'Extra Active' },
+const ACTIVITY_CARDS = [
+  { value: 'sedentary',         label: 'Sedentary',         desc: 'Little or no exercise. Mostly desk work or minimal daily movement.' },
+  { value: 'lightly_active',    label: 'Lightly Active',    desc: 'Light exercise 1–3 days/week. Some walking or casual activity.' },
+  { value: 'moderately_active', label: 'Moderately Active', desc: 'Moderate exercise 3–5 days/week. Regular workouts or an active lifestyle.' },
+  { value: 'very_active',       label: 'Active',            desc: 'Hard exercise 6–7 days/week or a physically demanding job.' },
 ]
 
 // ── Life Warrior identity traits ─────────────────────────────────────────────
@@ -211,7 +210,7 @@ const EMPTY_FORM = {
   // S1
   first_name: '', last_name: '', phone: '',
   street_address: '', city: '', state: '', zip_code: '', country: 'United States',
-  date_of_birth: '', shirt_size: '', coach_name: '',
+  date_of_birth: '', shirt_size: '',
   // S2
   supplements: '', goals_6_months: '', injuries_limitations: '',
   num_kids: '', occupation: '',
@@ -238,7 +237,6 @@ function validateSection(section, form) {
     if (!form.country.trim())        return 'Please add your country.'
     if (!form.date_of_birth)         return 'Please add your date of birth.'
     if (!form.shirt_size)            return 'Please choose a shirt size.'
-    if (!form.coach_name.trim())     return 'Please share your coach name (or write "AI" if AI coaching).'
     return null
   }
   if (section === 2) {
@@ -310,7 +308,6 @@ export default function HealthAssessment() {
               country:        data.country        ?? 'United States',
               date_of_birth:  data.date_of_birth  ? data.date_of_birth.slice(0, 10) : '',
               shirt_size:     data.shirt_size     ?? '',
-              coach_name:     data.coach_name     ?? '',
               supplements:          data.supplements          ?? '',
               goals_6_months:       data.goals_6_months       ?? '',
               injuries_limitations: data.injuries_limitations ?? '',
@@ -403,7 +400,6 @@ export default function HealthAssessment() {
       country:        form.country.trim() || 'United States',
       date_of_birth:  form.date_of_birth,
       shirt_size:     form.shirt_size,
-      coach_name:     form.coach_name.trim(),
     })
     setValidation(null)
     setStep(2)
@@ -589,14 +585,9 @@ export default function HealthAssessment() {
                   </Field>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Date of birth">
-                    <TextInput value={form.date_of_birth} onChange={set('date_of_birth')} type="date" />
-                  </Field>
-                  <Field label="Coach name">
-                    <TextInput value={form.coach_name} onChange={set('coach_name')} placeholder="Coach Katie" />
-                  </Field>
-                </div>
+                <Field label="Date of birth" hint="MM/DD/YYYY or YYYY-MM-DD">
+                  <TextInput value={form.date_of_birth} onChange={set('date_of_birth')} placeholder="MM/DD/YYYY" />
+                </Field>
 
                 <Field label="Shirt size">
                   <ButtonGroup value={form.shirt_size} onChange={setVal('shirt_size')} options={SHIRT_SIZES} />
@@ -738,7 +729,33 @@ export default function HealthAssessment() {
                 </Field>
 
                 <Field label="Current activity level">
-                  <OptionPills value={form.activity_level} onChange={setVal('activity_level')} options={ACTIVITY_OPTIONS} />
+                  <div className="space-y-2">
+                    {ACTIVITY_CARDS.map(card => {
+                      const selected = form.activity_level === card.value
+                      return (
+                        <button
+                          key={card.value}
+                          type="button"
+                          onClick={() => { setForm(f => ({ ...f, activity_level: card.value })); if (validation) setValidation(null) }}
+                          className={`w-full text-left px-4 py-3.5 rounded-xl border-2 transition-all flex items-start gap-3 ${
+                            selected
+                              ? 'bg-[#1e2a3a] border-[#E8670A] text-white shadow-md'
+                              : 'bg-white border-gray-200 text-gray-800 hover:border-[#E8670A] hover:bg-orange-50'
+                          }`}
+                        >
+                          <span className={`mt-0.5 inline-flex items-center justify-center w-5 h-5 rounded-full border-2 shrink-0 ${
+                            selected ? 'bg-[#E8670A] border-[#E8670A] text-white text-xs font-bold' : 'border-gray-300 bg-white'
+                          }`}>
+                            {selected ? '✓' : ''}
+                          </span>
+                          <div>
+                            <p className={`text-sm font-semibold leading-tight ${selected ? 'text-white' : 'text-gray-900'}`}>{card.label}</p>
+                            <p className={`text-xs mt-0.5 leading-snug ${selected ? 'text-white/70' : 'text-gray-500'}`}>{card.desc}</p>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
                 </Field>
               </div>
 

@@ -2,21 +2,30 @@ import { SignUp } from '@clerk/clerk-react'
 
 export default function SignUpPage() {
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center gap-4 p-6">
+      {/* Logo */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-3 inline-block">
+        <img
+          src="/logo.png"
+          alt="Life Warrior Coaching"
+          className="h-12 object-contain"
+          onError={e => { e.currentTarget.style.display = 'none' }}
+        />
+      </div>
+
       <SignUp
         routing="path"
         path="/sign-up"
         signInUrl="/sign-in"
         forceRedirectUrl="/dashboard"
         appearance={{
-          // Hide all social/OAuth provider buttons.
-          // Google OAuth is not configured and shows "Error 400: invalid_request".
-          // Remove this appearance override once OAuth providers are properly set up
-          // in the Clerk Dashboard with valid client IDs.
           elements: {
-            socialButtonsRoot:  { display: 'none' },
-            socialButtons:      { display: 'none' },
-            dividerRow:         { display: 'none' },
+            socialButtonsRoot:       { display: 'none' },
+            socialButtons:           { display: 'none' },
+            dividerRow:              { display: 'none' },
+            // Hide first/last name fields — name is collected in Health Assessment
+            formFieldRow__firstName: { display: 'none' },
+            formFieldRow__lastName:  { display: 'none' },
           },
         }}
       />
