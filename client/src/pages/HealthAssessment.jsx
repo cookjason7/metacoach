@@ -196,7 +196,8 @@ function StepProgress({ step }) {
 
 const EMPTY_FORM = {
   // S1
-  first_name: '', last_name: '', phone: '', address: '',
+  first_name: '', last_name: '', phone: '',
+  street_address: '', city: '', state: '', zip_code: '', country: 'United States',
   date_of_birth: '', shirt_size: '', coach_name: '',
   // S2
   supplements: '', goals_6_months: '', injuries_limitations: '',
@@ -233,13 +234,17 @@ export default function HealthAssessment() {
           const data = await res.json()
           if (data) {
             setForm({
-              first_name:           data.first_name           ?? '',
-              last_name:            data.last_name            ?? '',
-              phone:                data.phone                ?? '',
-              address:              data.address              ?? '',
-              date_of_birth:        data.date_of_birth        ? data.date_of_birth.slice(0, 10) : '',
-              shirt_size:           data.shirt_size           ?? '',
-              coach_name:           data.coach_name           ?? '',
+              first_name:     data.first_name     ?? '',
+              last_name:      data.last_name      ?? '',
+              phone:          data.phone          ?? '',
+              street_address: data.street_address ?? '',
+              city:           data.city           ?? '',
+              state:          data.state          ?? '',
+              zip_code:       data.zip_code       ?? '',
+              country:        data.country        ?? 'United States',
+              date_of_birth:  data.date_of_birth  ? data.date_of_birth.slice(0, 10) : '',
+              shirt_size:     data.shirt_size     ?? '',
+              coach_name:     data.coach_name     ?? '',
               supplements:          data.supplements          ?? '',
               goals_6_months:       data.goals_6_months       ?? '',
               injuries_limitations: data.injuries_limitations ?? '',
@@ -300,14 +305,18 @@ export default function HealthAssessment() {
   function handleSection1Next() {
     // Autosave S1 (non-blocking)
     save({
-      first_name: form.first_name.trim() || null,
-      last_name:  form.last_name.trim()  || null,
+      first_name:     form.first_name.trim()     || null,
+      last_name:      form.last_name.trim()      || null,
       email,
-      phone:      form.phone.trim()      || null,
-      address:    form.address.trim()    || null,
-      date_of_birth: form.date_of_birth  || null,
-      shirt_size: form.shirt_size        || null,
-      coach_name: form.coach_name.trim() || null,
+      phone:          form.phone.trim()          || null,
+      street_address: form.street_address.trim() || null,
+      city:           form.city.trim()           || null,
+      state:          form.state.trim()          || null,
+      zip_code:       form.zip_code.trim()       || null,
+      country:        form.country.trim()        || 'United States',
+      date_of_birth:  form.date_of_birth         || null,
+      shirt_size:     form.shirt_size            || null,
+      coach_name:     form.coach_name.trim()     || null,
     })
     setStep(2)
   }
@@ -379,7 +388,15 @@ export default function HealthAssessment() {
         {step === 0 && (
           <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
             <div className="bg-gradient-to-br from-[#E8670A] to-[#d45a08] px-8 py-10 text-center">
-              <div className="text-5xl mb-4">🌿</div>
+              {/* Logo — white pill container matches sidebar treatment */}
+              <div className="bg-white rounded-xl px-4 py-2.5 inline-block mb-5 shadow-sm">
+                <img
+                  src="/logo.png"
+                  alt="Life Warrior Coaching"
+                  className="h-10 w-auto object-contain"
+                  onError={e => { e.currentTarget.style.display = 'none' }}
+                />
+              </div>
               <h1 className="text-2xl font-bold text-white mb-2">Metabolic &amp; Health Assessment</h1>
               <p className="text-white/80 text-sm leading-relaxed">
                 One quick step before you dive in. This helps Coach Katie understand your body,
@@ -445,9 +462,28 @@ export default function HealthAssessment() {
                   <TextInput value={form.phone} onChange={set('phone')} placeholder="(555) 000-0000" type="tel" />
                 </Field>
 
-                <Field label="Address" hint="City/state is fine — just so your coach knows your timezone.">
-                  <TextInput value={form.address} onChange={set('address')} placeholder="Dallas, TX" />
+                {/* ── Structured address ── */}
+                <Field label="Street address">
+                  <TextInput value={form.street_address} onChange={set('street_address')} placeholder="123 Main Street" />
                 </Field>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="City">
+                    <TextInput value={form.city} onChange={set('city')} placeholder="Dallas" />
+                  </Field>
+                  <Field label="State">
+                    <TextInput value={form.state} onChange={set('state')} placeholder="TX" />
+                  </Field>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Zip code">
+                    <TextInput value={form.zip_code} onChange={set('zip_code')} placeholder="75201" />
+                  </Field>
+                  <Field label="Country">
+                    <TextInput value={form.country} onChange={set('country')} placeholder="United States" />
+                  </Field>
+                </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="Date of birth">

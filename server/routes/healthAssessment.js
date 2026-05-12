@@ -26,7 +26,9 @@ router.post('/', requireAuth(), async (req, res, next) => {
     const dbUserId = await getOrCreateUser(userId)
     const {
       // Section 1
-      first_name, last_name, email, phone, address,
+      first_name, last_name, email, phone,
+      // Structured address (new) — keep legacy `address` field for backward compat
+      street_address, city, state, zip_code, country,
       date_of_birth, shirt_size, coach_name,
       // Section 2
       supplements, goals_6_months, injuries_limitations, num_kids, occupation,
@@ -40,52 +42,61 @@ router.post('/', requireAuth(), async (req, res, next) => {
     const { rows } = await pool.query(`
       INSERT INTO health_assessments (
         user_id,
-        first_name, last_name, email, phone, address, date_of_birth, shirt_size, coach_name,
+        first_name, last_name, email, phone,
+        street_address, city, state, zip_code, country,
+        date_of_birth, shirt_size, coach_name,
         supplements, goals_6_months, injuries_limitations, num_kids, occupation,
         energy_level, sleep_hours, stress_management, sleep_quality, daily_water,
         alcohol_weekdays, alcohol_weekends, happiness_level, confidence_level, activity_level,
         completed_at, updated_at
       ) VALUES (
         $1,
-        $2,  $3,  $4,  $5,  $6,  $7,  $8,  $9,
-        $10, $11, $12, $13, $14,
-        $15, $16, $17, $18, $19,
-        $20, $21, $22, $23, $24,
-        $25, NOW()
+        $2,  $3,  $4,  $5,
+        $6,  $7,  $8,  $9,  $10,
+        $11, $12, $13,
+        $14, $15, $16, $17, $18,
+        $19, $20, $21, $22, $23,
+        $24, $25, $26, $27, $28,
+        $29, NOW()
       )
       ON CONFLICT (user_id) DO UPDATE SET
         first_name           = COALESCE($2,  health_assessments.first_name),
         last_name            = COALESCE($3,  health_assessments.last_name),
         email                = COALESCE($4,  health_assessments.email),
         phone                = COALESCE($5,  health_assessments.phone),
-        address              = COALESCE($6,  health_assessments.address),
-        date_of_birth        = COALESCE($7,  health_assessments.date_of_birth),
-        shirt_size           = COALESCE($8,  health_assessments.shirt_size),
-        coach_name           = COALESCE($9,  health_assessments.coach_name),
-        supplements          = COALESCE($10, health_assessments.supplements),
-        goals_6_months       = COALESCE($11, health_assessments.goals_6_months),
-        injuries_limitations = COALESCE($12, health_assessments.injuries_limitations),
-        num_kids             = COALESCE($13, health_assessments.num_kids),
-        occupation           = COALESCE($14, health_assessments.occupation),
-        energy_level         = COALESCE($15, health_assessments.energy_level),
-        sleep_hours          = COALESCE($16, health_assessments.sleep_hours),
-        stress_management    = COALESCE($17, health_assessments.stress_management),
-        sleep_quality        = COALESCE($18, health_assessments.sleep_quality),
-        daily_water          = COALESCE($19, health_assessments.daily_water),
-        alcohol_weekdays     = COALESCE($20, health_assessments.alcohol_weekdays),
-        alcohol_weekends     = COALESCE($21, health_assessments.alcohol_weekends),
-        happiness_level      = COALESCE($22, health_assessments.happiness_level),
-        confidence_level     = COALESCE($23, health_assessments.confidence_level),
-        activity_level       = COALESCE($24, health_assessments.activity_level),
-        completed_at         = CASE WHEN $25::TIMESTAMPTZ IS NOT NULL THEN $25::TIMESTAMPTZ
+        street_address       = COALESCE($6,  health_assessments.street_address),
+        city                 = COALESCE($7,  health_assessments.city),
+        state                = COALESCE($8,  health_assessments.state),
+        zip_code             = COALESCE($9,  health_assessments.zip_code),
+        country              = COALESCE($10, health_assessments.country),
+        date_of_birth        = COALESCE($11, health_assessments.date_of_birth),
+        shirt_size           = COALESCE($12, health_assessments.shirt_size),
+        coach_name           = COALESCE($13, health_assessments.coach_name),
+        supplements          = COALESCE($14, health_assessments.supplements),
+        goals_6_months       = COALESCE($15, health_assessments.goals_6_months),
+        injuries_limitations = COALESCE($16, health_assessments.injuries_limitations),
+        num_kids             = COALESCE($17, health_assessments.num_kids),
+        occupation           = COALESCE($18, health_assessments.occupation),
+        energy_level         = COALESCE($19, health_assessments.energy_level),
+        sleep_hours          = COALESCE($20, health_assessments.sleep_hours),
+        stress_management    = COALESCE($21, health_assessments.stress_management),
+        sleep_quality        = COALESCE($22, health_assessments.sleep_quality),
+        daily_water          = COALESCE($23, health_assessments.daily_water),
+        alcohol_weekdays     = COALESCE($24, health_assessments.alcohol_weekdays),
+        alcohol_weekends     = COALESCE($25, health_assessments.alcohol_weekends),
+        happiness_level      = COALESCE($26, health_assessments.happiness_level),
+        confidence_level     = COALESCE($27, health_assessments.confidence_level),
+        activity_level       = COALESCE($28, health_assessments.activity_level),
+        completed_at         = CASE WHEN $29::TIMESTAMPTZ IS NOT NULL THEN $29::TIMESTAMPTZ
                                     ELSE health_assessments.completed_at END,
         updated_at           = NOW()
       RETURNING *
     `, [
       dbUserId,
-      first_name    ?? null, last_name   ?? null, email      ?? null,
-      phone         ?? null, address     ?? null,
-      date_of_birth ?? null, shirt_size  ?? null, coach_name ?? null,
+      first_name     ?? null, last_name      ?? null, email    ?? null, phone ?? null,
+      street_address ?? null, city           ?? null, state    ?? null,
+      zip_code       ?? null, country        ?? null,
+      date_of_birth  ?? null, shirt_size     ?? null, coach_name ?? null,
       supplements          ?? null, goals_6_months       ?? null,
       injuries_limitations ?? null,
       num_kids != null ? Number(num_kids) : null,

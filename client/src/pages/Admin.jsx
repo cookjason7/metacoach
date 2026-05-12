@@ -130,7 +130,22 @@ function AssessmentPanel({ clientId, getToken }) {
       <div className="space-y-1">
         <Row label="Full name"    value={[data.first_name, data.last_name].filter(Boolean).join(' ') || null} />
         <Row label="Phone"        value={data.phone} />
-        <Row label="Address"      value={data.address} />
+        {/* Structured address — show assembled line if fields present, fall back to legacy */}
+        {(data.street_address || data.city || data.state) ? (
+          <div className="flex gap-2">
+            <span className="text-xs text-gray-400 shrink-0 w-32">Address</span>
+            <div className="text-xs text-gray-800 font-medium">
+              {data.street_address && <div>{data.street_address}</div>}
+              <div>
+                {[data.city, data.state].filter(Boolean).join(', ')}
+                {data.zip_code ? ` ${data.zip_code}` : ''}
+              </div>
+              {data.country && data.country !== 'United States' && <div>{data.country}</div>}
+            </div>
+          </div>
+        ) : (
+          <Row label="Address" value={data.address} />
+        )}
         <Row label="Date of birth" value={data.date_of_birth ? data.date_of_birth.slice(0,10) : null} />
         <Row label="Shirt size"   value={data.shirt_size} />
         <Row label="Coach name"   value={data.coach_name} />

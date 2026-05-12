@@ -515,6 +515,15 @@ export async function migrate() {
   // ── Health Assessment ────────────────────────────────────────────────────────
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS assessment_complete BOOLEAN DEFAULT FALSE`)
 
+  // ── Structured address fields (added after initial assessment launch) ────────
+  // Keep the old `address` TEXT column — existing data is preserved.
+  // New columns store the broken-out address so the admin can see full details.
+  await pool.query(`ALTER TABLE health_assessments ADD COLUMN IF NOT EXISTS street_address TEXT`)
+  await pool.query(`ALTER TABLE health_assessments ADD COLUMN IF NOT EXISTS city           TEXT`)
+  await pool.query(`ALTER TABLE health_assessments ADD COLUMN IF NOT EXISTS state          TEXT`)
+  await pool.query(`ALTER TABLE health_assessments ADD COLUMN IF NOT EXISTS zip_code       TEXT`)
+  await pool.query(`ALTER TABLE health_assessments ADD COLUMN IF NOT EXISTS country        TEXT DEFAULT 'United States'`)
+
   // ── Grandfather existing users ───────────────────────────────────────────────
   // Any user who already completed onboarding before the assessment feature was
   // introduced should be treated as having completed the assessment so they are

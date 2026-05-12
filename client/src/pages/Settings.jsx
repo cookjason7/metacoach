@@ -155,7 +155,8 @@ function ProgressPhotoPanel({ angle, photos, getToken, onUploaded }) {
 }
 
 const EMPTY_ASSESSMENT = {
-  first_name: '', last_name: '', phone: '', address: '',
+  first_name: '', last_name: '', phone: '',
+  street_address: '', city: '', state: '', zip_code: '', country: 'United States',
   date_of_birth: '', shirt_size: '', coach_name: '',
   supplements: '', goals_6_months: '', injuries_limitations: '',
   num_kids: '', occupation: '',
@@ -225,11 +226,15 @@ export default function Settings() {
         if (data) {
           setAssessment(data)
           setAForm({
-            first_name:           data.first_name           ?? '',
-            last_name:            data.last_name            ?? '',
-            phone:                data.phone                ?? '',
-            address:              data.address              ?? '',
-            date_of_birth:        data.date_of_birth        ? data.date_of_birth.slice(0, 10) : '',
+            first_name:     data.first_name     ?? '',
+            last_name:      data.last_name      ?? '',
+            phone:          data.phone          ?? '',
+            street_address: data.street_address ?? '',
+            city:           data.city           ?? '',
+            state:          data.state          ?? '',
+            zip_code:       data.zip_code       ?? '',
+            country:        data.country        ?? 'United States',
+            date_of_birth:  data.date_of_birth  ? data.date_of_birth.slice(0, 10) : '',
             shirt_size:           data.shirt_size           ?? '',
             coach_name:           data.coach_name           ?? '',
             supplements:          data.supplements          ?? '',
@@ -306,12 +311,16 @@ export default function Settings() {
     try {
       const token = await getToken()
       const payload = {
-        first_name:           aForm.first_name.trim()           || null,
-        last_name:            aForm.last_name.trim()            || null,
+        first_name:     aForm.first_name.trim()     || null,
+        last_name:      aForm.last_name.trim()      || null,
         email,
-        phone:                aForm.phone.trim()                || null,
-        address:              aForm.address.trim()              || null,
-        date_of_birth:        aForm.date_of_birth               || null,
+        phone:          aForm.phone.trim()          || null,
+        street_address: aForm.street_address.trim() || null,
+        city:           aForm.city.trim()           || null,
+        state:          aForm.state.trim()          || null,
+        zip_code:       aForm.zip_code.trim()       || null,
+        country:        aForm.country.trim()        || 'United States',
+        date_of_birth:  aForm.date_of_birth         || null,
         shirt_size:           aForm.shirt_size                  || null,
         coach_name:           aForm.coach_name.trim()           || null,
         supplements:          aForm.supplements.trim()          || null,
@@ -593,9 +602,33 @@ export default function Settings() {
               </div>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Address</label>
-              <input value={aForm.address} onChange={setA('address')} placeholder="Dallas, TX"
+              <label className="block text-xs font-medium text-gray-600 mb-1">Street address</label>
+              <input value={aForm.street_address} onChange={setA('street_address')} placeholder="123 Main Street"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">City</label>
+                <input value={aForm.city} onChange={setA('city')} placeholder="Dallas"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">State</label>
+                <input value={aForm.state} onChange={setA('state')} placeholder="TX"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Zip code</label>
+                <input value={aForm.zip_code} onChange={setA('zip_code')} placeholder="75201"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Country</label>
+                <input value={aForm.country} onChange={setA('country')} placeholder="United States"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
