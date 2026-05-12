@@ -148,4 +148,58 @@ router.delete('/coach-foods/:id', requireAuth(), async (req, res, next) => {
   }
 })
 
+// ── Health Assessments ────────────────────────────────────────────────────────
+
+// GET /api/admin/assessments — list all submitted assessments
+router.get('/assessments', requireAuth(), async (req, res, next) => {
+  try {
+    if (await requireAdmin(req, res) === null) return
+    const { rows } = await pool.query(`
+      SELECT ha.*,
+             u.first_name AS user_first_name,
+             u.email      AS user_email
+      FROM health_assessments ha
+      JOIN users u ON u.id = ha.user_id
+      ORDER BY ha.updated_at DESC
+    `)
+    res.json(rows)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// GET /api/admin/assessments/:userId — get one user's assessment
+router.get('/assessments/:userId', requireAuth(), async (req, res, next) => {
+  try {
+    if (await requireAdmin(req, res) === null) return
+    const { rows } = await pool.query(
+      'SELECT * FROM health_assessments WHERE user_id = $1',
+      [parseInt(req.params.userId, 10)],
+    )
+    res.json(rows[0] ?? null)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// PATCH /api/admin/assessments/:userId — update coach_name or notes
+router.patch('/assessments/:userId', requireAuth(), async (req, res, next) => {
+  try {
+    if (await requireAdmin(req, res) === null) return
+    const targetId = parseInt(req.params.userId, 10)
+    const { coach_name } = req.body
+    const { rows } = await pool.query(`
+      UPDATE health_assessments
+      SET coach_name = COALESCE($1, coach_name),
+          updated_at = NOW()
+      WHERE user_id = $2
+      RETURNING *
+    `, [coach_name ?? null, targetId])
+    if (!rows.length) return res.status(404).json({ error: 'Assessment not found' })
+    res.json(rows[0])
+  } catch (err) {
+    next(err)
+  }
+})
+
 export default router

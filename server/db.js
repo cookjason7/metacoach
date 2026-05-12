@@ -511,6 +511,42 @@ export async function migrate() {
     SELECT TRUE, FALSE, 'Fairlife Whole Milk', 150, 13, 6, 8, 0, 240, 'ml'
     WHERE NOT EXISTS (SELECT 1 FROM custom_foods WHERE food_name = 'Fairlife Whole Milk' AND is_global = TRUE)
   `)
+
+  // ── Health Assessment ────────────────────────────────────────────────────────
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS assessment_complete BOOLEAN DEFAULT FALSE`)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS health_assessments (
+      id                   SERIAL PRIMARY KEY,
+      user_id              INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      first_name           TEXT,
+      last_name            TEXT,
+      email                TEXT,
+      phone                TEXT,
+      address              TEXT,
+      date_of_birth        DATE,
+      shirt_size           TEXT,
+      coach_name           TEXT,
+      supplements          TEXT,
+      goals_6_months       TEXT,
+      injuries_limitations TEXT,
+      num_kids             INTEGER,
+      occupation           TEXT,
+      energy_level         INTEGER CHECK (energy_level BETWEEN 1 AND 5),
+      sleep_hours          TEXT,
+      stress_management    INTEGER CHECK (stress_management BETWEEN 1 AND 5),
+      sleep_quality        INTEGER CHECK (sleep_quality BETWEEN 1 AND 5),
+      daily_water          TEXT,
+      alcohol_weekdays     INTEGER DEFAULT 0,
+      alcohol_weekends     INTEGER DEFAULT 0,
+      happiness_level      INTEGER CHECK (happiness_level BETWEEN 1 AND 5),
+      confidence_level     INTEGER CHECK (confidence_level BETWEEN 1 AND 5),
+      activity_level       TEXT,
+      completed_at         TIMESTAMPTZ,
+      created_at           TIMESTAMPTZ DEFAULT NOW(),
+      updated_at           TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (user_id)
+    )
+  `)
 }
 
 export async function getOrCreateUser(clerkUserId) {

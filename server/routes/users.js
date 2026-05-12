@@ -13,7 +13,8 @@ router.get('/me', requireAuth(), async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT id, first_name, age, height_inches, starting_weight_lbs, goal_weight_lbs,
               activity_level, tried_before, why_joined, identity_anchors,
-              onboarding_complete, goal_calories, goal_protein, goal_carbs, goal_fat,
+              onboarding_complete, assessment_complete,
+              goal_calories, goal_protein, goal_carbs, goal_fat,
               gender, phone_number, paid, role
        FROM users WHERE id = $1`,
       [dbUserId],

@@ -18,6 +18,7 @@ import Workouts from './pages/Workouts'
 import Journal from './pages/Journal'
 import Calendar from './pages/Calendar'
 import Badges from './pages/Badges'
+import HealthAssessment from './pages/HealthAssessment'
 import { API_URL } from './config.js'
 
 // Module-level cache: null | { onboardingComplete: bool, paid: bool }
@@ -82,7 +83,8 @@ function ProtectedLayout() {
         if (!res.ok) throw new Error()
         const data = await res.json()
         userStateCache = {
-          onboardingComplete: !!data.onboarding_complete,
+          onboardingComplete:  !!data.onboarding_complete,
+          assessmentComplete:  !!data.assessment_complete,
           paid: !!data.paid,
         }
       } catch {
@@ -102,6 +104,7 @@ function ProtectedLayout() {
   if (!isSignedIn) return <Navigate to="/sign-in" replace />
   if (checking) return <LoadingScreen />
   if (!userState?.onboardingComplete) return <Navigate to="/onboarding" replace />
+  if (!userState?.assessmentComplete) return <Navigate to="/health-assessment" replace />
   // Payment gate disabled — open access
   // if (!userState?.paid) return <Navigate to="/payment" replace />
   return <Layout />
@@ -121,6 +124,13 @@ function PaymentRoute() {
   return <Payment />
 }
 
+function HealthAssessmentRoute() {
+  const { isSignedIn, isLoaded } = useAuth()
+  if (!isLoaded) return <LoadingScreen />
+  if (!isSignedIn) return <Navigate to="/sign-in" replace />
+  return <HealthAssessment />
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -128,8 +138,9 @@ export default function App() {
       <Routes>
         <Route path="/sign-in/*"  element={<SignInPage />} />
         <Route path="/sign-up/*"  element={<SignUpPage />} />
-        <Route path="/onboarding" element={<OnboardingRoute />} />
-        <Route path="/payment"    element={<PaymentRoute />} />
+        <Route path="/onboarding"         element={<OnboardingRoute />} />
+        <Route path="/payment"            element={<PaymentRoute />} />
+        <Route path="/health-assessment"  element={<HealthAssessmentRoute />} />
         <Route element={<ProtectedLayout />}>
           <Route path="/"             element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard"    element={<Dashboard />} />

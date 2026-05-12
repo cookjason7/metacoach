@@ -79,8 +79,115 @@ function MacroForm({ client, getToken, onSaved }) {
   )
 }
 
+function AssessmentPanel({ clientId, getToken }) {
+  const [data,    setData]    = useState(undefined) // undefined=not loaded, null=none
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/admin/assessments/${clientId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.ok) setData(await res.json())
+        else setData(null)
+      } catch { setData(null) } finally { setLoading(false) }
+    }
+    load()
+  }, [clientId, getToken])
+
+  if (loading) return <p className="text-xs text-gray-400 mt-3 pt-3 border-t border-gray-100">Loading assessment…</p>
+  if (!data)   return <p className="text-xs text-gray-400 mt-3 pt-3 border-t border-gray-100">No assessment submitted yet.</p>
+
+  function Rating({ value }) {
+    if (!value) return <span className="text-gray-400">—</span>
+    return (
+      <span className="inline-flex gap-0.5">
+        {[1,2,3,4,5].map(n => (
+          <span key={n} className={`w-4 h-4 rounded text-[9px] font-bold flex items-center justify-center ${
+            n <= value ? 'bg-[#E8670A] text-white' : 'bg-gray-100 text-gray-300'
+          }`}>{n}</span>
+        ))}
+      </span>
+    )
+  }
+
+  function Row({ label, value }) {
+    if (!value && value !== 0) return null
+    return (
+      <div className="flex gap-2">
+        <span className="text-xs text-gray-400 shrink-0 w-32">{label}</span>
+        <span className="text-xs text-gray-800 font-medium">{value}</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-3 pt-3 border-t border-gray-100 space-y-3">
+      {/* Section 1 */}
+      <p className="text-[10px] font-bold text-[#E8670A] uppercase tracking-wider">Contact & Info</p>
+      <div className="space-y-1">
+        <Row label="Full name"    value={[data.first_name, data.last_name].filter(Boolean).join(' ') || null} />
+        <Row label="Phone"        value={data.phone} />
+        <Row label="Address"      value={data.address} />
+        <Row label="Date of birth" value={data.date_of_birth ? data.date_of_birth.slice(0,10) : null} />
+        <Row label="Shirt size"   value={data.shirt_size} />
+        <Row label="Coach name"   value={data.coach_name} />
+      </div>
+
+      {/* Section 2 */}
+      <p className="text-[10px] font-bold text-[#E8670A] uppercase tracking-wider">About You</p>
+      <div className="space-y-1">
+        <Row label="Occupation"   value={data.occupation} />
+        <Row label="Kids"         value={data.num_kids != null ? String(data.num_kids) : null} />
+        <Row label="6-mo goals"   value={data.goals_6_months} />
+        <Row label="Supplements"  value={data.supplements} />
+        <Row label="Injuries"     value={data.injuries_limitations} />
+      </div>
+
+      {/* Section 3 */}
+      <p className="text-[10px] font-bold text-[#E8670A] uppercase tracking-wider">Energy & Lifestyle</p>
+      <div className="space-y-1.5">
+        <div className="flex gap-2 items-center">
+          <span className="text-xs text-gray-400 shrink-0 w-32">Energy</span>
+          <Rating value={data.energy_level} />
+        </div>
+        <div className="flex gap-2 items-center">
+          <span className="text-xs text-gray-400 shrink-0 w-32">Sleep quality</span>
+          <Rating value={data.sleep_quality} />
+        </div>
+        <div className="flex gap-2 items-center">
+          <span className="text-xs text-gray-400 shrink-0 w-32">Stress mgmt</span>
+          <Rating value={data.stress_management} />
+        </div>
+        <div className="flex gap-2 items-center">
+          <span className="text-xs text-gray-400 shrink-0 w-32">Happiness</span>
+          <Rating value={data.happiness_level} />
+        </div>
+        <div className="flex gap-2 items-center">
+          <span className="text-xs text-gray-400 shrink-0 w-32">Confidence</span>
+          <Rating value={data.confidence_level} />
+        </div>
+        <Row label="Sleep hours"    value={data.sleep_hours} />
+        <Row label="Daily water"    value={data.daily_water} />
+        <Row label="Drinks weekday" value={data.alcohol_weekdays != null ? `${data.alcohol_weekdays}/day` : null} />
+        <Row label="Drinks weekend" value={data.alcohol_weekends != null ? `${data.alcohol_weekends}/day` : null} />
+        <Row label="Activity level" value={data.activity_level} />
+      </div>
+
+      {data.completed_at && (
+        <p className="text-[10px] text-gray-400 pt-1">
+          Completed {new Date(data.completed_at).toLocaleDateString()}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function ClientRow({ client, getToken, onUpdate }) {
-  const [editing, setEditing] = useState(false)
+  const [editing,         setEditing]         = useState(false)
+  const [assessmentOpen,  setAssessmentOpen]  = useState(false)
   const inactive = daysSince(client.last_meal_at)
 
   function handleSaved(updated) { if (updated) onUpdate(updated); setEditing(false) }
@@ -94,18 +201,23 @@ function ClientRow({ client, getToken, onUpdate }) {
             {inactive === null ? 'No meals logged' : inactive === 0 ? 'Logged today' : `Last log: ${inactive}d ago`}
           </p>
         </div>
-        <div className="flex items-center gap-4 text-xs text-gray-500 shrink-0">
+        <div className="flex items-center gap-3 text-xs text-gray-500 shrink-0 flex-wrap justify-end">
           <span title="Calories">{client.goal_calories ? `${client.goal_calories} cal` : '—'}</span>
           <span title="Protein">{client.goal_protein  ? `${client.goal_protein}g P`  : '—'}</span>
           <span title="Carbs">{client.goal_carbs    ? `${client.goal_carbs}g C`    : '—'}</span>
           <span title="Fat">{client.goal_fat      ? `${client.goal_fat}g F`      : '—'}</span>
-          <button onClick={() => setEditing(e => !e)}
+          <button onClick={() => { setEditing(e => !e); setAssessmentOpen(false) }}
             className="text-[#E8670A] hover:text-[#c45e09] font-medium transition-colors">
-            {editing ? 'Close' : 'Edit'}
+            {editing ? 'Close' : 'Macros'}
+          </button>
+          <button onClick={() => { setAssessmentOpen(o => !o); setEditing(false) }}
+            className="text-[#E8670A] hover:text-[#c45e09] font-medium transition-colors">
+            {assessmentOpen ? 'Close' : 'Assessment'}
           </button>
         </div>
       </div>
-      {editing && <MacroForm client={client} getToken={getToken} onSaved={handleSaved} />}
+      {editing       && <MacroForm client={client} getToken={getToken} onSaved={handleSaved} />}
+      {assessmentOpen && <AssessmentPanel clientId={client.id} getToken={getToken} />}
     </div>
   )
 }
