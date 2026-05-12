@@ -402,35 +402,51 @@ router.get('/clients/:id/habits/calendar', requireAuth(), async (req, res, next)
         AND completion_date BETWEEN $2::date AND $3::date
     `, [id, startDate, endDate])
 
+    // Helper: pg returns DATE as a JS Date in server local TZ. Use local
+    // components — do NOT use toISOString() which can shift the day.
+    const toISODate = v => {
+      if (v == null) return null
+      if (typeof v === 'string') return v.slice(0, 10)
+      if (v instanceof Date) {
+        const y = v.getFullYear()
+        const m = String(v.getMonth() + 1).padStart(2, '0')
+        const d = String(v.getDate()).padStart(2, '0')
+        return `${y}-${m}-${d}`
+      }
+      return String(v).slice(0, 10)
+    }
+
     // Build a {habit_id: {date: completion}} map
     const compMap = {}
     for (const c of completions) {
-      const dateKey = c.completion_date instanceof Date
-        ? c.completion_date.toISOString().slice(0, 10)
-        : String(c.completion_date).slice(0, 10)
+      const dateKey = toISODate(c.completion_date)
       if (!compMap[c.habit_id]) compMap[c.habit_id] = {}
       compMap[c.habit_id][dateKey] = c
     }
 
     // Expand each habit into per-day instances within the window
     const calendar = {}  // { 'YYYY-MM-DD': [{ habit, completion }] }
-    const start = new Date(startDate)
-    const end   = new Date(endDate)
+    const start = new Date(`${startDate}T00:00:00`)
+    const end   = new Date(`${endDate}T00:00:00`)
     for (const habit of habits) {
-      const habitStart = new Date(habit.start_date)
-      const habitEnd   = habit.end_date ? new Date(habit.end_date) : end
+      const hStartISO = toISODate(habit.start_date)
+      const hEndISO   = toISODate(habit.end_date)
+      const habitStart = new Date(`${hStartISO}T00:00:00`)
+      const habitEnd   = hEndISO ? new Date(`${hEndISO}T00:00:00`) : end
       const allowed = habit.days_of_week
         ? habit.days_of_week.split(',').map(s => parseInt(s, 10))
         : null
 
-      for (let d = new Date(Math.max(start, habitStart)); d <= Math.min(end, habitEnd); d.setDate(d.getDate() + 1)) {
-        if (allowed && !allowed.includes(d.getDay())) continue
+      const iterStart = new Date(Math.max(start.getTime(), habitStart.getTime()))
+      const iterEnd   = new Date(Math.min(end.getTime(), habitEnd.getTime()))
+      for (let d = new Date(iterStart); d <= iterEnd; d.setDate(d.getDate() + 1)) {
+        if (habit.frequency === 'specific_days' && allowed && !allowed.includes(d.getDay())) continue
         if (habit.frequency === 'weekly' && d.getDay() !== habitStart.getDay()) continue
 
-        const key = d.toISOString().slice(0, 10)
+        const key = toISODate(d)
         if (!calendar[key]) calendar[key] = []
         calendar[key].push({
-          habit,
+          habit: { ...habit, start_date: hStartISO, end_date: hEndISO },
           completion: compMap[habit.id]?.[key] ?? null,
         })
       }

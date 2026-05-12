@@ -35,6 +35,8 @@ router.post('/', requireAuth(), async (req, res, next) => {
       // Section 3
       energy_level, sleep_hours, stress_management, sleep_quality, daily_water,
       alcohol_weekdays, alcohol_weekends, happiness_level, confidence_level, activity_level,
+      // Section 4 — Life Warrior identity traits (JSONB array of exactly 2 strings)
+      identity_traits,
       // Completion flag — set true only on final submit
       completed,
     } = req.body
@@ -48,6 +50,7 @@ router.post('/', requireAuth(), async (req, res, next) => {
         supplements, goals_6_months, injuries_limitations, num_kids, occupation,
         energy_level, sleep_hours, stress_management, sleep_quality, daily_water,
         alcohol_weekdays, alcohol_weekends, happiness_level, confidence_level, activity_level,
+        identity_traits,
         completed_at, updated_at
       ) VALUES (
         $1,
@@ -57,7 +60,8 @@ router.post('/', requireAuth(), async (req, res, next) => {
         $14, $15, $16, $17, $18,
         $19, $20, $21, $22, $23,
         $24, $25, $26, $27, $28,
-        $29, NOW()
+        $29,
+        $30, NOW()
       )
       ON CONFLICT (user_id) DO UPDATE SET
         first_name           = COALESCE($2,  health_assessments.first_name),
@@ -87,7 +91,8 @@ router.post('/', requireAuth(), async (req, res, next) => {
         happiness_level      = COALESCE($26, health_assessments.happiness_level),
         confidence_level     = COALESCE($27, health_assessments.confidence_level),
         activity_level       = COALESCE($28, health_assessments.activity_level),
-        completed_at         = CASE WHEN $29::TIMESTAMPTZ IS NOT NULL THEN $29::TIMESTAMPTZ
+        identity_traits      = COALESCE($29::jsonb, health_assessments.identity_traits),
+        completed_at         = CASE WHEN $30::TIMESTAMPTZ IS NOT NULL THEN $30::TIMESTAMPTZ
                                     ELSE health_assessments.completed_at END,
         updated_at           = NOW()
       RETURNING *
@@ -111,6 +116,7 @@ router.post('/', requireAuth(), async (req, res, next) => {
       happiness_level   != null ? Number(happiness_level)   : null,
       confidence_level  != null ? Number(confidence_level)  : null,
       activity_level    ?? null,
+      Array.isArray(identity_traits) ? JSON.stringify(identity_traits) : null,
       completed ? new Date().toISOString() : null,
     ])
 

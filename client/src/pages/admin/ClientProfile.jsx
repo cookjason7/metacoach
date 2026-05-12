@@ -748,6 +748,21 @@ function AssessmentTab({ clientId, getToken }) {
         </p>
       )}
 
+      {/* Life Warrior identity */}
+      {Array.isArray(data.identity_traits) && data.identity_traits.length > 0 && (
+        <div className="bg-gradient-to-br from-[#1e2a3a] to-[#243347] rounded-xl p-5 text-white">
+          <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider mb-2">Life Warrior Identity</p>
+          <div className="space-y-1.5">
+            {data.identity_traits.map((trait, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <span className="text-[#E8670A] mt-0.5">✓</span>
+                <p className="text-sm font-medium text-white/95">{trait}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Goals & limitations */}
       <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
         <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider">Goals &amp; Health</p>

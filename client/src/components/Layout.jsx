@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { to: '/ai-coach',     label: 'Coach Katie' },
   { href: 'https://www.lwcvip.com/mindset', label: 'Brain Mapping' },
   { to: '/journal',      label: 'Log Food' },
+  { to: '/calendar',     label: 'Habit Calendar' },
   { to: '/food-list',    label: 'Food List' },
   { to: '/workouts',     label: 'Workouts' },
   { to: '/badges',       label: 'Achievements' },

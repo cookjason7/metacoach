@@ -32,6 +32,19 @@ const ACTIVITY_OPTIONS = [
   { value: 'extra_active',      label: 'Extra Active' },
 ]
 
+// ── Life Warrior identity traits ─────────────────────────────────────────────
+// Curated 8 — premium, concise, gender-neutral. User selects exactly 2.
+const IDENTITY_TRAITS = [
+  "Shows up when it's hard.",
+  'Keeps small promises daily.',
+  'Acts on imperfect plans.',
+  "Learns from mistakes — doesn't hide from them.",
+  'Invests in self, fully.',
+  'Leads by example.',
+  'Takes responsibility, not excuses.',
+  'Gets comfortable being uncomfortable.',
+]
+
 // ── Sub-components ───────────────────────────────────────────────────────────
 
 function Field({ label, hint, children }) {
@@ -144,19 +157,19 @@ function ButtonGroup({ value, onChange, options }) {
 
 // Progress bar at top of form steps
 function StepProgress({ step }) {
-  const steps = ['Contact', 'About You', 'Lifestyle']
+  const steps = ['Contact', 'About You', 'Lifestyle', 'Identity']
   return (
-    <div className="bg-[#1e2a3a] px-6 py-4">
+    <div className="bg-[#1e2a3a] px-4 sm:px-6 py-4">
       <div className="flex items-center justify-between relative">
         {/* connector lines */}
-        <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 flex">
-          {[0, 1].map(i => (
+        <div className="absolute left-0 right-0 top-[14px] flex">
+          {[0, 1, 2].map(i => (
             <div
               key={i}
               className={`flex-1 h-0.5 transition-colors ${
                 step > i + 1 ? 'bg-[#E8670A]' : 'bg-white/20'
               }`}
-              style={{ marginLeft: i === 0 ? '14px' : '0', marginRight: i === 1 ? '14px' : '0' }}
+              style={{ marginLeft: i === 0 ? '14px' : '0', marginRight: i === 2 ? '14px' : '0' }}
             />
           ))}
         </div>
@@ -178,7 +191,7 @@ function StepProgress({ step }) {
                 {complete ? '✓' : n}
               </div>
               <span
-                className={`text-[10px] font-semibold transition-colors ${
+                className={`text-[10px] font-semibold transition-colors hidden sm:inline ${
                   active || complete ? 'text-white' : 'text-white/40'
                 }`}
               >
@@ -207,6 +220,57 @@ const EMPTY_FORM = {
   sleep_quality: null, daily_water: '', alcohol_weekdays: '0',
   alcohol_weekends: '0', happiness_level: null, confidence_level: null,
   activity_level: '',
+  // S4 — Life Warrior identity (exactly 2 traits)
+  identity_traits: [],
+}
+
+// ── Per-section validation ───────────────────────────────────────────────────
+// Returns null if valid, or a supportive message string if invalid.
+function validateSection(section, form) {
+  if (section === 1) {
+    if (!form.first_name.trim())     return "Let's start with your first name."
+    if (!form.last_name.trim())      return 'Please add your last name to continue.'
+    if (!form.phone.trim())          return 'Please share a phone number so your coach can reach you.'
+    if (!form.street_address.trim()) return 'Please add your street address.'
+    if (!form.city.trim())           return 'Please add your city.'
+    if (!form.state.trim())          return 'Please add your state.'
+    if (!form.zip_code.trim())       return 'Please add your zip code.'
+    if (!form.country.trim())        return 'Please add your country.'
+    if (!form.date_of_birth)         return 'Please add your date of birth.'
+    if (!form.shirt_size)            return 'Please choose a shirt size.'
+    if (!form.coach_name.trim())     return 'Please share your coach name (or write "AI" if AI coaching).'
+    return null
+  }
+  if (section === 2) {
+    if (!form.occupation.trim())            return 'Please share your occupation.'
+    if (form.num_kids === '' || form.num_kids == null) return 'Please share how many kids you have (0 is fine).'
+    if (!form.goals_6_months.trim())        return 'Please share your 6-month goal — even one sentence helps.'
+    if (!form.supplements.trim())           return "Please list your supplements — write 'None' if you don't take any."
+    if (!form.injuries_limitations.trim())  return "Please share any injuries — write 'None' if you have none."
+    return null
+  }
+  if (section === 3) {
+    if (form.energy_level == null)      return "Please rate your energy level."
+    if (!form.sleep_hours)               return 'Please choose your sleep hours.'
+    if (form.sleep_quality == null)     return 'Please rate your sleep quality.'
+    if (form.stress_management == null) return 'Please rate how you manage stress.'
+    if (!form.daily_water)               return 'Please choose your daily water intake.'
+    if (form.alcohol_weekdays === '' || form.alcohol_weekdays == null)
+      return "Please share weekday alcohol intake (0 is fine)."
+    if (form.alcohol_weekends === '' || form.alcohol_weekends == null)
+      return "Please share weekend alcohol intake (0 is fine)."
+    if (form.happiness_level == null)   return 'Please rate your happiness.'
+    if (form.confidence_level == null)  return 'Please rate your confidence.'
+    if (!form.activity_level)            return 'Please choose your activity level.'
+    return null
+  }
+  if (section === 4) {
+    if (!Array.isArray(form.identity_traits) || form.identity_traits.length !== 2) {
+      return 'Please choose exactly 2 traits that feel most true to who you\'re becoming.'
+    }
+    return null
+  }
+  return null
 }
 
 export default function HealthAssessment() {
@@ -214,11 +278,13 @@ export default function HealthAssessment() {
   const { user }     = useUser()
   const navigate     = useNavigate()
 
-  const [step,    setStep]    = useState(0) // 0=welcome, 1=S1, 2=S2, 3=S3, 4=complete
+  const [step,    setStep]    = useState(0) // 0=welcome, 1=S1, 2=S2, 3=S3, 4=S4(identity), 5=complete
   const [form,    setForm]    = useState(EMPTY_FORM)
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState(null)
   const [loaded,  setLoaded]  = useState(false)
+  // Per-section validation message (supportive language; null when valid)
+  const [validation, setValidation] = useState(null)
 
   const email = user?.primaryEmailAddress?.emailAddress ?? ''
 
@@ -260,6 +326,7 @@ export default function HealthAssessment() {
               happiness_level:      data.happiness_level      ?? null,
               confidence_level:     data.confidence_level     ?? null,
               activity_level:       data.activity_level       ?? '',
+              identity_traits:      Array.isArray(data.identity_traits) ? data.identity_traits : [],
             })
           }
         }
@@ -273,11 +340,30 @@ export default function HealthAssessment() {
   }, [getToken])
 
   function set(field) {
-    return e => setForm(f => ({ ...f, [field]: e.target.value }))
+    return e => {
+      setForm(f => ({ ...f, [field]: e.target.value }))
+      if (validation) setValidation(null)
+    }
   }
 
   function setVal(field) {
-    return val => setForm(f => ({ ...f, [field]: val }))
+    return val => {
+      setForm(f => ({ ...f, [field]: val }))
+      if (validation) setValidation(null)
+    }
+  }
+
+  // Toggle identity trait — enforces "exactly 2" max
+  function toggleTrait(trait) {
+    setForm(f => {
+      const current = Array.isArray(f.identity_traits) ? f.identity_traits : []
+      if (current.includes(trait)) {
+        return { ...f, identity_traits: current.filter(t => t !== trait) }
+      }
+      if (current.length >= 2) return f
+      return { ...f, identity_traits: [...current, trait] }
+    })
+    if (validation) setValidation(null)
   }
 
   // Save current data to server (non-blocking unless completing)
@@ -303,51 +389,68 @@ export default function HealthAssessment() {
   }
 
   function handleSection1Next() {
-    // Autosave S1 (non-blocking)
+    const err = validateSection(1, form)
+    if (err) { setValidation(err); return }
     save({
-      first_name:     form.first_name.trim()     || null,
-      last_name:      form.last_name.trim()      || null,
+      first_name:     form.first_name.trim(),
+      last_name:      form.last_name.trim(),
       email,
-      phone:          form.phone.trim()          || null,
-      street_address: form.street_address.trim() || null,
-      city:           form.city.trim()           || null,
-      state:          form.state.trim()          || null,
-      zip_code:       form.zip_code.trim()       || null,
-      country:        form.country.trim()        || 'United States',
-      date_of_birth:  form.date_of_birth         || null,
-      shirt_size:     form.shirt_size            || null,
-      coach_name:     form.coach_name.trim()     || null,
+      phone:          form.phone.trim(),
+      street_address: form.street_address.trim(),
+      city:           form.city.trim(),
+      state:          form.state.trim(),
+      zip_code:       form.zip_code.trim(),
+      country:        form.country.trim() || 'United States',
+      date_of_birth:  form.date_of_birth,
+      shirt_size:     form.shirt_size,
+      coach_name:     form.coach_name.trim(),
     })
+    setValidation(null)
     setStep(2)
   }
 
   function handleSection2Next() {
+    const err = validateSection(2, form)
+    if (err) { setValidation(err); return }
     save({
-      supplements:          form.supplements.trim()          || null,
-      goals_6_months:       form.goals_6_months.trim()       || null,
-      injuries_limitations: form.injuries_limitations.trim() || null,
-      num_kids:             form.num_kids !== '' ? Number(form.num_kids) : null,
-      occupation:           form.occupation.trim()           || null,
+      supplements:          form.supplements.trim(),
+      goals_6_months:       form.goals_6_months.trim(),
+      injuries_limitations: form.injuries_limitations.trim(),
+      num_kids:             Number(form.num_kids),
+      occupation:           form.occupation.trim(),
     })
+    setValidation(null)
     setStep(3)
   }
 
-  async function handleSection3Complete() {
+  function handleSection3Next() {
+    const err = validateSection(3, form)
+    if (err) { setValidation(err); return }
+    save({
+      energy_level:      form.energy_level,
+      sleep_hours:       form.sleep_hours,
+      stress_management: form.stress_management,
+      sleep_quality:     form.sleep_quality,
+      daily_water:       form.daily_water,
+      alcohol_weekdays:  Number(form.alcohol_weekdays),
+      alcohol_weekends:  Number(form.alcohol_weekends),
+      happiness_level:   form.happiness_level,
+      confidence_level:  form.confidence_level,
+      activity_level:    form.activity_level,
+    })
+    setValidation(null)
+    setStep(4)
+  }
+
+  async function handleSection4Complete() {
+    const err = validateSection(4, form)
+    if (err) { setValidation(err); return }
     setSaving(true)
     setError(null)
     try {
       const token = await getToken()
       const payload = {
-        energy_level:      form.energy_level,
-        sleep_hours:       form.sleep_hours       || null,
-        stress_management: form.stress_management,
-        sleep_quality:     form.sleep_quality,
-        daily_water:       form.daily_water        || null,
-        alcohol_weekdays:  form.alcohol_weekdays !== '' ? Number(form.alcohol_weekdays) : 0,
-        alcohol_weekends:  form.alcohol_weekends !== '' ? Number(form.alcohol_weekends) : 0,
-        happiness_level:   form.happiness_level,
-        confidence_level:  form.confidence_level,
-        activity_level:    form.activity_level     || null,
+        identity_traits: form.identity_traits,
         completed: true,
       }
       const res = await fetch(`${API_URL}/api/health-assessment`, {
@@ -355,8 +458,9 @@ export default function HealthAssessment() {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body:    JSON.stringify(payload),
       })
-      if (!res.ok) throw new Error('Save failed — please try again')
-      setStep(4)
+      if (!res.ok) throw new Error('Save failed — please try again.')
+      setValidation(null)
+      setStep(5)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -499,13 +603,20 @@ export default function HealthAssessment() {
                 </Field>
               </div>
             </div>
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
-              <button
-                onClick={handleSection1Next}
-                className="px-8 py-3 bg-[#E8670A] hover:bg-[#d45a08] text-white font-bold rounded-xl shadow transition-all active:scale-[0.98]"
-              >
-                Continue →
-              </button>
+            <div className="px-6 py-4 border-t border-gray-100">
+              {validation && step === 1 && (
+                <p className="text-sm text-[#E8670A] mb-3 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+                  {validation}
+                </p>
+              )}
+              <div className="flex justify-end">
+                <button
+                  onClick={handleSection1Next}
+                  className="px-8 py-3 bg-[#E8670A] hover:bg-[#d45a08] text-white font-bold rounded-xl shadow transition-all active:scale-[0.98]"
+                >
+                  Continue →
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -556,19 +667,26 @@ export default function HealthAssessment() {
                 </Field>
               </div>
             </div>
-            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
-              <button
-                onClick={() => setStep(1)}
-                className="px-5 py-3 text-sm text-gray-500 hover:text-gray-700 font-medium transition-colors"
-              >
-                ← Back
-              </button>
-              <button
-                onClick={handleSection2Next}
-                className="px-8 py-3 bg-[#E8670A] hover:bg-[#d45a08] text-white font-bold rounded-xl shadow transition-all active:scale-[0.98]"
-              >
-                Continue →
-              </button>
+            <div className="px-6 py-4 border-t border-gray-100">
+              {validation && step === 2 && (
+                <p className="text-sm text-[#E8670A] mb-3 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+                  {validation}
+                </p>
+              )}
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={() => { setStep(1); setValidation(null) }}
+                  className="px-5 py-3 text-sm text-gray-500 hover:text-gray-700 font-medium transition-colors"
+                >
+                  ← Back
+                </button>
+                <button
+                  onClick={handleSection2Next}
+                  className="px-8 py-3 bg-[#E8670A] hover:bg-[#d45a08] text-white font-bold rounded-xl shadow transition-all active:scale-[0.98]"
+                >
+                  Continue →
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -624,30 +742,106 @@ export default function HealthAssessment() {
                 </Field>
               </div>
 
-              {error && (
-                <p className="mt-4 text-sm text-red-500 text-center">{error}</p>
-              )}
             </div>
-            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
-              <button
-                onClick={() => setStep(2)}
-                className="px-5 py-3 text-sm text-gray-500 hover:text-gray-700 font-medium transition-colors"
-              >
-                ← Back
-              </button>
-              <button
-                onClick={handleSection3Complete}
-                disabled={saving}
-                className="px-8 py-3 bg-[#E8670A] hover:bg-[#d45a08] disabled:opacity-60 text-white font-bold rounded-xl shadow transition-all active:scale-[0.98]"
-              >
-                {saving ? 'Saving…' : 'Complete Assessment →'}
-              </button>
+            <div className="px-6 py-4 border-t border-gray-100">
+              {validation && step === 3 && (
+                <p className="text-sm text-[#E8670A] mb-3 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+                  {validation}
+                </p>
+              )}
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={() => { setStep(2); setValidation(null) }}
+                  className="px-5 py-3 text-sm text-gray-500 hover:text-gray-700 font-medium transition-colors"
+                >
+                  ← Back
+                </button>
+                <button
+                  onClick={handleSection3Next}
+                  className="px-8 py-3 bg-[#E8670A] hover:bg-[#d45a08] text-white font-bold rounded-xl shadow transition-all active:scale-[0.98]"
+                >
+                  Continue →
+                </button>
+              </div>
             </div>
           </div>
         )}
 
-        {/* ── Step 4: Complete ── */}
+        {/* ── Section 4: Life Warrior Identity ── */}
         {step === 4 && (
+          <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+            <StepProgress step={4} />
+            <div className="px-6 py-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-1">Your Life Warrior identity</h2>
+              <p className="text-sm text-gray-500 mb-1">
+                Choose 2 traits that feel most true to who you're becoming.
+              </p>
+              <p className="text-xs text-[#E8670A] font-semibold mb-5">
+                {form.identity_traits.length}/2 selected
+              </p>
+
+              <div className="space-y-2">
+                {IDENTITY_TRAITS.map(trait => {
+                  const selected = form.identity_traits.includes(trait)
+                  const maxed    = form.identity_traits.length >= 2
+                  const disabled = !selected && maxed
+                  return (
+                    <button
+                      key={trait}
+                      type="button"
+                      onClick={() => toggleTrait(trait)}
+                      disabled={disabled}
+                      className={`w-full text-left px-4 py-3.5 rounded-xl border-2 transition-all min-h-[56px] flex items-center gap-3 ${
+                        selected
+                          ? 'bg-[#1e2a3a] border-[#E8670A] text-white shadow-md'
+                          : disabled
+                          ? 'bg-gray-50 border-gray-200 text-gray-400 cursor-not-allowed'
+                          : 'bg-white border-gray-200 text-gray-800 hover:border-[#E8670A] hover:bg-orange-50'
+                      }`}
+                    >
+                      <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full border-2 shrink-0 ${
+                        selected
+                          ? 'bg-[#E8670A] border-[#E8670A] text-white text-sm font-bold'
+                          : 'border-gray-300 bg-white'
+                      }`}>
+                        {selected ? '✓' : ''}
+                      </span>
+                      <span className="text-sm font-medium">{trait}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100">
+              {validation && step === 4 && (
+                <p className="text-sm text-[#E8670A] mb-3 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+                  {validation}
+                </p>
+              )}
+              {error && step === 4 && (
+                <p className="text-sm text-red-500 mb-3 text-center">{error}</p>
+              )}
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={() => { setStep(3); setValidation(null) }}
+                  className="px-5 py-3 text-sm text-gray-500 hover:text-gray-700 font-medium transition-colors"
+                >
+                  ← Back
+                </button>
+                <button
+                  onClick={handleSection4Complete}
+                  disabled={saving}
+                  className="px-8 py-3 bg-[#E8670A] hover:bg-[#d45a08] disabled:opacity-60 text-white font-bold rounded-xl shadow transition-all active:scale-[0.98]"
+                >
+                  {saving ? 'Saving…' : 'Complete Assessment →'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 5: Complete ── */}
+        {step === 5 && (
           <div className="bg-white rounded-2xl shadow-2xl overflow-hidden text-center">
             <div className="bg-gradient-to-br from-[#E8670A] to-[#d45a08] px-8 py-10">
               <div className="text-6xl mb-4">🎉</div>
@@ -677,7 +871,7 @@ export default function HealthAssessment() {
         )}
 
         {/* Bottom brand note */}
-        {step < 4 && (
+        {step < 5 && (
           <p className="text-center text-white/30 text-xs mt-4">
             Meta Coach · Your data is secure and private
           </p>

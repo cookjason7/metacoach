@@ -536,6 +536,8 @@ export async function migrate() {
   await pool.query(`ALTER TABLE health_assessments ADD COLUMN IF NOT EXISTS state          TEXT`)
   await pool.query(`ALTER TABLE health_assessments ADD COLUMN IF NOT EXISTS zip_code       TEXT`)
   await pool.query(`ALTER TABLE health_assessments ADD COLUMN IF NOT EXISTS country        TEXT DEFAULT 'United States'`)
+  // Life Warrior identity traits — JSONB array of strings (exactly 2 selected)
+  await pool.query(`ALTER TABLE health_assessments ADD COLUMN IF NOT EXISTS identity_traits JSONB`)
 
   // ── Coaching command center ──────────────────────────────────────────────────
   // Role expansion: 'client' (default), 'coach', 'admin'

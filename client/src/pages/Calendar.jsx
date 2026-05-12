@@ -174,20 +174,40 @@ export default function Calendar() {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  const [viewDate, setViewDate] = useState(new Date(today.getFullYear(), today.getMonth(), 1))
+  // View modes: '7d', '14d', 'month'
+  const [viewMode, setViewMode] = useState('month')
+  // Anchor date — for month mode this is set to month-1st; for strip views,
+  // it represents the start of the visible window.
+  const [anchor, setAnchor]   = useState(new Date(today.getFullYear(), today.getMonth(), 1))
   const [calendar, setCalendar] = useState({})
   const [loading, setLoading]   = useState(true)
   const [toast, setToast]       = useState(null)
 
-  const year  = viewDate.getFullYear()
-  const month = viewDate.getMonth()
-
-  // Window covers the visible grid (incl. padding from prev/next month)
-  const offset = firstDayOffset(year, month)
-  const daysInMonth = new Date(year, month + 1, 0).getDate()
-  const totalCells = Math.ceil((offset + daysInMonth) / 7) * 7
-  const gridStart = new Date(year, month, 1 - offset)
-  const gridEnd   = new Date(year, month, 1 - offset + totalCells - 1)
+  // Compute the visible window based on view mode
+  let gridStart, gridEnd, gridCells
+  if (viewMode === 'month') {
+    const year  = anchor.getFullYear()
+    const month = anchor.getMonth()
+    const offset = firstDayOffset(year, month)
+    const daysInMonth = new Date(year, month + 1, 0).getDate()
+    const totalCells = Math.ceil((offset + daysInMonth) / 7) * 7
+    gridStart = new Date(year, month, 1 - offset)
+    gridEnd   = new Date(year, month, 1 - offset + totalCells - 1)
+    gridCells = totalCells
+  } else if (viewMode === '14d') {
+    gridStart = new Date(anchor)
+    gridStart.setHours(0, 0, 0, 0)
+    gridEnd = new Date(gridStart)
+    gridEnd.setDate(gridEnd.getDate() + 13)
+    gridCells = 14
+  } else {
+    // 7d
+    gridStart = new Date(anchor)
+    gridStart.setHours(0, 0, 0, 0)
+    gridEnd = new Date(gridStart)
+    gridEnd.setDate(gridEnd.getDate() + 6)
+    gridCells = 7
+  }
 
   const loadCalendar = useCallback(async () => {
     setLoading(true)
@@ -201,10 +221,14 @@ export default function Calendar() {
       if (res.ok) {
         const data = await res.json()
         setCalendar(data.calendar ?? {})
+      } else {
+        console.warn('[calendar] load failed:', res.status)
       }
+    } catch (e) {
+      console.warn('[calendar] load error:', e.message)
     } finally { setLoading(false) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [year, month, getToken])
+  }, [viewMode, anchor.getTime(), getToken])
 
   useEffect(() => { loadCalendar() }, [loadCalendar])
 
@@ -243,65 +267,208 @@ export default function Calendar() {
     }
   }
 
-  function prev() { setViewDate(new Date(year, month - 1, 1)) }
-  function next() { setViewDate(new Date(year, month + 1, 1)) }
-  function goToday() { setViewDate(new Date(today.getFullYear(), today.getMonth(), 1)) }
+  function prev() {
+    if (viewMode === 'month') {
+      setAnchor(new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1))
+    } else {
+      const days = viewMode === '14d' ? 14 : 7
+      const d = new Date(anchor); d.setDate(d.getDate() - days)
+      setAnchor(d)
+    }
+  }
+  function next() {
+    if (viewMode === 'month') {
+      setAnchor(new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1))
+    } else {
+      const days = viewMode === '14d' ? 14 : 7
+      const d = new Date(anchor); d.setDate(d.getDate() + days)
+      setAnchor(d)
+    }
+  }
+  function goToday() {
+    if (viewMode === 'month') {
+      setAnchor(new Date(today.getFullYear(), today.getMonth(), 1))
+    } else {
+      // Start of this week (Monday) for strip views
+      const d = new Date(today)
+      const dow = d.getDay()
+      const mondayOffset = (dow + 6) % 7  // Mon=0..Sun=6
+      d.setDate(d.getDate() - mondayOffset)
+      setAnchor(d)
+    }
+  }
+
+  function switchView(mode) {
+    setViewMode(mode)
+    // Reset anchor to a sensible default for the new mode
+    if (mode === 'month') {
+      setAnchor(new Date(today.getFullYear(), today.getMonth(), 1))
+    } else {
+      // Start of this week (Monday) for strip views
+      const d = new Date(today)
+      const dow = d.getDay()
+      const mondayOffset = (dow + 6) % 7
+      d.setDate(d.getDate() - mondayOffset)
+      setAnchor(d)
+    }
+  }
 
   const todayISO_ = todayISO()
 
-  // Build cell list
+  // Build cell list spanning the visible window
   const cells = []
-  for (let i = 0; i < totalCells; i++) {
-    const d = new Date(year, month, 1 - offset + i)
+  for (let i = 0; i < gridCells; i++) {
+    const d = new Date(gridStart)
+    d.setDate(d.getDate() + i)
     cells.push(d)
+  }
+
+  // Header label
+  let headerLabel
+  if (viewMode === 'month') {
+    headerLabel = `${MONTHS[anchor.getMonth()]} ${anchor.getFullYear()}`
+  } else {
+    const startLabel = `${MONTHS[gridStart.getMonth()].slice(0,3)} ${gridStart.getDate()}`
+    const endLabel   = `${MONTHS[gridEnd.getMonth()].slice(0,3)} ${gridEnd.getDate()}`
+    headerLabel = `${startLabel} – ${endLabel}`
   }
 
   return (
     <div className="max-w-6xl">
       {/* Header */}
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+      <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Habit Calendar</h1>
           <p className="text-sm text-gray-500">Tap a circle to mark a habit done.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={prev} className="w-9 h-9 rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50">←</button>
-          <span className="text-base font-semibold text-gray-900 min-w-[160px] text-center">
-            {MONTHS[month]} {year}
-          </span>
-          <button onClick={next} className="w-9 h-9 rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50">→</button>
-          <button onClick={goToday} className="ml-1 text-xs text-[#E8670A] hover:text-[#c45e09] font-semibold px-2">Today</button>
+        {/* View mode switcher */}
+        <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+          {[
+            { id: '7d',    label: 'Week' },
+            { id: '14d',   label: '2 Weeks' },
+            { id: 'month', label: 'Month' },
+          ].map(v => (
+            <button key={v.id} onClick={() => switchView(v.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                viewMode === v.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}>
+              {v.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Weekday header */}
-      <div className="grid grid-cols-7 gap-0 border-t border-l border-gray-200 rounded-t-xl overflow-hidden bg-white">
-        {WEEKDAY_HEADERS.map(d => (
-          <div key={d} className="text-[10px] sm:text-xs font-bold text-gray-500 uppercase tracking-wider px-1 py-2 text-center border-r border-b border-gray-200">
-            {d}
-          </div>
-        ))}
+      {/* Date navigation */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <button onClick={prev} className="w-9 h-9 rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 min-h-[44px] min-w-[44px]">←</button>
+          <span className="text-base font-semibold text-gray-900 min-w-[160px] text-center">
+            {headerLabel}
+          </span>
+          <button onClick={next} className="w-9 h-9 rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 min-h-[44px] min-w-[44px]">→</button>
+        </div>
+        <button onClick={goToday} className="text-xs text-[#E8670A] hover:text-[#c45e09] font-semibold px-2">Today</button>
       </div>
 
-      {/* Grid */}
-      <div className="grid grid-cols-7 gap-0 border-l border-gray-200 rounded-b-xl overflow-hidden">
-        {cells.map((d, i) => {
-          const inMonth = d.getMonth() === month
-          const dKey = isoDate(d)
-          const entries = calendar[dKey] ?? []
-          return (
-            <div key={i} className="border-r border-b border-gray-200">
-              <DayCell
-                date={d}
-                inMonth={inMonth}
-                entries={entries}
-                onComplete={handleComplete}
-                isToday={dKey === todayISO_}
-              />
-            </div>
-          )
-        })}
-      </div>
+      {/* ── 7-day view: vertical list (mobile-friendly) ── */}
+      {viewMode === '7d' && (
+        <div className="space-y-2">
+          {cells.map((d, i) => {
+            const dKey = isoDate(d)
+            const entries = calendar[dKey] ?? []
+            const isToday = dKey === todayISO_
+            return (
+              <div key={i} className={`bg-white border rounded-xl p-3 ${
+                isToday ? 'border-[#E8670A] ring-2 ring-orange-100' : 'border-gray-200'
+              }`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className={`text-xs font-bold uppercase tracking-wider ${isToday ? 'text-[#E8670A]' : 'text-gray-400'}`}>
+                      {WEEKDAY_HEADERS[(d.getDay() + 6) % 7]} {isToday ? '· Today' : ''}
+                    </p>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {MONTHS[d.getMonth()]} {d.getDate()}
+                    </p>
+                  </div>
+                  {entries.length > 0 && (
+                    <span className="text-[10px] font-bold text-gray-400">{entries.length} habit{entries.length === 1 ? '' : 's'}</span>
+                  )}
+                </div>
+                {entries.length === 0 ? (
+                  <p className="text-xs text-gray-400 italic">No habits assigned</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {entries.map((entry, j) => (
+                      <HabitPill key={`${entry.habit.id}-${j}`} entry={entry} dateISO={dKey} onComplete={handleComplete} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ── 14-day grid: 2x7 ── */}
+      {viewMode === '14d' && (
+        <>
+          <div className="grid grid-cols-7 gap-0 border-t border-l border-gray-200 rounded-t-xl overflow-hidden bg-white">
+            {WEEKDAY_HEADERS.map(d => (
+              <div key={d} className="text-[10px] sm:text-xs font-bold text-gray-500 uppercase tracking-wider px-1 py-2 text-center border-r border-b border-gray-200">
+                {d}
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-0 border-l border-gray-200 rounded-b-xl overflow-hidden">
+            {cells.map((d, i) => {
+              const dKey = isoDate(d)
+              const entries = calendar[dKey] ?? []
+              return (
+                <div key={i} className="border-r border-b border-gray-200">
+                  <DayCell
+                    date={d}
+                    inMonth={true}
+                    entries={entries}
+                    onComplete={handleComplete}
+                    isToday={dKey === todayISO_}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+
+      {/* ── Month view ── */}
+      {viewMode === 'month' && (
+        <>
+          <div className="grid grid-cols-7 gap-0 border-t border-l border-gray-200 rounded-t-xl overflow-hidden bg-white">
+            {WEEKDAY_HEADERS.map(d => (
+              <div key={d} className="text-[10px] sm:text-xs font-bold text-gray-500 uppercase tracking-wider px-1 py-2 text-center border-r border-b border-gray-200">
+                {d}
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-0 border-l border-gray-200 rounded-b-xl overflow-hidden">
+            {cells.map((d, i) => {
+              const inMonth = d.getMonth() === anchor.getMonth()
+              const dKey = isoDate(d)
+              const entries = calendar[dKey] ?? []
+              return (
+                <div key={i} className="border-r border-b border-gray-200">
+                  <DayCell
+                    date={d}
+                    inMonth={inMonth}
+                    entries={entries}
+                    onComplete={handleComplete}
+                    isToday={dKey === todayISO_}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
 
       {loading && (
         <p className="text-center text-xs text-gray-400 mt-3">Loading habits…</p>

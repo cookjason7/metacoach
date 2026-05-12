@@ -4,6 +4,23 @@ import { pool, getOrCreateUser } from '../db.js'
 
 const router = Router()
 
+// Helper: safely convert a pg DATE value (which arrives as a JS Date object)
+// or a string into a YYYY-MM-DD ISO date string.
+// IMPORTANT: pg returns DATE columns as Date objects parsed in the server's
+// local timezone. Using String(date) returns "Wed May 13 2026 …" which breaks
+// .slice(0, 10). Use the local components to avoid timezone shifting the day.
+function toISODate(v) {
+  if (v == null) return null
+  if (typeof v === 'string') return v.slice(0, 10)
+  if (v instanceof Date) {
+    const y = v.getFullYear()
+    const m = String(v.getMonth() + 1).padStart(2, '0')
+    const d = String(v.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }
+  return String(v).slice(0, 10)
+}
+
 // Helper: expand habit assignments into per-day instances for [start, end].
 // Respects frequency:
 //   'daily'          — every day in the habit's date range
@@ -12,9 +29,7 @@ const router = Router()
 function expandCalendar(habits, completions, startDate, endDate) {
   const compMap = {}
   for (const c of completions) {
-    const dateKey = c.completion_date instanceof Date
-      ? c.completion_date.toISOString().slice(0, 10)
-      : String(c.completion_date).slice(0, 10)
+    const dateKey = toISODate(c.completion_date)
     if (!compMap[c.habit_id]) compMap[c.habit_id] = {}
     compMap[c.habit_id][dateKey] = c
   }
@@ -23,23 +38,27 @@ function expandCalendar(habits, completions, startDate, endDate) {
   const winStart = new Date(`${startDate}T00:00:00`)
   const winEnd   = new Date(`${endDate}T00:00:00`)
   for (const habit of habits) {
-    const hStart = new Date(`${String(habit.start_date).slice(0, 10)}T00:00:00`)
-    const hEnd   = habit.end_date
-      ? new Date(`${String(habit.end_date).slice(0, 10)}T00:00:00`)
-      : winEnd
+    const hStartISO = toISODate(habit.start_date)
+    const hEndISO   = toISODate(habit.end_date)
+    const hStart = new Date(`${hStartISO}T00:00:00`)
+    const hEnd   = hEndISO ? new Date(`${hEndISO}T00:00:00`) : winEnd
 
     const allowed = habit.days_of_week
       ? habit.days_of_week.split(',').map(s => parseInt(s, 10)).filter(n => !Number.isNaN(n))
       : null
 
-    const iterStart = new Date(Math.max(winStart, hStart))
-    const iterEnd   = new Date(Math.min(winEnd, hEnd))
+    const iterStart = new Date(Math.max(winStart.getTime(), hStart.getTime()))
+    const iterEnd   = new Date(Math.min(winEnd.getTime(), hEnd.getTime()))
     for (let d = new Date(iterStart); d <= iterEnd; d.setDate(d.getDate() + 1)) {
       if (habit.frequency === 'specific_days' && allowed && !allowed.includes(d.getDay())) continue
       if (habit.frequency === 'weekly' && d.getDay() !== hStart.getDay()) continue
-      const key = d.toISOString().slice(0, 10)
+      const key = toISODate(d)
       if (!calendar[key]) calendar[key] = []
-      calendar[key].push({ habit, completion: compMap[habit.id]?.[key] ?? null })
+      // Normalize habit dates in the response so the client can rely on them
+      calendar[key].push({
+        habit: { ...habit, start_date: hStartISO, end_date: hEndISO },
+        completion: compMap[habit.id]?.[key] ?? null,
+      })
     }
   }
   return calendar
