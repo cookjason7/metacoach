@@ -4,6 +4,19 @@ const { Pool } = pg
 
 export const pool = new Pool({ connectionString: process.env.DATABASE_URL })
 
+// ── Hard-coded admin allowlist ───────────────────────────────────────────────
+// These emails are ALWAYS promoted to role='admin' on startup and on every
+// /api/users/me request. Adding emails here grants full admin access.
+// Regular users are unaffected — security model otherwise unchanged.
+export const ADMIN_EMAILS = [
+  'jason@lwcvip.com',
+  'jason@efcfit.com',
+]
+export function isAdminEmail(email) {
+  if (!email) return false
+  return ADMIN_EMAILS.includes(String(email).toLowerCase().trim())
+}
+
 export async function migrate() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -673,18 +686,73 @@ export async function migrate() {
       UNIQUE (user_id)
     )
   `)
+
+  // ── Admin allowlist bootstrap ───────────────────────────────────────────────
+  // Force role=admin for the hard-coded ADMIN_EMAILS list on every startup.
+  // Existing user data (meals, workouts, journal, etc.) is preserved — this
+  // only sets flag columns. Regular users are unaffected.
+  if (ADMIN_EMAILS.length > 0) {
+    const placeholders = ADMIN_EMAILS.map((_, i) => `$${i + 1}`).join(', ')
+    const result = await pool.query(
+      `UPDATE users
+       SET role                = 'admin',
+           paid                = TRUE,
+           onboarding_complete = TRUE,
+           assessment_complete = TRUE
+       WHERE LOWER(email) IN (${placeholders})
+       RETURNING id, email`,
+      ADMIN_EMAILS.map(e => e.toLowerCase()),
+    )
+    if (result.rowCount > 0) {
+      console.log(`[admin-bootstrap] promoted ${result.rowCount} user(s) on startup:`,
+        result.rows.map(r => r.email).join(', '))
+    } else {
+      console.log('[admin-bootstrap] no existing rows matched ADMIN_EMAILS yet; will self-promote on first /api/users/me call')
+    }
+  }
 }
 
-export async function getOrCreateUser(clerkUserId) {
+// getOrCreateUser: ensures a DB user row exists for this Clerk user.
+// Optionally captures their email — if it matches ADMIN_EMAILS the row is
+// promoted to admin atomically. This is the runtime backstop that catches
+// admin users whose email column was NULL at startup migration time.
+export async function getOrCreateUser(clerkUserId, email = null) {
   const existing = await pool.query(
-    'SELECT id FROM users WHERE clerk_user_id = $1',
+    'SELECT id, email, role FROM users WHERE clerk_user_id = $1',
     [clerkUserId],
   )
-  if (existing.rows.length > 0) return existing.rows[0].id
 
-  const inserted = await pool.query(
-    'INSERT INTO users (clerk_user_id) VALUES ($1) RETURNING id',
-    [clerkUserId],
-  )
-  return inserted.rows[0].id
+  let dbUserId
+  if (existing.rows.length > 0) {
+    dbUserId = existing.rows[0].id
+
+    // Backfill email if we have it and it's missing or different
+    if (email && existing.rows[0].email !== email) {
+      await pool.query('UPDATE users SET email = $1 WHERE id = $2', [email, dbUserId])
+    }
+  } else {
+    const inserted = await pool.query(
+      'INSERT INTO users (clerk_user_id, email) VALUES ($1, $2) RETURNING id',
+      [clerkUserId, email],
+    )
+    dbUserId = inserted.rows[0].id
+  }
+
+  // Runtime admin self-promote — covers the case where the startup migration
+  // ran before the user row had an email populated.
+  if (isAdminEmail(email)) {
+    const r = await pool.query(
+      `UPDATE users
+       SET role = 'admin', paid = TRUE,
+           onboarding_complete = TRUE, assessment_complete = TRUE
+       WHERE id = $1 AND role != 'admin'
+       RETURNING id`,
+      [dbUserId],
+    )
+    if (r.rowCount > 0) {
+      console.log(`[admin-bootstrap] runtime-promoted ${email} (id=${dbUserId}) to admin`)
+    }
+  }
+
+  return dbUserId
 }

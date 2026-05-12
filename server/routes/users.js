@@ -1,17 +1,36 @@
 import { Router } from 'express'
-import { requireAuth, getAuth } from '@clerk/express'
-import { pool, getOrCreateUser } from '../db.js'
+import { requireAuth, getAuth, clerkClient } from '@clerk/express'
+import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
 
 const router = Router()
+
+// Best-effort fetch of the authenticated user's primary email from Clerk.
+// Returns null on any failure so the route still succeeds.
+async function fetchClerkEmail(clerkUserId) {
+  try {
+    const u = await clerkClient.users.getUser(clerkUserId)
+    return (
+      u?.primaryEmailAddress?.emailAddress ??
+      u?.emailAddresses?.[0]?.emailAddress ??
+      null
+    )
+  } catch (err) {
+    console.warn('[users/me] failed to fetch Clerk email:', err.message)
+    return null
+  }
+}
 
 // GET /api/users/me
 router.get('/me', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
-    const dbUserId = await getOrCreateUser(userId)
+
+    // Fetch Clerk email so getOrCreateUser can backfill + auto-promote admin
+    const email = await fetchClerkEmail(userId)
+    const dbUserId = await getOrCreateUser(userId, email)
 
     const { rows } = await pool.query(
-      `SELECT id, first_name, age, height_inches, starting_weight_lbs, goal_weight_lbs,
+      `SELECT id, first_name, email, age, height_inches, starting_weight_lbs, goal_weight_lbs,
               activity_level, tried_before, why_joined, identity_anchors,
               onboarding_complete, assessment_complete,
               goal_calories, goal_protein, goal_carbs, goal_fat,
@@ -19,6 +38,12 @@ router.get('/me', requireAuth(), async (req, res, next) => {
        FROM users WHERE id = $1`,
       [dbUserId],
     )
+
+    // Debug logging — confirms admin status at runtime
+    console.log(
+      `[users/me] email=${email ?? '?'} role=${rows[0]?.role} isAdmin=${rows[0]?.role === 'admin'} isAllowlistEmail=${isAdminEmail(email)}`,
+    )
+
     res.json(rows[0])
   } catch (err) {
     next(err)

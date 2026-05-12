@@ -38,9 +38,17 @@ export default function Layout() {
         return
       }
       const data = await res.json()
-      console.log('[layout] role:', data.role)
-      setIsAdmin(data.role === 'admin')
-      setIsStaff(data.role === 'admin' || data.role === 'coach')
+      const adminStatus = data.role === 'admin'
+      const staffStatus = adminStatus || data.role === 'coach'
+      // Debug logging — verify admin status loads correctly
+      console.log('[layout]',
+        'email=', user?.primaryEmailAddress?.emailAddress,
+        'role=', data.role,
+        'isAdmin=', adminStatus,
+        'isStaff=', staffStatus,
+      )
+      setIsAdmin(adminStatus)
+      setIsStaff(staffStatus)
     } catch (err) {
       console.error('[layout] fetchRole error:', err)
     }
