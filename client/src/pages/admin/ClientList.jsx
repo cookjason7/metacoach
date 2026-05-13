@@ -804,9 +804,11 @@ function AdminMessagingTab({ getToken }) {
 
   if (!loading && inbox.length === 0) {
     return (
-      <div className="text-center py-16">
+      <div className="bg-white border border-gray-200 rounded-xl p-12 text-center">
+        <p className="text-xs text-gray-400 mb-3">Client Inbox · v2</p>
         <p className="text-3xl mb-3">💬</p>
-        <p className="text-sm text-gray-500">No messages yet. Client conversations will appear here.</p>
+        <p className="text-sm font-semibold text-gray-700 mb-1">Central client inbox is ready</p>
+        <p className="text-xs text-gray-500">New client conversations and replies will appear here automatically.</p>
       </div>
     )
   }
@@ -817,6 +819,7 @@ function AdminMessagingTab({ getToken }) {
     <div className="flex flex-col lg:flex-row gap-4 min-h-[600px]">
       {/* Inbox list */}
       <div className="lg:w-72 shrink-0 space-y-1.5 overflow-y-auto">
+        <p className="text-[10px] text-gray-400 px-1 mb-1">Client Inbox · v2</p>
         {totalUnread > 0 && (
           <p className="text-xs font-semibold text-[#E8670A] mb-2 px-1">
             {totalUnread} unread message{totalUnread !== 1 ? 's' : ''}
