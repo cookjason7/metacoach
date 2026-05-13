@@ -691,21 +691,46 @@ function AdminMessagingTab({ getToken }) {
   const [loadingMsgs, setLoadingMsgs] = useState(false)
   const [body,        setBody]        = useState('')
   const [sending,     setSending]     = useState(false)
-  const scrollRef = useRef(null)
+  const scrollRef    = useRef(null)
+  const selectedRef  = useRef(null)   // avoid stale closure in interval callbacks
+  const msgCountRef  = useRef(0)      // track count so we only scroll on truly new messages
 
-  useEffect(() => {
-    async function loadInbox() {
-      try {
-        const token = await getToken()
-        const res = await fetch(`${API_URL}/api/coach-admin/messaging/inbox`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (res.ok) setInbox(await res.json())
-      } finally { setLoading(false) }
-    }
-    loadInbox()
+  // Keep selectedRef in sync
+  useEffect(() => { selectedRef.current = selected }, [selected])
+
+  // ── Fetch inbox (used for initial load + polling) ─────────────────────────
+  const fetchInbox = useCallback(async () => {
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/messaging/inbox`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) return
+      const fresh = await res.json()
+      setInbox(prev => {
+        const sel = selectedRef.current
+        if (!sel) return fresh
+        // Preserve local unread=0 for the currently-open thread (already cleared on open)
+        return fresh.map(r =>
+          r.client_id === sel.clientId && r.thread_type === sel.threadType
+            ? { ...r, unread: 0 } : r,
+        )
+      })
+    } catch {}
   }, [getToken])
 
+  // Initial inbox load
+  useEffect(() => {
+    fetchInbox().finally(() => setLoading(false))
+  }, [fetchInbox])
+
+  // Poll inbox every 30 s so new client messages surface without a page refresh
+  useEffect(() => {
+    const id = setInterval(fetchInbox, 30_000)
+    return () => clearInterval(id)
+  }, [fetchInbox])
+
+  // ── Load conversation when selected changes ───────────────────────────────
   const loadConversation = useCallback(async (sel) => {
     if (!sel) return
     setLoadingMsgs(true)
@@ -715,8 +740,10 @@ function AdminMessagingTab({ getToken }) {
       { headers: { Authorization: `Bearer ${token}` } },
     )
     if (res.ok) {
-      setMessages(await res.json())
-      // Clear unread badge locally
+      const data = await res.json()
+      setMessages(data)
+      msgCountRef.current = data.length
+      // Clear unread badge locally (backend marks messages read on this fetch)
       setInbox(prev => prev.map(r =>
         r.client_id === sel.clientId && r.thread_type === sel.threadType
           ? { ...r, unread: 0 } : r,
@@ -727,8 +754,33 @@ function AdminMessagingTab({ getToken }) {
 
   useEffect(() => { loadConversation(selected) }, [selected, loadConversation])
 
+  // Poll open conversation every 20 s for new client replies
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    if (!selected) return
+    const poll = async () => {
+      try {
+        const token = await getToken()
+        const res = await fetch(
+          `${API_URL}/api/coach-admin/clients/${selected.clientId}/messages?thread=${selected.threadType}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        )
+        if (!res.ok) return
+        const data = await res.json()
+        if (data.length !== msgCountRef.current) {
+          setMessages(data)
+          msgCountRef.current = data.length
+        }
+      } catch {}
+    }
+    const id = setInterval(poll, 20_000)
+    return () => clearInterval(id)
+  }, [selected, getToken])
+
+  // Scroll to bottom only when message count grows (new messages, not re-renders)
+  useEffect(() => {
+    if (messages.length > 0 && messages.length >= msgCountRef.current) {
+      if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
   }, [messages])
 
   async function send() {
