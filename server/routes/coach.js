@@ -189,7 +189,7 @@ Plateau Type C. Client claiming consistency but logs show gaps:
 Address the data gap honestly and without accusation. No data means no accurate recommendations. Ask what is getting in the way of daily logging.
 
 GUIDELINE 13. SIGNATURE
-Always sign your responses as "Katie". Never sign with the user's name or any other name. If you use a sign-off, it is always "- Katie" or just the tagline. This is non-negotiable.
+Never add a signature or sign-off to your messages. Do not write "- Katie", "Katie", or any closing sign-off. Your voice is unmistakably you — no signature needed.
 
 WHAT KATIE NEVER SAYS
 
@@ -200,7 +200,7 @@ WHAT KATIE NEVER SAYS
 • "You should..."
 • "mess" or any word that frames her situation negatively
 • Em dashes (—) of any kind. Never. Use a period or comma instead.
-• Any sign-off using the user's name (always sign as "Katie")
+• Any sign-off or signature of any kind, including "- Katie" or "Katie" at the end of a message
 • Any motivational speech longer than 2 sentences
 • Multiple instructions in one message
 • Anything that sounds like a generic fitness app
@@ -338,11 +338,20 @@ router.post('/chat', requireAuth(), async (req, res, next) => {
     if (message) {
       anthropicMessages.push({ role: 'user', content: message })
     } else if (anthropicMessages.length === 0) {
-      // Opening: no history, no user message — prime Katie to greet the user
-      anthropicMessages = [{
-        role: 'user',
-        content: `[session start — please send your opening greeting for ${user.first_name ?? 'this user'}]`,
-      }]
+      // Opening: no history, no user message — return hardcoded welcome (no LLM call)
+      const firstName   = user.first_name ?? 'there'
+      const welcomeMsg  = `Hey ${firstName}, welcome to Meta Coach. Your Health Profile is set, and this is where we start building momentum, self-trust, and consistency. Start simple: log your first meal or plan tomorrow's food. Small wins stack.`
+      await pool.query(
+        `INSERT INTO coaching_conversations (user_id, role, message) VALUES ($1, 'assistant', $2)`,
+        [dbUserId, welcomeMsg],
+      )
+      res.setHeader('Content-Type', 'text/event-stream')
+      res.setHeader('Cache-Control', 'no-cache')
+      res.setHeader('Connection', 'keep-alive')
+      res.write(`data: ${JSON.stringify({ text: welcomeMsg })}\n\n`)
+      res.write('data: [DONE]\n\n')
+      res.end()
+      return
     }
 
     const systemPrompt = `${KATIE_BASE_PROMPT}\n\n${buildContextBlock(user, meals, logs)}`
@@ -396,19 +405,19 @@ router.post('/chat', requireAuth(), async (req, res, next) => {
 
 const TRIGGER_PROMPTS = {
   no_activity_2days:
-    'The client has not logged anything for 2 days. Send one short, warm check-in in the Life Warrior voice. Do not say "fell off", "back on track", or use shame language. One sentence acknowledging the quiet, one invitation to reset and log one meal today. Sign as Katie.',
+    'The client has not logged anything for 2 days. Send one short, warm check-in in the Life Warrior voice. Do not say "fell off", "back on track", or use shame language. One sentence acknowledging the quiet, one invitation to reset and log one meal today.',
   missed_logging_yesterday:
-    'The client did not log any meals yesterday. One short coaching note. Normalize it without excusing it. Invite one small action today. Life Warrior voice. Sign as Katie.',
+    'The client did not log any meals yesterday. One short coaching note. Normalize it without excusing it. Invite one small action today. Life Warrior voice.',
   low_protein_yesterday:
-    (p, goal) => `The client logged meals yesterday but only hit ${p}g of protein, well below her target of ${goal}g. One short note connecting protein to metabolic health and energy. One small suggestion for today. Sign as Katie.`,
+    (p, goal) => `The client logged meals yesterday but only hit ${p}g of protein, well below her target of ${goal}g. One short note connecting protein to metabolic health and energy. One small suggestion for today.`,
   low_calories_yesterday:
-    (cal, goal) => `The client logged only ${cal} calories yesterday, which seems very low. One short curious check-in about how she is feeling and fueling. Not alarming. Life Warrior voice. Sign as Katie.`,
+    (cal, goal) => `The client logged only ${cal} calories yesterday, which seems very low. One short curious check-in about how she is feeling and fueling. Not alarming. Life Warrior voice.`,
   low_water_yesterday:
-    (water) => `The client tracked only ${water} oz of water yesterday. One short note about hydration and metabolic health. One small action for today. Life Warrior voice. Sign as Katie.`,
+    (water) => `The client tracked only ${water} oz of water yesterday. One short note about hydration and metabolic health. One small action for today. Life Warrior voice.`,
   consistency_win:
-    (streak) => `The client has been logging consistently for ${streak} days in a row. Send a genuine 1-2 sentence acknowledgment. Celebrate the identity behavior, not just the streak number. Life Warrior voice. Sign as Katie.`,
+    (streak) => `The client has been logging consistently for ${streak} days in a row. Send a genuine 1-2 sentence acknowledgment. Celebrate the identity behavior, not just the streak number. Life Warrior voice.`,
   general_checkin:
-    'Send a warm proactive check-in from Katie. One short open question or observation to start a coaching conversation. Do not reference data you do not have. Life Warrior voice. 1-2 sentences max. Sign as Katie.',
+    'Send a warm proactive check-in from Katie. One short open question or observation to start a coaching conversation. Do not reference data you do not have. Life Warrior voice. 1-2 sentences max.',
 }
 
 function buildTriggerPrompt(trigger, ctx) {
@@ -446,10 +455,10 @@ router.post('/check-proactive', requireAuth(), async (req, res, next) => {
     const twoDaysAgo  = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10)
     const sevenAgo    = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10)
 
-    const [{ rows: userRows }, { rows: mealDays }, { rows: streakDays }, { rows: dailyLogs }] =
+    const [{ rows: userRows }, { rows: mealDays }, { rows: streakDays }, { rows: dailyLogs }, { rows: everMeals }] =
       await Promise.all([
         pool.query(
-          `SELECT first_name, goal_protein, goal_calories, identity_anchors FROM users WHERE id = $1`,
+          `SELECT first_name, goal_protein, goal_calories, identity_anchors, created_at FROM users WHERE id = $1`,
           [dbUserId],
         ),
         pool.query(
@@ -474,11 +483,21 @@ router.post('/check-proactive', requireAuth(), async (req, res, next) => {
            WHERE user_id = $1 AND logged_date >= $2::date ORDER BY 1 DESC`,
           [dbUserId, twoDaysAgo],
         ),
+        pool.query(
+          `SELECT 1 FROM meals WHERE user_id = $1 LIMIT 1`,
+          [dbUserId],
+        ),
       ])
 
     const user    = userRows[0] ?? {}
     const mealMap = Object.fromEntries(mealDays.map(r => [r.day, r]))
     const logMap  = Object.fromEntries(dailyLogs.map(r => [r.day, r]))
+
+    // New-user guard: never fire inactivity triggers for users who have never
+    // logged a single meal — they just signed up and haven't started yet.
+    if (everMeals.length === 0) {
+      return res.json({ generated: false, reason: 'new_user_no_meals' })
+    }
 
     const yMeals  = mealMap[yesterday]
     const y2Meals = mealMap[twoDaysAgo]

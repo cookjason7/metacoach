@@ -18,9 +18,7 @@ Life gets full. That's real. And showing up here, even on a hard week, is what s
 
 You don't have to have a perfect day to log. You just have to log.
 
-What's been getting in the way?
-
-- Katie`
+What's been getting in the way?`
 
 export async function runInactivityAlert() {
   try {
@@ -29,6 +27,7 @@ export async function runInactivityAlert() {
       FROM users u
       LEFT JOIN meals m ON m.user_id = u.id
       WHERE u.paid = TRUE AND u.onboarding_complete = TRUE
+        AND u.created_at < NOW() - INTERVAL '${INACTIVE_DAYS} days'
       GROUP BY u.id, u.first_name, u.email
       HAVING MAX(m.logged_at) < NOW() - INTERVAL '${INACTIVE_DAYS} days'
           OR MAX(m.logged_at) IS NULL
