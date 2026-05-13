@@ -234,7 +234,7 @@ function InfoRow({ label, value }) {
 // ─── Habits Tab ───────────────────────────────────────────────────────────────
 
 // Quick-assign buttons — clean labels only, no goal amounts.
-// Admin/coach sets target value + dates in the form.
+// Coach sets target value + dates in the form.
 const QUICK_PRESETS = [
   { label: 'Drink water',     habit_name: 'Drink water',     habit_type: 'numeric',    unit: 'oz' },
   { label: 'Step goal',       habit_name: 'Step goal',       habit_type: 'numeric',    unit: 'steps' },
@@ -308,7 +308,7 @@ const HABIT_LIBRARY = [
 
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 
-// Build the next-N-days mini-calendar preview for the admin habit tab
+// Build the next-N-days mini-calendar preview for the coach habit tab
 function buildHabitPreview(habits, days = 14) {
   const result = []
   const today = new Date(); today.setHours(0,0,0,0)
@@ -362,7 +362,7 @@ function HabitsTab({ clientId, getToken }) {
       ...f,
       habit_name:   p.habit_name,
       habit_type:   p.habit_type,
-      target_value: '',  // admin must set the goal
+      target_value: '',  // coach sets the goal
       unit:         p.unit ?? '',
       frequency:    'daily',
       start_date:   new Date().toISOString().slice(0, 10),
@@ -544,7 +544,7 @@ function HabitsTab({ clientId, getToken }) {
 
       {/* Active habits */}
       <div>
-        <p className="text-sm font-semibold text-gray-700 mb-2">Active assigned habits</p>
+        <p className="text-sm font-semibold text-gray-700 mb-2">Coach-assigned habits</p>
         {loading && <p className="text-sm text-gray-400">Loading…</p>}
         {!loading && habits.length === 0 && (
           <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 text-center text-sm text-gray-500">
