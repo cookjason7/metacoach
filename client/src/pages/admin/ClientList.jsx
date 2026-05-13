@@ -859,8 +859,6 @@ export default function ClientList() {
                   <th className="text-left px-4 py-3 font-semibold">Client</th>
                   <th className="text-left px-4 py-3 font-semibold">Type</th>
                   <th className="text-left px-4 py-3 font-semibold">Coach</th>
-                  <th className="text-center px-3 py-3 font-semibold">Onb.</th>
-                  <th className="text-center px-3 py-3 font-semibold">Assess.</th>
                   <th className="text-left px-3 py-3 font-semibold">Last Activity</th>
                   <th className="text-center px-3 py-3 font-semibold">7d</th>
                   <th className="text-center px-3 py-3 font-semibold">30d</th>
@@ -890,8 +888,6 @@ export default function ClientList() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-600">{c.assigned_coach_name ?? '—'}</td>
-                      <td className="px-3 py-3 text-center">{c.onboarding_complete ? '✓' : '—'}</td>
-                      <td className="px-3 py-3 text-center">{c.assessment_complete ? '✓' : '—'}</td>
                       <td className="px-3 py-3 text-xs text-gray-500">
                         {inactive === null ? '—' : inactive === 0 ? 'Today' : `${inactive}d ago`}
                       </td>
@@ -976,10 +972,6 @@ export default function ClientList() {
                       <span className={`font-bold ${adherenceColor(c.adherence_30d)}`}>
                         {Math.round(Number(c.adherence_30d) || 0)}%
                       </span>
-                    </div>
-                    <div className="ml-auto flex gap-1.5">
-                      <span className={c.onboarding_complete ? 'text-emerald-600' : 'text-gray-300'}>{c.onboarding_complete ? '✓' : '○'} Onb</span>
-                      <span className={c.assessment_complete ? 'text-emerald-600' : 'text-gray-300'}>{c.assessment_complete ? '✓' : '○'} Assess</span>
                     </div>
                   </div>
                   <div className="mt-3 pt-2 border-t border-gray-100 flex items-center justify-between gap-2">
