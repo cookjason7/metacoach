@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { useNavigate } from 'react-router-dom'
 import { API_URL } from '../../config.js'
@@ -698,6 +698,42 @@ function AdminMessagingTab({ getToken }) {
   // Keep selectedRef in sync
   useEffect(() => { selectedRef.current = selected }, [selected])
 
+  // ── Group inbox rows by client (one card per client) ─────────────────────
+  const groupedInbox = useMemo(() => {
+    const map = new Map()
+    for (const row of inbox) {
+      const existing = map.get(row.client_id)
+      if (!existing) {
+        map.set(row.client_id, {
+          client_id:         row.client_id,
+          first_name:        row.first_name,
+          totalUnread:       Number(row.unread) || 0,
+          last_message_at:   row.last_message_at,
+          last_message_body: row.last_message_body,
+          last_sender_role:  row.last_sender_role,
+          latestThreadType:  row.thread_type,
+          threads:           [row],
+        })
+      } else {
+        existing.threads.push(row)
+        existing.totalUnread += Number(row.unread) || 0
+        if (row.last_message_at && (!existing.last_message_at || new Date(row.last_message_at) > new Date(existing.last_message_at))) {
+          existing.last_message_at   = row.last_message_at
+          existing.last_message_body = row.last_message_body
+          existing.last_sender_role  = row.last_sender_role
+          existing.latestThreadType  = row.thread_type
+        }
+      }
+    }
+    return [...map.values()]
+  }, [inbox])
+
+  // Threads available for the currently-selected client (for tab switching)
+  const selectedClientThreads = useMemo(
+    () => inbox.filter(r => r.client_id === selected?.clientId),
+    [inbox, selected?.clientId],
+  )
+
   // ── Fetch inbox (used for initial load + polling) ─────────────────────────
   const fetchInbox = useCallback(async () => {
     try {
@@ -805,7 +841,7 @@ function AdminMessagingTab({ getToken }) {
   if (!loading && inbox.length === 0) {
     return (
       <div className="bg-white border border-gray-200 rounded-xl p-12 text-center">
-        <p className="text-xs text-gray-400 mb-3">Client Inbox · v2</p>
+        <p className="text-xs text-gray-400 mb-3">Client Inbox · v3</p>
         <p className="text-3xl mb-3">💬</p>
         <p className="text-sm font-semibold text-gray-700 mb-1">Central client inbox is ready</p>
         <p className="text-xs text-gray-500">New client conversations and replies will appear here automatically.</p>
@@ -813,25 +849,25 @@ function AdminMessagingTab({ getToken }) {
     )
   }
 
-  const totalUnread = inbox.reduce((sum, r) => sum + (Number(r.unread) || 0), 0)
+  const totalUnread = groupedInbox.reduce((sum, g) => sum + g.totalUnread, 0)
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 min-h-[600px]">
-      {/* Inbox list */}
+      {/* Inbox list — one row per client */}
       <div className="lg:w-72 shrink-0 space-y-1.5 overflow-y-auto">
-        <p className="text-[10px] text-gray-400 px-1 mb-1">Client Inbox · v2</p>
+        <p className="text-[10px] text-gray-400 px-1 mb-1">Client Inbox · v3</p>
         {totalUnread > 0 && (
           <p className="text-xs font-semibold text-[#E8670A] mb-2 px-1">
             {totalUnread} unread message{totalUnread !== 1 ? 's' : ''}
           </p>
         )}
-        {inbox.map(row => {
-          const isSelected = selected?.clientId === row.client_id && selected?.threadType === row.thread_type
-          const hasUnread  = Number(row.unread) > 0
+        {groupedInbox.map(g => {
+          const isSelected = selected?.clientId === g.client_id
+          const hasUnread  = g.totalUnread > 0
           return (
             <button
-              key={`${row.client_id}-${row.thread_type}`}
-              onClick={() => setSelected({ clientId: row.client_id, clientName: row.first_name, threadType: row.thread_type })}
+              key={g.client_id}
+              onClick={() => setSelected({ clientId: g.client_id, clientName: g.first_name, threadType: g.latestThreadType })}
               className={`w-full text-left border rounded-xl px-3 py-3 transition-all ${
                 isSelected
                   ? 'bg-[#E8670A] border-[#E8670A] text-white shadow-md'
@@ -843,24 +879,28 @@ function AdminMessagingTab({ getToken }) {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <p className={`text-sm font-semibold ${isSelected ? 'text-white' : 'text-gray-900'}`}>
-                    {row.first_name ?? 'Client'}
+                    {g.first_name ?? 'Client'}
                   </p>
                   <p className={`text-[10px] mt-0.5 ${isSelected ? 'text-white/70' : 'text-gray-400'}`}>
-                    {STAFF_THREAD_LABELS[row.thread_type] ?? row.thread_type}
-                    {row.last_message_at ? ` · ${fmtTime(row.last_message_at)}` : ''}
+                    {g.last_message_at ? fmtTime(g.last_message_at) : ''}
+                    {g.threads.length > 1 && (
+                      <span className={`ml-1 ${isSelected ? 'text-white/60' : 'text-gray-300'}`}>
+                        · {g.threads.length} threads
+                      </span>
+                    )}
                   </p>
-                  {row.last_message_body && (
+                  {g.last_message_body && (
                     <p className={`text-xs mt-1 truncate ${
                       isSelected ? 'text-white/80' : hasUnread ? 'text-gray-800 font-medium' : 'text-gray-500'
                     }`}>
-                      {row.last_sender_role !== 'client' && <span className="opacity-60">You: </span>}
-                      {row.last_message_body}
+                      {g.last_sender_role !== 'client' && <span className="opacity-60">You: </span>}
+                      {g.last_message_body}
                     </p>
                   )}
                 </div>
                 {hasUnread && !isSelected && (
                   <span className="bg-[#E8670A] text-white text-[10px] font-bold rounded-full px-2 py-0.5 shrink-0 mt-0.5">
-                    {row.unread}
+                    {g.totalUnread}
                   </span>
                 )}
               </div>
@@ -873,14 +913,39 @@ function AdminMessagingTab({ getToken }) {
       <div className="flex-1 flex flex-col bg-white border border-gray-200 rounded-xl overflow-hidden">
         {!selected ? (
           <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
-            Select a conversation to view messages
+            Select a client to view messages
           </div>
         ) : (
           <>
             <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-              <p className="text-sm font-semibold text-gray-900">
-                {selected.clientName} — {STAFF_THREAD_LABELS[selected.threadType] ?? selected.threadType}
-              </p>
+              <p className="text-sm font-semibold text-gray-900">{selected.clientName}</p>
+              {/* Thread tabs — shown only when client has multiple threads */}
+              {selectedClientThreads.length > 1 && (
+                <div className="flex gap-1 mt-2 flex-wrap">
+                  {selectedClientThreads.map(t => {
+                    const threadUnread = Number(t.unread) || 0
+                    const isActive = selected.threadType === t.thread_type
+                    return (
+                      <button
+                        key={t.thread_type}
+                        onClick={() => setSelected(s => ({ ...s, threadType: t.thread_type }))}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
+                          isActive
+                            ? 'bg-[#E8670A] text-white'
+                            : 'bg-white border border-gray-300 text-gray-600 hover:border-[#E8670A]'
+                        }`}
+                      >
+                        {STAFF_THREAD_LABELS[t.thread_type] ?? t.thread_type}
+                        {threadUnread > 0 && !isActive && (
+                          <span className="bg-[#E8670A] text-white text-[9px] font-bold rounded-full px-1.5 py-0.5">
+                            {threadUnread}
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 bg-gray-50 space-y-3 max-h-[500px]">
               {loadingMsgs && <p className="text-center text-xs text-gray-400">Loading…</p>}
