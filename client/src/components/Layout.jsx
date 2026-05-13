@@ -115,10 +115,8 @@ export default function Layout() {
     return () => clearInterval(id)
   }, [fetchMsgUnread])
 
-  const navItems = isAdmin
-    ? [...NAV_ITEMS, { to: '/admin/clients', label: 'Clients' }, { to: '/admin', label: 'Admin' }]
-    : isStaff
-    ? [...NAV_ITEMS, { to: '/admin/clients', label: 'Clients' }]
+  const navItems = (isAdmin || isStaff)
+    ? [...NAV_ITEMS, { to: '/admin/clients', label: 'Coaching' }]
     : NAV_ITEMS
 
   const sidebarContent = (
