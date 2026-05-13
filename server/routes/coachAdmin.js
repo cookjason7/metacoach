@@ -641,6 +641,40 @@ router.delete('/notes/:noteId', requireAuth(), async (req, res, next) => {
 
 // ─── Messages ─────────────────────────────────────────────────────────────────
 
+// GET /api/coach-admin/messaging/inbox — returns all threads across accessible clients with unread counts
+router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const isAdmin = ctx.role === 'admin'
+    const params = []
+    let extraWhere = `COALESCE(u.client_status, 'active') != 'deleted'`
+    if (!isAdmin) {
+      params.push(ctx.dbUserId)
+      extraWhere += ` AND u.assigned_coach_id = $${params.length} AND m.thread_type = 'coach_thread'`
+    }
+    const { rows } = await pool.query(`
+      SELECT
+        u.id AS client_id,
+        u.first_name,
+        m.thread_type,
+        COUNT(*) FILTER (WHERE m.sender_role = 'client' AND m.read_at IS NULL)::int AS unread,
+        MAX(m.created_at) AS last_message_at,
+        (SELECT message_body FROM client_messages
+          WHERE client_id = u.id AND thread_type = m.thread_type
+          ORDER BY created_at DESC LIMIT 1) AS last_message_body,
+        (SELECT sender_role FROM client_messages
+          WHERE client_id = u.id AND thread_type = m.thread_type
+          ORDER BY created_at DESC LIMIT 1) AS last_sender_role
+      FROM client_messages m
+      JOIN users u ON u.id = m.client_id
+      WHERE ${extraWhere}
+      GROUP BY u.id, u.first_name, m.thread_type
+      ORDER BY MAX(m.created_at) DESC
+    `, params)
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
 // GET /api/coach-admin/clients/:id/messages?thread=coach_thread|admin_private|ai_admin
 router.get('/clients/:id/messages', requireAuth(), async (req, res, next) => {
   try {
@@ -675,6 +709,16 @@ router.get('/clients/:id/messages', requireAuth(), async (req, res, next) => {
       ${where}
       ORDER BY m.created_at ASC
     `, params)
+
+    // Mark client messages as read now that staff has viewed the thread
+    const readParams = [id]
+    let readWhere = `WHERE client_id = $1 AND sender_role = 'client' AND read_at IS NULL`
+    if (thread) {
+      readParams.push(thread)
+      readWhere += ` AND thread_type = $${readParams.length}`
+    }
+    await pool.query(`UPDATE client_messages SET read_at = NOW() ${readWhere}`, readParams)
+
     res.json(rows)
   } catch (err) { next(err) }
 })

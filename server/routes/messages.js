@@ -10,7 +10,11 @@ async function getClientContext(req) {
   const { userId } = getAuth(req)
   const dbUserId = await getOrCreateUser(userId)
   const { rows } = await pool.query(
-    'SELECT id, coaching_type, assigned_coach_id FROM users WHERE id = $1',
+    `SELECT u.id, u.coaching_type, u.assigned_coach_id,
+            coach.first_name AS assigned_coach_name
+     FROM users u
+     LEFT JOIN users coach ON coach.id = u.assigned_coach_id
+     WHERE u.id = $1`,
     [dbUserId],
   )
   return { dbUserId, ...(rows[0] ?? {}) }
@@ -52,7 +56,8 @@ async function listThreadsForClient(dbUserId, coachingType) {
 router.get('/threads', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await getClientContext(req)
-    res.json(await listThreadsForClient(ctx.dbUserId, ctx.coaching_type))
+    const threads = await listThreadsForClient(ctx.dbUserId, ctx.coaching_type)
+    res.json({ threads, coachName: ctx.assigned_coach_name ?? null })
   } catch (err) { next(err) }
 })
 

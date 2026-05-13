@@ -665,6 +665,218 @@ function DevToolsTab({ getToken }) {
   )
 }
 
+// ── Messaging helpers ─────────────────────────────────────────────────────────
+
+function fmtTime(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const today = new Date()
+  if (d.toDateString() === today.toDateString()) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  return d.toLocaleDateString()
+}
+
+const STAFF_THREAD_LABELS = {
+  coach_thread:  'Coach Thread',
+  admin_private: 'Admin Private',
+  ai_admin:      'AI Admin',
+}
+
+// ── Admin Messaging Inbox tab ─────────────────────────────────────────────────
+
+function AdminMessagingTab({ getToken }) {
+  const [inbox,       setInbox]       = useState([])
+  const [loading,     setLoading]     = useState(true)
+  const [selected,    setSelected]    = useState(null) // { clientId, clientName, threadType }
+  const [messages,    setMessages]    = useState([])
+  const [loadingMsgs, setLoadingMsgs] = useState(false)
+  const [body,        setBody]        = useState('')
+  const [sending,     setSending]     = useState(false)
+  const scrollRef = useRef(null)
+
+  useEffect(() => {
+    async function loadInbox() {
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/coach-admin/messaging/inbox`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.ok) setInbox(await res.json())
+      } finally { setLoading(false) }
+    }
+    loadInbox()
+  }, [getToken])
+
+  const loadConversation = useCallback(async (sel) => {
+    if (!sel) return
+    setLoadingMsgs(true)
+    const token = await getToken()
+    const res = await fetch(
+      `${API_URL}/api/coach-admin/clients/${sel.clientId}/messages?thread=${sel.threadType}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    )
+    if (res.ok) {
+      setMessages(await res.json())
+      // Clear unread badge locally
+      setInbox(prev => prev.map(r =>
+        r.client_id === sel.clientId && r.thread_type === sel.threadType
+          ? { ...r, unread: 0 } : r,
+      ))
+    }
+    setLoadingMsgs(false)
+  }, [getToken])
+
+  useEffect(() => { loadConversation(selected) }, [selected, loadConversation])
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+  }, [messages])
+
+  async function send() {
+    if (!body.trim() || sending) return
+    setSending(true)
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/coach-admin/clients/${selected.clientId}/messages`, {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ message_body: body, thread_type: selected.threadType }),
+    })
+    setSending(false)
+    if (res.ok) {
+      const msg = await res.json()
+      setMessages(m => [...m, msg])
+      setBody('')
+    }
+  }
+
+  if (loading) return <p className="text-sm text-gray-400 py-8 text-center">Loading inbox…</p>
+
+  if (!loading && inbox.length === 0) {
+    return (
+      <div className="text-center py-16">
+        <p className="text-3xl mb-3">💬</p>
+        <p className="text-sm text-gray-500">No messages yet. Client conversations will appear here.</p>
+      </div>
+    )
+  }
+
+  const totalUnread = inbox.reduce((sum, r) => sum + (Number(r.unread) || 0), 0)
+
+  return (
+    <div className="flex flex-col lg:flex-row gap-4 min-h-[600px]">
+      {/* Inbox list */}
+      <div className="lg:w-72 shrink-0 space-y-1.5 overflow-y-auto">
+        {totalUnread > 0 && (
+          <p className="text-xs font-semibold text-[#E8670A] mb-2 px-1">
+            {totalUnread} unread message{totalUnread !== 1 ? 's' : ''}
+          </p>
+        )}
+        {inbox.map(row => {
+          const isSelected = selected?.clientId === row.client_id && selected?.threadType === row.thread_type
+          const hasUnread  = Number(row.unread) > 0
+          return (
+            <button
+              key={`${row.client_id}-${row.thread_type}`}
+              onClick={() => setSelected({ clientId: row.client_id, clientName: row.first_name, threadType: row.thread_type })}
+              className={`w-full text-left border rounded-xl px-3 py-3 transition-all ${
+                isSelected
+                  ? 'bg-[#E8670A] border-[#E8670A] text-white shadow-md'
+                  : hasUnread
+                    ? 'bg-orange-50 border-orange-200 hover:border-[#E8670A]'
+                    : 'bg-white border-gray-200 hover:border-[#E8670A]'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className={`text-sm font-semibold ${isSelected ? 'text-white' : 'text-gray-900'}`}>
+                    {row.first_name ?? 'Client'}
+                  </p>
+                  <p className={`text-[10px] mt-0.5 ${isSelected ? 'text-white/70' : 'text-gray-400'}`}>
+                    {STAFF_THREAD_LABELS[row.thread_type] ?? row.thread_type}
+                    {row.last_message_at ? ` · ${fmtTime(row.last_message_at)}` : ''}
+                  </p>
+                  {row.last_message_body && (
+                    <p className={`text-xs mt-1 truncate ${
+                      isSelected ? 'text-white/80' : hasUnread ? 'text-gray-800 font-medium' : 'text-gray-500'
+                    }`}>
+                      {row.last_sender_role !== 'client' && <span className="opacity-60">You: </span>}
+                      {row.last_message_body}
+                    </p>
+                  )}
+                </div>
+                {hasUnread && !isSelected && (
+                  <span className="bg-[#E8670A] text-white text-[10px] font-bold rounded-full px-2 py-0.5 shrink-0 mt-0.5">
+                    {row.unread}
+                  </span>
+                )}
+              </div>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Conversation panel */}
+      <div className="flex-1 flex flex-col bg-white border border-gray-200 rounded-xl overflow-hidden">
+        {!selected ? (
+          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
+            Select a conversation to view messages
+          </div>
+        ) : (
+          <>
+            <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+              <p className="text-sm font-semibold text-gray-900">
+                {selected.clientName} — {STAFF_THREAD_LABELS[selected.threadType] ?? selected.threadType}
+              </p>
+            </div>
+            <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 bg-gray-50 space-y-3 max-h-[500px]">
+              {loadingMsgs && <p className="text-center text-xs text-gray-400">Loading…</p>}
+              {!loadingMsgs && messages.length === 0 && (
+                <p className="text-center text-xs text-gray-400 py-8">No messages in this thread yet.</p>
+              )}
+              {messages.map(m => {
+                const isStaff = m.sender_role === 'admin' || m.sender_role === 'coach'
+                return (
+                  <div key={m.id} className={`flex ${isStaff ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[80%] rounded-2xl px-4 py-2 ${
+                      isStaff ? 'bg-[#E8670A] text-white' : 'bg-white border border-gray-200 text-gray-800'
+                    }`}>
+                      <p className={`text-[10px] font-semibold opacity-70 mb-0.5`}>
+                        {m.sender_name ?? m.sender_role} · {fmtTime(m.created_at)}
+                      </p>
+                      <p className="text-sm whitespace-pre-wrap">{m.message_body}</p>
+                      {isStaff && m.read_at && (
+                        <p className="text-[9px] opacity-60 text-right mt-0.5">
+                          Read {new Date(m.read_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="border-t border-gray-100 p-3 flex gap-2">
+              <textarea
+                value={body}
+                onChange={e => setBody(e.target.value)}
+                placeholder={`Message ${selected.clientName ?? 'client'}…`}
+                rows={2}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none"
+              />
+              <button
+                onClick={send}
+                disabled={sending || !body.trim()}
+                className="bg-[#E8670A] text-white px-5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 self-stretch min-w-[80px]"
+              >
+                {sending ? '…' : 'Send'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Placeholder tab ───────────────────────────────────────────────────────────
 
 function PlaceholderTab({ title, description }) {
@@ -1024,10 +1236,7 @@ export default function ClientList() {
 
       {/* ── Messaging tab ── */}
       {activeTab === 'messaging' && (
-        <PlaceholderTab
-          title="Messaging"
-          description="Bulk messaging and broadcast tools coming soon. Use Messages in the sidebar to message individual clients."
-        />
+        <AdminMessagingTab getToken={getToken} />
       )}
 
       {/* ── Coach Foods tab ── */}

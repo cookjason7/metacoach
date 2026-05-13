@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 
-const THREAD_LABELS = {
-  coach_thread:  { title: 'Coach Thread',  icon: '💬', subtitle: 'Your coach and the team' },
-  admin_private: { title: 'From Admin',    icon: '🔒', subtitle: 'One-way thread from admin' },
-  ai_admin:      { title: 'AI Coaching',   icon: '🤖', subtitle: 'You and the admin team' },
+function getThreadMeta(threadType, coachName) {
+  if (threadType === 'ai_admin')      return { title: 'Coach Katie',              icon: '🤖', subtitle: 'You and Coach Katie' }
+  if (threadType === 'admin_private') return { title: 'Jason Cook',               icon: '🔒', subtitle: 'Private message from Jason Cook' }
+  if (threadType === 'coach_thread')  return { title: coachName || 'Your Coach',  icon: '💬', subtitle: `Messages with ${coachName || 'your coach'}` }
+  return { title: threadType, icon: '💬', subtitle: '' }
 }
 
 function fmtTime(iso) {
@@ -18,8 +19,9 @@ function fmtTime(iso) {
 
 export default function Messages() {
   const { getToken } = useAuth()
-  const [threads, setThreads]   = useState([])
-  const [active,  setActive]    = useState(null)   // thread_type string
+  const [threads,   setThreads]   = useState([])
+  const [coachName, setCoachName] = useState(null)
+  const [active,    setActive]    = useState(null)  // thread_type string
   const [messages, setMessages] = useState([])
   const [body,    setBody]      = useState('')
   const [loading, setLoading]   = useState(true)
@@ -34,10 +36,14 @@ export default function Messages() {
     })
     if (res.ok) {
       const data = await res.json()
-      setThreads(data)
+      // Support both old array shape and new { threads, coachName } shape
+      const list  = Array.isArray(data) ? data : (data.threads ?? [])
+      const coach = Array.isArray(data) ? null : (data.coachName ?? null)
+      setThreads(list)
+      setCoachName(coach)
       // Auto-open the first thread on first load
-      if (!active && data.length > 0) {
-        setActive(data[0].thread_type)
+      if (!active && list.length > 0) {
+        setActive(list[0].thread_type)
       }
     }
     setLoading(false)
@@ -112,7 +118,7 @@ export default function Messages() {
           {/* Thread list */}
           <div className="lg:w-64 shrink-0 space-y-1.5">
             {threads.map(t => {
-              const meta = THREAD_LABELS[t.thread_type] ?? { title: t.thread_type, icon: '💬', subtitle: '' }
+              const meta = getThreadMeta(t.thread_type, coachName)
               const isActive = active === t.thread_type
               return (
                 <button
@@ -155,11 +161,11 @@ export default function Messages() {
               <>
                 <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
                   <p className="text-sm font-semibold text-gray-900">
-                    {THREAD_LABELS[active]?.icon} {THREAD_LABELS[active]?.title ?? active}
+                    {getThreadMeta(active, coachName).icon} {getThreadMeta(active, coachName).title}
                   </p>
                   {!canReply && (
                     <p className="text-[10px] text-amber-700 mt-0.5">
-                      🔒 This is a one-way thread from admin. You cannot reply here.
+                      🔒 This is a one-way thread from Jason Cook. You cannot reply here.
                     </p>
                   )}
                 </div>

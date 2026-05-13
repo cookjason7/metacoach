@@ -1034,6 +1034,11 @@ function MessagingTab({ client, role, getToken }) {
                     {m.sender_name ?? m.sender_role} · {new Date(m.created_at).toLocaleString()}
                   </p>
                   <p className="text-sm whitespace-pre-wrap">{m.message_body}</p>
+                  {isStaff && m.read_at && (
+                    <p className="text-[9px] opacity-60 text-right mt-0.5">
+                      Read {new Date(m.read_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                    </p>
+                  )}
                 </div>
               </div>
             )
