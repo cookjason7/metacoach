@@ -3,9 +3,9 @@ import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 
 function getThreadMeta(threadType, coachName) {
-  if (threadType === 'ai_admin')      return { title: 'Coach Katie',              icon: '🤖', subtitle: 'You and Coach Katie' }
-  if (threadType === 'admin_private') return { title: 'Jason Cook',               icon: '🔒', subtitle: 'Private message from Jason Cook' }
-  if (threadType === 'coach_thread')  return { title: coachName || 'Your Coach',  icon: '💬', subtitle: `Messages with ${coachName || 'your coach'}` }
+  if (threadType === 'admin_private') return { title: 'Jason Cook',              icon: '🔒', subtitle: 'Private message from Jason Cook' }
+  if (threadType === 'coach_thread')  return { title: coachName || 'Your Coach', icon: '💬', subtitle: `Messages with ${coachName || 'your coach'}` }
+  if (threadType === 'ai_admin')      return { title: 'Your Team',               icon: '💬', subtitle: 'Messages from your coaching team' }
   return { title: threadType, icon: '💬', subtitle: '' }
 }
 
