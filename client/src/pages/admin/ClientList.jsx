@@ -231,7 +231,7 @@ function MacroClientRow({ client, getToken, onUpdate }) {
     <div className="bg-white rounded-xl border border-gray-200 p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-900">{client.first_name ?? 'Unknown'}</p>
+          <p className="text-sm font-semibold text-gray-900">{[client.first_name, client.display_last_name].filter(Boolean).join(' ') || client.email || 'Unknown'}</p>
           <p className="text-xs text-gray-400 mt-0.5">
             {inactive === null ? 'No meals logged' : inactive === 0 ? 'Logged today' : `Last log: ${inactive}d ago`}
           </p>
@@ -625,7 +625,7 @@ function DevToolsTab({ getToken }) {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-gray-900">
-                    {client.first_name ?? 'Unknown'}
+                    {[client.first_name, client.display_last_name].filter(Boolean).join(' ') || client.email || 'Unknown'}
                     {client.email && <span className="text-xs text-gray-400 font-normal ml-2">{client.email}</span>}
                   </p>
                   <div className="flex gap-2 mt-1.5 flex-wrap">
@@ -770,7 +770,7 @@ export default function ClientList() {
     if (statusFilter !== 'all' && c.status_tag !== statusFilter) return false
     if (search) {
       const q = search.toLowerCase()
-      if (!`${c.first_name ?? ''} ${c.email ?? ''}`.toLowerCase().includes(q)) return false
+      if (!`${c.first_name ?? ''} ${c.display_last_name ?? ''} ${c.email ?? ''}`.toLowerCase().includes(q)) return false
     }
     return true
   })

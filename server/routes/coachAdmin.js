@@ -87,8 +87,14 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
     const { rows } = await pool.query(`
       SELECT
         u.id,
-        COALESCE(u.first_name, ha.first_name)       AS first_name,
-        ha.last_name                                  AS display_last_name,
+        COALESCE(u.first_name, ha.first_name,
+          CASE WHEN u.name IS NOT NULL THEN SPLIT_PART(u.name, ' ', 1) END
+        ) AS first_name,
+        COALESCE(ha.last_name,
+          CASE WHEN u.name LIKE '% %'
+            THEN LTRIM(SUBSTRING(u.name FROM POSITION(' ' IN u.name)))
+          END
+        ) AS display_last_name,
         COALESCE(u.phone_number, ha.phone)            AS phone_number,
         u.email,
         u.coaching_type, u.assigned_coach_id, u.role,
@@ -113,7 +119,9 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
       FROM users u
       LEFT JOIN health_assessments ha ON ha.user_id = u.id
       ${where}
-      ORDER BY COALESCE(u.first_name, ha.first_name) ASC NULLS LAST
+      ORDER BY COALESCE(u.first_name, ha.first_name,
+        CASE WHEN u.name IS NOT NULL THEN SPLIT_PART(u.name, ' ', 1) END
+      ) ASC NULLS LAST
     `, params)
 
     res.json(rows.map(r => ({ ...r, status_tag: computeStatusTag(r) })))
@@ -177,8 +185,11 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
     const merged = {
       ...c,
       // Build display name from first_name + assessment data
-      display_first_name: c.first_name || c.assessment_first_name || null,
-      display_last_name:  c.assessment_last_name || null,
+      display_first_name: c.first_name || c.assessment_first_name
+        || (c.name ? c.name.split(' ')[0] : null) || null,
+      display_last_name: c.assessment_last_name
+        || (c.name && c.name.includes(' ') ? c.name.split(' ').slice(1).join(' ') : null)
+        || null,
       display_phone:      c.phone_number || c.assessment_phone || null,
       display_dob:        c.assessment_dob || null,
       display_shirt_size: c.assessment_shirt_size || null,
