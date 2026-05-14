@@ -526,8 +526,8 @@ router.get('/week', requireAuth(), async (req, res, next) => {
          FROM meals m
          JOIN users u ON u.id = m.user_id
          WHERE u.clerk_user_id = $1
-           AND m.logged_at >= DATE_TRUNC('week', CURRENT_DATE)
-         GROUP BY DATE(m.logged_at)
+           AND COALESCE(m.log_date, m.logged_at::date) >= DATE_TRUNC('week', CURRENT_DATE)
+         GROUP BY COALESCE(m.log_date, m.logged_at::date)
        ) t`,
       [userId],
     )

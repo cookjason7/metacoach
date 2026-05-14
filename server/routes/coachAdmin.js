@@ -346,7 +346,7 @@ router.get('/clients/:id/engagement', requireAuth(), async (req, res, next) => {
     const wk = `CURRENT_DATE - INTERVAL '7 days'`
     const { rows: [stats] } = await pool.query(`
       SELECT
-        (SELECT COUNT(*) FROM meals WHERE user_id = $1 AND logged_at >= ${wk}) AS food_logs_week,
+        (SELECT COUNT(*) FROM meals WHERE user_id = $1 AND COALESCE(log_date, logged_at::date) >= ${wk}) AS food_logs_week,
         (SELECT COUNT(*) FROM workout_logs WHERE user_id = $1 AND completed_at >= ${wk}) AS workouts_week,
         (SELECT COUNT(*) FROM daily_logs WHERE user_id = $1 AND logged_date >= CURRENT_DATE - 7 AND water_oz IS NOT NULL) AS water_logs_week,
         (SELECT COUNT(*) FROM daily_logs WHERE user_id = $1 AND logged_date >= CURRENT_DATE - 7 AND steps IS NOT NULL) AS step_logs_week,
@@ -451,7 +451,7 @@ router.get('/clients/:id/nutrition/weekly', requireAuth(), async (req, res, next
                  SUM(carbs) AS dcarbs, SUM(fat) AS dfat,
                  COALESCE(SUM(fiber), 0) AS dfiber
           FROM meals
-          WHERE user_id = $1 AND logged_at >= CURRENT_DATE - INTERVAL '7 days'
+          WHERE user_id = $1 AND COALESCE(log_date, logged_at::date) >= CURRENT_DATE - INTERVAL '7 days'
           GROUP BY COALESCE(log_date, logged_at::date)
         ) t
       `, [id]),
