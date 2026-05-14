@@ -160,51 +160,26 @@ function FoundationRing({ label, value, goal, color, unit }) {
   )
 }
 
-// ── Today's Targets Card ──────────────────────────────────────────────────────
-
-function TargetsCard({ totals, goals }) {
-  const rings = []
-  if (goals.goal_calories) rings.push({ label: 'Calories', value: totals.calories, goal: goals.goal_calories, unit: '',  color: '#E8670A' })
-  if (goals.goal_protein)  rings.push({ label: 'Protein',  value: totals.protein,  goal: goals.goal_protein,  unit: 'g', color: '#EC4899' })
-  rings.push(                           { label: 'Fiber',   value: totals.fiber,    goal: 25,                  unit: 'g', color: '#10B981' })
-
-  if (rings.length === 0) return null
-
-  const overallPct = rings.reduce((s, r) => s + Math.min(r.goal > 0 ? r.value / r.goal : 0, 1), 0) / rings.length
-
-  function statusLabel(p) {
-    if (p >= 0.8) return 'On track'
-    if (p >= 0.5) return 'Strong start'
-    if (p >= 0.2) return 'Needs attention'
-    return 'Low today'
-  }
-
-  return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-4">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-sm font-bold text-gray-900">Today's Targets</h2>
-          <p className="text-[11px] text-gray-400 mt-0.5">{statusLabel(overallPct)}</p>
-        </div>
-        <div className="text-right">
-          <p className="text-lg font-bold" style={{ color: '#E8670A' }}>{Math.round(overallPct * 100)}%</p>
-          <p className="text-[10px] text-gray-400">complete</p>
-        </div>
-      </div>
-      <div className="grid grid-cols-3 gap-y-4 gap-x-2">
-        {rings.map(r => <FoundationRing key={r.label} {...r} />)}
-      </div>
-    </div>
-  )
-}
-
 // ── Women's Health Foundation Card ────────────────────────────────────────────
 
-function WomensHealthCard({ meals }) {
+function WomensHealthCard({ meals, totals, waterOz, isToday, onAddWater }) {
+  const [addingWater, setAddingWater] = useState(false)
+  const [oz, setOz] = useState('8')
   const micros = calculateMicronutrientTotals(meals)
   const getMicro = (key) => micros.find(m => m.key === key)?.value ?? 0
 
+  function handleAddWater() {
+    const amount = parseFloat(oz)
+    if (!isNaN(amount) && amount > 0) {
+      onAddWater(amount)
+      setAddingWater(false)
+      setOz('8')
+    }
+  }
+
   const rings = [
+    { label: 'Fiber',     value: totals.fiber,              goal: 25,   unit: 'g',   color: '#10B981' },
+    { label: 'Water',     value: waterOz,                   goal: 64,   unit: 'oz',  color: '#60A5FA' },
     { label: 'Calcium',   value: getMicro('calcium_mg'),    goal: 1200, unit: 'mg',  color: '#3B82F6' },
     { label: 'Vitamin D', value: getMicro('vitamin_d_mcg'), goal: 20,   unit: 'mcg', color: '#F59E0B' },
     { label: 'Iron',      value: getMicro('iron_mg'),       goal: 18,   unit: 'mg',  color: '#8B5CF6' },
@@ -231,9 +206,31 @@ function WomensHealthCard({ meals }) {
           <p className="text-[10px] text-gray-400">complete</p>
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-y-4 gap-x-2">
+      <div className="grid grid-cols-3 gap-y-4 gap-x-2 mb-3">
         {rings.map(r => <FoundationRing key={r.label} {...r} />)}
       </div>
+      {isToday && (
+        <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
+          <span className="text-[11px] text-gray-400">Log water</span>
+          {!addingWater ? (
+            <button
+              onClick={() => setAddingWater(true)}
+              className="w-5 h-5 bg-blue-100 text-blue-600 rounded-full text-xs font-bold flex items-center justify-center hover:bg-blue-200 transition-colors"
+            >+</button>
+          ) : (
+            <span className="flex items-center gap-1">
+              <input
+                type="number" value={oz} onChange={e => setOz(e.target.value)}
+                className="w-12 border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                min="1"
+              />
+              <span className="text-xs text-gray-400">oz</span>
+              <button onClick={handleAddWater} className="text-xs text-blue-600 font-semibold hover:text-blue-800">Add</button>
+              <button onClick={() => setAddingWater(false)} className="text-xs text-gray-400 hover:text-gray-600">✕</button>
+            </span>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -310,13 +307,17 @@ function WeekStrip({ weekDays, selected, onChange, activeDates, onShift }) {
 // ── Macro Rings Row ────────────────────────────────────────────────────────────
 
 function MacroRingsRow({ totals, goals }) {
+  const rings = []
+  if (goals.goal_calories) rings.push({ label: 'Calories', value: totals.calories, goal: goals.goal_calories, color: MACRO_COLORS.calories, unit: ' cal' })
+  if (goals.goal_protein)  rings.push({ label: 'Protein',  value: totals.protein,  goal: goals.goal_protein,  color: MACRO_COLORS.protein })
+  if (goals.goal_carbs)    rings.push({ label: 'Carbs',    value: totals.carbs,    goal: goals.goal_carbs,    color: MACRO_COLORS.carbs })
+  if (goals.goal_fat)      rings.push({ label: 'Fat',      value: totals.fat,      goal: goals.goal_fat,      color: MACRO_COLORS.fat })
+  if (rings.length === 0) return null
+  const colClass = rings.length <= 2 ? 'grid-cols-2' : rings.length === 3 ? 'grid-cols-3' : 'grid-cols-4'
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-4">
-      <div className="grid grid-cols-4 gap-2">
-        <MacroRing label="Protein"  value={totals.protein}  goal={goals.goal_protein}  color={MACRO_COLORS.protein} />
-        <MacroRing label="Carbs"    value={totals.carbs}    goal={goals.goal_carbs}    color={MACRO_COLORS.carbs} />
-        <MacroRing label="Fat"      value={totals.fat}      goal={goals.goal_fat}      color={MACRO_COLORS.fat} />
-        <MacroRing label="Calories" value={totals.calories} goal={goals.goal_calories} color={MACRO_COLORS.calories} unit=" cal" />
+      <div className={`grid ${colClass} gap-2`}>
+        {rings.map(r => <MacroRing key={r.label} {...r} />)}
       </div>
     </div>
   )
@@ -324,49 +325,13 @@ function MacroRingsRow({ totals, goals }) {
 
 // ── Quick Stats Row ────────────────────────────────────────────────────────────
 
-function QuickStats({ totals, waterOz, isToday, onAddWater }) {
-  const [adding, setAdding] = useState(false)
-  const [oz,     setOz]     = useState('8')
-
-  function handleAdd() {
-    const amount = parseFloat(oz)
-    if (!isNaN(amount) && amount > 0) {
-      onAddWater(amount)
-      setAdding(false)
-      setOz('8')
-    }
-  }
-
+function QuickStats({ totals }) {
+  if (totals.sugar <= 0) return null
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 px-4 py-3 mb-4 flex items-center gap-4 flex-wrap text-sm">
+    <div className="bg-white rounded-2xl border border-gray-200 px-4 py-3 mb-4 flex items-center gap-2 text-sm">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mr-1">Also Logged</span>
       <span className="text-gray-500">
-        Fiber <span className="font-semibold text-gray-800">{Math.round(totals.fiber)}g</span>
-      </span>
-      <span className="text-gray-300">|</span>
-      <span className="text-gray-500">
-        Sugar <span className="font-semibold text-gray-800">{totals.sugar > 0 ? `${Math.round(totals.sugar)}g` : '—'}</span>
-      </span>
-      <span className="text-gray-300">|</span>
-      <span className="text-gray-500 flex items-center gap-2">
-        Water <span className="font-semibold text-gray-800">{waterOz > 0 ? `${waterOz}oz` : '—'}</span>
-        {isToday && !adding && (
-          <button
-            onClick={() => setAdding(true)}
-            className="w-5 h-5 bg-blue-100 text-blue-600 rounded-full text-xs font-bold flex items-center justify-center hover:bg-blue-200 transition-colors"
-          >+</button>
-        )}
-        {adding && (
-          <span className="flex items-center gap-1">
-            <input
-              type="number" value={oz} onChange={e => setOz(e.target.value)}
-              className="w-12 border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
-              min="1"
-            />
-            <span className="text-xs text-gray-400">oz</span>
-            <button onClick={handleAdd} className="text-xs text-blue-600 font-semibold hover:text-blue-800">Add</button>
-            <button onClick={() => setAdding(false)} className="text-xs text-gray-400 hover:text-gray-600">✕</button>
-          </span>
-        )}
+        Sugar <span className="font-semibold text-gray-800">{Math.round(totals.sugar)}g</span>
       </span>
     </div>
   )
@@ -1823,12 +1788,11 @@ export default function Journal() {
       {/* Macro rings */}
       <MacroRingsRow totals={totals} goals={goals} />
 
-      {/* Foundation nutrient rings */}
-      <TargetsCard totals={totals} goals={goals} />
-      <WomensHealthCard meals={meals} />
+      {/* Women's Health Foundation nutrient rings */}
+      <WomensHealthCard meals={meals} totals={totals} waterOz={waterOz} isToday={isToday} onAddWater={addWater} />
 
-      {/* Quick stats */}
-      <QuickStats totals={totals} waterOz={waterOz} isToday={isToday} onAddWater={addWater} />
+      {/* Also Logged */}
+      <QuickStats totals={totals} />
 
       <div className="mb-5">
         <MicronutrientTotals meals={meals} loading={loading} title="Daily Micronutrients" />
