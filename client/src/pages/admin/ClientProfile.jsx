@@ -279,10 +279,11 @@ const MACRO_TARGET_FIELDS = [
 ]
 
 function NutritionTargetsCard({ client, getToken, onUpdate }) {
-  const [editing,  setEditing]  = useState(false)
-  const [saving,   setSaving]   = useState(false)
-  const [error,    setError]    = useState(null)
-  const [calcMode, setCalcMode] = useState('manual')
+  const [editing,    setEditing]    = useState(false)
+  const [saving,     setSaving]     = useState(false)
+  const [error,      setError]      = useState(null)
+  const [calcMode,   setCalcMode]   = useState('manual')
+  const [autoTarget, setAutoTarget] = useState('fat')   // which macro is auto-calculated
   const [form, setForm] = useState({
     goal_calories: client.goal_calories ?? '',
     goal_protein:  client.goal_protein  ?? '',
@@ -293,7 +294,7 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
   })
   const [pct, setPct] = useState({ protein: 30, carbs: 40, fat: 30 })
 
-  // ── Derived values (live, no state) ─────────────────────────────────────────
+  // ── Derived values ───────────────────────────────────────────────────────────
   const cal   = Math.max(0, Number(form.goal_calories) || 0)
   const prot  = Math.max(0, Number(form.goal_protein)  || 0)
   const carbs = Math.max(0, Number(form.goal_carbs)    || 0)
@@ -303,16 +304,25 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
   const macroCal   = Math.round(prot * 4 + carbs * 4 + fat * 9)
   const calWarning = cal > 0 && (prot > 0 || carbs > 0 || fat > 0) && Math.abs(macroCal - cal) > 50
 
-  // Auto-calc derived (live)
-  const autoRemain = Math.max(0, cal - prot * 4)
-  const autoCarbs  = Math.round(autoRemain * 0.5 / 4)
-  const autoFat    = Math.round(autoRemain * 0.5 / 9)
+  // Auto-calc: remaining calories after the two manually entered macros
+  const acRemain =
+    autoTarget === 'fat'   ? cal - (prot  * 4 + carbs * 4) :
+    autoTarget === 'carbs' ? cal - (prot  * 4 + fat   * 9) :
+    /* protein */             cal - (carbs * 4 + fat   * 9)
+  const acValue  = acRemain > 0
+    ? Math.round(acRemain / (autoTarget === 'fat' ? 9 : 4))
+    : 0
+  const acError  = cal > 0 && acRemain < -50
 
-  // Percentage derived (live)
+  // Percentage mode
   const pctTotal   = pct.protein + pct.carbs + pct.fat
   const pctProtein = Math.max(0, Math.round(cal * pct.protein / 100 / 4))
   const pctCarbs   = Math.max(0, Math.round(cal * pct.carbs   / 100 / 4))
   const pctFat     = Math.max(0, Math.round(cal * pct.fat     / 100 / 9))
+
+  const canSave = !saving
+    && !(calcMode === 'manual'   && calWarning)
+    && !(calcMode === 'autocalc' && acError)
 
   async function save() {
     if (calcMode === 'percentage' && pctTotal !== 100) {
@@ -333,9 +343,9 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
         body.goal_carbs   = pctCarbs
         body.goal_fat     = pctFat
       } else if (calcMode === 'autocalc') {
-        body.goal_protein = prot > 0 ? Math.round(prot) : null
-        body.goal_carbs   = autoCarbs
-        body.goal_fat     = autoFat
+        body.goal_protein = autoTarget === 'protein' ? acValue : Math.round(prot)
+        body.goal_carbs   = autoTarget === 'carbs'   ? acValue : Math.round(carbs)
+        body.goal_fat     = autoTarget === 'fat'     ? acValue : Math.round(fat)
       } else {
         body.goal_protein = toInt(form.goal_protein)
         body.goal_carbs   = toInt(form.goal_carbs)
@@ -352,7 +362,7 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
     } catch (err) { setError(err.message) } finally { setSaving(false) }
   }
 
-  const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30'
+  const inputCls    = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30'
   const computedCls = 'w-full border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-sm font-semibold text-gray-700'
 
   return (
@@ -410,7 +420,7 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
                   </div>
                   {calWarning && (
                     <p className="mt-1.5 text-amber-700 font-medium">
-                      ⚠ Macro grams equal {macroCal} calories, but calorie target is {cal}.
+                      ⚠ Macros total {macroCal} kcal but calorie target is {cal} kcal. Adjust to within 50 kcal to save.
                     </p>
                   )}
                 </div>
@@ -421,9 +431,70 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
           {/* ── Auto-calc ── */}
           {calcMode === 'autocalc' && (
             <div className="space-y-3">
-              <p className="text-xs text-gray-500">Enter calories + protein. Remaining calories are split 50/50 between carbs and fat.</p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {[['goal_calories','Calories','kcal'],['goal_protein','Protein','g'],['goal_fiber','Fiber','g'],['goal_water','Water','oz']].map(([fkey, label, unit]) => (
+              <p className="text-xs text-gray-500">Enter calories and any two macros. The third is calculated from remaining calories.</p>
+
+              {/* Which macro to auto-calculate */}
+              <div>
+                <p className="text-xs font-medium text-gray-600 mb-1.5">Auto-calculate:</p>
+                <div className="flex gap-2">
+                  {[['protein','Protein'],['carbs','Carbs'],['fat','Fat']].map(([id, label]) => (
+                    <button key={id} onClick={() => setAutoTarget(id)}
+                      className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors ${
+                        autoTarget === id ? 'bg-[#1e2a3a] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}>{label}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Calories + the 2 manual macros */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Calories <span className="text-gray-400">(kcal)</span></label>
+                  <input type="number" min="0" value={form.goal_calories}
+                    onChange={e => setForm(f => ({ ...f, goal_calories: e.target.value }))}
+                    placeholder="—" className={inputCls} />
+                </div>
+                {autoTarget !== 'protein' && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Protein <span className="text-gray-400">(g)</span></label>
+                    <input type="number" min="0" value={form.goal_protein}
+                      onChange={e => setForm(f => ({ ...f, goal_protein: e.target.value }))}
+                      placeholder="—" className={inputCls} />
+                  </div>
+                )}
+                {autoTarget !== 'carbs' && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Carbs <span className="text-gray-400">(g)</span></label>
+                    <input type="number" min="0" value={form.goal_carbs}
+                      onChange={e => setForm(f => ({ ...f, goal_carbs: e.target.value }))}
+                      placeholder="—" className={inputCls} />
+                  </div>
+                )}
+                {autoTarget !== 'fat' && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Fat <span className="text-gray-400">(g)</span></label>
+                    <input type="number" min="0" value={form.goal_fat}
+                      onChange={e => setForm(f => ({ ...f, goal_fat: e.target.value }))}
+                      placeholder="—" className={inputCls} />
+                  </div>
+                )}
+              </div>
+
+              {/* Auto-calculated result */}
+              <div className={`rounded-lg p-3 ${acError ? 'bg-red-50 border border-red-200' : 'bg-gray-50'}`}>
+                <p className="text-[10px] uppercase tracking-wide font-bold mb-1 text-gray-400">
+                  {autoTarget.charAt(0).toUpperCase() + autoTarget.slice(1)} (auto-calculated)
+                </p>
+                {acError ? (
+                  <p className="text-sm font-semibold text-red-600">⚠ Entered macros exceed {cal} kcal target — reduce values</p>
+                ) : (
+                  <div className={computedCls}>{acValue} g &nbsp;·&nbsp; {Math.max(0, acRemain)} kcal remaining</div>
+                )}
+              </div>
+
+              {/* Fiber and Water */}
+              <div className="grid grid-cols-2 gap-3">
+                {[['goal_fiber','Fiber','g'],['goal_water','Water','oz']].map(([fkey, label, unit]) => (
                   <div key={fkey}>
                     <label className="block text-xs font-medium text-gray-600 mb-1">{label} <span className="text-gray-400">({unit})</span></label>
                     <input type="number" min="0" value={form[fkey]}
@@ -432,15 +503,6 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
                   </div>
                 ))}
               </div>
-              <div className="bg-gray-50 rounded-lg p-3 grid grid-cols-3 gap-3">
-                {[['Carbs', autoCarbs, 'g'], ['Fat', autoFat, 'g'], ['Remaining', autoRemain, ' kcal']].map(([label, val, unit]) => (
-                  <div key={label}>
-                    <p className="text-[10px] text-gray-400 mb-1">{label}</p>
-                    <div className={computedCls}>{val}{unit}</div>
-                  </div>
-                ))}
-              </div>
-              <p className="text-[11px] text-gray-400">Carbs and fat are computed automatically and cannot be edited in this mode.</p>
             </div>
           )}
 
@@ -490,7 +552,7 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
 
           {error && <p className="text-xs text-red-500">{error}</p>}
           <div className="flex gap-2 pt-1">
-            <button onClick={save} disabled={saving}
+            <button onClick={save} disabled={!canSave}
               className="bg-[#E8670A] text-white px-5 py-2 rounded-lg text-xs font-semibold hover:bg-[#c45e09] disabled:opacity-50">
               {saving ? 'Saving…' : 'Save targets'}
             </button>
