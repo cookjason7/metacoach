@@ -306,13 +306,14 @@ function WeekStrip({ weekDays, selected, onChange, activeDates, onShift }) {
 // ── Macro Rings Row ────────────────────────────────────────────────────────────
 
 function MacroRingsRow({ totals, goals }) {
-  const rings = []
-  if (goals.goal_calories) rings.push({ label: 'Calories', value: totals.calories, goal: goals.goal_calories, color: MACRO_COLORS.calories, unit: ' cal' })
-  if (goals.goal_protein)  rings.push({ label: 'Protein',  value: totals.protein,  goal: goals.goal_protein,  color: MACRO_COLORS.protein })
-  if (goals.goal_carbs)    rings.push({ label: 'Carbs',    value: totals.carbs,    goal: goals.goal_carbs,    color: MACRO_COLORS.carbs })
-  if (goals.goal_fat)      rings.push({ label: 'Fat',      value: totals.fat,      goal: goals.goal_fat,      color: MACRO_COLORS.fat })
-  rings.push(               { label: 'Fiber',    value: totals.fiber,    goal: 25,                  color: '#10B981',           unit: 'g' })
-  const colClass = rings.length <= 2 ? 'grid-cols-2' : rings.length === 3 ? 'grid-cols-3' : rings.length === 4 ? 'grid-cols-4' : 'grid-cols-3'
+  const rings = [
+    { label: 'Calories', value: totals.calories, goal: goals.goal_calories || null, color: MACRO_COLORS.calories, unit: ' cal' },
+    { label: 'Protein',  value: totals.protein,  goal: goals.goal_protein  || null, color: MACRO_COLORS.protein },
+    { label: 'Carbs',    value: totals.carbs,    goal: goals.goal_carbs    || null, color: MACRO_COLORS.carbs },
+    { label: 'Fat',      value: totals.fat,      goal: goals.goal_fat      || null, color: MACRO_COLORS.fat },
+    { label: 'Fiber',    value: totals.fiber,    goal: 25,                          color: '#10B981',            unit: 'g' },
+  ]
+  const colClass = 'grid-cols-3 sm:grid-cols-5'
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-4">
       <div className={`grid ${colClass} gap-2`}>
