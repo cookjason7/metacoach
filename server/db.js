@@ -635,6 +635,7 @@ export async function migrate() {
     )
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_messages_thread ON client_messages (client_id, thread_type, created_at)`)
+  await pool.query(`ALTER TABLE client_messages ADD COLUMN IF NOT EXISTS image_url TEXT`)
 
   // Comeback events — captures gap-then-return patterns for future Comeback XP
   await pool.query(`

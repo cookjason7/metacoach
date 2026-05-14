@@ -31,6 +31,45 @@ export default function StaffInbox({ getToken }) {
   const scrollRef    = useRef(null)
   const selectedRef  = useRef(null)
   const msgCountRef  = useRef(0)
+  const fileInputRef  = useRef(null)
+  const [imgPreview,  setImgPreview]  = useState(null)
+  const [imgFile,     setImgFile]     = useState(null)
+  const [uploading,   setUploading]   = useState(false)
+
+  const ALLOWED = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
+
+  function handleFileSelect(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!ALLOWED.includes(file.type)) {
+      alert('Unsupported file type. Please use JPG, PNG, or WebP.')
+      e.target.value = ''; return
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      alert('File is too large. Maximum size is 10 MB.')
+      e.target.value = ''; return
+    }
+    setImgFile(file)
+    setImgPreview(URL.createObjectURL(file))
+  }
+
+  function clearImage() {
+    setImgFile(null); setImgPreview(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  async function uploadImage(file) {
+    setUploading(true)
+    try {
+      const token = await getToken()
+      const fd = new FormData(); fd.append('image', file)
+      const res = await fetch(`${API_URL}/api/messages/upload`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+      })
+      if (!res.ok) throw new Error('Upload failed')
+      return (await res.json()).url
+    } finally { setUploading(false) }
+  }
 
   useEffect(() => { selectedRef.current = selected }, [selected])
 
@@ -147,20 +186,25 @@ export default function StaffInbox({ getToken }) {
   }, [messages])
 
   async function send() {
-    if (!body.trim() || sending) return
+    if (!body.trim() && !imgFile) return
+    if (sending || uploading) return
     setSending(true)
-    const token = await getToken()
-    const res = await fetch(`${API_URL}/api/coach-admin/clients/${selected.clientId}/messages`, {
-      method:  'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ message_body: body, thread_type: selected.threadType }),
-    })
-    setSending(false)
-    if (res.ok) {
-      const msg = await res.json()
-      setMessages(m => [...m, msg])
-      setBody('')
-    }
+    try {
+      let image_url = null
+      if (imgFile) image_url = await uploadImage(imgFile)
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/${selected.clientId}/messages`, {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ message_body: body, thread_type: selected.threadType, image_url }),
+      })
+      if (res.ok) {
+        const msg = await res.json()
+        setMessages(m => [...m, msg])
+        setBody(''); clearImage()
+      }
+    } catch { alert('Could not send message') }
+    finally { setSending(false) }
   }
 
   if (loading) return <p className="text-sm text-gray-400 py-8 text-center">Loading inbox…</p>
@@ -286,7 +330,10 @@ export default function StaffInbox({ getToken }) {
                       <p className="text-[10px] font-semibold opacity-70 mb-0.5">
                         {m.sender_name ?? m.sender_role} · {fmtTime(m.created_at)}
                       </p>
-                      <p className="text-sm whitespace-pre-wrap">{m.message_body}</p>
+                      {m.message_body && <p className="text-sm whitespace-pre-wrap">{m.message_body}</p>}
+                      {m.image_url && (
+                        <img src={m.image_url} alt="attachment" className="max-w-[240px] rounded-lg mt-1 cursor-pointer" onClick={() => window.open(m.image_url, '_blank')} />
+                      )}
                       {isStaff && m.read_at && (
                         <p className="text-[9px] opacity-60 text-right mt-0.5">
                           Read {new Date(m.read_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
@@ -297,22 +344,34 @@ export default function StaffInbox({ getToken }) {
                 )
               })}
             </div>
-            <div className="border-t border-gray-100 p-3 flex gap-2">
-              <textarea
-                value={body}
-                onChange={e => setBody(e.target.value)}
-                placeholder={`Message ${selected.clientName ?? 'client'}…`}
-                rows={2}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none"
-              />
-              <button
-                onClick={send}
-                disabled={sending || !body.trim()}
-                className="bg-[#E8670A] text-white px-5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 self-stretch min-w-[80px]"
-              >
-                {sending ? '…' : 'Send'}
-              </button>
+            <div className="border-t border-gray-100 p-3 space-y-2">
+              {imgPreview && (
+                <div className="relative inline-block">
+                  <img src={imgPreview} alt="preview" className="max-h-28 rounded-lg border border-gray-200" />
+                  <button onClick={clearImage} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center leading-none font-bold">×</button>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <input ref={fileInputRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp" capture="environment" className="hidden" onChange={handleFileSelect} />
+                <button onClick={() => fileInputRef.current?.click()} title="Attach image" className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg border border-gray-300 text-gray-500 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors self-end">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                </button>
+                <textarea
+                  value={body}
+                  onChange={e => setBody(e.target.value)}
+                  placeholder={`Message ${selected.clientName ?? 'client'}…`}
+                  rows={2}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none"
+                />
+                <button
+                  onClick={send}
+                  disabled={sending || uploading || (!body.trim() && !imgFile)}
+                  className="bg-[#E8670A] text-white px-5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 self-stretch min-w-[80px]"
+                >
+                  {uploading ? '⬆' : sending ? '…' : 'Send'}
+                </button>
+              </div>
             </div>
           </>
         )}

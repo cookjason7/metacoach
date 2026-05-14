@@ -1,6 +1,33 @@
 import { Router } from 'express'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
+import multer from 'multer'
+import { v2 as cloudinary } from 'cloudinary'
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'].includes(file.mimetype)
+    cb(null, ok)
+  },
+})
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key:    process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+})
+
+function uploadToCloudinary(buffer) {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: 'metacoach/messages' },
+      (err, result) => (err ? reject(err) : resolve(result)),
+    )
+    stream.end(buffer)
+  })
+}
 
 const router = Router()
 
@@ -51,6 +78,15 @@ async function listThreadsForClient(dbUserId, coachingType) {
 }
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
+
+// POST /api/messages/upload  (any authenticated user — client or staff)
+router.post('/upload', requireAuth(), upload.single('image'), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No image file received' })
+    const result = await uploadToCloudinary(req.file.buffer)
+    res.json({ url: result.secure_url })
+  } catch (err) { next(err) }
+})
 
 // GET /api/messages/threads
 router.get('/threads', requireAuth(), async (req, res, next) => {
@@ -115,9 +151,9 @@ router.post('/thread/:threadType', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await getClientContext(req)
     const thread = req.params.threadType
-    const { message_body } = req.body
-    if (!message_body?.trim()) {
-      return res.status(400).json({ error: 'message_body required' })
+    const { message_body = '', image_url } = req.body
+    if (!message_body?.trim() && !image_url) {
+      return res.status(400).json({ error: 'message_body or image required' })
     }
 
     // All human/team threads are two-way — clients may reply to any of them.
@@ -125,10 +161,10 @@ router.post('/thread/:threadType', requireAuth(), async (req, res, next) => {
 
     const { rows } = await pool.query(`
       INSERT INTO client_messages
-        (client_id, sender_id, sender_role, message_body, thread_type, visibility)
-      VALUES ($1, $2, 'client', $3, $4, $5)
+        (client_id, sender_id, sender_role, message_body, thread_type, visibility, image_url)
+      VALUES ($1, $2, 'client', $3, $4, $5, $6)
       RETURNING *
-    `, [ctx.dbUserId, ctx.dbUserId, message_body.trim(), thread, visibility])
+    `, [ctx.dbUserId, ctx.dbUserId, message_body.trim(), thread, visibility, image_url ?? null])
 
     res.status(201).json(rows[0])
   } catch (err) { next(err) }
