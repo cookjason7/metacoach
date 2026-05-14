@@ -25,6 +25,7 @@ const DAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 const MACRO_COLORS = { protein: '#EC4899', carbs: '#3B82F6', fat: '#10B981', calories: '#E8670A' }
 
 const SERVING_UNITS = ['g', 'oz', 'lb', 'cup', 'tbsp', 'tsp', 'ml', 'fl oz']
+const MANUAL_SERVING_UNITS = ['item', 'g', 'oz', 'cup', 'tbsp', 'tsp', 'slice', 'scoop']
 const UNIT_TO_G = { g: 1, oz: 28.3495, lb: 453.592, cup: 240, tbsp: 15, tsp: 5, ml: 1, 'fl oz': 29.5735 }
 function toGrams(amount, unit) { return amount * (UNIT_TO_G[unit] ?? 1) }
 
@@ -1219,19 +1220,10 @@ function SearchLogger({ slotName, onSaved, logDate }) {
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">Servings</label>
-            <div className="flex items-center gap-1.5">
-              {['0.5', '1', '1.5', '2', '3'].map(v => (
-                <button key={v} type="button" onClick={() => setQty(v)}
-                  className={`min-h-[36px] px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
-                    qty === v ? 'bg-[#E8670A] text-white border-[#E8670A]' : 'bg-white text-gray-600 border-gray-200 hover:border-[#E8670A]'
-                  }`}>{v}
-                </button>
-              ))}
-              <input type="number" value={qty} onChange={e => setQty(e.target.value)}
-                min="0.1" step="0.1" placeholder="1"
-                className="w-14 min-h-[36px] border border-gray-300 rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
-            </div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Servings</label>
+            <input type="number" value={qty} onChange={e => setQty(e.target.value)}
+              min="0.1" step="0.1" placeholder="1"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
           </div>
           {preview && (
             <div className="grid grid-cols-4 gap-2 text-center text-xs">
@@ -1257,14 +1249,36 @@ function SearchLogger({ slotName, onSaved, logDate }) {
 
 // ── Manual Logger ──────────────────────────────────────────────────────────────
 
+const EMPTY_MANUAL = {
+  meal_name: '', calories: '', protein_g: '', carbs_g: '', fat_g: '', fiber_g: '',
+  serving_amt: '1', serving_unit: 'item', servings: '1',
+}
+
 function ManualLogger({ slotName, onSaved, logDate }) {
   const { getToken } = useAuth()
-  const [form,   setForm]   = useState({ meal_name: '', calories: '', protein_g: '', carbs_g: '', fat_g: '', fiber_g: '' })
+  const [form,   setForm]   = useState(EMPTY_MANUAL)
   const [saving, setSaving] = useState(false)
   const [saved,  setSaved]  = useState(false)
   const [error,  setError]  = useState(null)
 
   function set(e) { setForm(f => ({ ...f, [e.target.name]: e.target.value })) }
+
+  const servings  = Math.max(parseFloat(form.servings)  || 1, 0.01)
+  const perCal    = parseFloat(form.calories)  || 0
+  const perProt   = parseFloat(form.protein_g) || 0
+  const perCarbs  = parseFloat(form.carbs_g)   || 0
+  const perFat    = parseFloat(form.fat_g)     || 0
+  const perFiber  = parseFloat(form.fiber_g)   || 0
+
+  const totalCal   = Math.round(perCal   * servings)
+  const totalProt  = +((perProt  * servings).toFixed(1))
+  const totalCarbs = +((perCarbs * servings).toFixed(1))
+  const totalFat   = +((perFat   * servings).toFixed(1))
+  const totalFiber = +((perFiber * servings).toFixed(1))
+
+  const showPreview = servings !== 1 && form.calories !== ''
+
+  const inputCls = 'w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]'
 
   async function submit(e) {
     e.preventDefault()
@@ -1277,13 +1291,15 @@ function ManualLogger({ slotName, onSaved, logDate }) {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           meal_name: form.meal_name.trim(),
-          calories:  form.calories  !== '' ? Number(form.calories)  : null,
-          protein_g: form.protein_g !== '' ? Number(form.protein_g) : null,
-          carbs_g:   form.carbs_g   !== '' ? Number(form.carbs_g)   : null,
-          fat_g:     form.fat_g     !== '' ? Number(form.fat_g)     : null,
-          fiber_g:   form.fiber_g   !== '' ? Number(form.fiber_g)   : null,
+          calories:  form.calories  !== '' ? totalCal   : null,
+          protein_g: form.protein_g !== '' ? totalProt  : null,
+          carbs_g:   form.carbs_g   !== '' ? totalCarbs : null,
+          fat_g:     form.fat_g     !== '' ? totalFat   : null,
+          fiber_g:   form.fiber_g   !== '' ? totalFiber : null,
           meal_slot: slotName,
           log_date:  logDate,
+          serving_size: parseFloat(form.serving_amt) || 1,
+          serving_unit: form.serving_unit,
         }),
       })
       if (!res.ok) throw new Error('Save failed')
@@ -1299,7 +1315,7 @@ function ManualLogger({ slotName, onSaved, logDate }) {
           <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0">✓</div>
           <p className="text-sm font-semibold text-gray-900">{form.meal_name}</p>
         </div>
-        <button onClick={() => { setForm({ meal_name: '', calories: '', protein_g: '', carbs_g: '', fat_g: '', fiber_g: '' }); setSaved(false) }}
+        <button onClick={() => { setForm(EMPTY_MANUAL); setSaved(false) }}
           className="w-full py-2.5 rounded-xl text-sm font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
           Log Another
         </button>
@@ -1312,18 +1328,57 @@ function ManualLogger({ slotName, onSaved, logDate }) {
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-1">Name *</label>
         <input type="text" name="meal_name" value={form.meal_name} onChange={set} required
-          placeholder="e.g. Grilled chicken with rice"
+          placeholder="e.g. Hard boiled egg"
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
       </div>
+
+      {/* Serving size + servings */}
+      <div className="grid grid-cols-3 gap-2">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Size</label>
+          <input type="number" name="serving_amt" value={form.serving_amt} onChange={set}
+            min="0.01" step="any" placeholder="1" className={inputCls} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Unit</label>
+          <select name="serving_unit" value={form.serving_unit} onChange={set}
+            className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+            {MANUAL_SERVING_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Servings</label>
+          <input type="number" name="servings" value={form.servings} onChange={set}
+            min="0.1" step="0.1" placeholder="1" className={inputCls} />
+        </div>
+      </div>
+      <p className="text-[10px] text-gray-400 -mt-1">Enter macros per serving. Total = macros × servings.</p>
+
       <div className="grid grid-cols-2 gap-2">
-        {[['Calories', 'calories', '420'], ['Protein (g)', 'protein_g', '38'], ['Carbs (g)', 'carbs_g', '45'], ['Fat (g)', 'fat_g', '12'], ['Fiber (g)', 'fiber_g', '4']].map(([lbl, nm, ph]) => (
+        {[['Calories', 'calories', '78'], ['Protein (g)', 'protein_g', '6'], ['Carbs (g)', 'carbs_g', '1'], ['Fat (g)', 'fat_g', '5'], ['Fiber (g)', 'fiber_g', '0']].map(([lbl, nm, ph]) => (
           <div key={nm}>
             <label className="block text-xs font-medium text-gray-600 mb-1">{lbl}</label>
             <input type="number" name={nm} value={form[nm]} onChange={set} min="0" placeholder={ph}
-              className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+              className={inputCls} />
           </div>
         ))}
       </div>
+
+      {/* Live total preview when servings ≠ 1 */}
+      {showPreview && (
+        <div className="bg-orange-50 border border-orange-100 rounded-lg p-3">
+          <p className="text-[10px] text-gray-400 mb-1.5">Total for {form.servings} serving{parseFloat(form.servings) !== 1 ? 's' : ''}</p>
+          <div className="grid grid-cols-4 gap-2 text-center text-xs">
+            {[['Cal', totalCal, 'text-[#E8670A]'], ['P', `${totalProt}g`, 'text-pink-500'], ['C', `${totalCarbs}g`, 'text-blue-500'], ['F', `${totalFat}g`, 'text-green-500']].map(([l, v, c]) => (
+              <div key={l} className="bg-white rounded-lg py-1.5">
+                <p className={`font-bold text-sm ${c}`}>{v}</p>
+                <p className="text-gray-400">{l}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {error && <p className="text-sm text-red-500">{error}</p>}
       <button type="submit" disabled={saving || !form.meal_name.trim()}
         className="w-full bg-[#E8670A] text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
