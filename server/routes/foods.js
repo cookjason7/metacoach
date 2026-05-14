@@ -91,7 +91,11 @@ async function localSearch(q, limit, offset) {
       ${ftClause}
       ${trgmClause}
     GROUP BY f.id, f.fdc_id, f.name, f.data_type, f.calories
-    ORDER BY _rank, f.name
+    ORDER BY
+      _rank,
+      CASE f.data_type WHEN 'SR Legacy' THEN 0 WHEN 'Foundation' THEN 1 ELSE 2 END,
+      LENGTH(f.name),
+      f.name
     LIMIT  $2
     OFFSET $3
   `, [q, limit, offset])

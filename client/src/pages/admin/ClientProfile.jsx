@@ -32,6 +32,14 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
 }
 
+function fmtDob(iso) {
+  if (!iso) return null
+  const s = String(iso).slice(0, 10)
+  const [y, m, d] = s.split('-')
+  if (!y || !m || !d) return s
+  return `${m}/${d}/${y}`
+}
+
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
 function OverviewTab({ client, role, getToken, onUpdate }) {
@@ -144,7 +152,7 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                   addr.country && addr.country !== 'United States' ? addr.country : null,
                 ].filter(Boolean).join(' · ')
               : null
-            const dob = client.display_dob ? String(client.display_dob).slice(0, 10) : null
+            const dob = client.display_dob ? fmtDob(String(client.display_dob)) : null
             return (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                 <InfoRow label="Full name"       value={fullName} />
@@ -1161,7 +1169,7 @@ function AssessmentTab({ clientId, getToken }) {
         <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider mb-3">Contact</p>
         <div className="grid sm:grid-cols-2 gap-3">
           <Field label="Phone" value={data.phone} />
-          <Field label="Date of birth" value={data.date_of_birth ? String(data.date_of_birth).slice(0, 10) : null} />
+          <Field label="Date of birth" value={fmtDob(data.date_of_birth)} />
           <Field label="Coach name" value={data.coach_name} />
           {(data.street_address || data.city) && (
             <div className="sm:col-span-2">
@@ -1393,7 +1401,7 @@ function MessagingTab({ client, role, getToken }) {
           value={body}
           onChange={e => setBody(e.target.value)}
           rows={2}
-          placeholder={`Message ${client.first_name ?? 'client'}…`}
+          placeholder={`Message ${client.display_first_name || client.first_name || 'client'}…`}
           className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none"
         />
         <button onClick={send} disabled={sending || !body.trim()}
@@ -1533,7 +1541,9 @@ export default function ClientProfile() {
 
       {/* Header */}
       <div className="mb-5">
-        <h1 className="text-2xl font-bold text-gray-900">{client.first_name ?? 'Client'}</h1>
+        <h1 className="text-2xl font-bold text-gray-900">
+          {[client.display_first_name || client.first_name, client.display_last_name].filter(Boolean).join(' ') || client.email?.split('@')[0] || 'Client'}
+        </h1>
         <p className="text-sm text-gray-500">{client.email}</p>
       </div>
 

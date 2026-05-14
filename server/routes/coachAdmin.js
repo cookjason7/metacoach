@@ -86,7 +86,11 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
 
     const { rows } = await pool.query(`
       SELECT
-        u.id, u.first_name, u.email, u.phone_number,
+        u.id,
+        COALESCE(u.first_name, ha.first_name)       AS first_name,
+        ha.last_name                                  AS display_last_name,
+        COALESCE(u.phone_number, ha.phone)            AS phone_number,
+        u.email,
         u.coaching_type, u.assigned_coach_id, u.role,
         u.onboarding_complete, u.assessment_complete,
         u.last_login_at, u.start_date, u.paid, u.paid_at, u.created_at,
@@ -107,8 +111,9 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
           WHERE hc.user_id = u.id AND hc.completion_date >= CURRENT_DATE - INTERVAL '30 days'
         ), 0) AS adherence_30d
       FROM users u
+      LEFT JOIN health_assessments ha ON ha.user_id = u.id
       ${where}
-      ORDER BY u.first_name ASC NULLS LAST
+      ORDER BY COALESCE(u.first_name, ha.first_name) ASC NULLS LAST
     `, params)
 
     res.json(rows.map(r => ({ ...r, status_tag: computeStatusTag(r) })))
