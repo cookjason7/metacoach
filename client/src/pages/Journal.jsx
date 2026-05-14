@@ -1886,7 +1886,7 @@ export default function Journal() {
     <div className="max-w-2xl mx-auto pb-24">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold text-gray-900">Journal</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Food Log</h1>
         {!isToday && (
           <button
             onClick={() => { setSelectedDate(new Date(new Date().setHours(0,0,0,0))); setWeekStart(getMonday(new Date())) }}
