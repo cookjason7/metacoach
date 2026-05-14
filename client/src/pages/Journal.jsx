@@ -1256,10 +1256,12 @@ const EMPTY_MANUAL = {
 
 function ManualLogger({ slotName, onSaved, logDate }) {
   const { getToken } = useAuth()
-  const [form,   setForm]   = useState(EMPTY_MANUAL)
-  const [saving, setSaving] = useState(false)
-  const [saved,  setSaved]  = useState(false)
-  const [error,  setError]  = useState(null)
+  const [form,           setForm]           = useState(EMPTY_MANUAL)
+  const [saving,         setSaving]         = useState(false)
+  const [saved,          setSaved]          = useState(false)
+  const [saveToMyFoods,  setSaveToMyFoods]  = useState(false)
+  const [myFoodsSaved,   setMyFoodsSaved]   = useState(false)
+  const [error,          setError]          = useState(null)
 
   function set(e) { setForm(f => ({ ...f, [e.target.name]: e.target.value })) }
 
@@ -1304,6 +1306,27 @@ function ManualLogger({ slotName, onSaved, logDate }) {
       })
       if (!res.ok) throw new Error('Save failed')
       const meal = await res.json()
+      // Best-effort: save to My Foods if checkbox checked
+      if (saveToMyFoods) {
+        try {
+          const cfRes = await fetch(`${API_URL}/api/custom-foods`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              food_name:            form.meal_name.trim(),
+              calories_per_serving: form.calories  !== '' ? perCal   : null,
+              protein:              form.protein_g !== '' ? perProt  : null,
+              carbs:                form.carbs_g   !== '' ? perCarbs : null,
+              fat:                  form.fat_g     !== '' ? perFat   : null,
+              fiber:                form.fiber_g   !== '' ? perFiber : null,
+              serving_size:         parseFloat(form.serving_amt) || 1,
+              serving_unit:         form.serving_unit,
+              is_global:            false,
+            }),
+          })
+          if (cfRes.ok) setMyFoodsSaved(true)
+        } catch {} // best-effort — swallow errors
+      }
       setSaved(true); onSaved(meal)
     } catch (err) { setError(err.message) } finally { setSaving(false) }
   }
@@ -1313,9 +1336,12 @@ function ManualLogger({ slotName, onSaved, logDate }) {
       <div className="space-y-4">
         <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
           <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0">✓</div>
-          <p className="text-sm font-semibold text-gray-900">{form.meal_name}</p>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">{form.meal_name}</p>
+            {myFoodsSaved && <p className="text-xs text-[#E8670A] mt-0.5">Saved to My Foods</p>}
+          </div>
         </div>
-        <button onClick={() => { setForm(EMPTY_MANUAL); setSaved(false) }}
+        <button onClick={() => { setForm(EMPTY_MANUAL); setSaved(false); setSaveToMyFoods(false); setMyFoodsSaved(false) }}
           className="w-full py-2.5 rounded-xl text-sm font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
           Log Another
         </button>
@@ -1378,6 +1404,12 @@ function ManualLogger({ slotName, onSaved, logDate }) {
           </div>
         </div>
       )}
+
+      <label className="flex items-center gap-2 cursor-pointer select-none">
+        <input type="checkbox" checked={saveToMyFoods} onChange={e => setSaveToMyFoods(e.target.checked)}
+          className="w-4 h-4 rounded accent-[#E8670A]" />
+        <span className="text-xs text-gray-600">Save to My Foods</span>
+      </label>
 
       {error && <p className="text-sm text-red-500">{error}</p>}
       <button type="submit" disabled={saving || !form.meal_name.trim()}
