@@ -5,6 +5,7 @@ import { API_URL } from '../../config.js'
 
 const TABS = [
   { id: 'overview',    label: 'Overview',  icon: '◉' },
+  { id: 'nutrition',   label: 'Nutrition', icon: '🥗' },
   { id: 'habits',      label: 'Habits',    icon: '✓' },
   { id: 'progress',    label: 'Progress',  icon: '↗' },
   { id: 'assessment',  label: 'Assess.',   icon: '★' },
@@ -250,9 +251,10 @@ const MACRO_TARGET_FIELDS = [
 ]
 
 function NutritionTargetsCard({ client, getToken, onUpdate }) {
-  const [editing, setEditing] = useState(false)
-  const [saving,  setSaving]  = useState(false)
-  const [error,   setError]   = useState(null)
+  const [editing,  setEditing]  = useState(false)
+  const [saving,   setSaving]   = useState(false)
+  const [error,    setError]    = useState(null)
+  const [calcMode, setCalcMode] = useState('manual')
   const [form, setForm] = useState({
     goal_calories: client.goal_calories ?? '',
     goal_protein:  client.goal_protein  ?? '',
@@ -261,6 +263,28 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
     goal_fiber:    client.goal_fiber    ?? '',
     goal_water:    client.goal_water    ?? '',
   })
+  const [pct, setPct] = useState({ protein: 30, carbs: 40, fat: 30 })
+
+  function applyAutoCalc() {
+    const cal     = Math.max(0, Number(form.goal_calories) || 0)
+    const prot    = Math.max(0, Number(form.goal_protein)  || 0)
+    const remain  = Math.max(0, cal - prot * 4)
+    setForm(f => ({
+      ...f,
+      goal_carbs: String(Math.round(remain * 0.5 / 4)),
+      goal_fat:   String(Math.round(remain * 0.5 / 9)),
+    }))
+  }
+
+  function applyPctMode() {
+    const cal = Math.max(0, Number(form.goal_calories) || 0)
+    setForm(f => ({
+      ...f,
+      goal_protein: String(Math.max(0, Math.round(cal * pct.protein / 100 / 4))),
+      goal_carbs:   String(Math.max(0, Math.round(cal * pct.carbs   / 100 / 4))),
+      goal_fat:     String(Math.max(0, Math.round(cal * pct.fat     / 100 / 9))),
+    }))
+  }
 
   async function save() {
     setSaving(true); setError(null)
@@ -268,7 +292,7 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
       const token = await getToken()
       const body = {}
       MACRO_TARGET_FIELDS.forEach(({ key }) => {
-        body[key] = form[key] !== '' ? Number(form[key]) : null
+        body[key] = form[key] !== '' ? Math.max(0, Math.round(Number(form[key]))) : null
       })
       const res = await fetch(`${API_URL}/api/admin/users/${client.id}/macros`, {
         method: 'PATCH',
@@ -280,6 +304,25 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
       setEditing(false)
     } catch (err) { setError(err.message) } finally { setSaving(false) }
   }
+
+  const ModeBtn = ({ id, label }) => (
+    <button onClick={() => setCalcMode(id)}
+      className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors ${
+        calcMode === id ? 'bg-[#E8670A] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+      }`}>{label}</button>
+  )
+
+  const Field = ({ fkey, label, unit }) => (
+    <div>
+      <label className="block text-xs font-medium text-gray-600 mb-1">{label} <span className="text-gray-400">({unit})</span></label>
+      <input type="number" min="0" value={form[fkey]}
+        onChange={e => setForm(f => ({ ...f, [fkey]: e.target.value }))}
+        placeholder="—"
+        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30" />
+    </div>
+  )
+
+  const pctTotal = pct.protein + pct.carbs + pct.fat
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-5">
@@ -302,21 +345,86 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
           ))}
         </div>
       ) : (
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {MACRO_TARGET_FIELDS.map(({ key, label, unit }) => (
-              <div key={key}>
-                <label className="block text-xs font-medium text-gray-600 mb-1">{label} <span className="text-gray-400">({unit})</span></label>
-                <input
-                  type="number" min="0"
-                  value={form[key]}
-                  onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-                  placeholder="—"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30"
-                />
-              </div>
-            ))}
+        <div className="space-y-4">
+          {/* Mode switcher */}
+          <div className="flex gap-2 flex-wrap">
+            <ModeBtn id="manual"     label="Manual" />
+            <ModeBtn id="autocalc"   label="Auto-calc" />
+            <ModeBtn id="percentage" label="Percentage" />
           </div>
+
+          {/* ── Manual ── */}
+          {calcMode === 'manual' && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {MACRO_TARGET_FIELDS.map(({ key, label, unit }) => (
+                <Field key={key} fkey={key} label={label} unit={unit} />
+              ))}
+            </div>
+          )}
+
+          {/* ── Auto-calc ── */}
+          {calcMode === 'autocalc' && (
+            <div className="space-y-3">
+              <p className="text-xs text-gray-500">Enter calories + protein. Remaining calories split 50/50 between carbs and fat.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <Field fkey="goal_calories" label="Calories" unit="kcal" />
+                <Field fkey="goal_protein"  label="Protein"  unit="g" />
+              </div>
+              <button onClick={applyAutoCalc}
+                className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold px-4 py-2 rounded-lg transition-colors">
+                Calculate carbs &amp; fat →
+              </button>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <Field fkey="goal_carbs" label="Carbs" unit="g" />
+                <Field fkey="goal_fat"   label="Fat"   unit="g" />
+                <Field fkey="goal_fiber" label="Fiber" unit="g" />
+                <Field fkey="goal_water" label="Water" unit="oz" />
+              </div>
+            </div>
+          )}
+
+          {/* ── Percentage ── */}
+          {calcMode === 'percentage' && (
+            <div className="space-y-3">
+              <p className="text-xs text-gray-500">Enter calories + macro percentages to compute gram targets.</p>
+              <Field fkey="goal_calories" label="Calories" unit="kcal" />
+              <div className="grid grid-cols-3 gap-3">
+                {['protein', 'carbs', 'fat'].map(k => (
+                  <div key={k}>
+                    <label className="block text-xs font-medium text-gray-600 mb-1 capitalize">{k} %</label>
+                    <input type="number" min="0" max="100" value={pct[k]}
+                      onChange={e => setPct(p => ({ ...p, [k]: Number(e.target.value) }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30" />
+                  </div>
+                ))}
+              </div>
+              <p className={`text-[11px] ${pctTotal === 100 ? 'text-emerald-600' : 'text-amber-500'}`}>
+                Total: {pctTotal}% {pctTotal === 100 ? '✓' : '(must equal 100%)'}
+              </p>
+              {/* Preview */}
+              <div className="bg-gray-50 rounded-lg p-3 grid grid-cols-3 gap-2 text-center">
+                {[
+                  { label: 'Protein', val: Math.max(0, Math.round((Number(form.goal_calories)||0) * pct.protein / 100 / 4)), unit: 'g' },
+                  { label: 'Carbs',   val: Math.max(0, Math.round((Number(form.goal_calories)||0) * pct.carbs   / 100 / 4)), unit: 'g' },
+                  { label: 'Fat',     val: Math.max(0, Math.round((Number(form.goal_calories)||0) * pct.fat     / 100 / 9)), unit: 'g' },
+                ].map(({ label, val, unit }) => (
+                  <div key={label}>
+                    <p className="text-[10px] text-gray-400">{label}</p>
+                    <p className="text-sm font-bold text-gray-800">{val}{unit}</p>
+                  </div>
+                ))}
+              </div>
+              <button onClick={applyPctMode}
+                className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold px-4 py-2 rounded-lg transition-colors">
+                Apply grams →
+              </button>
+              <div className="grid grid-cols-2 gap-3">
+                <Field fkey="goal_fiber" label="Fiber" unit="g" />
+                <Field fkey="goal_water" label="Water" unit="oz" />
+              </div>
+            </div>
+          )}
+
           {error && <p className="text-xs text-red-500">{error}</p>}
           <div className="flex gap-2 pt-1">
             <button onClick={save} disabled={saving}
@@ -327,6 +435,99 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Nutrition Tab ────────────────────────────────────────────────────────────
+
+function NutritionStat({ label, value, unit = '' }) {
+  return (
+    <div className="bg-gray-50 rounded-xl p-3">
+      <p className="text-[11px] text-gray-400 mb-0.5">{label}</p>
+      <p className="text-sm font-bold text-gray-900">{value != null ? `${value}${unit}` : '—'}</p>
+    </div>
+  )
+}
+
+function NutritionTab({ client, clientId, getToken, onUpdate }) {
+  const today = new Date().toISOString().slice(0, 10)
+  const [date,    setDate]    = useState(today)
+  const [daily,   setDaily]   = useState(null)
+  const [weekly,  setWeekly]  = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      try {
+        const token = await getToken()
+        const [dRes, wRes] = await Promise.all([
+          fetch(`${API_URL}/api/coach-admin/clients/${clientId}/nutrition?date=${date}`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_URL}/api/coach-admin/clients/${clientId}/nutrition/weekly`,       { headers: { Authorization: `Bearer ${token}` } }),
+        ])
+        if (!cancelled) {
+          if (dRes.ok) setDaily(await dRes.json())
+          if (wRes.ok) setWeekly(await wRes.json())
+        }
+      } catch {} finally { if (!cancelled) setLoading(false) }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [clientId, date, getToken])
+
+  return (
+    <div className="space-y-4">
+      {/* Date picker */}
+      <div className="flex items-center gap-3">
+        <input type="date" value={date} max={today}
+          onChange={e => setDate(e.target.value)}
+          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30" />
+        {date !== today && (
+          <button onClick={() => setDate(today)} className="text-xs text-[#E8670A] font-medium hover:text-[#c45e09]">Today</button>
+        )}
+      </div>
+
+      {/* Daily macros */}
+      <div className="bg-white border border-gray-200 rounded-xl p-4">
+        <h3 className="text-sm font-semibold text-gray-900 mb-3">
+          {date === today ? "Today's Macros" : `Macros — ${date}`}
+        </h3>
+        {loading ? <p className="text-xs text-gray-400">Loading…</p> : (
+          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+            <NutritionStat label="Calories"  value={daily?.total_calories} unit=" kcal" />
+            <NutritionStat label="Protein"   value={daily?.total_protein}  unit="g" />
+            <NutritionStat label="Carbs"     value={daily?.total_carbs}    unit="g" />
+            <NutritionStat label="Fat"       value={daily?.total_fat}      unit="g" />
+            <NutritionStat label="Fiber"     value={daily?.total_fiber}    unit="g" />
+            <NutritionStat label="Water"     value={daily?.water_oz}       unit=" oz" />
+            <NutritionStat label="Steps"     value={daily?.steps} />
+            <NutritionStat label="Weight"    value={daily?.weight_lbs}     unit=" lbs" />
+            <NutritionStat label="Meals"     value={daily?.meal_count} />
+          </div>
+        )}
+      </div>
+
+      {/* 7-day averages */}
+      <div className="bg-white border border-gray-200 rounded-xl p-4">
+        <h3 className="text-sm font-semibold text-gray-900 mb-3">7-Day Averages</h3>
+        {loading ? <p className="text-xs text-gray-400">Loading…</p> : (
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+            <NutritionStat label="Avg Calories"  value={weekly?.avg_calories}   unit=" kcal" />
+            <NutritionStat label="Avg Protein"   value={weekly?.avg_protein}    unit="g" />
+            <NutritionStat label="Avg Carbs"     value={weekly?.avg_carbs}      unit="g" />
+            <NutritionStat label="Avg Fat"       value={weekly?.avg_fat}        unit="g" />
+            <NutritionStat label="Avg Fiber"     value={weekly?.avg_fiber}      unit="g" />
+            <NutritionStat label="Avg Water"     value={weekly?.avg_water_oz}   unit=" oz" />
+            <NutritionStat label="Avg Steps"     value={weekly?.avg_steps} />
+            <NutritionStat label="Avg Weight"    value={weekly?.avg_weight_lbs} unit=" lbs" />
+          </div>
+        )}
+      </div>
+
+      {/* Targets (editable) */}
+      <NutritionTargetsCard client={client} getToken={getToken} onUpdate={onUpdate} />
     </div>
   )
 }
@@ -1314,6 +1515,7 @@ export default function ClientProfile() {
 
       {/* Tab content */}
       {tab === 'overview'   && <OverviewTab    client={client} role={meRole} getToken={getToken} onUpdate={u => setClient(c => ({ ...c, ...u }))} />}
+      {tab === 'nutrition'  && <NutritionTab   client={client} clientId={client.id} getToken={getToken} onUpdate={u => setClient(c => ({ ...c, ...u }))} />}
       {tab === 'habits'     && <HabitsTab      clientId={client.id} getToken={getToken} />}
       {tab === 'progress'   && <ProgressTab    clientId={client.id} getToken={getToken} />}
       {tab === 'assessment' && <AssessmentTab  clientId={client.id} getToken={getToken} />}

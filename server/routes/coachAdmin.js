@@ -379,6 +379,74 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// ─── Nutrition data for coaches ───────────────────────────────────────────────
+
+// GET /api/coach-admin/clients/:id/nutrition?date=YYYY-MM-DD
+router.get('/clients/:id/nutrition', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+
+    const date = req.query.date ?? new Date().toISOString().slice(0, 10)
+    const [macros, daily] = await Promise.all([
+      pool.query(`
+        SELECT
+          COALESCE(SUM(calories), 0)::int AS total_calories,
+          COALESCE(SUM(protein),  0)::int AS total_protein,
+          COALESCE(SUM(carbs),    0)::int AS total_carbs,
+          COALESCE(SUM(fat),      0)::int AS total_fat,
+          COALESCE(SUM(fiber),    0)::int AS total_fiber,
+          COUNT(*)::int                   AS meal_count
+        FROM meals
+        WHERE user_id = $1 AND COALESCE(log_date, logged_at::date) = $2::date
+      `, [id, date]),
+      pool.query(`
+        SELECT water_oz, steps, weight_lbs
+        FROM daily_logs WHERE user_id = $1 AND logged_date = $2::date
+      `, [id, date]),
+    ])
+    res.json({ ...macros.rows[0], ...(daily.rows[0] ?? { water_oz: null, steps: null, weight_lbs: null }) })
+  } catch (err) { next(err) }
+})
+
+// GET /api/coach-admin/clients/:id/nutrition/weekly
+router.get('/clients/:id/nutrition/weekly', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+
+    const [macros, daily] = await Promise.all([
+      pool.query(`
+        SELECT
+          ROUND(AVG(dc))::int     AS avg_calories,
+          ROUND(AVG(dp))::int     AS avg_protein,
+          ROUND(AVG(dcarbs))::int AS avg_carbs,
+          ROUND(AVG(dfat))::int   AS avg_fat,
+          ROUND(AVG(dfiber))::int AS avg_fiber
+        FROM (
+          SELECT SUM(calories) AS dc, SUM(protein) AS dp,
+                 SUM(carbs) AS dcarbs, SUM(fat) AS dfat,
+                 COALESCE(SUM(fiber), 0) AS dfiber
+          FROM meals
+          WHERE user_id = $1 AND logged_at >= CURRENT_DATE - INTERVAL '7 days'
+          GROUP BY COALESCE(log_date, logged_at::date)
+        ) t
+      `, [id]),
+      pool.query(`
+        SELECT
+          ROUND(AVG(water_oz))::int           AS avg_water_oz,
+          ROUND(AVG(steps))::int              AS avg_steps,
+          ROUND(AVG(weight_lbs)::numeric, 1)  AS avg_weight_lbs
+        FROM daily_logs
+        WHERE user_id = $1 AND logged_date >= CURRENT_DATE - INTERVAL '7 days'
+      `, [id]),
+    ])
+    res.json({ ...macros.rows[0], ...(daily.rows[0] ?? { avg_water_oz: null, avg_steps: null, avg_weight_lbs: null }) })
+  } catch (err) { next(err) }
+})
+
 // ─── Habit assignment ─────────────────────────────────────────────────────────
 
 // GET /api/coach-admin/clients/:id/habits — list assigned habits
