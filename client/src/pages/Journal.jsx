@@ -755,7 +755,7 @@ function CopyMealModal({ meal, mode = 'copy', onConfirm, onClose }) {
 
 // ── Photo Logger (auto-save) ───────────────────────────────────────────────────
 
-function PhotoLogger({ slotName, onSaved, logDate }) {
+function PhotoLogger({ slotName, onSaved, logDate, initialFile = null }) {
   const { getToken } = useAuth()
   const inputRef = useRef(null)
   const [photo,       setPhoto]       = useState(null)
@@ -772,6 +772,11 @@ function PhotoLogger({ slotName, onSaved, logDate }) {
     setAnalysis(null); setPhase('idle'); setError(null)
   }
 
+  // Auto-load file passed from the drawer (mobile direct-open flow)
+  useEffect(() => {
+    if (initialFile) handleFile(initialFile)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   async function analyzeAndLog() {
     if (!photo) return
     setPhase('analyzing')
@@ -784,7 +789,11 @@ function PhotoLogger({ slotName, onSaved, logDate }) {
       fd.append('photo', photo)
       if (description.trim()) fd.append('description', description.trim())
       const aRes = await fetch(`${API_URL}/api/meals/analyze`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
-      if (!aRes.ok) throw new Error(`Analysis failed (${aRes.status})`)
+      if (!aRes.ok) throw new Error(
+        aRes.status === 400
+          ? 'Photo analysis failed. Try another photo or describe the meal below.'
+          : `Analysis failed (${aRes.status})`
+      )
       const a = await aRes.json()
       setAnalysis(a)
 
@@ -1654,6 +1663,8 @@ function AddFoodDrawer({ slotName, onClose, onSaved, logDate }) {
   const isSnack = slotName === 'Snack'
   // For snack slots, user picks a timing before choosing a logger
   const [snackTiming, setSnackTiming] = useState(null)
+  const photoInputRef = useRef(null)
+  const [photoFile,   setPhotoFile]   = useState(null)
 
   // The DB slot we actually store (e.g. 'AM Snack', 'Lunch', etc.)
   const effectiveSlot = isSnack
@@ -1669,7 +1680,7 @@ function AddFoodDrawer({ slotName, onClose, onSaved, logDate }) {
 
   // Step back: from mode → timing (snack) or close
   function handleBack() {
-    if (mode) { setMode(null); return }
+    if (mode) { setMode(null); setPhotoFile(null); return }
     if (isSnack && snackTiming) { setSnackTiming(null); return }
     onClose()
   }
@@ -1718,8 +1729,22 @@ function AddFoodDrawer({ slotName, onClose, onSaved, logDate }) {
           {/* Step 2: pick logger mode */}
           {showModePicker && (
             <div className="grid grid-cols-3 gap-3">
+              {/* Hidden file input — triggered directly when Photo is tapped */}
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={e => {
+                  const file = e.target.files?.[0]
+                  if (file) { setPhotoFile(file); setMode('photo') }
+                  e.target.value = ''
+                }}
+              />
               {ADD_OPTIONS.map(opt => (
-                <button key={opt.id} onClick={() => setMode(opt.id)}
+                <button key={opt.id}
+                  onClick={() => opt.id === 'photo' ? photoInputRef.current?.click() : setMode(opt.id)}
                   className="flex flex-col items-center gap-2 bg-gray-50 hover:bg-orange-50 hover:border-[#E8670A] border border-gray-200 rounded-2xl py-4 transition-all">
                   <span className="text-2xl">{opt.icon}</span>
                   <span className="text-xs font-semibold text-gray-700">{opt.label}</span>
@@ -1734,6 +1759,7 @@ function AddFoodDrawer({ slotName, onClose, onSaved, logDate }) {
               slotName={effectiveSlot}
               logDate={logDate}
               onSaved={(meal, analysis) => { onSaved(meal, analysis); }}
+              {...(mode === 'photo' && photoFile ? { initialFile: photoFile } : {})}
             />
           )}
         </div>
