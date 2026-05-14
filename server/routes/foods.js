@@ -194,9 +194,13 @@ router.get('/search', requireAuth(), async (req, res, next) => {
     // ── Local search ─────────────────────────────────────────────────────────
     const localResults = await localSearch(q, limit, offset)
 
-    // Custom foods always appear first; together they count toward threshold
-    const combined = [...customResults, ...localResults]
-    if (combined.length >= LOCAL_THRESHOLD) {
+    // Custom foods always appear first; together they count toward threshold.
+    // Only exact/prefix local matches count — fuzzy-only hits (full-text, trigram)
+    // must not block the USDA Branded fallback for packaged terms like "protein bar".
+    const combined   = [...customResults, ...localResults]
+    const ql         = q.toLowerCase()
+    const strongLocal = localResults.filter(f => f.name.toLowerCase().startsWith(ql)).length
+    if (customResults.length + strongLocal >= LOCAL_THRESHOLD) {
       return res.json(combined.slice(0, limit))
     }
 

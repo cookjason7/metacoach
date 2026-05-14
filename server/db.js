@@ -527,6 +527,18 @@ export async function migrate() {
     WHERE NOT EXISTS (SELECT 1 FROM custom_foods WHERE food_name = 'Fairlife Whole Milk' AND is_global = TRUE)
   `)
 
+  // Per-egg entry (50 g = 1 large egg) and generic protein bar placeholder
+  await pool.query(`
+    INSERT INTO custom_foods (is_global, is_coach_food, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit)
+    SELECT TRUE, FALSE, 'Egg, whole, large', 72, 6.3, 0.4, 4.8, 0, 50, 'g'
+    WHERE NOT EXISTS (SELECT 1 FROM custom_foods WHERE food_name = 'Egg, whole, large' AND is_global = TRUE)
+  `)
+  await pool.query(`
+    INSERT INTO custom_foods (is_global, is_coach_food, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit)
+    SELECT TRUE, FALSE, 'Protein Bar', 200, 20, 21, 7, 2, 60, 'g'
+    WHERE NOT EXISTS (SELECT 1 FROM custom_foods WHERE food_name = 'Protein Bar' AND is_global = TRUE)
+  `)
+
   // ── Health Assessment ────────────────────────────────────────────────────────
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS assessment_complete BOOLEAN DEFAULT FALSE`)
 
