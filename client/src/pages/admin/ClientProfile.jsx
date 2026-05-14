@@ -282,7 +282,7 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
   const [editing,    setEditing]    = useState(false)
   const [saving,     setSaving]     = useState(false)
   const [error,      setError]      = useState(null)
-  const [calcMode,   setCalcMode]   = useState('manual')
+  const [calcMode,   setCalcMode]   = useState('calculator')
   const [autoTarget, setAutoTarget] = useState('fat')   // which macro is auto-calculated
   const [form, setForm] = useState({
     goal_calories: client.goal_calories ?? '',
@@ -300,11 +300,7 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
   const carbs = Math.max(0, Number(form.goal_carbs)    || 0)
   const fat   = Math.max(0, Number(form.goal_fat)      || 0)
 
-  // Manual: macro calorie check
-  const macroCal   = Math.round(prot * 4 + carbs * 4 + fat * 9)
-  const calWarning = cal > 0 && (prot > 0 || carbs > 0 || fat > 0) && Math.abs(macroCal - cal) > 50
-
-  // Auto-calc: remaining calories after the two manually entered macros
+  // Calculator: remaining calories after the two manually entered macros
   const acRemain =
     autoTarget === 'fat'   ? cal - (prot  * 4 + carbs * 4) :
     autoTarget === 'carbs' ? cal - (prot  * 4 + fat   * 9) :
@@ -320,9 +316,7 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
   const pctCarbs   = Math.max(0, Math.round(cal * pct.carbs   / 100 / 4))
   const pctFat     = Math.max(0, Math.round(cal * pct.fat     / 100 / 9))
 
-  const canSave = !saving
-    && !(calcMode === 'manual'   && calWarning)
-    && !(calcMode === 'autocalc' && acError)
+  const canSave = !saving && !(calcMode === 'calculator' && acError)
 
   async function save() {
     if (calcMode === 'percentage' && pctTotal !== 100) {
@@ -342,14 +336,10 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
         body.goal_protein = pctProtein
         body.goal_carbs   = pctCarbs
         body.goal_fat     = pctFat
-      } else if (calcMode === 'autocalc') {
+      } else {
         body.goal_protein = autoTarget === 'protein' ? acValue : Math.round(prot)
         body.goal_carbs   = autoTarget === 'carbs'   ? acValue : Math.round(carbs)
         body.goal_fat     = autoTarget === 'fat'     ? acValue : Math.round(fat)
-      } else {
-        body.goal_protein = toInt(form.goal_protein)
-        body.goal_carbs   = toInt(form.goal_carbs)
-        body.goal_fat     = toInt(form.goal_fat)
       }
       const res = await fetch(`${API_URL}/api/admin/users/${client.id}/macros`, {
         method: 'PATCH',
@@ -363,7 +353,8 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
   }
 
   const inputCls    = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30'
-  const computedCls = 'w-full border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-sm font-semibold text-gray-700'
+  const computedCls = 'w-full border border-gray-200 bg-orange-50 rounded-lg px-3 py-2 text-sm font-semibold text-[#c45e09]'
+  const computedErrCls = 'w-full border border-red-200 bg-red-50 rounded-lg px-3 py-2 text-sm font-semibold text-red-600'
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-5">
@@ -389,7 +380,7 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
         <div className="space-y-4">
           {/* Mode switcher */}
           <div className="flex gap-2 flex-wrap">
-            {[['manual','Manual'],['autocalc','Auto-calc'],['percentage','Percentage']].map(([id, label]) => (
+            {[['calculator','Calculator'],['percentage','Percentage']].map(([id, label]) => (
               <button key={id} onClick={() => setCalcMode(id)}
                 className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors ${
                   calcMode === id ? 'bg-[#E8670A] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -397,100 +388,64 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
             ))}
           </div>
 
-          {/* ── Manual ── */}
-          {calcMode === 'manual' && (
+          {/* ── Calculator ── */}
+          {calcMode === 'calculator' && (
             <div className="space-y-3">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {MACRO_TARGET_FIELDS.map(({ key, label, unit }) => (
-                  <div key={key}>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">{label} <span className="text-gray-400">({unit})</span></label>
-                    <input type="number" min="0" value={form[key]}
-                      onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-                      placeholder="—" className={inputCls} />
-                  </div>
-                ))}
-              </div>
-              {(prot > 0 || carbs > 0 || fat > 0) && (
-                <div className={`rounded-lg p-3 text-xs ${calWarning ? 'bg-amber-50 border border-amber-200' : 'bg-gray-50'}`}>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1">
-                    <span className="text-gray-500">Protein: {Math.round(prot * 4)} kcal</span>
-                    <span className="text-gray-500">Carbs: {Math.round(carbs * 4)} kcal</span>
-                    <span className="text-gray-500">Fat: {Math.round(fat * 9)} kcal</span>
-                    <span className="font-semibold text-gray-800">Total: {macroCal} kcal</span>
-                  </div>
-                  {calWarning && (
-                    <p className="mt-1.5 text-amber-700 font-medium">
-                      ⚠ Macros total {macroCal} kcal but calorie target is {cal} kcal. Adjust to within 50 kcal to save.
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ── Auto-calc ── */}
-          {calcMode === 'autocalc' && (
-            <div className="space-y-3">
-              <p className="text-xs text-gray-500">Enter calories and any two macros. The third is calculated from remaining calories.</p>
-
-              {/* Which macro to auto-calculate */}
-              <div>
-                <p className="text-xs font-medium text-gray-600 mb-1.5">Auto-calculate:</p>
-                <div className="flex gap-2">
-                  {[['protein','Protein'],['carbs','Carbs'],['fat','Fat']].map(([id, label]) => (
+              {/* Calculate missing macro selector */}
+              <div className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2.5">
+                <p className="text-xs font-medium text-gray-500 whitespace-nowrap">Calculate:</p>
+                <div className="flex gap-1.5">
+                  {[['fat','Fat'],['carbs','Carbs'],['protein','Protein']].map(([id, label]) => (
                     <button key={id} onClick={() => setAutoTarget(id)}
-                      className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors ${
-                        autoTarget === id ? 'bg-[#1e2a3a] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
+                        autoTarget === id
+                          ? 'bg-[#E8670A] text-white'
+                          : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-100'
                       }`}>{label}</button>
                   ))}
                 </div>
               </div>
 
-              {/* Calories + the 2 manual macros */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {/* All 4 macro fields — calculated one is read-only */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Calories <span className="text-gray-400">(kcal)</span></label>
                   <input type="number" min="0" value={form.goal_calories}
                     onChange={e => setForm(f => ({ ...f, goal_calories: e.target.value }))}
                     placeholder="—" className={inputCls} />
                 </div>
-                {autoTarget !== 'protein' && (
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Protein <span className="text-gray-400">(g)</span></label>
-                    <input type="number" min="0" value={form.goal_protein}
-                      onChange={e => setForm(f => ({ ...f, goal_protein: e.target.value }))}
-                      placeholder="—" className={inputCls} />
+                {[
+                  { key: 'goal_protein', label: 'Protein', id: 'protein' },
+                  { key: 'goal_carbs',   label: 'Carbs',   id: 'carbs'   },
+                  { key: 'goal_fat',     label: 'Fat',     id: 'fat'     },
+                ].map(({ key, label, id }) => (
+                  <div key={id}>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      {label} <span className="text-gray-400">(g)</span>
+                      {autoTarget === id && <span className="ml-1 text-[#E8670A] font-semibold">= calc</span>}
+                    </label>
+                    {autoTarget === id ? (
+                      <div className={acError ? computedErrCls : computedCls}>
+                        {acError ? '—' : acValue}
+                      </div>
+                    ) : (
+                      <input type="number" min="0" value={form[key]}
+                        onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                        placeholder="—" className={inputCls} />
+                    )}
                   </div>
-                )}
-                {autoTarget !== 'carbs' && (
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Carbs <span className="text-gray-400">(g)</span></label>
-                    <input type="number" min="0" value={form.goal_carbs}
-                      onChange={e => setForm(f => ({ ...f, goal_carbs: e.target.value }))}
-                      placeholder="—" className={inputCls} />
-                  </div>
-                )}
-                {autoTarget !== 'fat' && (
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Fat <span className="text-gray-400">(g)</span></label>
-                    <input type="number" min="0" value={form.goal_fat}
-                      onChange={e => setForm(f => ({ ...f, goal_fat: e.target.value }))}
-                      placeholder="—" className={inputCls} />
-                  </div>
-                )}
+                ))}
               </div>
 
-              {/* Auto-calculated result */}
-              <div className={`rounded-lg p-3 ${acError ? 'bg-red-50 border border-red-200' : 'bg-gray-50'}`}>
-                <p className="text-[10px] uppercase tracking-wide font-bold mb-1 text-gray-400">
-                  {autoTarget.charAt(0).toUpperCase() + autoTarget.slice(1)} (auto-calculated)
-                </p>
-                {acError ? (
-                  <p className="text-sm font-semibold text-red-600">⚠ Entered macros exceed {cal} kcal target — reduce values</p>
-                ) : (
-                  <div className={computedCls}>{acValue} g &nbsp;·&nbsp; {Math.max(0, acRemain)} kcal remaining</div>
-                )}
-              </div>
+              {/* Status */}
+              {cal > 0 && (
+                <div className={`rounded-lg px-3 py-2 text-xs ${acError ? 'bg-red-50 border border-red-200 text-red-600 font-medium' : 'bg-gray-50 text-gray-500'}`}>
+                  {acError
+                    ? `⚠ Entered macros exceed ${cal} kcal — reduce values to enable Save`
+                    : `${Math.max(0, acRemain)} kcal remaining → ${autoTarget} = ${acValue} g`
+                  }
+                </div>
+              )}
 
               {/* Fiber and Water */}
               <div className="grid grid-cols-2 gap-3">
