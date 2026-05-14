@@ -120,20 +120,8 @@ router.post('/thread/:threadType', requireAuth(), async (req, res, next) => {
       return res.status(400).json({ error: 'message_body required' })
     }
 
-    // Clients can only reply in their assigned thread (coach_thread for VIP,
-    // ai_admin for AI). admin_private is admin→client only; client replies
-    // there are NOT supported (would risk staff confusion).
-    if (thread === 'admin_private') {
-      return res.status(403).json({ error: 'This is a one-way thread from staff' })
-    }
-    if (thread === 'ai_admin' && ctx.coaching_type !== 'ai') {
-      return res.status(403).json({ error: 'Not an AI coaching client' })
-    }
-    if (thread === 'coach_thread' && ctx.coaching_type === 'ai') {
-      return res.status(403).json({ error: 'Not available for AI coaching clients' })
-    }
-
-    const visibility = thread === 'ai_admin' ? 'client_and_admin_only' : 'client_and_staff'
+    // All human/team threads are two-way — clients may reply to any of them.
+    const visibility = 'client_and_staff'
 
     const { rows } = await pool.query(`
       INSERT INTO client_messages
