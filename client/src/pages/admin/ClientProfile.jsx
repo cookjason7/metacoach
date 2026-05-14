@@ -218,6 +218,13 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
           </div>
         )}
       </div>
+
+      {/* Nutrition Targets — visible to admin and coaches (coaches only reach assigned clients) */}
+      <NutritionTargetsCard
+        client={client}
+        getToken={getToken}
+        onUpdate={onUpdate}
+      />
     </div>
   )
 }
@@ -227,6 +234,99 @@ function InfoRow({ label, value }) {
     <div>
       <p className="text-xs text-gray-400">{label}</p>
       <p className="text-sm font-medium text-gray-800 truncate">{value ?? '—'}</p>
+    </div>
+  )
+}
+
+// ─── Nutrition Targets Card ───────────────────────────────────────────────────
+
+const MACRO_TARGET_FIELDS = [
+  { key: 'goal_calories', label: 'Calories',     unit: 'kcal' },
+  { key: 'goal_protein',  label: 'Protein',      unit: 'g' },
+  { key: 'goal_carbs',    label: 'Carbs',        unit: 'g' },
+  { key: 'goal_fat',      label: 'Fat',          unit: 'g' },
+  { key: 'goal_fiber',    label: 'Fiber',        unit: 'g' },
+  { key: 'goal_water',    label: 'Water',        unit: 'oz' },
+]
+
+function NutritionTargetsCard({ client, getToken, onUpdate }) {
+  const [editing, setEditing] = useState(false)
+  const [saving,  setSaving]  = useState(false)
+  const [error,   setError]   = useState(null)
+  const [form, setForm] = useState({
+    goal_calories: client.goal_calories ?? '',
+    goal_protein:  client.goal_protein  ?? '',
+    goal_carbs:    client.goal_carbs    ?? '',
+    goal_fat:      client.goal_fat      ?? '',
+    goal_fiber:    client.goal_fiber    ?? '',
+    goal_water:    client.goal_water    ?? '',
+  })
+
+  async function save() {
+    setSaving(true); setError(null)
+    try {
+      const token = await getToken()
+      const body = {}
+      MACRO_TARGET_FIELDS.forEach(({ key }) => {
+        body[key] = form[key] !== '' ? Number(form[key]) : null
+      })
+      const res = await fetch(`${API_URL}/api/admin/users/${client.id}/macros`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error('Save failed')
+      onUpdate(await res.json())
+      setEditing(false)
+    } catch (err) { setError(err.message) } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-5">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-sm font-semibold text-gray-900">Nutrition Targets</h3>
+        {!editing && (
+          <button onClick={() => setEditing(true)} className="text-xs text-[#E8670A] hover:text-[#c45e09] font-medium">Edit</button>
+        )}
+      </div>
+
+      {!editing ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {MACRO_TARGET_FIELDS.map(({ key, label, unit }) => (
+            <div key={key}>
+              <p className="text-xs text-gray-400">{label}</p>
+              <p className="text-sm font-medium text-gray-800">
+                {client[key] != null ? `${client[key]} ${unit}` : '—'}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {MACRO_TARGET_FIELDS.map(({ key, label, unit }) => (
+              <div key={key}>
+                <label className="block text-xs font-medium text-gray-600 mb-1">{label} <span className="text-gray-400">({unit})</span></label>
+                <input
+                  type="number" min="0"
+                  value={form[key]}
+                  onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                  placeholder="—"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30"
+                />
+              </div>
+            ))}
+          </div>
+          {error && <p className="text-xs text-red-500">{error}</p>}
+          <div className="flex gap-2 pt-1">
+            <button onClick={save} disabled={saving}
+              className="bg-[#E8670A] text-white px-5 py-2 rounded-lg text-xs font-semibold hover:bg-[#c45e09] disabled:opacity-50">
+              {saving ? 'Saving…' : 'Save targets'}
+            </button>
+            <button onClick={() => { setEditing(false); setError(null) }} className="text-xs text-gray-500 px-3 py-2">Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

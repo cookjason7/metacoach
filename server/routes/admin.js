@@ -33,25 +33,41 @@ router.get('/users', requireAuth(), async (req, res, next) => {
   }
 })
 
-// PATCH /api/admin/users/:id/macros
+// PATCH /api/admin/users/:id/macros  (admin or assigned coach)
 router.patch('/users/:id/macros', requireAuth(), async (req, res, next) => {
   try {
-    if (await requireAdmin(req, res) === null) return
+    const { userId } = getAuth(req)
+    const callerId = await getOrCreateUser(userId)
     const targetId = parseInt(req.params.id, 10)
-    const { goal_calories, goal_protein, goal_carbs, goal_fat } = req.body
+
+    // Allow admin, or the coach assigned to this specific client
+    const { rows: callerRows } = await pool.query('SELECT role FROM users WHERE id = $1', [callerId])
+    const callerRole = callerRows[0]?.role
+    if (callerRole !== 'admin') {
+      const { rows: clientRows } = await pool.query('SELECT assigned_coach_id FROM users WHERE id = $1', [targetId])
+      if (clientRows[0]?.assigned_coach_id !== callerId) {
+        return res.status(403).json({ error: 'Not authorized' })
+      }
+    }
+
+    const { goal_calories, goal_protein, goal_carbs, goal_fat, goal_fiber, goal_water } = req.body
     const { rows } = await pool.query(`
       UPDATE users SET
         goal_calories = COALESCE($1, goal_calories),
         goal_protein  = COALESCE($2, goal_protein),
         goal_carbs    = COALESCE($3, goal_carbs),
-        goal_fat      = COALESCE($4, goal_fat)
-      WHERE id = $5
-      RETURNING id, first_name, goal_calories, goal_protein, goal_carbs, goal_fat
+        goal_fat      = COALESCE($4, goal_fat),
+        goal_fiber    = COALESCE($5, goal_fiber),
+        goal_water    = COALESCE($6, goal_water)
+      WHERE id = $7
+      RETURNING id, first_name, goal_calories, goal_protein, goal_carbs, goal_fat, goal_fiber, goal_water
     `, [
       goal_calories != null ? Number(goal_calories) : null,
       goal_protein  != null ? Number(goal_protein)  : null,
       goal_carbs    != null ? Number(goal_carbs)    : null,
       goal_fat      != null ? Number(goal_fat)      : null,
+      goal_fiber    != null ? Number(goal_fiber)    : null,
+      goal_water    != null ? Number(goal_water)    : null,
       targetId,
     ])
     res.json(rows[0])

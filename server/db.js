@@ -114,6 +114,8 @@ export async function migrate() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS goal_protein  INTEGER`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS goal_carbs    INTEGER`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS goal_fat      INTEGER`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS goal_fiber    INTEGER`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS goal_water    INTEGER`)
   await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS portion_notes TEXT`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS gender       TEXT`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number TEXT`)
