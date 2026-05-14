@@ -444,8 +444,6 @@ function MealEntry({ meal, onEdit, onDelete, onCopy, onMove }) {
             {meal.carbs    != null && <span><span className="font-medium" style={{ color: MACRO_COLORS.carbs }}>{Number(meal.carbs).toFixed(0)}g</span> C</span>}
             {meal.fat      != null && <span><span className="font-medium" style={{ color: MACRO_COLORS.fat }}>{Number(meal.fat).toFixed(0)}g</span> F</span>}
           </div>
-          <MicronutrientGrid food={meal.micronutrients || {}} grams={100} title="Micronutrients" />
-
           {/* Action row */}
           {!confirm && (
             <div className="flex flex-wrap gap-2 mt-2">
@@ -1929,9 +1927,6 @@ export default function Journal() {
           />
         ))
       )}
-
-      {/* Women's Health Foundation — below meal cards */}
-      <WomensHealthCard meals={meals} waterOz={waterOz} isToday={isToday} onAddWater={addWater} />
 
       {/* Also Logged */}
       <QuickStats totals={totals} />

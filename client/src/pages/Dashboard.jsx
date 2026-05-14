@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { Link } from 'react-router-dom'
 import { API_URL } from '../config.js'
-import MicronutrientTotals from '../components/MicronutrientTotals.jsx'
+import MicronutrientTotals, { calculateMicronutrientTotals } from '../components/MicronutrientTotals.jsx'
 
 // ── Gamification Banner (compact, tappable) ───────────────────────────────────
 
@@ -184,6 +184,95 @@ function TrackerCard({ label, unit, field, currentValue, onSave }) {
   )
 }
 
+// ── Women's Health Foundation ─────────────────────────────────────────────────
+
+function FoundationRing({ label, value, goal, color, unit }) {
+  const r = 27
+  const circ = 2 * Math.PI * r
+  const pct    = goal > 0 ? Math.min(value / goal, 1) : 0
+  const offset = circ * (1 - pct)
+  const over   = goal > 0 && value > goal
+  const fmtVal = unit === 'mcg' ? Number(value).toFixed(1).replace(/\.0$/, '') : Math.round(value)
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div className="relative w-[62px] h-[62px]">
+        <svg className="w-full h-full" viewBox="0 0 62 62" style={{ transform: 'rotate(-90deg)' }}>
+          <circle cx="31" cy="31" r={r} fill="none" stroke="#f3f4f6" strokeWidth="6" />
+          <circle cx="31" cy="31" r={r} fill="none"
+            stroke={over ? '#ef4444' : color}
+            strokeWidth="6" strokeLinecap="round"
+            strokeDasharray={circ} strokeDashoffset={offset}
+            style={{ transition: 'stroke-dashoffset 0.5s ease' }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-px">
+          <span className="text-[11px] font-bold text-gray-900 leading-none">{fmtVal}</span>
+          {unit && <span className="text-[8px] text-gray-400 leading-none">{unit}</span>}
+        </div>
+      </div>
+      <span className="text-[10px] font-semibold text-gray-600 text-center leading-tight">{label}</span>
+      <span className="text-[9px] text-gray-400 leading-none">/ {goal}{unit}</span>
+    </div>
+  )
+}
+
+function WomensHealthFoundation({ meals, waterOz, onAddWater }) {
+  const [addingWater, setAddingWater] = useState(false)
+  const [oz, setOz] = useState('8')
+  const micros = calculateMicronutrientTotals(meals)
+  const getMicro = (key) => micros.find(m => m.key === key)?.value ?? 0
+
+  function handleAddWater() {
+    const amount = parseFloat(oz)
+    if (!isNaN(amount) && amount > 0) { onAddWater(amount); setAddingWater(false); setOz('8') }
+  }
+
+  const rings = [
+    { label: 'Water',     value: waterOz ?? 0,             goal: 64,   unit: 'oz',  color: '#60A5FA' },
+    { label: 'Calcium',   value: getMicro('calcium_mg'),    goal: 1200, unit: 'mg',  color: '#3B82F6' },
+    { label: 'Vitamin D', value: getMicro('vitamin_d_mcg'), goal: 20,   unit: 'mcg', color: '#F59E0B' },
+    { label: 'Iron',      value: getMicro('iron_mg'),       goal: 18,   unit: 'mg',  color: '#8B5CF6' },
+  ]
+  const overallPct = rings.reduce((s, r) => s + Math.min(r.goal > 0 ? r.value / r.goal : 0, 1), 0) / rings.length
+  const statusLabel = p => p >= 0.8 ? 'On track' : p >= 0.5 ? 'Strong start' : p >= 0.2 ? 'Needs attention' : 'Low today'
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-8">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-sm font-bold text-gray-900">Women's Health Foundation</h2>
+          <p className="text-[11px] text-gray-400 mt-0.5">{statusLabel(overallPct)}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-lg font-bold" style={{ color: '#3B82F6' }}>{Math.round(overallPct * 100)}%</p>
+          <p className="text-[10px] text-gray-400">complete</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-4 gap-y-4 gap-x-2 mb-3">
+        {rings.map(r => <FoundationRing key={r.label} {...r} />)}
+      </div>
+      <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
+        <span className="text-[11px] text-gray-400">Log water</span>
+        {!addingWater ? (
+          <button
+            onClick={() => setAddingWater(true)}
+            className="w-5 h-5 bg-blue-100 text-blue-600 rounded-full text-xs font-bold flex items-center justify-center hover:bg-blue-200 transition-colors"
+          >+</button>
+        ) : (
+          <span className="flex items-center gap-1">
+            <input type="number" value={oz} onChange={e => setOz(e.target.value)}
+              className="w-12 border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+              min="1" />
+            <span className="text-xs text-gray-400">oz</span>
+            <button onClick={handleAddWater} className="text-xs text-blue-600 font-semibold hover:text-blue-800">Add</button>
+            <button onClick={() => setAddingWater(false)} className="text-xs text-gray-400 hover:text-gray-600">✕</button>
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const { getToken } = useAuth()
 
@@ -317,6 +406,12 @@ export default function Dashboard() {
       <div className="mb-8">
         <MicronutrientTotals meals={mealRows} loading={loading} title="Today's Micronutrients" periodLabel="Today" exclude={['fiber_g']} />
       </div>
+
+      <WomensHealthFoundation
+        meals={mealRows}
+        waterOz={todayLog?.water_oz}
+        onAddWater={async (v) => { await saveTracker('water_oz', (todayLog?.water_oz ?? 0) + v) }}
+      />
 
       {!loading && todayMeals?.meal_count === 0 && (
         <div className="bg-white rounded-xl border border-gray-200 p-6 text-center mb-8">
