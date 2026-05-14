@@ -27,6 +27,11 @@ function daysSince(iso) {
   return Math.floor((Date.now() - new Date(iso)) / 86400_000)
 }
 
+function fmtDate(iso) {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+}
+
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
 function OverviewTab({ client, role, getToken, onUpdate }) {
@@ -152,7 +157,7 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 <InfoRow label="Assigned coach"  value={client.assigned_coach_name ?? '—'} />
                 <InfoRow label="Start date"      value={displayStartDate} />
                 <InfoRow label="Payment"         value={client.paid ? `✓ Active${client.paid_at ? ` (since ${String(client.paid_at).slice(0,10)})` : ''}` : '○ Not activated'} />
-                <InfoRow label="Last login"      value={client.last_login_at ? new Date(client.last_login_at).toLocaleDateString() : '—'} />
+                <InfoRow label="Last login"      value={fmtDate(client.last_login_at)} />
                 <InfoRow label="Last meal log"   value={client.last_meal_at ? `${daysSince(client.last_meal_at)}d ago` : '—'} />
                 <InfoRow label="Onboarding"      value={client.onboarding_complete ? '✓ Complete' : '○ In progress'} />
                 <InfoRow label="Assessment"      value={client.assessment_complete ? '✓ Complete' : '○ In progress'} />
@@ -265,35 +270,54 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
   })
   const [pct, setPct] = useState({ protein: 30, carbs: 40, fat: 30 })
 
-  function applyAutoCalc() {
-    const cal     = Math.max(0, Number(form.goal_calories) || 0)
-    const prot    = Math.max(0, Number(form.goal_protein)  || 0)
-    const remain  = Math.max(0, cal - prot * 4)
-    setForm(f => ({
-      ...f,
-      goal_carbs: String(Math.round(remain * 0.5 / 4)),
-      goal_fat:   String(Math.round(remain * 0.5 / 9)),
-    }))
-  }
+  // ── Derived values (live, no state) ─────────────────────────────────────────
+  const cal   = Math.max(0, Number(form.goal_calories) || 0)
+  const prot  = Math.max(0, Number(form.goal_protein)  || 0)
+  const carbs = Math.max(0, Number(form.goal_carbs)    || 0)
+  const fat   = Math.max(0, Number(form.goal_fat)      || 0)
 
-  function applyPctMode() {
-    const cal = Math.max(0, Number(form.goal_calories) || 0)
-    setForm(f => ({
-      ...f,
-      goal_protein: String(Math.max(0, Math.round(cal * pct.protein / 100 / 4))),
-      goal_carbs:   String(Math.max(0, Math.round(cal * pct.carbs   / 100 / 4))),
-      goal_fat:     String(Math.max(0, Math.round(cal * pct.fat     / 100 / 9))),
-    }))
-  }
+  // Manual: macro calorie check
+  const macroCal   = Math.round(prot * 4 + carbs * 4 + fat * 9)
+  const calWarning = cal > 0 && (prot > 0 || carbs > 0 || fat > 0) && Math.abs(macroCal - cal) > 50
+
+  // Auto-calc derived (live)
+  const autoRemain = Math.max(0, cal - prot * 4)
+  const autoCarbs  = Math.round(autoRemain * 0.5 / 4)
+  const autoFat    = Math.round(autoRemain * 0.5 / 9)
+
+  // Percentage derived (live)
+  const pctTotal   = pct.protein + pct.carbs + pct.fat
+  const pctProtein = Math.max(0, Math.round(cal * pct.protein / 100 / 4))
+  const pctCarbs   = Math.max(0, Math.round(cal * pct.carbs   / 100 / 4))
+  const pctFat     = Math.max(0, Math.round(cal * pct.fat     / 100 / 9))
 
   async function save() {
+    if (calcMode === 'percentage' && pctTotal !== 100) {
+      setError('Macro percentages must total 100% before saving.')
+      return
+    }
     setSaving(true); setError(null)
     try {
       const token = await getToken()
-      const body = {}
-      MACRO_TARGET_FIELDS.forEach(({ key }) => {
-        body[key] = form[key] !== '' ? Math.max(0, Math.round(Number(form[key]))) : null
-      })
+      const toInt = v => v !== '' ? Math.max(0, Math.round(Number(v))) : null
+      const body = {
+        goal_calories: toInt(form.goal_calories),
+        goal_fiber:    toInt(form.goal_fiber),
+        goal_water:    toInt(form.goal_water),
+      }
+      if (calcMode === 'percentage') {
+        body.goal_protein = pctProtein
+        body.goal_carbs   = pctCarbs
+        body.goal_fat     = pctFat
+      } else if (calcMode === 'autocalc') {
+        body.goal_protein = prot > 0 ? Math.round(prot) : null
+        body.goal_carbs   = autoCarbs
+        body.goal_fat     = autoFat
+      } else {
+        body.goal_protein = toInt(form.goal_protein)
+        body.goal_carbs   = toInt(form.goal_carbs)
+        body.goal_fat     = toInt(form.goal_fat)
+      }
       const res = await fetch(`${API_URL}/api/admin/users/${client.id}/macros`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -305,24 +329,8 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
     } catch (err) { setError(err.message) } finally { setSaving(false) }
   }
 
-  const ModeBtn = ({ id, label }) => (
-    <button onClick={() => setCalcMode(id)}
-      className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors ${
-        calcMode === id ? 'bg-[#E8670A] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-      }`}>{label}</button>
-  )
-
-  const Field = ({ fkey, label, unit }) => (
-    <div>
-      <label className="block text-xs font-medium text-gray-600 mb-1">{label} <span className="text-gray-400">({unit})</span></label>
-      <input type="number" min="0" value={form[fkey]}
-        onChange={e => setForm(f => ({ ...f, [fkey]: e.target.value }))}
-        placeholder="—"
-        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30" />
-    </div>
-  )
-
-  const pctTotal = pct.protein + pct.carbs + pct.fat
+  const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30'
+  const computedCls = 'w-full border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-sm font-semibold text-gray-700'
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-5">
@@ -348,79 +356,111 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
         <div className="space-y-4">
           {/* Mode switcher */}
           <div className="flex gap-2 flex-wrap">
-            <ModeBtn id="manual"     label="Manual" />
-            <ModeBtn id="autocalc"   label="Auto-calc" />
-            <ModeBtn id="percentage" label="Percentage" />
+            {[['manual','Manual'],['autocalc','Auto-calc'],['percentage','Percentage']].map(([id, label]) => (
+              <button key={id} onClick={() => setCalcMode(id)}
+                className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors ${
+                  calcMode === id ? 'bg-[#E8670A] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}>{label}</button>
+            ))}
           </div>
 
           {/* ── Manual ── */}
           {calcMode === 'manual' && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {MACRO_TARGET_FIELDS.map(({ key, label, unit }) => (
-                <Field key={key} fkey={key} label={label} unit={unit} />
-              ))}
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {MACRO_TARGET_FIELDS.map(({ key, label, unit }) => (
+                  <div key={key}>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">{label} <span className="text-gray-400">({unit})</span></label>
+                    <input type="number" min="0" value={form[key]}
+                      onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                      placeholder="—" className={inputCls} />
+                  </div>
+                ))}
+              </div>
+              {(prot > 0 || carbs > 0 || fat > 0) && (
+                <div className={`rounded-lg p-3 text-xs ${calWarning ? 'bg-amber-50 border border-amber-200' : 'bg-gray-50'}`}>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    <span className="text-gray-500">Protein: {Math.round(prot * 4)} kcal</span>
+                    <span className="text-gray-500">Carbs: {Math.round(carbs * 4)} kcal</span>
+                    <span className="text-gray-500">Fat: {Math.round(fat * 9)} kcal</span>
+                    <span className="font-semibold text-gray-800">Total: {macroCal} kcal</span>
+                  </div>
+                  {calWarning && (
+                    <p className="mt-1.5 text-amber-700 font-medium">
+                      ⚠ Macro grams equal {macroCal} calories, but calorie target is {cal}.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
           {/* ── Auto-calc ── */}
           {calcMode === 'autocalc' && (
             <div className="space-y-3">
-              <p className="text-xs text-gray-500">Enter calories + protein. Remaining calories split 50/50 between carbs and fat.</p>
-              <div className="grid grid-cols-2 gap-3">
-                <Field fkey="goal_calories" label="Calories" unit="kcal" />
-                <Field fkey="goal_protein"  label="Protein"  unit="g" />
-              </div>
-              <button onClick={applyAutoCalc}
-                className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold px-4 py-2 rounded-lg transition-colors">
-                Calculate carbs &amp; fat →
-              </button>
+              <p className="text-xs text-gray-500">Enter calories + protein. Remaining calories are split 50/50 between carbs and fat.</p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <Field fkey="goal_carbs" label="Carbs" unit="g" />
-                <Field fkey="goal_fat"   label="Fat"   unit="g" />
-                <Field fkey="goal_fiber" label="Fiber" unit="g" />
-                <Field fkey="goal_water" label="Water" unit="oz" />
+                {[['goal_calories','Calories','kcal'],['goal_protein','Protein','g'],['goal_fiber','Fiber','g'],['goal_water','Water','oz']].map(([fkey, label, unit]) => (
+                  <div key={fkey}>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">{label} <span className="text-gray-400">({unit})</span></label>
+                    <input type="number" min="0" value={form[fkey]}
+                      onChange={e => setForm(f => ({ ...f, [fkey]: e.target.value }))}
+                      placeholder="—" className={inputCls} />
+                  </div>
+                ))}
               </div>
+              <div className="bg-gray-50 rounded-lg p-3 grid grid-cols-3 gap-3">
+                {[['Carbs', autoCarbs, 'g'], ['Fat', autoFat, 'g'], ['Remaining', autoRemain, ' kcal']].map(([label, val, unit]) => (
+                  <div key={label}>
+                    <p className="text-[10px] text-gray-400 mb-1">{label}</p>
+                    <div className={computedCls}>{val}{unit}</div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-gray-400">Carbs and fat are computed automatically and cannot be edited in this mode.</p>
             </div>
           )}
 
           {/* ── Percentage ── */}
           {calcMode === 'percentage' && (
             <div className="space-y-3">
-              <p className="text-xs text-gray-500">Enter calories + macro percentages to compute gram targets.</p>
-              <Field fkey="goal_calories" label="Calories" unit="kcal" />
+              <p className="text-xs text-gray-500">Enter calories and macro percentages. Gram values are computed automatically.</p>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Calories <span className="text-gray-400">(kcal)</span></label>
+                <input type="number" min="0" value={form.goal_calories}
+                  onChange={e => setForm(f => ({ ...f, goal_calories: e.target.value }))}
+                  placeholder="—" className={inputCls} />
+              </div>
               <div className="grid grid-cols-3 gap-3">
                 {['protein', 'carbs', 'fat'].map(k => (
                   <div key={k}>
                     <label className="block text-xs font-medium text-gray-600 mb-1 capitalize">{k} %</label>
                     <input type="number" min="0" max="100" value={pct[k]}
                       onChange={e => setPct(p => ({ ...p, [k]: Number(e.target.value) }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30" />
+                      className={inputCls} />
                   </div>
                 ))}
               </div>
-              <p className={`text-[11px] ${pctTotal === 100 ? 'text-emerald-600' : 'text-amber-500'}`}>
-                Total: {pctTotal}% {pctTotal === 100 ? '✓' : '(must equal 100%)'}
+              <p className={`text-[11px] font-medium ${pctTotal === 100 ? 'text-emerald-600' : 'text-amber-500'}`}>
+                Total: {pctTotal}% {pctTotal === 100 ? '✓' : '— must equal 100% to save'}
               </p>
-              {/* Preview */}
-              <div className="bg-gray-50 rounded-lg p-3 grid grid-cols-3 gap-2 text-center">
-                {[
-                  { label: 'Protein', val: Math.max(0, Math.round((Number(form.goal_calories)||0) * pct.protein / 100 / 4)), unit: 'g' },
-                  { label: 'Carbs',   val: Math.max(0, Math.round((Number(form.goal_calories)||0) * pct.carbs   / 100 / 4)), unit: 'g' },
-                  { label: 'Fat',     val: Math.max(0, Math.round((Number(form.goal_calories)||0) * pct.fat     / 100 / 9)), unit: 'g' },
-                ].map(({ label, val, unit }) => (
+              <div className="bg-gray-50 rounded-lg p-3 grid grid-cols-3 gap-3">
+                {[['Protein', pctProtein, 'g'], ['Carbs', pctCarbs, 'g'], ['Fat', pctFat, 'g']].map(([label, val, unit]) => (
                   <div key={label}>
-                    <p className="text-[10px] text-gray-400">{label}</p>
-                    <p className="text-sm font-bold text-gray-800">{val}{unit}</p>
+                    <p className="text-[10px] text-gray-400 mb-1">{label}</p>
+                    <div className={computedCls}>{val}{unit}</div>
                   </div>
                 ))}
               </div>
-              <button onClick={applyPctMode}
-                className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold px-4 py-2 rounded-lg transition-colors">
-                Apply grams →
-              </button>
               <div className="grid grid-cols-2 gap-3">
-                <Field fkey="goal_fiber" label="Fiber" unit="g" />
-                <Field fkey="goal_water" label="Water" unit="oz" />
+                {[['goal_fiber','Fiber','g'],['goal_water','Water','oz']].map(([fkey, label, unit]) => (
+                  <div key={fkey}>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">{label} <span className="text-gray-400">({unit})</span></label>
+                    <input type="number" min="0" value={form[fkey]}
+                      onChange={e => setForm(f => ({ ...f, [fkey]: e.target.value }))}
+                      placeholder="—" className={inputCls} />
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -971,7 +1011,7 @@ function ProgressTab({ clientId, getToken }) {
             <div key={i} className="flex justify-between text-sm">
               <span className="text-gray-800 truncate">{m.meal_name}</span>
               <span className="text-gray-500 text-xs shrink-0 ml-2">
-                {m.calories} cal · {new Date(m.logged_at).toLocaleDateString()}
+                {m.calories} cal · {fmtDate(m.logged_at)}
               </span>
             </div>
           ))}
@@ -985,7 +1025,7 @@ function ProgressTab({ clientId, getToken }) {
           {data.recent_workouts.map((w, i) => (
             <div key={i} className="flex justify-between text-sm">
               <span className="text-gray-800 truncate">{w.workout_name ?? 'Workout'}</span>
-              <span className="text-gray-500 text-xs shrink-0 ml-2">{new Date(w.completed_at).toLocaleDateString()}</span>
+              <span className="text-gray-500 text-xs shrink-0 ml-2">{fmtDate(w.completed_at)}</span>
             </div>
           ))}
         </div>
@@ -1064,8 +1104,8 @@ function AssessmentTab({ clientId, getToken }) {
     <div className="space-y-4">
       {data.completed_at && (
         <p className="text-xs text-gray-400">
-          Completed {new Date(data.completed_at).toLocaleDateString()}
-          {data.updated_at && ` · Last updated ${new Date(data.updated_at).toLocaleDateString()}`}
+          Completed {fmtDate(data.completed_at)}
+          {data.updated_at && ` · Last updated ${fmtDate(data.updated_at)}`}
         </p>
       )}
 
