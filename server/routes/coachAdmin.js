@@ -201,7 +201,10 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
         zip:     c.assessment_zip_code || null,
         country: c.assessment_country || null,
       },
-      assessment_has_data: !!c.assessment_completed_at,
+      assessment_has_data: !!(c.assessment_completed_at && (
+        c.assessment_first_name || c.assessment_last_name ||
+        c.assessment_phone      || c.assessment_dob
+      )),
       status_tag: computeStatusTag(c),
       momentum: computeMomentum(c.adherence_7d, c.adherence_30d),
     }
