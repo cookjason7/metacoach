@@ -498,6 +498,42 @@ function NutritionStat({ label, value, unit = '' }) {
   )
 }
 
+function DaySummaryRow({ label, actual, target, unit }) {
+  const hasTarget = target != null && Number(target) > 0
+  const hasActual = actual != null
+  const roundedActual = hasActual ? Math.round(actual) : null
+  const roundedTarget = hasTarget ? Math.round(target) : null
+  const displayUnit   = unit.trim()
+
+  let badge = null
+  if (hasTarget && hasActual) {
+    const diff = roundedActual - roundedTarget
+    const tol  = Math.max(2, Math.round(roundedTarget * 0.05))
+    if (Math.abs(diff) <= tol) {
+      badge = { text: 'On track', cls: 'text-emerald-600' }
+    } else if (diff < 0) {
+      badge = { text: `${Math.abs(diff)}${displayUnit} under`, cls: 'text-amber-500' }
+    } else {
+      badge = { text: `${diff}${displayUnit} over`, cls: 'text-red-500' }
+    }
+  }
+
+  return (
+    <div className="flex items-center py-2.5 border-b border-gray-50 last:border-0 gap-2">
+      <span className="text-xs font-medium text-gray-500 w-16 shrink-0">{label}</span>
+      <span className="text-sm font-semibold text-gray-900 w-20 text-right">
+        {roundedActual != null ? `${roundedActual}${unit}` : '—'}
+      </span>
+      <span className="text-xs text-gray-400 w-16">
+        {hasTarget ? `/ ${roundedTarget}${unit}` : 'No target'}
+      </span>
+      <span className={`text-[11px] font-semibold ml-auto ${badge ? badge.cls : 'text-gray-300'}`}>
+        {badge ? badge.text : ''}
+      </span>
+    </div>
+  )
+}
+
 function NutritionTab({ client, clientId, getToken, onUpdate }) {
   const today = new Date().toISOString().slice(0, 10)
   const [date,    setDate]    = useState(today)
@@ -527,7 +563,7 @@ function NutritionTab({ client, clientId, getToken, onUpdate }) {
 
   return (
     <div className="space-y-4">
-      {/* Date picker */}
+      {/* 1. Date selector */}
       <div className="flex items-center gap-3">
         <input type="date" value={date} max={today}
           onChange={e => setDate(e.target.value)}
@@ -537,45 +573,48 @@ function NutritionTab({ client, clientId, getToken, onUpdate }) {
         )}
       </div>
 
-      {/* Daily macros */}
+      {/* 2. Nutrition Targets */}
+      <NutritionTargetsCard client={client} getToken={getToken} onUpdate={onUpdate} />
+
+      {/* 3. Selected Day Summary */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">
-        <h3 className="text-sm font-semibold text-gray-900 mb-3">
-          {date === today ? "Today's Macros" : `Macros — ${date}`}
-        </h3>
+        <div className="flex items-baseline justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-900">Selected Day Summary</h3>
+          <span className="text-xs text-gray-400">{date === today ? 'Today' : date}</span>
+        </div>
         {loading ? <p className="text-xs text-gray-400">Loading…</p> : (
-          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-            <NutritionStat label="Calories"  value={daily?.total_calories} unit=" kcal" />
-            <NutritionStat label="Protein"   value={daily?.total_protein}  unit="g" />
-            <NutritionStat label="Carbs"     value={daily?.total_carbs}    unit="g" />
-            <NutritionStat label="Fat"       value={daily?.total_fat}      unit="g" />
-            <NutritionStat label="Fiber"     value={daily?.total_fiber}    unit="g" />
-            <NutritionStat label="Water"     value={daily?.water_oz}       unit=" oz" />
-            <NutritionStat label="Steps"     value={daily?.steps} />
-            <NutritionStat label="Weight"    value={daily?.weight_lbs}     unit=" lbs" />
-            <NutritionStat label="Meals"     value={daily?.meal_count} />
-          </div>
+          <>
+            <DaySummaryRow label="Calories" actual={daily?.total_calories} target={client.goal_calories} unit=" kcal" />
+            <DaySummaryRow label="Protein"  actual={daily?.total_protein}  target={client.goal_protein}  unit="g" />
+            <DaySummaryRow label="Carbs"    actual={daily?.total_carbs}    target={client.goal_carbs}    unit="g" />
+            <DaySummaryRow label="Fat"      actual={daily?.total_fat}      target={client.goal_fat}      unit="g" />
+            <DaySummaryRow label="Fiber"    actual={daily?.total_fiber}    target={client.goal_fiber}    unit="g" />
+            <DaySummaryRow label="Water"    actual={daily?.water_oz}       target={client.goal_water}    unit=" oz" />
+            <div className="mt-3 pt-3 border-t border-gray-100 grid grid-cols-3 gap-2">
+              <NutritionStat label="Steps"  value={daily?.steps} />
+              <NutritionStat label="Weight" value={daily?.weight_lbs} unit=" lbs" />
+              <NutritionStat label="Meals"  value={daily?.meal_count} />
+            </div>
+          </>
         )}
       </div>
 
-      {/* 7-day averages */}
+      {/* 4. 7-Day Averages */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <h3 className="text-sm font-semibold text-gray-900 mb-3">7-Day Averages</h3>
         {loading ? <p className="text-xs text-gray-400">Loading…</p> : (
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-            <NutritionStat label="Avg Calories"  value={weekly?.avg_calories}   unit=" kcal" />
-            <NutritionStat label="Avg Protein"   value={weekly?.avg_protein}    unit="g" />
-            <NutritionStat label="Avg Carbs"     value={weekly?.avg_carbs}      unit="g" />
-            <NutritionStat label="Avg Fat"       value={weekly?.avg_fat}        unit="g" />
-            <NutritionStat label="Avg Fiber"     value={weekly?.avg_fiber}      unit="g" />
-            <NutritionStat label="Avg Water"     value={weekly?.avg_water_oz}   unit=" oz" />
-            <NutritionStat label="Avg Steps"     value={weekly?.avg_steps} />
-            <NutritionStat label="Avg Weight"    value={weekly?.avg_weight_lbs} unit=" lbs" />
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <NutritionStat label="Calories" value={weekly?.avg_calories}   unit=" kcal" />
+            <NutritionStat label="Protein"  value={weekly?.avg_protein}    unit="g" />
+            <NutritionStat label="Carbs"    value={weekly?.avg_carbs}      unit="g" />
+            <NutritionStat label="Fat"      value={weekly?.avg_fat}        unit="g" />
+            <NutritionStat label="Fiber"    value={weekly?.avg_fiber}      unit="g" />
+            <NutritionStat label="Water"    value={weekly?.avg_water_oz}   unit=" oz" />
+            <NutritionStat label="Steps"    value={weekly?.avg_steps} />
+            <NutritionStat label="Weight"   value={weekly?.avg_weight_lbs} unit=" lbs" />
           </div>
         )}
       </div>
-
-      {/* Targets (editable) */}
-      <NutritionTargetsCard client={client} getToken={getToken} onUpdate={onUpdate} />
     </div>
   )
 }
