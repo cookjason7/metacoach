@@ -184,7 +184,7 @@ function TrackerCard({ label, unit, field, currentValue, onSave }) {
   )
 }
 
-// ── Women's Health Foundation ─────────────────────────────────────────────────
+// ── Women's Health ────────────────────────────────────────────────────────────
 
 function FoundationRing({ label, value, goal, color, unit }) {
   const r = 27
@@ -240,7 +240,7 @@ function WomensHealthFoundation({ meals, waterOz, onAddWater }) {
     <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-8">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-sm font-bold text-gray-900">Women's Health Foundation</h2>
+          <h2 className="text-sm font-bold text-gray-900">Women's Health</h2>
           <p className="text-[11px] text-gray-400 mt-0.5">{statusLabel(overallPct)}</p>
         </div>
         <div className="text-right">

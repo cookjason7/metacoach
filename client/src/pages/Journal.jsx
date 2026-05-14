@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { NavLink } from 'react-router-dom'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 import BarcodeScannerWidget from '../components/BarcodeScanner.jsx'
@@ -183,7 +182,7 @@ function FoundationRing({ label, value, goal, color, unit }) {
   )
 }
 
-// ── Women's Health Foundation Card ────────────────────────────────────────────
+// ── Women's Health Card (definition kept; rendered on Dashboard only) ─────────
 
 function WomensHealthCard({ meals, waterOz, isToday, onAddWater }) {
   const [addingWater, setAddingWater] = useState(false)
@@ -220,7 +219,7 @@ function WomensHealthCard({ meals, waterOz, isToday, onAddWater }) {
     <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-4">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-sm font-bold text-gray-900">Women's Health Foundation</h2>
+          <h2 className="text-sm font-bold text-gray-900">Women's Health</h2>
           <p className="text-[11px] text-gray-400 mt-0.5">{statusLabel(overallPct)}</p>
         </div>
         <div className="text-right">
@@ -1969,33 +1968,6 @@ export default function Journal() {
         />
       )}
 
-      {/* Fixed bottom nav */}
-      <nav
-        className="fixed bottom-0 right-0 bg-white border-t border-gray-200 z-40 flex items-center justify-around h-16"
-        style={{ left: '15rem' }}
-      >
-        <NavLink to="/journal"
-          className="flex flex-col items-center gap-0.5 text-[#E8670A]">
-          <span className="text-lg leading-none">📅</span>
-          <span className="text-[10px] font-semibold">Journal</span>
-        </NavLink>
-        <button
-          onClick={() => setAddSlot(getDefaultSlot())}
-          className="w-14 h-14 bg-[#E8670A] text-white rounded-full text-3xl font-light flex items-center justify-center shadow-lg hover:bg-[#c45e09] transition-colors -mt-4"
-        >
-          +
-        </button>
-        <NavLink to="/ai-coach"
-          className={({ isActive }) => `flex flex-col items-center gap-0.5 ${isActive ? 'text-[#E8670A]' : 'text-gray-400 hover:text-gray-700'}`}>
-          <span className="text-lg leading-none">💬</span>
-          <span className="text-[10px] font-semibold">Coach</span>
-        </NavLink>
-        <NavLink to="/settings"
-          className={({ isActive }) => `flex flex-col items-center gap-0.5 ${isActive ? 'text-[#E8670A]' : 'text-gray-400 hover:text-gray-700'}`}>
-          <span className="text-lg leading-none">⚙️</span>
-          <span className="text-[10px] font-semibold">Settings</span>
-        </NavLink>
-      </nav>
     </div>
   )
 }
