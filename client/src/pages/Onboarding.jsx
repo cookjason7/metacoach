@@ -77,7 +77,7 @@ export default function Onboarding() {
   }
 
   function canAdvance() {
-    if (step === 1) return form.first_name && form.age && form.starting_weight_lbs && form.goal_weight_lbs
+    if (step === 1) return form.age && form.starting_weight_lbs && form.goal_weight_lbs
     if (step === 2) return form.activity_level && form.tried_before.trim() && form.why_joined.trim()
     if (step === 3) return form.identity_anchors.length === 2
     return false
@@ -130,28 +130,6 @@ export default function Onboarding() {
             <p className="text-sm text-gray-500 mb-6">Let's start with the basics.</p>
 
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">First name</label>
-                  <input
-                    type="text"
-                    value={form.first_name}
-                    onChange={(e) => set('first_name', e.target.value)}
-                    placeholder="Jane"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Last name</label>
-                  <input
-                    type="text"
-                    value={form.last_name}
-                    onChange={(e) => set('last_name', e.target.value)}
-                    placeholder="Doe"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-                  />
-                </div>
-              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Gender</label>
                 <div className="flex gap-3">
