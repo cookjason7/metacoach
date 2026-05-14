@@ -315,7 +315,7 @@ export default function Dashboard() {
       </div>
 
       <div className="mb-8">
-        <MicronutrientTotals meals={mealRows} loading={loading} title="Today's Micronutrients" periodLabel="Today" />
+        <MicronutrientTotals meals={mealRows} loading={loading} title="Today's Micronutrients" periodLabel="Today" exclude={['fiber_g']} />
       </div>
 
       {!loading && todayMeals?.meal_count === 0 && (

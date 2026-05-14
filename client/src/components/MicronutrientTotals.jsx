@@ -49,8 +49,8 @@ function formatValue(value, decimals) {
   return String(rounded).replace(/\.0$/, '')
 }
 
-export default function MicronutrientTotals({ meals, loading = false, title = 'Micronutrient Totals', periodLabel = 'Selected day' }) {
-  const nutrients = loading ? [] : calculateMicronutrientTotals(meals)
+export default function MicronutrientTotals({ meals, loading = false, title = 'Micronutrient Totals', periodLabel = 'Selected day', exclude = [] }) {
+  const nutrients = loading ? [] : calculateMicronutrientTotals(meals).filter(n => !exclude.includes(n.key))
 
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-4">

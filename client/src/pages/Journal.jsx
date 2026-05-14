@@ -162,7 +162,7 @@ function FoundationRing({ label, value, goal, color, unit }) {
 
 // ── Women's Health Foundation Card ────────────────────────────────────────────
 
-function WomensHealthCard({ meals, totals, waterOz, isToday, onAddWater }) {
+function WomensHealthCard({ meals, waterOz, isToday, onAddWater }) {
   const [addingWater, setAddingWater] = useState(false)
   const [oz, setOz] = useState('8')
   const micros = calculateMicronutrientTotals(meals)
@@ -178,7 +178,6 @@ function WomensHealthCard({ meals, totals, waterOz, isToday, onAddWater }) {
   }
 
   const rings = [
-    { label: 'Fiber',     value: totals.fiber,              goal: 25,   unit: 'g',   color: '#10B981' },
     { label: 'Water',     value: waterOz,                   goal: 64,   unit: 'oz',  color: '#60A5FA' },
     { label: 'Calcium',   value: getMicro('calcium_mg'),    goal: 1200, unit: 'mg',  color: '#3B82F6' },
     { label: 'Vitamin D', value: getMicro('vitamin_d_mcg'), goal: 20,   unit: 'mcg', color: '#F59E0B' },
@@ -312,8 +311,8 @@ function MacroRingsRow({ totals, goals }) {
   if (goals.goal_protein)  rings.push({ label: 'Protein',  value: totals.protein,  goal: goals.goal_protein,  color: MACRO_COLORS.protein })
   if (goals.goal_carbs)    rings.push({ label: 'Carbs',    value: totals.carbs,    goal: goals.goal_carbs,    color: MACRO_COLORS.carbs })
   if (goals.goal_fat)      rings.push({ label: 'Fat',      value: totals.fat,      goal: goals.goal_fat,      color: MACRO_COLORS.fat })
-  if (rings.length === 0) return null
-  const colClass = rings.length <= 2 ? 'grid-cols-2' : rings.length === 3 ? 'grid-cols-3' : 'grid-cols-4'
+  rings.push(               { label: 'Fiber',    value: totals.fiber,    goal: 25,                  color: '#10B981',           unit: 'g' })
+  const colClass = rings.length <= 2 ? 'grid-cols-2' : rings.length === 3 ? 'grid-cols-3' : rings.length === 4 ? 'grid-cols-4' : 'grid-cols-3'
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-4">
       <div className={`grid ${colClass} gap-2`}>
@@ -1789,13 +1788,13 @@ export default function Journal() {
       <MacroRingsRow totals={totals} goals={goals} />
 
       {/* Women's Health Foundation nutrient rings */}
-      <WomensHealthCard meals={meals} totals={totals} waterOz={waterOz} isToday={isToday} onAddWater={addWater} />
+      <WomensHealthCard meals={meals} waterOz={waterOz} isToday={isToday} onAddWater={addWater} />
 
       {/* Also Logged */}
       <QuickStats totals={totals} />
 
       <div className="mb-5">
-        <MicronutrientTotals meals={meals} loading={loading} title="Daily Micronutrients" />
+        <MicronutrientTotals meals={meals} loading={loading} title="Daily Micronutrients" exclude={['fiber_g']} />
       </div>
 
       {/* Meal slots */}
