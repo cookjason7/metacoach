@@ -1656,71 +1656,174 @@ function BarcodeLogger({ slotName, onSaved, logDate }) {
   )
 }
 
-// ── Recipes Logger ─────────────────────────────────────────────────────────────
+// ── My Foods & Recipes Logger ──────────────────────────────────────────────────
 
 function RecipesLogger({ slotName, onSaved, logDate }) {
   const { getToken } = useAuth()
-  const [recipes, setRecipes]   = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [logging, setLogging]   = useState(null)
-  const [loggedId, setLoggedId] = useState(null)
-  const [error,   setError]     = useState(null)
+  const [myFoods,  setMyFoods]  = useState([])
+  const [loading,  setLoading]  = useState(true)
+  const [selected, setSelected] = useState(null)
+  const [qty,      setQty]      = useState('1')
+  const [saving,   setSaving]   = useState(false)
+  const [saved,    setSaved]    = useState(false)
+  const [error,    setError]    = useState(null)
 
   useEffect(() => {
     async function load() {
       try {
         const token = await getToken()
-        const res = await fetch(`${API_URL}/api/recipes`, { headers: { Authorization: `Bearer ${token}` } })
-        if (res.ok) setRecipes(await res.json())
+        const res = await fetch(`${API_URL}/api/custom-foods`, { headers: { Authorization: `Bearer ${token}` } })
+        if (res.ok) {
+          const all = await res.json()
+          setMyFoods(all.filter(f => !f.is_global))
+        }
       } finally { setLoading(false) }
     }
     load()
   }, [getToken])
 
-  async function logRecipe(recipe) {
-    setLogging(recipe.id); setError(null)
+  const q = Math.max(parseFloat(qty) || 1, 0.01)
+  const preview = selected ? {
+    calories: Math.round((parseFloat(selected.calories_per_serving) || 0) * q),
+    protein:  +((parseFloat(selected.protein) || 0) * q).toFixed(1),
+    carbs:    +((parseFloat(selected.carbs)   || 0) * q).toFixed(1),
+    fat:      +((parseFloat(selected.fat)     || 0) * q).toFixed(1),
+    fiber:    selected.fiber ? +((parseFloat(selected.fiber) || 0) * q).toFixed(1) : null,
+  } : null
+
+  async function save() {
+    if (!selected || !preview) return
+    setSaving(true); setError(null)
     try {
       const token = await getToken()
-      const res = await fetch(`${API_URL}/api/recipes/${recipe.id}/log`, {
+      const res = await fetch(`${API_URL}/api/meals/manual`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ meal_slot: slotName, log_date: logDate }),
+        body: JSON.stringify({
+          meal_name:    selected.food_name,
+          calories:     preview.calories,
+          protein_g:    preview.protein,
+          carbs_g:      preview.carbs,
+          fat_g:        preview.fat,
+          fiber_g:      preview.fiber,
+          meal_slot:    slotName,
+          log_date:     logDate,
+          serving_size: +((parseFloat(selected.serving_size) || 1) * q).toFixed(2),
+          serving_unit: selected.serving_unit,
+          source_type:  'custom',
+          source_label: 'My food',
+        }),
       })
-      if (!res.ok) throw new Error('Failed to log recipe')
+      if (!res.ok) throw new Error('Failed to save')
       const meal = await res.json()
-      setLoggedId(recipe.id)
-      onSaved(meal)
-      setTimeout(() => setLoggedId(null), 2000)
-    } catch (err) { setError(err.message) } finally { setLogging(null) }
+      setSaved(true); onSaved(meal)
+    } catch (err) { setError(err.message) } finally { setSaving(false) }
+  }
+
+  if (saved && selected) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+          <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0">✓</div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">{selected.food_name}</p>
+            <p className="text-xs text-gray-500">{preview?.calories} cal</p>
+          </div>
+        </div>
+        <button onClick={() => { setSelected(null); setQty('1'); setSaved(false) }}
+          className="w-full py-2.5 rounded-xl text-sm font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
+          Log Another
+        </button>
+      </div>
+    )
   }
 
   if (loading) return <p className="text-sm text-gray-400 text-center py-6">Loading…</p>
-  if (!recipes.length) return (
-    <div className="text-center py-8">
-      <p className="text-3xl mb-2">📋</p>
-      <p className="text-sm text-gray-500">No saved recipes. Create one in the full Log Meal view.</p>
-    </div>
-  )
 
-  return (
-    <div className="space-y-3">
-      {error && <p className="text-sm text-red-500">{error}</p>}
-      {recipes.map(r => {
-        const s = parseFloat(r.servings) || 1
-        const cal = r.calories != null ? Math.round(r.calories / s) : null
-        return (
-          <div key={r.id} className="flex items-center justify-between gap-3 bg-white border border-gray-200 rounded-xl px-4 py-3">
-            <div>
-              <p className="text-sm font-semibold text-gray-900">{r.name}</p>
-              {cal != null && <p className="text-xs text-gray-500">{cal} cal / serving</p>}
-            </div>
-            <button onClick={() => logRecipe(r)} disabled={logging === r.id}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${loggedId === r.id ? 'bg-green-100 text-green-700' : 'bg-[#E8670A] text-white hover:bg-[#c45e09] disabled:opacity-60'}`}>
-              {loggedId === r.id ? '✓ Logged' : logging === r.id ? '…' : 'Log'}
-            </button>
+  // Selected food panel — servings + log
+  if (selected) {
+    return (
+      <div className="border border-gray-200 rounded-xl p-4 bg-white space-y-3">
+        <div className="flex justify-between items-start gap-2">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-gray-900 leading-snug">{selected.food_name}</p>
+            {selected.serving_size && (
+              <p className="text-xs text-gray-400 mt-0.5">
+                {selected.serving_size} {selected.serving_unit} / serving
+              </p>
+            )}
           </div>
-        )
-      })}
+          <button onClick={() => setSelected(null)} className="text-xs text-gray-400 hover:text-gray-600 shrink-0">Change</button>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Servings</label>
+          <input type="number" value={qty} onChange={e => setQty(e.target.value)}
+            min="0.1" step="0.1" placeholder="1"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+        </div>
+        {preview && (
+          <div className="grid grid-cols-4 gap-2 text-center text-xs">
+            {[['Cal', preview.calories, 'text-[#E8670A]'], ['P', `${preview.protein}g`, 'text-pink-500'], ['C', `${preview.carbs}g`, 'text-blue-500'], ['F', `${preview.fat}g`, 'text-green-500']].map(([l, v, c]) => (
+              <div key={l} className="bg-gray-50 rounded-lg py-2">
+                <p className={`font-bold text-sm ${c}`}>{v}</p>
+                <p className="text-gray-400">{l}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        {preview?.fiber != null && (
+          <p className="text-xs text-gray-400">Fiber: {preview.fiber}g</p>
+        )}
+        {error && <p className="text-sm text-red-500">{error}</p>}
+        <button onClick={save} disabled={saving || !preview}
+          className="w-full bg-[#E8670A] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
+          {saving ? 'Saving…' : 'Log It'}
+        </button>
+      </div>
+    )
+  }
+
+  // Main list view
+  return (
+    <div className="space-y-5">
+      {/* My Foods */}
+      <div>
+        <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">My Foods</p>
+        {myFoods.length === 0 ? (
+          <div className="text-center py-6 border border-gray-200 rounded-xl bg-gray-50">
+            <p className="text-sm text-gray-500">No saved foods yet.</p>
+            <p className="text-xs text-gray-400 mt-1">Save a manual food to reuse it here.</p>
+          </div>
+        ) : (
+          <div className="border border-gray-200 rounded-xl divide-y divide-gray-100 bg-white">
+            {myFoods.map(food => (
+              <button key={food.id} onClick={() => { setSelected(food); setQty('1') }}
+                className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-medium text-gray-900 leading-snug">{food.food_name}</p>
+                  <span className="text-xs font-semibold text-[#E8670A] shrink-0">
+                    {food.calories_per_serving != null ? `${Math.round(food.calories_per_serving)} cal` : ''}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {food.serving_size ? `${food.serving_size} ${food.serving_unit ?? ''}` : '1 serving'}
+                  {food.protein != null ? ` · ${Number(food.protein).toFixed(0)}g P` : ''}
+                  {food.carbs   != null ? ` · ${Number(food.carbs).toFixed(0)}g C`   : ''}
+                  {food.fat     != null ? ` · ${Number(food.fat).toFixed(0)}g F`     : ''}
+                </p>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Recipes placeholder */}
+      <div>
+        <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Recipes</p>
+        <div className="text-center py-5 border border-dashed border-gray-200 rounded-xl">
+          <p className="text-sm text-gray-400">Recipe builder coming soon.</p>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1733,10 +1836,10 @@ const ADD_OPTIONS = [
   { id: 'search',  icon: '🔍', label: 'Search Foods' },
   { id: 'manual',  icon: '✏️', label: 'Manual' },
   { id: 'barcode', icon: '🏷️', label: 'Barcode' },
-  { id: 'recipes', icon: '📋', label: 'Recipes' },
+  { id: 'recipes', icon: '📋', label: 'My Foods & Recipes' },
 ]
 
-const MODE_TITLES = { photo: 'Photo', text: 'Text Entry', search: 'Search Foods', manual: 'Manual Entry', barcode: 'Scan Barcode', recipes: 'Recipes' }
+const MODE_TITLES = { photo: 'Photo', text: 'Text Entry', search: 'Search Foods', manual: 'Manual Entry', barcode: 'Scan Barcode', recipes: 'My Foods & Recipes' }
 const LOGGERS = { photo: PhotoLogger, text: TextLogger, search: SearchLogger, manual: ManualLogger, barcode: BarcodeLogger, recipes: RecipesLogger }
 
 const SNACK_TIMING_OPTIONS = [
