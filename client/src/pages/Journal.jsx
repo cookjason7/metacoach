@@ -160,19 +160,54 @@ function FoundationRing({ label, value, goal, color, unit }) {
   )
 }
 
-// ── Foundation Card ────────────────────────────────────────────────────────────
+// ── Today's Targets Card ──────────────────────────────────────────────────────
 
-function FoundationCard({ meals, totals, goals }) {
+function TargetsCard({ totals, goals }) {
+  const rings = []
+  if (goals.goal_calories) rings.push({ label: 'Calories', value: totals.calories, goal: goals.goal_calories, unit: '',  color: '#E8670A' })
+  if (goals.goal_protein)  rings.push({ label: 'Protein',  value: totals.protein,  goal: goals.goal_protein,  unit: 'g', color: '#EC4899' })
+  rings.push(                           { label: 'Fiber',   value: totals.fiber,    goal: 25,                  unit: 'g', color: '#10B981' })
+
+  if (rings.length === 0) return null
+
+  const overallPct = rings.reduce((s, r) => s + Math.min(r.goal > 0 ? r.value / r.goal : 0, 1), 0) / rings.length
+
+  function statusLabel(p) {
+    if (p >= 0.8) return 'On track'
+    if (p >= 0.5) return 'Strong start'
+    if (p >= 0.2) return 'Needs attention'
+    return 'Low today'
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-4">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-sm font-bold text-gray-900">Today's Targets</h2>
+          <p className="text-[11px] text-gray-400 mt-0.5">{statusLabel(overallPct)}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-lg font-bold" style={{ color: '#E8670A' }}>{Math.round(overallPct * 100)}%</p>
+          <p className="text-[10px] text-gray-400">complete</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-y-4 gap-x-2">
+        {rings.map(r => <FoundationRing key={r.label} {...r} />)}
+      </div>
+    </div>
+  )
+}
+
+// ── Women's Health Foundation Card ────────────────────────────────────────────
+
+function WomensHealthCard({ meals }) {
   const micros = calculateMicronutrientTotals(meals)
   const getMicro = (key) => micros.find(m => m.key === key)?.value ?? 0
 
   const rings = [
-    { label: 'Calories',  value: totals.calories,          goal: goals.goal_calories || 2000, unit: '',    color: '#E8670A' },
-    { label: 'Protein',   value: totals.protein,           goal: goals.goal_protein  || 50,   unit: 'g',   color: '#EC4899' },
-    { label: 'Fiber',     value: totals.fiber,             goal: 25,                          unit: 'g',   color: '#10B981' },
-    { label: 'Calcium',   value: getMicro('calcium_mg'),   goal: 1200,                        unit: 'mg',  color: '#3B82F6' },
-    { label: 'Vitamin D', value: getMicro('vitamin_d_mcg'),goal: 20,                          unit: 'mcg', color: '#F59E0B' },
-    { label: 'Iron',      value: getMicro('iron_mg'),      goal: 18,                          unit: 'mg',  color: '#8B5CF6' },
+    { label: 'Calcium',   value: getMicro('calcium_mg'),    goal: 1200, unit: 'mg',  color: '#3B82F6' },
+    { label: 'Vitamin D', value: getMicro('vitamin_d_mcg'), goal: 20,   unit: 'mcg', color: '#F59E0B' },
+    { label: 'Iron',      value: getMicro('iron_mg'),       goal: 18,   unit: 'mg',  color: '#8B5CF6' },
   ]
 
   const overallPct = rings.reduce((s, r) => s + Math.min(r.goal > 0 ? r.value / r.goal : 0, 1), 0) / rings.length
@@ -188,11 +223,11 @@ function FoundationCard({ meals, totals, goals }) {
     <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-4">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-sm font-bold text-gray-900">Today's Foundation</h2>
+          <h2 className="text-sm font-bold text-gray-900">Women's Health Foundation</h2>
           <p className="text-[11px] text-gray-400 mt-0.5">{statusLabel(overallPct)}</p>
         </div>
         <div className="text-right">
-          <p className="text-lg font-bold" style={{ color: '#E8670A' }}>{Math.round(overallPct * 100)}%</p>
+          <p className="text-lg font-bold" style={{ color: '#3B82F6' }}>{Math.round(overallPct * 100)}%</p>
           <p className="text-[10px] text-gray-400">complete</p>
         </div>
       </div>
@@ -1789,7 +1824,8 @@ export default function Journal() {
       <MacroRingsRow totals={totals} goals={goals} />
 
       {/* Foundation nutrient rings */}
-      <FoundationCard meals={meals} totals={totals} goals={goals} />
+      <TargetsCard totals={totals} goals={goals} />
+      <WomensHealthCard meals={meals} />
 
       {/* Quick stats */}
       <QuickStats totals={totals} waterOz={waterOz} isToday={isToday} onAddWater={addWater} />
