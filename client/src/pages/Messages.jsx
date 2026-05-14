@@ -8,9 +8,9 @@ import StaffInbox from '../components/StaffInbox.jsx'
 const HUMAN_THREAD_TYPES = ['admin_private', 'coach_thread', 'ai_admin']
 
 function getThreadMeta(threadType, coachName) {
-  if (threadType === 'admin_private') return { title: 'Jason Cook',              icon: '🔒', subtitle: 'Messages with Jason Cook',            canReply: false }
+  if (threadType === 'admin_private') return { title: 'Jason Cook',              icon: '💬', subtitle: 'Messages with Jason Cook',                 canReply: true }
   if (threadType === 'coach_thread')  return { title: coachName || 'Your Coach', icon: '💬', subtitle: `Messages with ${coachName || 'your coach'}`, canReply: true }
-  if (threadType === 'ai_admin')      return { title: 'Your Team',               icon: '💬', subtitle: 'Messages from your coaching team',    canReply: true }
+  if (threadType === 'ai_admin')      return { title: 'Your Team',               icon: '💬', subtitle: 'Messages from your coaching team',         canReply: true }
   return { title: threadType, icon: '💬', subtitle: '', canReply: true }
 }
 
