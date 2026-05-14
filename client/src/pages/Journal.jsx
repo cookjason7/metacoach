@@ -5,7 +5,7 @@ import { API_URL } from '../config.js'
 import BarcodeScannerWidget from '../components/BarcodeScanner.jsx'
 import FoodSourceBadge from '../components/FoodSourceBadge.jsx'
 import MicronutrientGrid from '../components/MicronutrientGrid.jsx'
-import MicronutrientTotals from '../components/MicronutrientTotals.jsx'
+import MicronutrientTotals, { calculateMicronutrientTotals } from '../components/MicronutrientTotals.jsx'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -118,6 +118,87 @@ function MacroRing({ label, value, goal, color, unit = 'g' }) {
         </div>
       </div>
       <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color }}>{label}</span>
+    </div>
+  )
+}
+
+// ── Foundation Ring (smaller SVG ring for the Foundation card) ────────────────
+
+function FoundationRing({ label, value, goal, color, unit }) {
+  const r = 27
+  const circ = 2 * Math.PI * r
+  const pct    = goal > 0 ? Math.min(value / goal, 1) : 0
+  const offset = circ * (1 - pct)
+  const over   = goal > 0 && value > goal
+
+  const fmtVal = unit === 'mcg'
+    ? Number(value).toFixed(1).replace(/\.0$/, '')
+    : unit === 'mg'
+      ? Math.round(value)
+      : Math.round(value)
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div className="relative w-[62px] h-[62px]">
+        <svg className="w-full h-full" viewBox="0 0 62 62" style={{ transform: 'rotate(-90deg)' }}>
+          <circle cx="31" cy="31" r={r} fill="none" stroke="#f3f4f6" strokeWidth="6" />
+          <circle cx="31" cy="31" r={r} fill="none"
+            stroke={over ? '#ef4444' : color}
+            strokeWidth="6" strokeLinecap="round"
+            strokeDasharray={circ} strokeDashoffset={offset}
+            style={{ transition: 'stroke-dashoffset 0.5s ease' }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-px">
+          <span className="text-[11px] font-bold text-gray-900 leading-none">{fmtVal}</span>
+          {unit && <span className="text-[8px] text-gray-400 leading-none">{unit}</span>}
+        </div>
+      </div>
+      <span className="text-[10px] font-semibold text-gray-600 text-center leading-tight">{label}</span>
+      <span className="text-[9px] text-gray-400 leading-none">/ {goal}{unit}</span>
+    </div>
+  )
+}
+
+// ── Foundation Card ────────────────────────────────────────────────────────────
+
+function FoundationCard({ meals, totals, goals }) {
+  const micros = calculateMicronutrientTotals(meals)
+  const getMicro = (key) => micros.find(m => m.key === key)?.value ?? 0
+
+  const rings = [
+    { label: 'Calories',  value: totals.calories,          goal: goals.goal_calories || 2000, unit: '',    color: '#E8670A' },
+    { label: 'Protein',   value: totals.protein,           goal: goals.goal_protein  || 50,   unit: 'g',   color: '#EC4899' },
+    { label: 'Fiber',     value: totals.fiber,             goal: 25,                          unit: 'g',   color: '#10B981' },
+    { label: 'Calcium',   value: getMicro('calcium_mg'),   goal: 1200,                        unit: 'mg',  color: '#3B82F6' },
+    { label: 'Vitamin D', value: getMicro('vitamin_d_mcg'),goal: 20,                          unit: 'mcg', color: '#F59E0B' },
+    { label: 'Iron',      value: getMicro('iron_mg'),      goal: 18,                          unit: 'mg',  color: '#8B5CF6' },
+  ]
+
+  const overallPct = rings.reduce((s, r) => s + Math.min(r.goal > 0 ? r.value / r.goal : 0, 1), 0) / rings.length
+
+  function statusLabel(p) {
+    if (p >= 0.8) return 'On track'
+    if (p >= 0.5) return 'Strong start'
+    if (p >= 0.2) return 'Needs attention'
+    return 'Low today'
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-4">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-sm font-bold text-gray-900">Today's Foundation</h2>
+          <p className="text-[11px] text-gray-400 mt-0.5">{statusLabel(overallPct)}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-lg font-bold" style={{ color: '#E8670A' }}>{Math.round(overallPct * 100)}%</p>
+          <p className="text-[10px] text-gray-400">complete</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-y-4 gap-x-2">
+        {rings.map(r => <FoundationRing key={r.label} {...r} />)}
+      </div>
     </div>
   )
 }
@@ -1706,6 +1787,9 @@ export default function Journal() {
 
       {/* Macro rings */}
       <MacroRingsRow totals={totals} goals={goals} />
+
+      {/* Foundation nutrient rings */}
+      <FoundationCard meals={meals} totals={totals} goals={goals} />
 
       {/* Quick stats */}
       <QuickStats totals={totals} waterOz={waterOz} isToday={isToday} onAddWater={addWater} />
