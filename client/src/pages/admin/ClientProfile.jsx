@@ -158,9 +158,18 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 <InfoRow label="Full name"       value={fullName} />
                 <InfoRow label="Email"           value={client.email} />
                 <InfoRow label="Phone"           value={phone} />
-                <InfoRow label="Address"         value={addressLine} />
-                <InfoRow label="Date of birth"   value={dob} />
-                <InfoRow label="Shirt size"      value={client.display_shirt_size} />
+                {client.assessment_has_data ? (
+                  <>
+                    <InfoRow label="Address"       value={addressLine} />
+                    <InfoRow label="Date of birth" value={dob} />
+                    <InfoRow label="Shirt size"    value={client.display_shirt_size} />
+                  </>
+                ) : (
+                  <div className="sm:col-span-2">
+                    <p className="text-xs text-gray-400">Assessment data</p>
+                    <p className="text-sm font-medium text-amber-600">No Health Assessment on File</p>
+                  </div>
+                )}
                 <InfoRow label="Coaching type"   value={client.coaching_type === 'ai' ? 'AI Coaching' : 'VIP Coaching'} />
                 <InfoRow label="Assigned coach"  value={client.assigned_coach_name ?? '—'} />
                 <InfoRow label="Start date"      value={displayStartDate} />
@@ -168,7 +177,13 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 <InfoRow label="Last login"      value={fmtDate(client.last_login_at)} />
                 <InfoRow label="Last meal log"   value={client.last_meal_at ? `${daysSince(client.last_meal_at)}d ago` : '—'} />
                 <InfoRow label="Onboarding"      value={client.onboarding_complete ? '✓ Complete' : '○ In progress'} />
-                <InfoRow label="Assessment"      value={client.assessment_complete ? '✓ Complete' : '○ In progress'} />
+                <InfoRow label="Assessment"      value={
+                  client.assessment_has_data
+                    ? '✓ Complete'
+                    : client.assessment_complete
+                      ? '! Needs Assessment'
+                      : '○ In progress'
+                } />
                 <InfoRow label="Client status"   value={client.client_status ?? 'active'} />
                 <InfoRow label="Role"            value={client.role} />
               </div>

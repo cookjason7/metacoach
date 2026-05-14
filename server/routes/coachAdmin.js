@@ -172,7 +172,8 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
         ha.city                 AS assessment_city,
         ha.state                AS assessment_state,
         ha.zip_code             AS assessment_zip_code,
-        ha.country              AS assessment_country
+        ha.country              AS assessment_country,
+        ha.completed_at         AS assessment_completed_at
       FROM users u
       LEFT JOIN health_assessments ha ON ha.user_id = u.id
       WHERE u.id = $1
@@ -200,6 +201,7 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
         zip:     c.assessment_zip_code || null,
         country: c.assessment_country || null,
       },
+      assessment_has_data: !!c.assessment_completed_at,
       status_tag: computeStatusTag(c),
       momentum: computeMomentum(c.adherence_7d, c.adherence_30d),
     }
