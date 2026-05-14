@@ -1011,6 +1011,7 @@ function SearchLogger({ slotName, onSaved, logDate }) {
   const [selected,     setSelected]     = useState(null)
   const [amount,       setAmount]       = useState('100')
   const [unit,         setUnit]         = useState('g')
+  const [qty,          setQty]          = useState('1')
   const [saving,       setSaving]       = useState(false)
   const [saved,        setSaved]        = useState(false)
   const [error,        setError]        = useState(null)
@@ -1036,6 +1037,7 @@ function SearchLogger({ slotName, onSaved, logDate }) {
     setSelected(food)
     setAmount(String(food._defaultServingSize))
     setUnit(food._defaultServingUnit)
+    setQty('1')
     setResults([])
     setQuery('')
   }
@@ -1082,7 +1084,8 @@ function SearchLogger({ slotName, onSaved, logDate }) {
     try {
       const a = parseFloat(amount)
       if (isNaN(a) || a <= 0) throw new Error('Enter a valid amount')
-      const g = toGrams(a, unit)
+      const q = Math.max(parseFloat(qty) || 1, 0.01)
+      const g = toGrams(a, unit) * q
       const macros = calcMacros(selected, g)
       const token  = await getToken()
       const micronutrients = scaledMicronutrients(selected, g)
@@ -1098,7 +1101,7 @@ function SearchLogger({ slotName, onSaved, logDate }) {
           fiber_g: macros.fiber,
           meal_slot: slotName,
           log_date: logDate,
-          serving_size: a,
+          serving_size: +(a * q).toFixed(2),
           serving_unit: unit,
           source_type: selected._source,
           source_label: selected.source_label,
@@ -1114,7 +1117,8 @@ function SearchLogger({ slotName, onSaved, logDate }) {
   }
 
   const grams = toGrams(parseFloat(amount) || 0, unit)
-  const preview = selected && grams > 0 ? calcMacros(selected, grams) : null
+  const q = Math.max(parseFloat(qty) || 1, 0.01)
+  const preview = selected && grams > 0 ? calcMacros(selected, grams * q) : null
 
   if (saved && selected) {
     return (
@@ -1126,7 +1130,7 @@ function SearchLogger({ slotName, onSaved, logDate }) {
             <p className="text-xs text-gray-500">{preview?.calories ?? 0} cal</p>
           </div>
         </div>
-        <button onClick={() => { setQuery(''); setResults([]); setSelected(null); setAmount('100'); setUnit('g'); setSaved(false) }}
+        <button onClick={() => { setQuery(''); setResults([]); setSelected(null); setAmount('100'); setUnit('g'); setQty('1'); setSaved(false) }}
           className="w-full py-2.5 rounded-xl text-sm font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
           Search Again
         </button>
@@ -1172,7 +1176,7 @@ function SearchLogger({ slotName, onSaved, logDate }) {
       {results.length > 0 && !selected && (
         <div className="border border-gray-200 rounded-xl divide-y divide-gray-100 max-h-60 overflow-y-auto bg-white">
           {results.map((food, i) => (
-            <button key={food.id ?? i} onClick={() => { setSelected(food); setResults([]) }}
+            <button key={food.id ?? i} onClick={() => { setSelected(food); setResults([]); setQty('1') }}
               className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors">
               <div className="flex items-start justify-between gap-2">
                 <p className="text-sm font-medium text-gray-900 leading-snug">{food.name}</p>
@@ -1205,6 +1209,21 @@ function SearchLogger({ slotName, onSaved, logDate }) {
               </select>
             </div>
           </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1.5">Servings</label>
+            <div className="flex items-center gap-1.5">
+              {['0.5', '1', '1.5', '2', '3'].map(v => (
+                <button key={v} type="button" onClick={() => setQty(v)}
+                  className={`min-h-[36px] px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                    qty === v ? 'bg-[#E8670A] text-white border-[#E8670A]' : 'bg-white text-gray-600 border-gray-200 hover:border-[#E8670A]'
+                  }`}>{v}
+                </button>
+              ))}
+              <input type="number" value={qty} onChange={e => setQty(e.target.value)}
+                min="0.1" step="0.1" placeholder="1"
+                className="w-14 min-h-[36px] border border-gray-300 rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+            </div>
+          </div>
           {preview && (
             <div className="grid grid-cols-4 gap-2 text-center text-xs">
               {[['Cal', preview.calories, 'text-[#E8670A]'], ['P', `${preview.protein}g`, `text-[${MACRO_COLORS.protein}]`], ['C', `${preview.carbs}g`, `text-[${MACRO_COLORS.carbs}]`], ['F', `${preview.fat}g`, `text-[${MACRO_COLORS.fat}]`]].map(([l, v, c]) => (
@@ -1215,7 +1234,7 @@ function SearchLogger({ slotName, onSaved, logDate }) {
               ))}
             </div>
           )}
-          <MicronutrientGrid food={selected} grams={grams} />
+          <MicronutrientGrid food={selected} grams={grams * q} />
           {error && <p className="text-sm text-red-500">{error}</p>}
           <button onClick={save} disabled={saving || !preview}
             className="w-full bg-[#E8670A] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
