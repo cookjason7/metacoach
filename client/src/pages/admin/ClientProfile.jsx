@@ -282,8 +282,9 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
   const [editing,    setEditing]    = useState(false)
   const [saving,     setSaving]     = useState(false)
   const [error,      setError]      = useState(null)
-  const [calcMode,   setCalcMode]   = useState('calculator')
-  const [autoTarget, setAutoTarget] = useState('fat')   // which macro is auto-calculated
+  const [goalType,   setGoalType]   = useState('calories_protein') // 'calories_only' | 'calories_protein' | 'full_macros'
+  const [fullMode,   setFullMode]   = useState('calculator')       // 'calculator' | 'percentage'
+  const [autoTarget, setAutoTarget] = useState('fat')
   const [form, setForm] = useState({
     goal_calories: client.goal_calories ?? '',
     goal_protein:  client.goal_protein  ?? '',
@@ -300,26 +301,25 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
   const carbs = Math.max(0, Number(form.goal_carbs)    || 0)
   const fat   = Math.max(0, Number(form.goal_fat)      || 0)
 
-  // Calculator: remaining calories after the two manually entered macros
+  // Full Macros — calculator sub-mode
   const acRemain =
     autoTarget === 'fat'   ? cal - (prot  * 4 + carbs * 4) :
     autoTarget === 'carbs' ? cal - (prot  * 4 + fat   * 9) :
     /* protein */             cal - (carbs * 4 + fat   * 9)
-  const acValue  = acRemain > 0
-    ? Math.round(acRemain / (autoTarget === 'fat' ? 9 : 4))
-    : 0
-  const acError  = cal > 0 && acRemain < -50
+  const acValue = acRemain > 0 ? Math.round(acRemain / (autoTarget === 'fat' ? 9 : 4)) : 0
+  const acError = cal > 0 && acRemain < -50
 
-  // Percentage mode
+  // Full Macros — percentage sub-mode
   const pctTotal   = pct.protein + pct.carbs + pct.fat
   const pctProtein = Math.max(0, Math.round(cal * pct.protein / 100 / 4))
   const pctCarbs   = Math.max(0, Math.round(cal * pct.carbs   / 100 / 4))
   const pctFat     = Math.max(0, Math.round(cal * pct.fat     / 100 / 9))
 
-  const canSave = !saving && !(calcMode === 'calculator' && acError)
+  const canSave = !saving &&
+    !(goalType === 'full_macros' && fullMode === 'calculator' && acError)
 
   async function save() {
-    if (calcMode === 'percentage' && pctTotal !== 100) {
+    if (goalType === 'full_macros' && fullMode === 'percentage' && pctTotal !== 100) {
       setError('Macro percentages must total 100% before saving.')
       return
     }
@@ -331,15 +331,22 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
         goal_calories: toInt(form.goal_calories),
         goal_fiber:    toInt(form.goal_fiber),
         goal_water:    toInt(form.goal_water),
+        goal_protein:  null,
+        goal_carbs:    null,
+        goal_fat:      null,
       }
-      if (calcMode === 'percentage') {
-        body.goal_protein = pctProtein
-        body.goal_carbs   = pctCarbs
-        body.goal_fat     = pctFat
-      } else {
-        body.goal_protein = autoTarget === 'protein' ? acValue : Math.round(prot)
-        body.goal_carbs   = autoTarget === 'carbs'   ? acValue : Math.round(carbs)
-        body.goal_fat     = autoTarget === 'fat'     ? acValue : Math.round(fat)
+      if (goalType === 'calories_protein') {
+        body.goal_protein = toInt(form.goal_protein)
+      } else if (goalType === 'full_macros') {
+        if (fullMode === 'percentage') {
+          body.goal_protein = pctProtein
+          body.goal_carbs   = pctCarbs
+          body.goal_fat     = pctFat
+        } else {
+          body.goal_protein = autoTarget === 'protein' ? acValue : Math.round(prot)
+          body.goal_carbs   = autoTarget === 'carbs'   ? acValue : Math.round(carbs)
+          body.goal_fat     = autoTarget === 'fat'     ? acValue : Math.round(fat)
+        }
       }
       const res = await fetch(`${API_URL}/api/admin/users/${client.id}/macros`, {
         method: 'PATCH',
@@ -352,9 +359,28 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
     } catch (err) { setError(err.message) } finally { setSaving(false) }
   }
 
-  const inputCls    = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30'
-  const computedCls = 'w-full border border-gray-200 bg-orange-50 rounded-lg px-3 py-2 text-sm font-semibold text-[#c45e09]'
+  const inputCls      = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30'
+  const computedCls   = 'w-full border border-gray-200 bg-orange-50 rounded-lg px-3 py-2 text-sm font-semibold text-[#c45e09]'
   const computedErrCls = 'w-full border border-red-200 bg-red-50 rounded-lg px-3 py-2 text-sm font-semibold text-red-600'
+
+  const GOAL_TYPES = [
+    { id: 'calories_only',    label: 'Calories Only',       desc: 'Track calories, fiber, and water.' },
+    { id: 'calories_protein', label: 'Calories + Protein',  desc: 'Most common. Add a protein target.' },
+    { id: 'full_macros',      label: 'Full Macros',         desc: 'Set all macros with auto-calculation.' },
+  ]
+
+  const fiberWater = (
+    <div className="grid grid-cols-2 gap-3 pt-1">
+      {[['goal_fiber','Fiber','g'],['goal_water','Water','oz']].map(([fkey, label, unit]) => (
+        <div key={fkey}>
+          <label className="block text-xs font-medium text-gray-600 mb-1">{label} <span className="text-gray-400">({unit})</span></label>
+          <input type="number" min="0" value={form[fkey]}
+            onChange={e => setForm(f => ({ ...f, [fkey]: e.target.value }))}
+            placeholder="—" className={inputCls} />
+        </div>
+      ))}
+    </div>
+  )
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-5">
@@ -378,130 +404,158 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
         </div>
       ) : (
         <div className="space-y-4">
-          {/* Mode switcher */}
-          <div className="flex gap-2 flex-wrap">
-            {[['calculator','Calculator'],['percentage','Percentage']].map(([id, label]) => (
-              <button key={id} onClick={() => setCalcMode(id)}
-                className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors ${
-                  calcMode === id ? 'bg-[#E8670A] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}>{label}</button>
+
+          {/* ── Goal type selector ── */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {GOAL_TYPES.map(({ id, label, desc }) => (
+              <button key={id} onClick={() => setGoalType(id)}
+                className={`text-left rounded-xl border px-3 py-2.5 transition-all ${
+                  goalType === id
+                    ? 'border-[#E8670A] bg-orange-50 ring-1 ring-[#E8670A]'
+                    : 'border-gray-200 hover:border-gray-300 bg-white'
+                }`}>
+                <p className={`text-xs font-semibold mb-0.5 ${goalType === id ? 'text-[#c45e09]' : 'text-gray-800'}`}>{label}</p>
+                <p className="text-[11px] text-gray-400 leading-snug">{desc}</p>
+              </button>
             ))}
           </div>
 
-          {/* ── Calculator ── */}
-          {calcMode === 'calculator' && (
+          {/* ── Calories Only ── */}
+          {goalType === 'calories_only' && (
             <div className="space-y-3">
-              {/* Calculate missing macro selector */}
-              <div className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2.5">
-                <p className="text-xs font-medium text-gray-500 whitespace-nowrap">Calculate:</p>
-                <div className="flex gap-1.5">
-                  {[['fat','Fat'],['carbs','Carbs'],['protein','Protein']].map(([id, label]) => (
-                    <button key={id} onClick={() => setAutoTarget(id)}
-                      className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
-                        autoTarget === id
-                          ? 'bg-[#E8670A] text-white'
-                          : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-100'
-                      }`}>{label}</button>
-                  ))}
-                </div>
-              </div>
-
-              {/* All 4 macro fields — calculated one is read-only */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Calories <span className="text-gray-400">(kcal)</span></label>
-                  <input type="number" min="0" value={form.goal_calories}
-                    onChange={e => setForm(f => ({ ...f, goal_calories: e.target.value }))}
-                    placeholder="—" className={inputCls} />
-                </div>
-                {[
-                  { key: 'goal_protein', label: 'Protein', id: 'protein' },
-                  { key: 'goal_carbs',   label: 'Carbs',   id: 'carbs'   },
-                  { key: 'goal_fat',     label: 'Fat',     id: 'fat'     },
-                ].map(({ key, label, id }) => (
-                  <div key={id}>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      {label} <span className="text-gray-400">(g)</span>
-                      {autoTarget === id && <span className="ml-1 text-[#E8670A] font-semibold">= calc</span>}
-                    </label>
-                    {autoTarget === id ? (
-                      <div className={acError ? computedErrCls : computedCls}>
-                        {acError ? '—' : acValue}
-                      </div>
-                    ) : (
-                      <input type="number" min="0" value={form[key]}
-                        onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-                        placeholder="—" className={inputCls} />
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {/* Status */}
-              {cal > 0 && (
-                <div className={`rounded-lg px-3 py-2 text-xs ${acError ? 'bg-red-50 border border-red-200 text-red-600 font-medium' : 'bg-gray-50 text-gray-500'}`}>
-                  {acError
-                    ? `⚠ Entered macros exceed ${cal} kcal — reduce values to enable Save`
-                    : `${Math.max(0, acRemain)} kcal remaining → ${autoTarget} = ${acValue} g`
-                  }
-                </div>
-              )}
-
-              {/* Fiber and Water */}
-              <div className="grid grid-cols-2 gap-3">
-                {[['goal_fiber','Fiber','g'],['goal_water','Water','oz']].map(([fkey, label, unit]) => (
-                  <div key={fkey}>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">{label} <span className="text-gray-400">({unit})</span></label>
-                    <input type="number" min="0" value={form[fkey]}
-                      onChange={e => setForm(f => ({ ...f, [fkey]: e.target.value }))}
-                      placeholder="—" className={inputCls} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── Percentage ── */}
-          {calcMode === 'percentage' && (
-            <div className="space-y-3">
-              <p className="text-xs text-gray-500">Enter calories and macro percentages. Gram values are computed automatically.</p>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Calories <span className="text-gray-400">(kcal)</span></label>
                 <input type="number" min="0" value={form.goal_calories}
                   onChange={e => setForm(f => ({ ...f, goal_calories: e.target.value }))}
                   placeholder="—" className={inputCls} />
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                {['protein', 'carbs', 'fat'].map(k => (
-                  <div key={k}>
-                    <label className="block text-xs font-medium text-gray-600 mb-1 capitalize">{k} %</label>
-                    <input type="number" min="0" max="100" value={pct[k]}
-                      onChange={e => setPct(p => ({ ...p, [k]: Number(e.target.value) }))}
-                      className={inputCls} />
-                  </div>
-                ))}
-              </div>
-              <p className={`text-[11px] font-medium ${pctTotal === 100 ? 'text-emerald-600' : 'text-amber-500'}`}>
-                Total: {pctTotal}% {pctTotal === 100 ? '✓' : '— must equal 100% to save'}
-              </p>
-              <div className="bg-gray-50 rounded-lg p-3 grid grid-cols-3 gap-3">
-                {[['Protein', pctProtein, 'g'], ['Carbs', pctCarbs, 'g'], ['Fat', pctFat, 'g']].map(([label, val, unit]) => (
-                  <div key={label}>
-                    <p className="text-[10px] text-gray-400 mb-1">{label}</p>
-                    <div className={computedCls}>{val}{unit}</div>
-                  </div>
-                ))}
-              </div>
+              {fiberWater}
+            </div>
+          )}
+
+          {/* ── Calories + Protein ── */}
+          {goalType === 'calories_protein' && (
+            <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
-                {[['goal_fiber','Fiber','g'],['goal_water','Water','oz']].map(([fkey, label, unit]) => (
-                  <div key={fkey}>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">{label} <span className="text-gray-400">({unit})</span></label>
-                    <input type="number" min="0" value={form[fkey]}
-                      onChange={e => setForm(f => ({ ...f, [fkey]: e.target.value }))}
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Calories <span className="text-gray-400">(kcal)</span></label>
+                  <input type="number" min="0" value={form.goal_calories}
+                    onChange={e => setForm(f => ({ ...f, goal_calories: e.target.value }))}
+                    placeholder="—" className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Protein <span className="text-gray-400">(g)</span></label>
+                  <input type="number" min="0" value={form.goal_protein}
+                    onChange={e => setForm(f => ({ ...f, goal_protein: e.target.value }))}
+                    placeholder="—" className={inputCls} />
+                </div>
+              </div>
+              {fiberWater}
+            </div>
+          )}
+
+          {/* ── Full Macros ── */}
+          {goalType === 'full_macros' && (
+            <div className="space-y-3">
+              {/* Sub-mode tabs */}
+              <div className="flex gap-2">
+                {[['calculator','Calculator'],['percentage','Percentage']].map(([id, label]) => (
+                  <button key={id} onClick={() => setFullMode(id)}
+                    className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors ${
+                      fullMode === id ? 'bg-[#1e2a3a] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}>{label}</button>
+                ))}
+              </div>
+
+              {/* Calculator sub-mode */}
+              {fullMode === 'calculator' && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2.5">
+                    <p className="text-xs font-medium text-gray-500 whitespace-nowrap">Calculate:</p>
+                    <div className="flex gap-1.5">
+                      {[['fat','Fat'],['carbs','Carbs'],['protein','Protein']].map(([id, label]) => (
+                        <button key={id} onClick={() => setAutoTarget(id)}
+                          className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
+                            autoTarget === id ? 'bg-[#E8670A] text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-100'
+                          }`}>{label}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Calories <span className="text-gray-400">(kcal)</span></label>
+                      <input type="number" min="0" value={form.goal_calories}
+                        onChange={e => setForm(f => ({ ...f, goal_calories: e.target.value }))}
+                        placeholder="—" className={inputCls} />
+                    </div>
+                    {[
+                      { key: 'goal_protein', label: 'Protein', id: 'protein' },
+                      { key: 'goal_carbs',   label: 'Carbs',   id: 'carbs'   },
+                      { key: 'goal_fat',     label: 'Fat',     id: 'fat'     },
+                    ].map(({ key, label, id }) => (
+                      <div key={id}>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          {label} <span className="text-gray-400">(g)</span>
+                          {autoTarget === id && <span className="ml-1 text-[#E8670A] font-semibold">= calc</span>}
+                        </label>
+                        {autoTarget === id ? (
+                          <div className={acError ? computedErrCls : computedCls}>
+                            {acError ? '—' : acValue}
+                          </div>
+                        ) : (
+                          <input type="number" min="0" value={form[key]}
+                            onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                            placeholder="—" className={inputCls} />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {cal > 0 && (
+                    <div className={`rounded-lg px-3 py-2 text-xs ${acError ? 'bg-red-50 border border-red-200 text-red-600 font-medium' : 'bg-gray-50 text-gray-500'}`}>
+                      {acError
+                        ? `⚠ Entered macros exceed ${cal} kcal — reduce values to enable Save`
+                        : `${Math.max(0, acRemain)} kcal remaining → ${autoTarget} = ${acValue} g`}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Percentage sub-mode */}
+              {fullMode === 'percentage' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Calories <span className="text-gray-400">(kcal)</span></label>
+                    <input type="number" min="0" value={form.goal_calories}
+                      onChange={e => setForm(f => ({ ...f, goal_calories: e.target.value }))}
                       placeholder="—" className={inputCls} />
                   </div>
-                ))}
-              </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    {['protein', 'carbs', 'fat'].map(k => (
+                      <div key={k}>
+                        <label className="block text-xs font-medium text-gray-600 mb-1 capitalize">{k} %</label>
+                        <input type="number" min="0" max="100" value={pct[k]}
+                          onChange={e => setPct(p => ({ ...p, [k]: Number(e.target.value) }))}
+                          className={inputCls} />
+                      </div>
+                    ))}
+                  </div>
+                  <p className={`text-[11px] font-medium ${pctTotal === 100 ? 'text-emerald-600' : 'text-amber-500'}`}>
+                    Total: {pctTotal}% {pctTotal === 100 ? '✓' : '— must equal 100% to save'}
+                  </p>
+                  <div className="bg-gray-50 rounded-lg p-3 grid grid-cols-3 gap-3">
+                    {[['Protein', pctProtein, 'g'], ['Carbs', pctCarbs, 'g'], ['Fat', pctFat, 'g']].map(([label, val]) => (
+                      <div key={label}>
+                        <p className="text-[10px] text-gray-400 mb-1">{label}</p>
+                        <div className={computedCls}>{val} g</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {fiberWater}
             </div>
           )}
 
