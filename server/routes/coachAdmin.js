@@ -452,6 +452,43 @@ router.get('/clients/:id/nutrition/weekly', requireAuth(), async (req, res, next
   } catch (err) { next(err) }
 })
 
+// GET /api/coach-admin/clients/:id/meals?date=YYYY-MM-DD — food log for a day
+router.get('/clients/:id/meals', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+
+    const date = req.query.date ?? new Date().toISOString().slice(0, 10)
+    const { rows } = await pool.query(`
+      SELECT
+        id, meal_name, meal_slot,
+        ROUND(calories)::int     AS calories,
+        ROUND(protein::numeric, 1)  AS protein,
+        ROUND(carbs::numeric,   1)  AS carbs,
+        ROUND(fat::numeric,     1)  AS fat,
+        ROUND(fiber::numeric,   1)  AS fiber,
+        serving_size, serving_unit,
+        logged_at
+      FROM meals
+      WHERE user_id = $1 AND COALESCE(log_date, logged_at::date) = $2::date
+      ORDER BY
+        CASE meal_slot
+          WHEN 'Breakfast'  THEN 1
+          WHEN 'AM Snack'   THEN 2
+          WHEN 'Lunch'      THEN 3
+          WHEN 'PM Snack'   THEN 4
+          WHEN 'Snack'      THEN 5
+          WHEN 'Dinner'     THEN 6
+          WHEN 'Late Snack' THEN 7
+          ELSE 8
+        END,
+        logged_at
+    `, [id, date])
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
 // ─── Habit assignment ─────────────────────────────────────────────────────────
 
 // GET /api/coach-admin/clients/:id/habits — list assigned habits

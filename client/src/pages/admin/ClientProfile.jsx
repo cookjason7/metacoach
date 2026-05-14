@@ -487,6 +487,90 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
   )
 }
 
+// ─── Food Log Section (coach view) ───────────────────────────────────────────
+
+const SLOT_DISPLAY_ORDER = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
+const SNACK_SLOTS = new Set(['Snack', 'AM Snack', 'PM Snack', 'Late Snack'])
+
+function FoodLogSection({ clientId, date, getToken }) {
+  const [meals,   setMeals]   = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      try {
+        const token = await getToken()
+        const res = await fetch(
+          `${API_URL}/api/coach-admin/clients/${clientId}/meals?date=${date}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        )
+        if (!cancelled && res.ok) setMeals(await res.json())
+        else if (!cancelled) setMeals([])
+      } catch { if (!cancelled) setMeals([]) }
+      finally { if (!cancelled) setLoading(false) }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [clientId, date, getToken])
+
+  const grouped = {}
+  for (const m of meals) {
+    const slot = SNACK_SLOTS.has(m.meal_slot) ? 'Snack' : (m.meal_slot ?? 'Other')
+    if (!grouped[slot]) grouped[slot] = []
+    grouped[slot].push(m)
+  }
+  const slotsPresent = SLOT_DISPLAY_ORDER.filter(s => grouped[s]?.length)
+
+  const fmt = (n, unit = '') => n != null && Number(n) > 0 ? `${n}${unit}` : null
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-4">
+      <h3 className="text-sm font-semibold text-gray-900 mb-3">Food Log</h3>
+      {loading ? (
+        <p className="text-xs text-gray-400">Loading…</p>
+      ) : slotsPresent.length === 0 ? (
+        <p className="text-xs text-gray-400 py-2">No meals logged for this day.</p>
+      ) : (
+        <div className="space-y-4">
+          {slotsPresent.map(slot => (
+            <div key={slot}>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">{slot}</p>
+              <div className="space-y-1">
+                {grouped[slot].map(m => {
+                  const serving = m.serving_size != null
+                    ? `${m.serving_size}${m.serving_unit || 'g'}`
+                    : null
+                  const macros = [
+                    fmt(m.calories, ' kcal'),
+                    fmt(m.protein,  'g pro'),
+                    fmt(m.carbs,    'g carbs'),
+                    fmt(m.fat,      'g fat'),
+                    m.fiber != null && Number(m.fiber) > 0 ? `${m.fiber}g fiber` : null,
+                  ].filter(Boolean)
+
+                  return (
+                    <div key={m.id} className="flex items-start justify-between gap-2 py-1.5 border-b border-gray-50 last:border-0">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 leading-snug truncate">{m.meal_name}</p>
+                        {serving && <p className="text-[11px] text-gray-400">{serving}</p>}
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p className="text-xs text-gray-500 leading-relaxed">{macros.join(' · ')}</p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Nutrition Tab ────────────────────────────────────────────────────────────
 
 function NutritionStat({ label, value, unit = '' }) {
@@ -599,7 +683,10 @@ function NutritionTab({ client, clientId, getToken, onUpdate }) {
         )}
       </div>
 
-      {/* 4. 7-Day Averages */}
+      {/* 4. Food Log */}
+      <FoodLogSection clientId={clientId} date={date} getToken={getToken} />
+
+      {/* 5. 7-Day Averages */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <h3 className="text-sm font-semibold text-gray-900 mb-3">7-Day Averages</h3>
         {loading ? <p className="text-xs text-gray-400">Loading…</p> : (
