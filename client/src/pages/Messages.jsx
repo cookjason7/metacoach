@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
+import StaffInbox from '../components/StaffInbox.jsx'
 
 function getThreadMeta(threadType, coachName) {
   if (threadType === 'admin_private') return { title: 'Jason Cook',              icon: '🔒', subtitle: 'Private message from Jason Cook' }
@@ -19,6 +20,7 @@ function fmtTime(iso) {
 
 export default function Messages() {
   const { getToken } = useAuth()
+  const [isStaff,   setIsStaff]   = useState(null) // null = loading, true/false once known
   const [threads,   setThreads]   = useState([])
   const [coachName, setCoachName] = useState(null)
   const [active,    setActive]    = useState(null)  // thread_type string
@@ -28,6 +30,23 @@ export default function Messages() {
   const [loadingMsgs, setLoadingMsgs] = useState(false)
   const [sending, setSending]   = useState(false)
   const scrollRef = useRef(null)
+
+  // Detect role once on mount
+  useEffect(() => {
+    async function checkRole() {
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
+        if (res.ok) {
+          const data = await res.json()
+          setIsStaff(data.role === 'admin' || data.role === 'coach')
+        } else {
+          setIsStaff(false)
+        }
+      } catch { setIsStaff(false) }
+    }
+    checkRole()
+  }, [getToken])
 
   const loadThreads = useCallback(async () => {
     const token = await getToken()
@@ -92,6 +111,20 @@ export default function Messages() {
       const err = await res.json().catch(() => ({}))
       alert(err.error ?? 'Could not send message')
     }
+  }
+
+  // Staff/admin: render the shared client inbox instead of the client UI
+  if (isStaff === null) return <p className="text-sm text-gray-400 py-12 text-center">Loading…</p>
+  if (isStaff) {
+    return (
+      <div className="max-w-5xl">
+        <div className="mb-5">
+          <h1 className="text-2xl font-bold text-gray-900">Messages</h1>
+          <p className="text-sm text-gray-500">Client inbox — reply to any conversation below.</p>
+        </div>
+        <StaffInbox getToken={getToken} />
+      </div>
+    )
   }
 
   const activeThread = threads.find(t => t.thread_type === active)
