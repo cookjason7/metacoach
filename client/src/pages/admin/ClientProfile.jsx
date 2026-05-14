@@ -1277,7 +1277,7 @@ function AssessmentTab({ clientId, getToken }) {
     async function load() {
       try {
         const token = await getToken()
-        const res = await fetch(`${API_URL}/api/admin/assessments/${clientId}`, {
+        const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/assessment`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (res.ok) setData(await res.json())

@@ -392,36 +392,6 @@ export default function Settings() {
         </a>
       </div>
 
-      {/* ── DEV TOOLS ── TODO: REMOVE BEFORE PRODUCTION LAUNCH */}
-      <div className="bg-yellow-50 border-2 border-yellow-300 rounded-xl p-4 mb-8">
-        <p className="text-xs font-bold text-yellow-800 mb-1">🛠 Dev Tools — Testing Only</p>
-        <p className="text-xs text-yellow-700 mb-3">
-          Reset your own assessment flow to test it again. Your meals, workouts, and other data are unaffected.
-        </p>
-        <button
-          type="button"
-          onClick={async () => {
-            const token = await getToken()
-            const res = await fetch(`${API_URL}/api/health-assessment/dev-reset-self`, {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({}),
-            })
-            if (res.ok) {
-              // Hard reload clears the module-level userStateCache in App.jsx,
-              // triggering a fresh /api/users/me fetch that sees assessment_complete=false
-              // and redirects to /health-assessment automatically.
-              window.location.href = '/dashboard'
-            } else {
-              alert('Reset failed — check console')
-            }
-          }}
-          className="px-4 py-2 text-xs font-semibold rounded-lg border-2 border-yellow-400 text-yellow-800 hover:bg-yellow-100 transition-colors"
-        >
-          Reset Assessment &amp; Re-test →
-        </button>
-      </div>
-
       {/* Connected Apps */}
       <h2 className="text-sm font-semibold text-gray-700 mb-3">Connected Apps</h2>
       <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">

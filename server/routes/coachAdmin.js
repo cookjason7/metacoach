@@ -889,7 +889,17 @@ router.post('/clients/:id/messages', requireAuth(), async (req, res, next) => {
 })
 
 // ─── Assessment view/edit ─────────────────────────────────────────────────────
-// Admin can already view via /api/admin/assessments. Add a write endpoint here.
+
+// GET /api/coach-admin/clients/:id/assessment — admin/coach can view assessment
+router.get('/clients/:id/assessment', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+    const { rows } = await pool.query('SELECT * FROM health_assessments WHERE user_id = $1', [id])
+    res.json(rows[0] ?? null)
+  } catch (err) { next(err) }
+})
 
 // PATCH /api/coach-admin/clients/:id/assessment — admin/coach can edit assessment
 router.patch('/clients/:id/assessment', requireAuth(), async (req, res, next) => {

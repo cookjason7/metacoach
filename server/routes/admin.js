@@ -50,26 +50,23 @@ router.patch('/users/:id/macros', requireAuth(), async (req, res, next) => {
       }
     }
 
-    const { goal_calories, goal_protein, goal_carbs, goal_fat, goal_fiber, goal_water } = req.body
+    const MACRO_FIELDS = ['goal_calories', 'goal_protein', 'goal_carbs', 'goal_fat', 'goal_fiber', 'goal_water']
+    const setClauses = []
+    const params = []
+    for (const field of MACRO_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+        const v = req.body[field]
+        params.push(v == null ? null : Number(v))
+        setClauses.push(`${field} = $${params.length}`)
+      }
+    }
+    if (!setClauses.length) return res.status(400).json({ error: 'No fields provided' })
+    params.push(targetId)
     const { rows } = await pool.query(`
-      UPDATE users SET
-        goal_calories = COALESCE($1, goal_calories),
-        goal_protein  = COALESCE($2, goal_protein),
-        goal_carbs    = COALESCE($3, goal_carbs),
-        goal_fat      = COALESCE($4, goal_fat),
-        goal_fiber    = COALESCE($5, goal_fiber),
-        goal_water    = COALESCE($6, goal_water)
-      WHERE id = $7
+      UPDATE users SET ${setClauses.join(', ')}
+      WHERE id = $${params.length}
       RETURNING id, first_name, goal_calories, goal_protein, goal_carbs, goal_fat, goal_fiber, goal_water
-    `, [
-      goal_calories != null ? Number(goal_calories) : null,
-      goal_protein  != null ? Number(goal_protein)  : null,
-      goal_carbs    != null ? Number(goal_carbs)    : null,
-      goal_fat      != null ? Number(goal_fat)      : null,
-      goal_fiber    != null ? Number(goal_fiber)    : null,
-      goal_water    != null ? Number(goal_water)    : null,
-      targetId,
-    ])
+    `, params)
     res.json(rows[0])
   } catch (err) {
     next(err)

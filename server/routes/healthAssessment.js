@@ -134,32 +134,5 @@ router.post('/', requireAuth(), async (req, res, next) => {
   }
 })
 
-// POST /api/health-assessment/dev-reset-self
-// TODO: REMOVE BEFORE PRODUCTION LAUNCH
-// Resets only the calling user's own assessment_complete flag (and optionally
-// onboarding_complete). No meals, workouts, or other data is touched.
-// Does NOT require admin role — only affects the authenticated user's own account.
-router.post('/dev-reset-self', requireAuth(), async (req, res, next) => {
-  try {
-    const { userId } = getAuth(req)
-    const dbUserId = await getOrCreateUser(userId)
-    const { reset_onboarding = false } = req.body
-
-    const setClauses = ['assessment_complete = FALSE']
-    if (reset_onboarding) setClauses.push('onboarding_complete = FALSE')
-
-    const { rows } = await pool.query(
-      `UPDATE users SET ${setClauses.join(', ')}
-       WHERE id = $1
-       RETURNING id, first_name, onboarding_complete, assessment_complete`,
-      [dbUserId],
-    )
-
-    console.log(`[DEV] Self-reset for user ${dbUserId}:`, setClauses.join(', '))
-    res.json({ ok: true, user: rows[0] })
-  } catch (err) {
-    next(err)
-  }
-})
 
 export default router
