@@ -5,11 +5,23 @@ import { API_URL } from '../config.js'
 import BarcodeScannerWidget from '../components/BarcodeScanner.jsx'
 import FoodSourceBadge from '../components/FoodSourceBadge.jsx'
 import MicronutrientGrid from '../components/MicronutrientGrid.jsx'
-import MicronutrientTotals, { calculateMicronutrientTotals } from '../components/MicronutrientTotals.jsx'
+import { calculateMicronutrientTotals } from '../components/MicronutrientTotals.jsx'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-const SLOTS = ['Breakfast', 'AM Snack', 'Lunch', 'PM Snack', 'Dinner', 'Late Snack']
+const SLOTS = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
+
+// Internal stored slot options for copy/move modal (maps snack timing to DB values)
+const SLOT_OPTIONS = [
+  { value: 'Breakfast',  label: 'Breakfast' },
+  { value: 'AM Snack',   label: 'Morning Snack' },
+  { value: 'Lunch',      label: 'Lunch' },
+  { value: 'PM Snack',   label: 'Afternoon Snack' },
+  { value: 'Dinner',     label: 'Dinner' },
+  { value: 'Late Snack', label: 'Evening Snack' },
+]
+
+const SNACK_SLOTS = new Set(['AM Snack', 'PM Snack', 'Late Snack', 'Snack'])
 const DAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 const MACRO_COLORS = { protein: '#EC4899', carbs: '#3B82F6', fat: '#10B981', calories: '#E8670A' }
 
@@ -57,10 +69,18 @@ function getWeekDays(monday) {
 function getDefaultSlot() {
   const h = new Date().getHours()
   if (h >= 5  && h < 10) return 'Breakfast'
-  if (h >= 10 && h < 12) return 'AM Snack'
+  if (h >= 10 && h < 12) return 'Snack'
   if (h >= 12 && h < 14) return 'Lunch'
-  if (h >= 14 && h < 17) return 'PM Snack'
+  if (h >= 14 && h < 17) return 'Snack'
   if (h >= 17 && h < 20) return 'Dinner'
+  return 'Snack'
+}
+
+// Map 'Snack' display slot to an internal DB slot based on time of day
+function defaultSnackTiming() {
+  const h = new Date().getHours()
+  if (h >= 5 && h < 12) return 'AM Snack'
+  if (h >= 12 && h < 18) return 'PM Snack'
   return 'Late Snack'
 }
 
@@ -81,7 +101,10 @@ function sumMacros(meals) {
 function groupBySlot(meals) {
   const g = {}
   for (const m of meals) {
-    const key = SLOTS.includes(m.meal_slot) ? m.meal_slot : SLOTS[0]
+    let key = m.meal_slot
+    // Bucket all snack variants under 'Snack'
+    if (SNACK_SLOTS.has(key)) key = 'Snack'
+    else if (!SLOTS.includes(key)) key = SLOTS[0]
     if (!g[key]) g[key] = []
     g[key].push(m)
   }
@@ -303,21 +326,73 @@ function WeekStrip({ weekDays, selected, onChange, activeDates, onShift }) {
   )
 }
 
-// ── Macro Rings Row ────────────────────────────────────────────────────────────
+// ── Compact Macro Ring (smaller SVG for 4-up mobile layout) ───────────────────
 
-function MacroRingsRow({ totals, goals }) {
+function CompactMacroRing({ label, value, goal, color, unit = 'g' }) {
+  const r = 28
+  const circ = 2 * Math.PI * r
+  const pct = goal > 0 ? Math.min(value / goal, 1) : 0
+  const offset = circ * (1 - pct)
+  const over = goal > 0 && value > goal
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div className="relative w-[64px] h-[64px]">
+        <svg className="w-full h-full" viewBox="0 0 64 64" style={{ transform: 'rotate(-90deg)' }}>
+          <circle cx="32" cy="32" r={r} fill="none" stroke="#f3f4f6" strokeWidth="6" />
+          <circle
+            cx="32" cy="32" r={r} fill="none"
+            stroke={over ? '#ef4444' : color}
+            strokeWidth="6"
+            strokeLinecap="round"
+            strokeDasharray={circ}
+            strokeDashoffset={offset}
+            style={{ transition: 'stroke-dashoffset 0.4s ease' }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-xs font-bold text-gray-900 leading-none">{Math.round(value)}</span>
+          <span className="text-[9px] text-gray-400 leading-none mt-0.5">{goal ? `/ ${goal}` : '—'}</span>
+        </div>
+      </div>
+      <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color }}>{label}</span>
+    </div>
+  )
+}
+
+// ── Compact Macro Summary (4 rings + Fiber text row) ──────────────────────────
+
+function CompactMacroSummary({ totals, goals }) {
   const rings = [
-    { label: 'Calories', value: totals.calories, goal: goals.goal_calories || null, color: MACRO_COLORS.calories, unit: ' cal' },
+    { label: 'Calories', value: totals.calories, goal: goals.goal_calories || null, color: MACRO_COLORS.calories },
     { label: 'Protein',  value: totals.protein,  goal: goals.goal_protein  || null, color: MACRO_COLORS.protein },
     { label: 'Carbs',    value: totals.carbs,    goal: goals.goal_carbs    || null, color: MACRO_COLORS.carbs },
     { label: 'Fat',      value: totals.fat,      goal: goals.goal_fat      || null, color: MACRO_COLORS.fat },
-    { label: 'Fiber',    value: totals.fiber,    goal: 25,                          color: '#10B981',            unit: 'g' },
   ]
-  const colClass = 'grid-cols-3 sm:grid-cols-5'
+  const fiberGoal = goals.goal_fiber || 25
+  const fiberPct  = Math.min(totals.fiber / fiberGoal, 1)
+  const fiberOver = totals.fiber > fiberGoal
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-4">
-      <div className={`grid ${colClass} gap-2`}>
-        {rings.map(r => <MacroRing key={r.label} {...r} />)}
+      <div className="grid grid-cols-4 gap-2">
+        {rings.map(r => <CompactMacroRing key={r.label} {...r} />)}
+      </div>
+      {/* Fiber text row */}
+      <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 px-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] font-semibold text-[#10B981]">Fiber</span>
+          <span className={`text-[11px] font-bold ${fiberOver ? 'text-red-500' : 'text-gray-800'}`}>
+            {Math.round(totals.fiber)}g
+          </span>
+          <span className="text-[11px] text-gray-400">/ {fiberGoal}g</span>
+        </div>
+        {/* Mini progress bar */}
+        <div className="w-24 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all"
+            style={{ width: `${fiberPct * 100}%`, background: fiberOver ? '#ef4444' : '#10B981' }}
+          />
+        </div>
       </div>
     </div>
   )
@@ -633,7 +708,9 @@ function CopyMealModal({ meal, mode = 'copy', onConfirm, onClose }) {
   const minStr   = toDateStr((() => { const d = new Date(); d.setDate(d.getDate() - 90); return d })())
   const currentDate = meal.log_date || (meal.logged_at ? meal.logged_at.slice(0, 10) : todayStr)
   const [date, setDate] = useState(mode === 'move' ? currentDate : todayStr)
-  const [slot, setSlot] = useState(SLOTS.includes(meal.meal_slot) ? meal.meal_slot : SLOTS[0])
+  const [slot, setSlot] = useState(
+    SLOT_OPTIONS.find(o => o.value === meal.meal_slot) ? meal.meal_slot : SLOT_OPTIONS[0].value
+  )
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState(null)
   const isMove = mode === 'move'
@@ -660,7 +737,7 @@ function CopyMealModal({ meal, mode = 'copy', onConfirm, onClose }) {
           <label className="block text-xs font-medium text-gray-600 mb-1">Meal slot</label>
           <select value={slot} onChange={e => setSlot(e.target.value)}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
-            {SLOTS.map(s => <option key={s} value={s}>{s}</option>)}
+            {SLOT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
         {error && <p className="text-xs text-red-500">{error}</p>}
@@ -1550,9 +1627,39 @@ const ADD_OPTIONS = [
 const MODE_TITLES = { photo: 'Photo', text: 'Text Entry', search: 'Search Foods', manual: 'Manual Entry', barcode: 'Scan Barcode', recipes: 'Recipes' }
 const LOGGERS = { photo: PhotoLogger, text: TextLogger, search: SearchLogger, manual: ManualLogger, barcode: BarcodeLogger, recipes: RecipesLogger }
 
+const SNACK_TIMING_OPTIONS = [
+  { value: 'AM Snack',   label: 'Morning',   emoji: '🌅' },
+  { value: 'PM Snack',   label: 'Afternoon', emoji: '☀️' },
+  { value: 'Late Snack', label: 'Evening',   emoji: '🌙' },
+]
+
 function AddFoodDrawer({ slotName, onClose, onSaved, logDate }) {
   const [mode, setMode] = useState(null)
+  const isSnack = slotName === 'Snack'
+  // For snack slots, user picks a timing before choosing a logger
+  const [snackTiming, setSnackTiming] = useState(null)
+
+  // The DB slot we actually store (e.g. 'AM Snack', 'Lunch', etc.)
+  const effectiveSlot = isSnack
+    ? (snackTiming ?? defaultSnackTiming())
+    : slotName
+
+  // Friendly display name for header
+  const timingLabel = isSnack && snackTiming
+    ? SNACK_TIMING_OPTIONS.find(o => o.value === snackTiming)?.label + ' Snack'
+    : slotName
+
   const Logger = mode ? LOGGERS[mode] : null
+
+  // Step back: from mode → timing (snack) or close
+  function handleBack() {
+    if (mode) { setMode(null); return }
+    if (isSnack && snackTiming) { setSnackTiming(null); return }
+    onClose()
+  }
+
+  const showTimingPicker = isSnack && snackTiming === null
+  const showModePicker   = !showTimingPicker && !mode
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={onClose}>
@@ -1560,14 +1667,16 @@ function AddFoodDrawer({ slotName, onClose, onSaved, logDate }) {
         onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
           <div className="flex items-center gap-2">
-            {mode && (
-              <button onClick={() => setMode(null)} className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-700 rounded-full hover:bg-gray-100 transition-colors text-lg">
+            {(mode || (isSnack && snackTiming)) && (
+              <button onClick={handleBack} className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-700 rounded-full hover:bg-gray-100 transition-colors text-lg">
                 ‹
               </button>
             )}
             <div>
-              <p className="text-[11px] text-gray-400 uppercase tracking-wide">{slotName}</p>
-              <h3 className="text-base font-bold text-gray-900">{mode ? MODE_TITLES[mode] : 'Add Food'}</h3>
+              <p className="text-[11px] text-gray-400 uppercase tracking-wide">{timingLabel}</p>
+              <h3 className="text-base font-bold text-gray-900">
+                {showTimingPicker ? 'When are you snacking?' : mode ? MODE_TITLES[mode] : 'Add Food'}
+              </h3>
             </div>
           </div>
           <button onClick={onClose}
@@ -1577,7 +1686,21 @@ function AddFoodDrawer({ slotName, onClose, onSaved, logDate }) {
         </div>
 
         <div className="p-5 pb-24">
-          {!mode && (
+          {/* Step 1 (snack only): pick timing */}
+          {showTimingPicker && (
+            <div className="grid grid-cols-3 gap-3">
+              {SNACK_TIMING_OPTIONS.map(opt => (
+                <button key={opt.value} onClick={() => setSnackTiming(opt.value)}
+                  className="flex flex-col items-center gap-2 bg-gray-50 hover:bg-orange-50 hover:border-[#E8670A] border border-gray-200 rounded-2xl py-5 transition-all">
+                  <span className="text-2xl">{opt.emoji}</span>
+                  <span className="text-xs font-semibold text-gray-700">{opt.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Step 2: pick logger mode */}
+          {showModePicker && (
             <div className="grid grid-cols-3 gap-3">
               {ADD_OPTIONS.map(opt => (
                 <button key={opt.id} onClick={() => setMode(opt.id)}
@@ -1589,9 +1712,10 @@ function AddFoodDrawer({ slotName, onClose, onSaved, logDate }) {
             </div>
           )}
 
+          {/* Step 3: logger */}
           {Logger && (
             <Logger
-              slotName={slotName}
+              slotName={effectiveSlot}
               logDate={logDate}
               onSaved={(meal, analysis) => { onSaved(meal, analysis); }}
             />
@@ -1785,20 +1909,10 @@ export default function Journal() {
         onShift={shiftWeek}
       />
 
-      {/* Macro rings */}
-      <MacroRingsRow totals={totals} goals={goals} />
+      {/* Compact macro summary: 4 rings + fiber row */}
+      <CompactMacroSummary totals={totals} goals={goals} />
 
-      {/* Women's Health Foundation nutrient rings */}
-      <WomensHealthCard meals={meals} waterOz={waterOz} isToday={isToday} onAddWater={addWater} />
-
-      {/* Also Logged */}
-      <QuickStats totals={totals} />
-
-      <div className="mb-5">
-        <MicronutrientTotals meals={meals} loading={loading} title="Daily Micronutrients" exclude={['fiber_g']} />
-      </div>
-
-      {/* Meal slots */}
+      {/* Meal slots — first on mobile so food logging is front and center */}
       {loading ? (
         <p className="text-sm text-gray-400 text-center py-10">Loading…</p>
       ) : (
@@ -1815,6 +1929,12 @@ export default function Journal() {
           />
         ))
       )}
+
+      {/* Women's Health Foundation — below meal cards */}
+      <WomensHealthCard meals={meals} waterOz={waterOz} isToday={isToday} onAddWater={addWater} />
+
+      {/* Also Logged */}
+      <QuickStats totals={totals} />
 
       {/* Add food drawer */}
       {addSlot && (
