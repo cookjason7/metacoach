@@ -171,11 +171,11 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                   </div>
                 )}
                 <InfoRow label="Coaching type"   value={client.coaching_type === 'ai' ? 'AI Coaching' : 'VIP Coaching'} />
-                <InfoRow label="Assigned coach"  value={client.assigned_coach_name ?? '—'} />
+                <InfoRow label="Assigned coach"  value={client.assigned_coach_name} emptyText="Not assigned yet" />
                 <InfoRow label="Start date"      value={displayStartDate} />
                 <InfoRow label="Payment"         value={client.paid ? `✓ Active${client.paid_at ? ` (since ${String(client.paid_at).slice(0,10)})` : ''}` : '○ Not activated'} />
                 <InfoRow label="Last login"      value={fmtDate(client.last_login_at)} />
-                <InfoRow label="Last meal log"   value={client.last_meal_at ? `${daysSince(client.last_meal_at)}d ago` : '—'} />
+                <InfoRow label="Last meal log"   value={client.last_meal_at ? `${daysSince(client.last_meal_at)}d ago` : null} emptyText="Not logged yet" />
                 <InfoRow label="Onboarding"      value={client.onboarding_complete ? '✓ Complete' : '○ In progress'} />
                 <InfoRow label="Assessment"      value={
                   client.assessment_has_data
@@ -258,11 +258,11 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
   )
 }
 
-function InfoRow({ label, value }) {
+function InfoRow({ label, value, emptyText = 'Not provided yet' }) {
   return (
     <div>
       <p className="text-xs text-gray-400">{label}</p>
-      <p className="text-sm font-medium text-gray-800 truncate">{value ?? '—'}</p>
+      <p className="text-sm font-medium text-gray-800 truncate">{value ?? emptyText}</p>
     </div>
   )
 }
@@ -660,10 +660,13 @@ function FoodLogSection({ clientId, date, getToken }) {
 // ─── Nutrition Tab ────────────────────────────────────────────────────────────
 
 function NutritionStat({ label, value, unit = '' }) {
+  const hasValue = value != null
   return (
     <div className="bg-gray-50 rounded-xl p-3">
       <p className="text-[11px] text-gray-400 mb-0.5">{label}</p>
-      <p className="text-sm font-bold text-gray-900">{value != null ? `${value}${unit}` : '—'}</p>
+      <p className={`text-sm font-bold ${hasValue ? 'text-gray-900' : 'text-gray-400'}`}>
+        {hasValue ? `${value}${unit}` : 'Not logged yet'}
+      </p>
     </div>
   )
 }
@@ -691,8 +694,8 @@ function DaySummaryRow({ label, actual, target, unit }) {
   return (
     <div className="flex items-center py-2.5 border-b border-gray-50 last:border-0 gap-2">
       <span className="text-xs font-medium text-gray-500 w-16 shrink-0">{label}</span>
-      <span className="text-sm font-semibold text-gray-900 w-20 text-right">
-        {roundedActual != null ? `${roundedActual}${unit}` : '—'}
+      <span className={`text-sm font-semibold w-24 text-right ${roundedActual != null ? 'text-gray-900' : 'text-gray-400'}`}>
+        {roundedActual != null ? `${roundedActual}${unit}` : 'Not logged'}
       </span>
       <span className="text-xs text-gray-400 w-16">
         {hasTarget ? `/ ${roundedTarget}${unit}` : 'No target'}
@@ -1347,7 +1350,8 @@ function AssessmentTab({ clientId, getToken }) {
     return (
       <div className="bg-white border border-gray-200 rounded-xl p-8 text-center">
         <p className="text-2xl mb-2">★</p>
-        <p className="text-sm text-gray-500">Client hasn't completed the Metabolic &amp; Health Assessment yet.</p>
+        <p className="text-sm font-medium text-gray-700">No forms submitted yet.</p>
+        <p className="text-xs text-gray-400 mt-1">Intake forms, assessments, and check-ins will appear here once submitted.</p>
       </div>
     )
   }
