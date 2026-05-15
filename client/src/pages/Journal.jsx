@@ -1823,6 +1823,28 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
     fat:      +(cTotals.fat     / cSrv).toFixed(1),
   }
 
+  function isNegativeValue(value) {
+    if (value === '' || value == null) return false
+    const n = Number(value)
+    return Number.isNaN(n) || n < 0
+  }
+
+  function validateIngredient({ name, amount, values = [] }) {
+    if (!String(name ?? '').trim()) return 'Ingredient name required'
+    const qty = Number(amount)
+    if (!Number.isFinite(qty) || qty <= 0) return 'Enter a valid amount'
+    if (values.some(isNegativeValue)) return 'Calories and macros cannot be negative'
+    return null
+  }
+
+  function validateRecipe() {
+    if (!cName.trim()) return 'Recipe name required'
+    const servings = Number(cServings)
+    if (!Number.isFinite(servings) || servings <= 0) return 'Enter total servings made'
+    if (!cIngs.length) return 'Add at least one ingredient'
+    return null
+  }
+
   // Ingredient search helpers
   function handleCQuery(val) {
     setCQuery(val); setCIngFood(null)
@@ -1850,11 +1872,17 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
 
   function addFromSearch() {
     if (!cIngFood) { setCError('Select a food first'); return }
-    const g = toGrams(parseFloat(cIngAmount) || 0, cIngUnit)
-    if (g <= 0) { setCError('Enter a valid amount'); return }
+    const name = cIngFood.name ?? cIngFood.food_name ?? ''
+    const validation = validateIngredient({
+      name,
+      amount: cIngAmount,
+      values: [cIngFood.calories, cIngFood.protein_g, cIngFood.carbs_g, cIngFood.fat_g, cIngFood.fiber_g],
+    })
+    if (validation) { setCError(validation); return }
+    const g = toGrams(parseFloat(cIngAmount), cIngUnit)
     const m = calcMacros(cIngFood, g)
     setCIngs(prev => [...prev, {
-      food_name: cIngFood.name ?? cIngFood.food_name ?? 'Ingredient',
+      food_name: name.trim(),
       calories:  m.calories,
       protein:   m.protein,
       carbs:     m.carbs,
@@ -1869,9 +1897,15 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
 
   function addFromMyFood() {
     if (!cMyFoodSel) { setCError('Select a food first'); return }
-    const qty = Math.max(parseFloat(cMyFoodQty) || 1, 0.01)
+    const validation = validateIngredient({
+      name: cMyFoodSel.food_name,
+      amount: cMyFoodQty,
+      values: [cMyFoodSel.calories_per_serving, cMyFoodSel.protein, cMyFoodSel.carbs, cMyFoodSel.fat, cMyFoodSel.fiber],
+    })
+    if (validation) { setCError(validation); return }
+    const qty = parseFloat(cMyFoodQty)
     setCIngs(prev => [...prev, {
-      food_name: cMyFoodSel.food_name,
+      food_name: cMyFoodSel.food_name.trim(),
       calories:  Math.round((parseFloat(cMyFoodSel.calories_per_serving) || 0) * qty),
       protein:   +((parseFloat(cMyFoodSel.protein) || 0) * qty).toFixed(1),
       carbs:     +((parseFloat(cMyFoodSel.carbs)   || 0) * qty).toFixed(1),
@@ -1885,28 +1919,35 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
   }
 
   function addIngredient() {
-    if (!cDraft.food_name.trim()) { setCError('Ingredient name required'); return }
+    const validation = validateIngredient({
+      name: cDraft.food_name,
+      amount: cDraft.amount,
+      values: [cDraft.calories, cDraft.protein, cDraft.carbs, cDraft.fat, cDraft.fiber],
+    })
+    if (validation) { setCError(validation); return }
     setCIngs(prev => [...prev, { ...cDraft, food_name: cDraft.food_name.trim() }])
     setCDraft(EMPTY_ING)
     setCError(null)
   }
 
   async function createRecipe() {
-    if (!cName.trim()) { setCError('Recipe name required'); return }
-    if (!cIngs.length) { setCError('Add at least one ingredient'); return }
+    if (cSaving) return
+    const validation = validateRecipe()
+    if (validation) { setCError(validation); return }
     setCSaving(true); setCError(null)
     try {
       const token = await getToken()
       const res = await fetch(`${API_URL}/api/recipes`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: cName.trim(), servings: parseFloat(cServings) || 1, ingredients: cIngs }),
+        body: JSON.stringify({ name: cName.trim(), servings: parseFloat(cServings), ingredients: cIngs }),
       })
       if (!res.ok) throw new Error('Failed to save recipe')
       const recipe = await res.json()
       setRecipes(prev => [recipe, ...prev])
       setRecipeView(null)
       setCName(''); setCServings('4'); setCIngs([])
+      setCError(null)
     } catch (err) { setCError(err.message) } finally { setCSaving(false) }
   }
 
@@ -2250,7 +2291,7 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-0.5">Amount (optional)</label>
+                  <label className="block text-xs text-gray-500 mb-0.5">Amount</label>
                   <div className="flex gap-1">
                     <input type="number" min="0" value={cDraft.amount} onChange={e => setCDraft(d => ({ ...d, amount: e.target.value }))}
                       placeholder="100"
@@ -2271,7 +2312,7 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
           {cError && <p className="text-sm text-red-500">{cError}</p>}
         </div>
 
-        <button onClick={createRecipe} disabled={cSaving || !cName.trim() || !cIngs.length}
+        <button onClick={createRecipe} disabled={cSaving}
           className="w-full bg-[#E8670A] text-white py-3 rounded-xl text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
           {cSaving ? 'Saving…' : 'Save Recipe'}
         </button>
