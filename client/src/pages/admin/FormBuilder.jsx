@@ -46,9 +46,29 @@ function makeField(order) {
     description: '',
     required:    false,
     order,
-    options:     ['', ''],   // two blank slots for choice fields
+    options:     ['Option 1', 'Option 2'],
     max_chars:   null,
   }
+}
+
+// When changing answer type, keep the field but reset options as needed
+function changeFieldType(field, newType) {
+  const isNowChoice = newType === 'single_choice' || newType === 'multi_choice'
+  const wasChoice   = field.type === 'single_choice' || field.type === 'multi_choice'
+
+  // If switching TO a choice type, ensure there are at least 2 named options
+  let options = field.options ?? []
+  if (isNowChoice) {
+    const nonEmpty = options.filter(o => o.trim())
+    if (nonEmpty.length < 2) {
+      options = wasChoice ? options : ['Option 1', 'Option 2']
+      // If was choice but had <2 options, pad up
+      if (wasChoice && nonEmpty.length === 0) options = ['Option 1', 'Option 2']
+      if (wasChoice && nonEmpty.length === 1) options = [...nonEmpty, 'Option 2']
+    }
+  }
+
+  return { ...field, type: newType, options }
 }
 
 // Validate all fields before publishing; returns array of error strings
@@ -74,23 +94,63 @@ function validateForPublish(fields) {
   return errors
 }
 
+// ── Answer Choices Preview (read-only, for Rating and Yes/No) ─────────────────
+
+function RatingPreview() {
+  return (
+    <div>
+      <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Answer Choices</p>
+      <div className="flex gap-2">
+        {[1, 2, 3, 4, 5].map(n => (
+          <div
+            key={n}
+            className="w-10 h-10 rounded-lg border-2 border-gray-200 bg-gray-50 flex items-center justify-center text-sm font-bold text-gray-500 select-none"
+          >
+            {n}
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] text-gray-400 mt-1.5">Client selects one number, 1 = lowest, 5 = highest.</p>
+    </div>
+  )
+}
+
+function YesNoPreview() {
+  return (
+    <div>
+      <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Answer Choices</p>
+      <div className="flex gap-2">
+        {['Yes', 'No'].map(opt => (
+          <div
+            key={opt}
+            className="flex-1 h-10 rounded-lg border-2 border-gray-200 bg-gray-50 flex items-center justify-center text-sm font-bold text-gray-500 select-none"
+          >
+            {opt}
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] text-gray-400 mt-1.5">Client selects Yes or No.</p>
+    </div>
+  )
+}
+
 // ── Field editor ──────────────────────────────────────────────────────────────
 
 function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst, isLast, publishError }) {
   const [open, setOpen] = useState(!field.label)  // open by default if new
 
-  const needsOptions = field.type === 'single_choice' || field.type === 'multi_choice'
-  const hasMaxChars  = field.type === 'short_text' || field.type === 'long_text'
+  const needsOptions  = field.type === 'single_choice' || field.type === 'multi_choice'
+  const showRating    = field.type === 'rating'
+  const showYesNo     = field.type === 'yes_no'
+  const hasMaxChars   = field.type === 'short_text' || field.type === 'long_text'
+  const hasError      = !!publishError
 
   function update(key, val) { onChange({ ...field, [key]: val }) }
+  function handleTypeChange(newType) { onChange(changeFieldType(field, newType)) }
 
   // Options helpers
-  function addOption() {
-    update('options', [...(field.options ?? []), ''])
-  }
-  function removeOption(i) {
-    update('options', (field.options ?? []).filter((_, idx) => idx !== i))
-  }
+  function addOption()         { update('options', [...(field.options ?? []), '']) }
+  function removeOption(i)     { update('options', (field.options ?? []).filter((_, idx) => idx !== i)) }
   function updateOption(i, val) {
     const opts = [...(field.options ?? [])]
     opts[i] = val
@@ -104,9 +164,17 @@ function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
     update('options', opts)
   }
 
-  const typeLabel    = FIELD_TYPES.find(t => t.value === field.type)?.label ?? field.type
-  const optionCount  = needsOptions ? (field.options ?? []).filter(o => o.trim()).length : 0
-  const hasError     = !!publishError
+  const typeLabel   = FIELD_TYPES.find(t => t.value === field.type)?.label ?? field.type
+  const optionCount = needsOptions ? (field.options ?? []).filter(o => o.trim()).length : 0
+
+  // Collapsed card badge: show choices hint per type
+  function choiceBadge() {
+    if (field.type === 'rating')        return <span className="text-[10px] text-gray-400">1–5</span>
+    if (field.type === 'yes_no')        return <span className="text-[10px] text-gray-400">Yes / No</span>
+    if (needsOptions && optionCount > 0) return <span className="text-[10px] text-gray-400">{optionCount} option{optionCount !== 1 ? 's' : ''}</span>
+    if (needsOptions && optionCount === 0) return <span className="text-[10px] text-red-400 font-medium">No options yet</span>
+    return null
+  }
 
   return (
     <div className={`bg-white border rounded-xl overflow-hidden transition-colors ${
@@ -153,16 +221,14 @@ function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
             {field.required && (
               <span className="text-[10px] text-[#E8670A] font-bold uppercase tracking-wide">Required</span>
             )}
-            {needsOptions && optionCount > 0 && (
-              <span className="text-[10px] text-gray-400">{optionCount} option{optionCount !== 1 ? 's' : ''}</span>
-            )}
+            {choiceBadge()}
             {hasError && (
               <span className="text-[10px] text-red-500 font-semibold">⚠ Needs attention</span>
             )}
           </div>
         </div>
 
-        {/* Actions */}
+        {/* Delete + chevron */}
         <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
           <button
             type="button"
@@ -182,7 +248,7 @@ function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
       {open && (
         <div className="px-4 pb-5 border-t border-gray-100 pt-4 space-y-4">
 
-          {/* Row 1: Field type + Required toggle */}
+          {/* Row 1: Answer Type + Required toggle */}
           <div className="flex gap-3 items-end">
             <div className="flex-1">
               <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
@@ -190,7 +256,7 @@ function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
               </label>
               <select
                 value={field.type}
-                onChange={e => update('type', e.target.value)}
+                onChange={e => handleTypeChange(e.target.value)}
                 className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
               >
                 {FIELD_TYPES.map(t => (
@@ -270,19 +336,33 @@ function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
             </div>
           )}
 
-          {/* Answer Options (choice fields only) */}
+          {/* ── Answer Choices: Rating preview ── */}
+          {showRating && (
+            <div className="bg-gray-50 border border-gray-100 rounded-xl p-3">
+              <RatingPreview />
+            </div>
+          )}
+
+          {/* ── Answer Choices: Yes/No preview ── */}
+          {showYesNo && (
+            <div className="bg-gray-50 border border-gray-100 rounded-xl p-3">
+              <YesNoPreview />
+            </div>
+          )}
+
+          {/* ── Answer Choices: editable options for choice fields ── */}
           {needsOptions && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+            <div className="bg-gray-50 border border-gray-100 rounded-xl p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
                   Answer Options <span className="text-red-400">*</span>
-                </label>
-                <span className="text-[10px] text-gray-400">Min. 2 required</span>
+                </p>
+                <span className="text-[10px] text-gray-400">Min. 2 required to publish</span>
               </div>
 
               {/* Validation hint */}
-              {(field.options ?? []).filter(o => o.trim()).length < 2 && hasError && (
-                <p className="text-xs text-red-500 mb-2 font-medium">Add at least 2 non-empty options.</p>
+              {hasError && (field.options ?? []).filter(o => o.trim()).length < 2 && (
+                <p className="text-xs text-red-500 font-medium">Add at least 2 non-empty options.</p>
               )}
 
               <div className="space-y-2">
@@ -314,7 +394,7 @@ function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
                       </button>
                     </div>
 
-                    {/* Option number pill */}
+                    {/* Number pill */}
                     <span className="text-[10px] font-bold text-gray-400 w-5 text-center shrink-0">{i + 1}</span>
 
                     <input
@@ -322,8 +402,8 @@ function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
                       value={opt}
                       onChange={e => updateOption(i, e.target.value)}
                       placeholder={`Option ${i + 1}`}
-                      className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] transition-colors ${
-                        !opt.trim() && hasError ? 'border-red-200 bg-red-50/50' : 'border-gray-200'
+                      className={`flex-1 border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A] transition-colors ${
+                        hasError && !opt.trim() ? 'border-red-200' : 'border-gray-200'
                       }`}
                     />
 
@@ -331,7 +411,7 @@ function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
                       type="button"
                       onClick={() => removeOption(i)}
                       disabled={(field.options?.length ?? 0) <= 1}
-                      className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-20 shrink-0"
+                      className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-100 rounded-lg transition-colors disabled:opacity-20 shrink-0"
                       aria-label="Remove option"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -345,7 +425,7 @@ function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
               <button
                 type="button"
                 onClick={addOption}
-                className="mt-3 flex items-center gap-1.5 text-xs text-[#E8670A] font-semibold hover:underline"
+                className="flex items-center gap-1.5 text-xs text-[#E8670A] font-semibold hover:underline"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -363,20 +443,20 @@ function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function FormBuilder() {
-  const { getToken }  = useAuth()
-  const navigate      = useNavigate()
+  const { getToken }    = useAuth()
+  const navigate        = useNavigate()
   const { id: paramId } = useParams()
 
-  const [template,   setTemplate]   = useState(null)
-  const [title,      setTitle]      = useState('')
-  const [desc,       setDesc]       = useState('')
-  const [fields,     setFields]     = useState([])
-  const [loading,    setLoading]    = useState(!!paramId)
-  const [saving,     setSaving]     = useState(false)
-  const [publishing, setPublishing] = useState(false)
-  const [saveMsg,    setSaveMsg]    = useState('')
-  const [error,      setError]      = useState(null)
-  const [publishErrors, setPublishErrors] = useState([])  // per-field + global
+  const [template,      setTemplate]      = useState(null)
+  const [title,         setTitle]         = useState('')
+  const [desc,          setDesc]          = useState('')
+  const [fields,        setFields]        = useState([])
+  const [loading,       setLoading]       = useState(!!paramId)
+  const [saving,        setSaving]        = useState(false)
+  const [publishing,    setPublishing]    = useState(false)
+  const [saveMsg,       setSaveMsg]       = useState('')
+  const [error,         setError]         = useState(null)
+  const [publishErrors, setPublishErrors] = useState([])
   const saveTimer = useRef(null)
 
   // Load existing form
@@ -425,10 +505,10 @@ export default function FormBuilder() {
   }, [paramId, getToken])
 
   // Debounced auto-save
-  function triggerAutoSave(newTitle, newDesc, newFields) {
+  function triggerAutoSave(t, d, f) {
     if (!paramId) return
     clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => saveNow(newTitle, newDesc, newFields, true), 1200)
+    saveTimer.current = setTimeout(() => saveNow(t, d, f, true), 1200)
   }
 
   function updateTitle(v)  { setTitle(v);  triggerAutoSave(v, desc, fields) }
@@ -441,8 +521,8 @@ export default function FormBuilder() {
   function updateField(idx, updated) {
     const next = fields.map((f, i) => i === idx ? { ...updated, order: i } : f)
     updateFields(next)
-    // Clear publish errors for this field if it changes
     if (publishErrors.length > 0) setPublishErrors([])
+    if (error) setError(null)
   }
   function deleteField(idx) {
     updateFields(fields.filter((_, i) => i !== idx).map((f, i) => ({ ...f, order: i })))
@@ -464,7 +544,6 @@ export default function FormBuilder() {
     setPublishErrors([])
     setError(null)
 
-    // Client-side validation
     if (!title.trim()) {
       setError('Form title is required before publishing.')
       return
@@ -498,10 +577,8 @@ export default function FormBuilder() {
     finally { setPublishing(false) }
   }
 
-  // Map publish errors to individual field ids for per-card highlighting
-  // Errors are formatted as "Question N: ..." so we index by position
   function fieldHasPublishError(idx) {
-    if (publishErrors.length === 0) return false
+    if (!publishErrors.length) return false
     return publishErrors.some(e => e.startsWith(`Question ${idx + 1}:`))
   }
 
