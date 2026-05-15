@@ -1681,6 +1681,11 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
   const [rSaved,       setRSaved]       = useState(false)
   const [rError,       setRError]       = useState(null)
 
+  // Recipe delete state
+  const [deletingId,    setDeletingId]    = useState(null)   // recipe.id pending confirm
+  const [deleteWorking, setDeleteWorking] = useState(false)
+  const [deleteError,   setDeleteError]   = useState(null)
+
   // Create recipe state
   const [cName,     setCName]     = useState('')
   const [cServings, setCServings] = useState('4')
@@ -1783,6 +1788,20 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
       const meal = await res.json()
       setRSaved(true); onSaved(meal)
     } catch (err) { setRError(err.message) } finally { setRSaving(false) }
+  }
+
+  async function deleteRecipe(id) {
+    setDeleteWorking(true); setDeleteError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/recipes/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error('Failed to delete recipe')
+      setRecipes(prev => prev.filter(r => r.id !== id))
+      setDeletingId(null)
+    } catch (err) { setDeleteError(err.message) } finally { setDeleteWorking(false) }
   }
 
   // ── Create recipe helpers ──────────────────────────────────────────────────
@@ -2312,22 +2331,55 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
           <div className="border border-gray-200 rounded-xl divide-y divide-gray-100 bg-white">
             {recipes.map(recipe => {
               const srv = Math.max(parseFloat(recipe.servings) || 1, 0.01)
-              return (
-                <button key={recipe.id} onClick={() => { setActiveRecipe(recipe); setRQty('1'); setRecipeView('log') }}
-                  className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm font-medium text-gray-900 leading-snug">{recipe.name}</p>
-                    <span className="text-xs font-semibold text-[#E8670A] shrink-0">
-                      {recipe.calories != null ? `${Math.round(recipe.calories / srv)} cal/srv` : ''}
-                    </span>
+              const isConfirming = deletingId === recipe.id
+
+              if (isConfirming) {
+                return (
+                  <div key={recipe.id} className="px-4 py-3 bg-red-50">
+                    <p className="text-sm font-medium text-gray-900 mb-0.5 leading-snug">{recipe.name}</p>
+                    <p className="text-xs text-gray-500 mb-3">Delete this recipe? This cannot be undone. Previously logged meals are not affected.</p>
+                    {deleteError && <p className="text-xs text-red-600 mb-2">{deleteError}</p>}
+                    <div className="flex gap-2">
+                      <button onClick={() => { setDeletingId(null); setDeleteError(null) }}
+                        disabled={deleteWorking}
+                        className="flex-1 py-2 rounded-lg text-sm font-semibold border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 disabled:opacity-50 transition-colors">
+                        Cancel
+                      </button>
+                      <button onClick={() => deleteRecipe(recipe.id)}
+                        disabled={deleteWorking}
+                        className="flex-1 py-2 rounded-lg text-sm font-semibold bg-red-500 text-white hover:bg-red-600 disabled:opacity-50 transition-colors">
+                        {deleteWorking ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {recipe.servings} servings
-                    {recipe.protein != null ? ` · ${(recipe.protein / srv).toFixed(0)}g P` : ''}
-                    {recipe.carbs   != null ? ` · ${(recipe.carbs   / srv).toFixed(0)}g C` : ''}
-                    {recipe.fat     != null ? ` · ${(recipe.fat     / srv).toFixed(0)}g F` : ''}
-                  </p>
-                </button>
+                )
+              }
+
+              return (
+                <div key={recipe.id} className="flex items-stretch divide-x divide-gray-100">
+                  <button onClick={() => { setActiveRecipe(recipe); setRQty('1'); setRecipeView('log') }}
+                    className="flex-1 text-left px-4 py-3 hover:bg-gray-50 transition-colors min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-medium text-gray-900 leading-snug">{recipe.name}</p>
+                      <span className="text-xs font-semibold text-[#E8670A] shrink-0">
+                        {recipe.calories != null ? `${Math.round(recipe.calories / srv)} cal/srv` : ''}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {recipe.servings} servings
+                      {recipe.protein != null ? ` · ${(recipe.protein / srv).toFixed(0)}g P` : ''}
+                      {recipe.carbs   != null ? ` · ${(recipe.carbs   / srv).toFixed(0)}g C` : ''}
+                      {recipe.fat     != null ? ` · ${(recipe.fat     / srv).toFixed(0)}g F` : ''}
+                    </p>
+                  </button>
+                  <button onClick={() => { setDeletingId(recipe.id); setDeleteError(null) }}
+                    aria-label={`Delete ${recipe.name}`}
+                    className="px-4 flex items-center justify-center text-gray-300 hover:text-red-400 hover:bg-red-50 transition-colors shrink-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                </div>
               )
             })}
           </div>
