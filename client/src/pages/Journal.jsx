@@ -1826,7 +1826,7 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
 
   function selectCIngFood(food) {
     setCIngFood(food); setCIngAmount('100'); setCIngUnit('g')
-    setCQuery(food.food_name); setCSearchResults([])
+    setCQuery(food.name ?? food.food_name ?? ''); setCSearchResults([])
   }
 
   function addFromSearch() {
@@ -1835,7 +1835,7 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
     if (g <= 0) { setCError('Enter a valid amount'); return }
     const m = calcMacros(cIngFood, g)
     setCIngs(prev => [...prev, {
-      food_name: cIngFood.food_name,
+      food_name: cIngFood.name ?? cIngFood.food_name ?? 'Ingredient',
       calories:  m.calories,
       protein:   m.protein,
       carbs:     m.carbs,
@@ -2095,11 +2095,13 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
               {cSearching && <p className="text-xs text-gray-400 text-center py-1">Searching…</p>}
               {cSearchResults.length > 0 && !cIngFood && (
                 <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-40 overflow-y-auto">
-                  {cSearchResults.map(food => (
+                  {cSearchResults.filter(f => f.name || f.food_name).map(food => (
                     <button key={food.id} onClick={() => selectCIngFood(food)}
                       className="w-full text-left px-3 py-2 hover:bg-gray-50 transition-colors">
-                      <p className="text-sm text-gray-900 leading-snug">{food.food_name}</p>
-                      <p className="text-xs text-gray-400">{food.calories} cal / 100g</p>
+                      <p className="text-sm font-medium text-gray-900 leading-snug">{food.name ?? food.food_name}</p>
+                      <p className="text-xs text-gray-400">
+                        {Math.round(food.calories)} cal · {(food.protein_g ?? 0).toFixed(1)}g P per 100g
+                      </p>
                     </button>
                   ))}
                 </div>
@@ -2107,7 +2109,7 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
               {cIngFood && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-gray-900 truncate">{cIngFood.food_name}</p>
+                    <p className="text-sm font-medium text-gray-900 truncate">{cIngFood.name ?? cIngFood.food_name}</p>
                     <button onClick={() => { setCIngFood(null); setCQuery('') }} className="text-xs text-gray-400 hover:text-gray-600 shrink-0">Change</button>
                   </div>
                   <div className="flex gap-2">
