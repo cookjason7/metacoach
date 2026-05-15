@@ -1,6 +1,25 @@
 import { Router } from 'express'
-import { requireAuth, getAuth } from '@clerk/express'
+import { requireAuth, getAuth, clerkClient } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
+
+// Best-effort fetch of the authenticated user's primary email from Clerk.
+// Times out after 5 s and returns null so the route still responds.
+async function fetchClerkEmail(clerkUserId) {
+  try {
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Clerk API timeout')), 5_000),
+    )
+    const u = await Promise.race([clerkClient.users.getUser(clerkUserId), timeout])
+    return (
+      u?.primaryEmailAddress?.emailAddress ??
+      u?.emailAddresses?.[0]?.emailAddress ??
+      null
+    )
+  } catch (err) {
+    console.warn('[invites] fetchClerkEmail failed:', err.message)
+    return null
+  }
+}
 
 const router = Router()
 
@@ -52,20 +71,32 @@ router.post('/:token/accept', requireAuth(), async (req, res, next) => {
       return res.status(410).json({ error: 'This invite has expired. Please contact your coach.' })
     }
 
-    // Resolve DB user (creates row if first visit after signup)
-    const dbUserId = await getOrCreateUser(userId)
+    // Fetch user's Clerk email so we can both store it and check against invite.
+    // New Clerk signups have no DB row yet — without this the row is inserted
+    // with email = NULL, making the email-match check always fail.
+    const clerkEmail = await fetchClerkEmail(userId)
+
+    // Resolve DB user (creates row if first visit after signup, backfills email)
+    const dbUserId = await getOrCreateUser(userId, clerkEmail)
+
+    // Email must match — prevent invite hijacking.
+    // Trust the Clerk-verified email; fall back to the DB email if Clerk lookup failed.
     const { rows: userRows } = await pool.query(
       'SELECT id, email, role FROM users WHERE id = $1',
       [dbUserId],
     )
-    const user = userRows[0]
+    const resolvedEmail = (clerkEmail ?? userRows[0]?.email ?? '').trim().toLowerCase()
+    const inviteEmail   = invite.email.trim().toLowerCase()
 
-    // Email must match — prevent invite hijacking
-    const userEmail   = (user.email ?? '').trim().toLowerCase()
-    const inviteEmail = invite.email.trim().toLowerCase()
-    if (userEmail !== inviteEmail) {
+    if (!resolvedEmail) {
+      return res.status(400).json({
+        error: 'Could not verify your email address. Please try again or contact support.',
+      })
+    }
+
+    if (resolvedEmail !== inviteEmail) {
       return res.status(403).json({
-        error: `This invite was sent to ${invite.email}. Please sign in with that email address.`,
+        error: `This invite was sent to ${invite.email}. Please sign out and sign back in with that email address.`,
         invite_email: invite.email,
       })
     }
