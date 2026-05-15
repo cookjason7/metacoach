@@ -684,6 +684,182 @@ function PlaceholderTab({ title, description }) {
   )
 }
 
+// ── Invite Client modal ───────────────────────────────────────────────────────
+
+const EMPTY_INVITE = { first_name: '', last_name: '', email: '', phone: '', notes: '' }
+
+function InviteModal({ getToken, onClose, onSuccess }) {
+  const [form,      setForm]      = useState(EMPTY_INVITE)
+  const [saving,    setSaving]    = useState(false)
+  const [error,     setError]     = useState(null)
+  const [result,    setResult]    = useState(null)  // { invite_url, email_sent, email_note, first_name }
+  const [copied,    setCopied]    = useState(false)
+
+  function setF(e) { setForm(f => ({ ...f, [e.target.name]: e.target.value })) }
+
+  async function submit(e) {
+    e.preventDefault()
+    setSaving(true); setError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/invite`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body:    JSON.stringify({
+          first_name: form.first_name.trim(),
+          last_name:  form.last_name.trim() || undefined,
+          email:      form.email.trim(),
+          phone:      form.phone.trim()  || undefined,
+          notes:      form.notes.trim()  || undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error ?? 'Invite failed. Please try again.'); return }
+      setResult(data)
+    } catch { setError('Network error. Please try again.') }
+    finally { setSaving(false) }
+  }
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(result.invite_url)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch { /* ignore */ }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl max-h-[90vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-[#fff7ed] flex items-center justify-center text-[#E8670A] text-lg shrink-0">✉️</div>
+            <div>
+              <p className="text-base font-bold text-gray-900">Invite VIP Client</p>
+              <p className="text-xs text-gray-400">They'll receive a secure sign-up link</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none shrink-0">×</button>
+        </div>
+
+        {/* ── Success state ── */}
+        {result ? (
+          <div>
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-4">
+              <p className="text-sm font-semibold text-emerald-800 mb-1">
+                ✓ Invite created for {result.first_name}!
+              </p>
+              {result.email_sent ? (
+                <p className="text-xs text-emerald-700">Email sent to <strong>{form.email}</strong>.</p>
+              ) : (
+                <p className="text-xs text-amber-700">
+                  ⚠ Email not sent{result.email_note ? `: ${result.email_note}` : '.'} Copy and share the link below manually.
+                </p>
+              )}
+            </div>
+            <div className="mb-4">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Invite link</label>
+              <div className="flex gap-2">
+                <input
+                  readOnly value={result.invite_url}
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-xs text-gray-700 bg-gray-50 select-all"
+                  onClick={e => e.target.select()}
+                />
+                <button
+                  onClick={copyLink}
+                  className="shrink-0 bg-[#E8670A] text-white px-3 py-2 rounded-lg text-xs font-semibold hover:bg-[#c45e09] transition-colors min-w-[70px]"
+                >
+                  {copied ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setResult(null); setForm(EMPTY_INVITE); setCopied(false) }}
+                className="flex-1 border border-gray-300 text-gray-700 py-2.5 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors"
+              >
+                Invite Another
+              </button>
+              <button
+                onClick={onSuccess}
+                className="flex-1 bg-[#E8670A] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* ── Form state ── */
+          <form onSubmit={submit} className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">First name *</label>
+                <input
+                  name="first_name" value={form.first_name} onChange={setF} required
+                  placeholder="Jane"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Last name</label>
+                <input
+                  name="last_name" value={form.last_name} onChange={setF}
+                  placeholder="Smith"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Email *</label>
+              <input
+                type="email" name="email" value={form.email} onChange={setF} required
+                placeholder="jane@example.com"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+              />
+              <p className="text-[10px] text-gray-400 mt-0.5">Client must sign up with this exact email.</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Phone (optional)</label>
+              <input
+                type="tel" name="phone" value={form.phone} onChange={setF}
+                placeholder="+1 (555) 000-0000"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Notes (optional)</label>
+              <textarea
+                name="notes" value={form.notes} onChange={setF} rows={2}
+                placeholder="e.g. Referred by John, interested in weight loss"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none"
+              />
+            </div>
+            {error && <p className="text-xs text-red-500 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button" onClick={onClose}
+                className="flex-1 border border-gray-300 text-gray-700 py-2.5 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit" disabled={saving}
+                className="flex-1 bg-[#E8670A] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-50 transition-colors"
+              >
+                {saving ? 'Sending…' : 'Send Invite'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function ClientList() {
@@ -803,28 +979,13 @@ export default function ClientList() {
         )}
       </div>
 
-      {/* Invite Client placeholder modal */}
+      {/* Invite Client modal */}
       {inviteOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setInviteOpen(false)}>
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-[#fff7ed] flex items-center justify-center text-[#E8670A] text-lg">✉️</div>
-              <div>
-                <p className="text-base font-bold text-gray-900">Invite Client</p>
-                <p className="text-xs text-gray-400">VIP invite-only access</p>
-              </div>
-            </div>
-            <p className="text-sm text-gray-600 mb-5">
-              The client invite flow is coming soon. VIP clients will receive a secure invite link via email. Only admins can invite new clients.
-            </p>
-            <button
-              onClick={() => setInviteOpen(false)}
-              className="w-full bg-gray-100 text-gray-700 py-2.5 rounded-lg text-sm font-semibold hover:bg-gray-200 transition-colors"
-            >
-              Close
-            </button>
-          </div>
-        </div>
+        <InviteModal
+          getToken={getToken}
+          onClose={() => setInviteOpen(false)}
+          onSuccess={() => { setInviteOpen(false); load() }}
+        />
       )}
 
       {/* ── Tab bar (scrollable on mobile) ── */}

@@ -22,6 +22,7 @@ import HealthAssessment from './pages/HealthAssessment'
 import Messages from './pages/Messages'
 import ClientList from './pages/admin/ClientList'
 import ClientProfile from './pages/admin/ClientProfile'
+import InviteAccept from './pages/InviteAccept'
 import { API_URL } from './config.js'
 
 // Module-level cache: null | { onboardingComplete: bool, paid: bool }
@@ -143,6 +144,7 @@ export default function App() {
         <Route path="/onboarding"         element={<OnboardingRoute />} />
         <Route path="/payment"            element={<PaymentRoute />} />
         <Route path="/health-assessment"  element={<HealthAssessmentRoute />} />
+        <Route path="/invite/:token"      element={<InviteAccept />} />
         <Route element={<ProtectedLayout />}>
           <Route path="/"             element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard"    element={<Dashboard />} />

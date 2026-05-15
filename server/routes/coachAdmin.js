@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
+import { sendEmail } from '../services/email.js'
 
 const router = Router()
 
@@ -138,6 +139,102 @@ router.get('/coaches', requireAuth(), async (req, res, next) => {
       ORDER BY first_name ASC NULLS LAST
     `)
     res.json(rows)
+  } catch (err) { next(err) }
+})
+
+// ─── VIP Client Invite ────────────────────────────────────────────────────────
+
+// POST /api/coach-admin/clients/invite — admin only, creates invite record + sends email
+router.post('/clients/invite', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireAdmin(req, res); if (!ctx) return
+
+    const { first_name, last_name, email, phone, assigned_coach_id, notes } = req.body
+
+    if (!first_name?.trim()) return res.status(400).json({ error: 'First name is required.' })
+    if (!last_name?.trim())  return res.status(400).json({ error: 'Last name is required.' })
+    if (!email?.trim())      return res.status(400).json({ error: 'Email is required.' })
+
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return res.status(400).json({ error: 'Please enter a valid email address.' })
+    }
+
+    // Block if user already has a live account
+    const { rows: existing } = await pool.query(
+      'SELECT id FROM users WHERE LOWER(email) = $1',
+      [normalizedEmail],
+    )
+    if (existing.length > 0) {
+      return res.status(409).json({ error: 'A user with this email already exists in the system.' })
+    }
+
+    // Block duplicate pending invites
+    const { rows: dupInvite } = await pool.query(
+      `SELECT id FROM client_invites WHERE LOWER(email) = $1 AND accepted_at IS NULL AND expires_at > NOW()`,
+      [normalizedEmail],
+    )
+    if (dupInvite.length > 0) {
+      return res.status(409).json({ error: 'An active invite already exists for this email.' })
+    }
+
+    const coachId = assigned_coach_id ? parseInt(assigned_coach_id, 10) : null
+
+    const { rows: [invite] } = await pool.query(
+      `INSERT INTO client_invites
+         (email, first_name, last_name, phone, assigned_coach_id, notes, invited_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING token, email, first_name, last_name, created_at, expires_at`,
+      [
+        normalizedEmail,
+        first_name.trim(),
+        last_name.trim(),
+        phone?.trim() || null,
+        coachId,
+        notes?.trim() || null,
+        ctx.dbUserId,
+      ],
+    )
+
+    const appUrl    = process.env.APP_URL ?? 'https://app.lwcvip.com'
+    const inviteUrl = `${appUrl}/invite/${invite.token}`
+
+    const emailResult = await sendEmail({
+      to:      invite.email,
+      subject: `You're invited to Life Warrior Coaching`,
+      html: `
+        <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a;">
+          <img src="https://app.lwcvip.com/logo.png" alt="Life Warrior Coaching" style="height:48px;margin-bottom:24px;" />
+          <h2 style="margin:0 0 8px;">Welcome, ${invite.first_name}!</h2>
+          <p style="color:#555;margin:0 0 24px;">
+            You've been personally invited to join Life Warrior Coaching as a VIP client.
+            Click below to set up your account and get started.
+          </p>
+          <p style="text-align:center;margin:32px 0;">
+            <a href="${inviteUrl}"
+               style="background:#E8670A;color:white;padding:14px 32px;border-radius:8px;
+                      text-decoration:none;font-weight:bold;font-size:15px;display:inline-block;">
+              Set Up My Account →
+            </a>
+          </p>
+          <p style="color:#999;font-size:12px;margin-top:32px;">
+            This invite expires in 30 days.<br/>
+            Or copy this link: <a href="${inviteUrl}" style="color:#E8670A;">${inviteUrl}</a>
+          </p>
+        </div>
+      `,
+      text: `Welcome to Life Warrior Coaching, ${invite.first_name}!\n\nYou've been personally invited to join as a VIP coaching client.\n\nSet up your account here:\n${inviteUrl}\n\nThis invite expires in 30 days.`,
+    })
+
+    res.status(201).json({
+      ok:            true,
+      invite_url:    inviteUrl,
+      email_sent:    emailResult.sent,
+      email_note:    emailResult.sent ? null : emailResult.reason,
+      first_name:    invite.first_name,
+      last_name:     invite.last_name,
+      email:         invite.email,
+    })
   } catch (err) { next(err) }
 })
 

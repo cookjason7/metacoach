@@ -717,6 +717,31 @@ export async function migrate() {
     )
   `)
 
+  // ── VIP Client Invites ───────────────────────────────────────────────────────
+  // Stores admin-created invite tokens that allow new VIP clients to sign up.
+  // token: generated UUID, serves as the invite URL key.
+  // accepted_at / accepted_by_user_id: set when a Clerk user claims the invite.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS client_invites (
+      id                    SERIAL PRIMARY KEY,
+      token                 TEXT NOT NULL UNIQUE DEFAULT gen_random_uuid()::text,
+      email                 TEXT NOT NULL,
+      first_name            TEXT NOT NULL,
+      last_name             TEXT,
+      phone                 TEXT,
+      assigned_coach_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      notes                 TEXT,
+      invited_by            INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      coaching_type         TEXT NOT NULL DEFAULT 'vip',
+      created_at            TIMESTAMPTZ DEFAULT NOW(),
+      expires_at            TIMESTAMPTZ DEFAULT NOW() + INTERVAL '30 days',
+      accepted_at           TIMESTAMPTZ,
+      accepted_by_user_id   INTEGER REFERENCES users(id) ON DELETE SET NULL
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_invites_email ON client_invites (LOWER(email))`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_invites_token ON client_invites (token)`)
+
   // ── Remove old onboarding gate — mark all users as onboarding_complete ──────
   // The multi-step onboarding form (name/gender/age/height/weight) is removed.
   // New post-signup flow is: Health Assessment → Identity Traits → Enter app.
