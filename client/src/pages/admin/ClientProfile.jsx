@@ -8,10 +8,10 @@ const TABS = [
   { id: 'nutrition',   label: 'Nutrition', icon: '🥗' },
   { id: 'habits',      label: 'Habits',    icon: '✓' },
   { id: 'progress',    label: 'Progress',  icon: '↗' },
-  { id: 'assessment',  label: 'Assess.',   icon: '★' },
+  { id: 'assessment',  label: 'Forms',     icon: '★' },
   { id: 'notes',       label: 'Notes',     icon: '✎' },
   { id: 'messaging',   label: 'Messages',  icon: '✉' },
-  { id: 'engagement',  label: 'Engage.',   icon: '⚡' },
+  { id: 'engagement',  label: 'Engagement', icon: '⚡' },
 ]
 
 const MOMENTUM_COLORS = {
