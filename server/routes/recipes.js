@@ -84,13 +84,13 @@ router.post('/', requireAuth(), async (req, res, next) => {
   }
 })
 
-// POST /api/recipes/:id/log — log a recipe as a meal (1 serving)
+// POST /api/recipes/:id/log — log a recipe as a meal
 router.post('/:id/log', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const dbUserId  = await getOrCreateUser(userId)
     const recipeId  = parseInt(req.params.id, 10)
-    const { meal_slot, log_date } = req.body
+    const { meal_slot, log_date, servings } = req.body
 
     const { rows } = await pool.query(
       'SELECT * FROM recipes WHERE id = $1 AND user_id = $2',
@@ -99,7 +99,8 @@ router.post('/:id/log', requireAuth(), async (req, res, next) => {
     if (!rows.length) return res.status(404).json({ error: 'Recipe not found' })
 
     const r = rows[0]
-    const srv = parseFloat(r.servings) || 1
+    const totalServings = Math.max(parseFloat(r.servings) || 1, 0.01)
+    const servingsEaten = Math.max(parseFloat(servings) || 1, 0.01)
 
     const { rows: [meal] } = await pool.query(
       `INSERT INTO meals (user_id, meal_name, calories, protein, carbs, fat, fiber, meal_slot, log_date)
@@ -107,11 +108,11 @@ router.post('/:id/log', requireAuth(), async (req, res, next) => {
        RETURNING *`,
       [
         dbUserId, r.name,
-        r.calories != null ? Math.round(r.calories / srv)              : null,
-        r.protein  != null ? +(r.protein  / srv).toFixed(1)            : null,
-        r.carbs    != null ? +(r.carbs    / srv).toFixed(1)            : null,
-        r.fat      != null ? +(r.fat      / srv).toFixed(1)            : null,
-        r.fiber    != null ? +(r.fiber    / srv).toFixed(1)            : null,
+        r.calories != null ? Math.round(r.calories / totalServings * servingsEaten) : null,
+        r.protein  != null ? +(r.protein  / totalServings * servingsEaten).toFixed(1) : null,
+        r.carbs    != null ? +(r.carbs    / totalServings * servingsEaten).toFixed(1) : null,
+        r.fat      != null ? +(r.fat      / totalServings * servingsEaten).toFixed(1) : null,
+        r.fiber    != null ? +(r.fiber    / totalServings * servingsEaten).toFixed(1) : null,
         meal_slot ?? null,
         log_date ?? null,
       ],

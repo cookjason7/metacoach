@@ -1658,8 +1658,12 @@ function BarcodeLogger({ slotName, onSaved, logDate }) {
 
 // ── My Foods & Recipes Logger ──────────────────────────────────────────────────
 
+const EMPTY_ING = { food_name: '', calories: '', protein: '', carbs: '', fat: '', fiber: '', amount: '', unit: '' }
+
 function RecipesLogger({ slotName, onSaved, logDate }) {
   const { getToken } = useAuth()
+
+  // My Foods state
   const [myFoods,  setMyFoods]  = useState([])
   const [loading,  setLoading]  = useState(true)
   const [selected, setSelected] = useState(null)
@@ -1668,20 +1672,42 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
   const [saved,    setSaved]    = useState(false)
   const [error,    setError]    = useState(null)
 
+  // Recipes list + log state
+  const [recipes,      setRecipes]      = useState([])
+  const [recipeView,   setRecipeView]   = useState(null)  // null | 'create' | 'log'
+  const [activeRecipe, setActiveRecipe] = useState(null)
+  const [rQty,         setRQty]         = useState('1')
+  const [rSaving,      setRSaving]      = useState(false)
+  const [rSaved,       setRSaved]       = useState(false)
+  const [rError,       setRError]       = useState(null)
+
+  // Create recipe state
+  const [cName,     setCName]     = useState('')
+  const [cServings, setCServings] = useState('4')
+  const [cIngs,     setCIngs]     = useState([])
+  const [cDraft,    setCDraft]    = useState(EMPTY_ING)
+  const [cSaving,   setCSaving]   = useState(false)
+  const [cError,    setCError]    = useState(null)
+
   useEffect(() => {
     async function load() {
       try {
         const token = await getToken()
-        const res = await fetch(`${API_URL}/api/custom-foods`, { headers: { Authorization: `Bearer ${token}` } })
-        if (res.ok) {
-          const all = await res.json()
+        const [cfRes, rRes] = await Promise.all([
+          fetch(`${API_URL}/api/custom-foods`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_URL}/api/recipes`,      { headers: { Authorization: `Bearer ${token}` } }),
+        ])
+        if (cfRes.ok) {
+          const all = await cfRes.json()
           setMyFoods(all.filter(f => !f.is_global))
         }
+        if (rRes.ok) setRecipes(await rRes.json())
       } finally { setLoading(false) }
     }
     load()
   }, [getToken])
 
+  // ── My Foods helpers ───────────────────────────────────────────────────────
   const q = Math.max(parseFloat(qty) || 1, 0.01)
   const preview = selected ? {
     calories: Math.round((parseFloat(selected.calories_per_serving) || 0) * q),
@@ -1720,6 +1746,81 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
     } catch (err) { setError(err.message) } finally { setSaving(false) }
   }
 
+  // ── Recipe log helpers ─────────────────────────────────────────────────────
+  const rSrv = activeRecipe ? Math.max(parseFloat(activeRecipe.servings) || 1, 0.01) : 1
+  const rq   = Math.max(parseFloat(rQty) || 1, 0.01)
+  const rPreview = activeRecipe ? {
+    calories: Math.round((parseFloat(activeRecipe.calories) || 0) / rSrv * rq),
+    protein:  +((parseFloat(activeRecipe.protein) || 0) / rSrv * rq).toFixed(1),
+    carbs:    +((parseFloat(activeRecipe.carbs)   || 0) / rSrv * rq).toFixed(1),
+    fat:      +((parseFloat(activeRecipe.fat)     || 0) / rSrv * rq).toFixed(1),
+    fiber:    activeRecipe.fiber != null ? +((parseFloat(activeRecipe.fiber) || 0) / rSrv * rq).toFixed(1) : null,
+  } : null
+
+  async function logRecipe() {
+    if (!activeRecipe) return
+    setRSaving(true); setRError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/recipes/${activeRecipe.id}/log`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ meal_slot: slotName, log_date: logDate, servings: rq }),
+      })
+      if (!res.ok) throw new Error('Failed to log recipe')
+      const meal = await res.json()
+      setRSaved(true); onSaved(meal)
+    } catch (err) { setRError(err.message) } finally { setRSaving(false) }
+  }
+
+  // ── Create recipe helpers ──────────────────────────────────────────────────
+  const cTotals = cIngs.reduce(
+    (acc, ing) => ({
+      calories: acc.calories + (parseFloat(ing.calories) || 0),
+      protein:  acc.protein  + (parseFloat(ing.protein)  || 0),
+      carbs:    acc.carbs    + (parseFloat(ing.carbs)    || 0),
+      fat:      acc.fat      + (parseFloat(ing.fat)      || 0),
+      fiber:    acc.fiber    + (parseFloat(ing.fiber)    || 0),
+    }),
+    { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 },
+  )
+  const cSrv = Math.max(parseFloat(cServings) || 1, 0.01)
+  const cPerSrv = {
+    calories: Math.round(cTotals.calories / cSrv),
+    protein:  +(cTotals.protein / cSrv).toFixed(1),
+    carbs:    +(cTotals.carbs   / cSrv).toFixed(1),
+    fat:      +(cTotals.fat     / cSrv).toFixed(1),
+  }
+
+  function addIngredient() {
+    if (!cDraft.food_name.trim()) { setCError('Ingredient name required'); return }
+    setCIngs(prev => [...prev, { ...cDraft, food_name: cDraft.food_name.trim() }])
+    setCDraft(EMPTY_ING)
+    setCError(null)
+  }
+
+  async function createRecipe() {
+    if (!cName.trim()) { setCError('Recipe name required'); return }
+    if (!cIngs.length) { setCError('Add at least one ingredient'); return }
+    setCSaving(true); setCError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/recipes`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: cName.trim(), servings: parseFloat(cServings) || 1, ingredients: cIngs }),
+      })
+      if (!res.ok) throw new Error('Failed to save recipe')
+      const recipe = await res.json()
+      setRecipes(prev => [recipe, ...prev])
+      setRecipeView(null)
+      setCName(''); setCServings('4'); setCIngs([])
+    } catch (err) { setCError(err.message) } finally { setCSaving(false) }
+  }
+
+  // ── Views ──────────────────────────────────────────────────────────────────
+
+  // My Foods success
   if (saved && selected) {
     return (
       <div className="space-y-4">
@@ -1738,9 +1839,28 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
     )
   }
 
+  // Recipe success
+  if (rSaved && activeRecipe) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+          <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0">✓</div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">{activeRecipe.name}</p>
+            <p className="text-xs text-gray-500">{rPreview?.calories} cal</p>
+          </div>
+        </div>
+        <button onClick={() => { setActiveRecipe(null); setRQty('1'); setRSaved(false); setRecipeView(null) }}
+          className="w-full py-2.5 rounded-xl text-sm font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
+          Log Another
+        </button>
+      </div>
+    )
+  }
+
   if (loading) return <p className="text-sm text-gray-400 text-center py-6">Loading…</p>
 
-  // Selected food panel — servings + log
+  // My Foods detail / log
   if (selected) {
     return (
       <div className="border border-gray-200 rounded-xl p-4 bg-white space-y-3">
@@ -1771,9 +1891,7 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
             ))}
           </div>
         )}
-        {preview?.fiber != null && (
-          <p className="text-xs text-gray-400">Fiber: {preview.fiber}g</p>
-        )}
+        {preview?.fiber != null && <p className="text-xs text-gray-400">Fiber: {preview.fiber}g</p>}
         {error && <p className="text-sm text-red-500">{error}</p>}
         <button onClick={save} disabled={saving || !preview}
           className="w-full bg-[#E8670A] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
@@ -1783,7 +1901,155 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
     )
   }
 
-  // Main list view
+  // Recipe log panel
+  if (recipeView === 'log' && activeRecipe) {
+    return (
+      <div className="border border-gray-200 rounded-xl p-4 bg-white space-y-3">
+        <div className="flex justify-between items-start gap-2">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-gray-900 leading-snug">{activeRecipe.name}</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {Math.round((parseFloat(activeRecipe.calories) || 0) / rSrv)} cal/serving · {activeRecipe.servings} servings total
+            </p>
+          </div>
+          <button onClick={() => { setRecipeView(null); setActiveRecipe(null); setRQty('1') }}
+            className="text-xs text-gray-400 hover:text-gray-600 shrink-0">Change</button>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Servings eaten</label>
+          <input type="number" value={rQty} onChange={e => setRQty(e.target.value)}
+            min="0.1" step="0.1" placeholder="1"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+        </div>
+        {rPreview && (
+          <div className="grid grid-cols-4 gap-2 text-center text-xs">
+            {[['Cal', rPreview.calories, 'text-[#E8670A]'], ['P', `${rPreview.protein}g`, 'text-pink-500'], ['C', `${rPreview.carbs}g`, 'text-blue-500'], ['F', `${rPreview.fat}g`, 'text-green-500']].map(([l, v, c]) => (
+              <div key={l} className="bg-gray-50 rounded-lg py-2">
+                <p className={`font-bold text-sm ${c}`}>{v}</p>
+                <p className="text-gray-400">{l}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        {rPreview?.fiber != null && <p className="text-xs text-gray-400">Fiber: {rPreview.fiber}g</p>}
+        {rError && <p className="text-sm text-red-500">{rError}</p>}
+        <button onClick={logRecipe} disabled={rSaving}
+          className="w-full bg-[#E8670A] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
+          {rSaving ? 'Saving…' : 'Log It'}
+        </button>
+      </div>
+    )
+  }
+
+  // Create recipe form
+  if (recipeView === 'create') {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <button onClick={() => { setRecipeView(null); setCName(''); setCServings('4'); setCIngs([]); setCError(null) }}
+            className="text-sm text-gray-500 hover:text-gray-700">← Back</button>
+          <p className="text-sm font-semibold text-gray-900">New Recipe</p>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Recipe Name</label>
+            <input type="text" value={cName} onChange={e => setCName(e.target.value)}
+              placeholder="e.g. Chicken Stir Fry"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Total Servings Made</label>
+            <input type="number" value={cServings} onChange={e => setCServings(e.target.value)}
+              min="0.5" step="0.5" placeholder="4"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+          </div>
+        </div>
+
+        {cIngs.length > 0 && (
+          <div className="border border-gray-200 rounded-xl divide-y divide-gray-100 bg-white">
+            {cIngs.map((ing, i) => (
+              <div key={i} className="flex items-start justify-between gap-2 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900 leading-snug">{ing.food_name}</p>
+                  <p className="text-xs text-gray-400">
+                    {ing.calories ? `${Math.round(ing.calories)} cal` : ''}
+                    {ing.protein  ? ` · ${ing.protein}g P` : ''}
+                    {ing.carbs    ? ` · ${ing.carbs}g C`   : ''}
+                    {ing.fat      ? ` · ${ing.fat}g F`     : ''}
+                    {(ing.amount || ing.unit) ? ` · ${ing.amount}${ing.unit ? ' ' + ing.unit : ''}` : ''}
+                  </p>
+                </div>
+                <button onClick={() => setCIngs(prev => prev.filter((_, j) => j !== i))}
+                  className="text-xs text-red-400 hover:text-red-600 shrink-0 pt-0.5">Remove</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {cIngs.length > 0 && (
+          <div className="bg-gray-50 rounded-xl p-3 space-y-1.5">
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>Total recipe</span>
+              <span>{Math.round(cTotals.calories)} cal · {cTotals.protein.toFixed(0)}g P · {cTotals.carbs.toFixed(0)}g C · {cTotals.fat.toFixed(0)}g F</span>
+            </div>
+            <div className="flex justify-between text-xs font-semibold text-gray-700">
+              <span>Per serving ({cServings || 1})</span>
+              <span>{cPerSrv.calories} cal · {cPerSrv.protein}g P · {cPerSrv.carbs}g C · {cPerSrv.fat}g F</span>
+            </div>
+          </div>
+        )}
+
+        <div className="border border-gray-200 rounded-xl p-4 space-y-3 bg-white">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Add Ingredient</p>
+          <input type="text" value={cDraft.food_name} onChange={e => setCDraft(d => ({ ...d, food_name: e.target.value }))}
+            placeholder="Food name"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+          <div className="grid grid-cols-2 gap-2">
+            {[['calories','Calories'],['protein','Protein (g)'],['carbs','Carbs (g)'],['fat','Fat (g)']].map(([k, lbl]) => (
+              <div key={k}>
+                <label className="block text-xs text-gray-500 mb-0.5">{lbl}</label>
+                <input type="number" min="0" value={cDraft[k]} onChange={e => setCDraft(d => ({ ...d, [k]: e.target.value }))}
+                  placeholder="0"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-xs text-gray-500 mb-0.5">Fiber (g) optional</label>
+              <input type="number" min="0" value={cDraft.fiber} onChange={e => setCDraft(d => ({ ...d, fiber: e.target.value }))}
+                placeholder="0"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-0.5">Amount (optional)</label>
+              <div className="flex gap-1">
+                <input type="number" min="0" value={cDraft.amount} onChange={e => setCDraft(d => ({ ...d, amount: e.target.value }))}
+                  placeholder="100"
+                  className="w-1/2 border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+                <input type="text" value={cDraft.unit} onChange={e => setCDraft(d => ({ ...d, unit: e.target.value }))}
+                  placeholder="g"
+                  className="w-1/2 border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+              </div>
+            </div>
+          </div>
+          {cError && <p className="text-sm text-red-500">{cError}</p>}
+          <button onClick={addIngredient}
+            className="w-full py-2.5 rounded-lg text-sm font-semibold border-2 border-[#E8670A] text-[#E8670A] hover:bg-[#fff7ed] transition-colors">
+            + Add Ingredient
+          </button>
+        </div>
+
+        <button onClick={createRecipe} disabled={cSaving || !cName.trim() || !cIngs.length}
+          className="w-full bg-[#E8670A] text-white py-3 rounded-xl text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+          {cSaving ? 'Saving…' : 'Save Recipe'}
+        </button>
+      </div>
+    )
+  }
+
+  // Main list
   return (
     <div className="space-y-5">
       {/* My Foods */}
@@ -1817,12 +2083,44 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
         )}
       </div>
 
-      {/* Recipes placeholder */}
+      {/* Recipes */}
       <div>
-        <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Recipes</p>
-        <div className="text-center py-5 border border-dashed border-gray-200 rounded-xl">
-          <p className="text-sm text-gray-400">Recipe builder coming soon.</p>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Recipes</p>
+          <button onClick={() => setRecipeView('create')}
+            className="text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] transition-colors">
+            + Create Recipe
+          </button>
         </div>
+        {recipes.length === 0 ? (
+          <div className="text-center py-6 border border-dashed border-gray-200 rounded-xl">
+            <p className="text-sm text-gray-500">No recipes yet.</p>
+            <p className="text-xs text-gray-400 mt-1">Create a recipe to log it quickly.</p>
+          </div>
+        ) : (
+          <div className="border border-gray-200 rounded-xl divide-y divide-gray-100 bg-white">
+            {recipes.map(recipe => {
+              const srv = Math.max(parseFloat(recipe.servings) || 1, 0.01)
+              return (
+                <button key={recipe.id} onClick={() => { setActiveRecipe(recipe); setRQty('1'); setRecipeView('log') }}
+                  className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-medium text-gray-900 leading-snug">{recipe.name}</p>
+                    <span className="text-xs font-semibold text-[#E8670A] shrink-0">
+                      {recipe.calories != null ? `${Math.round(recipe.calories / srv)} cal/srv` : ''}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {recipe.servings} servings
+                    {recipe.protein != null ? ` · ${(recipe.protein / srv).toFixed(0)}g P` : ''}
+                    {recipe.carbs   != null ? ` · ${(recipe.carbs   / srv).toFixed(0)}g C` : ''}
+                    {recipe.fat     != null ? ` · ${(recipe.fat     / srv).toFixed(0)}g F` : ''}
+                  </p>
+                </button>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )
