@@ -8,6 +8,17 @@ import { calculateMicronutrientTotals } from '../components/MicronutrientTotals.
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
+function calcMacros(food, g) {
+  const r = g / 100
+  return {
+    calories: Math.round((food.calories  ?? 0) * r),
+    protein:  +((food.protein_g ?? 0) * r).toFixed(1),
+    carbs:    +((food.carbs_g   ?? 0) * r).toFixed(1),
+    fat:      +((food.fat_g     ?? 0) * r).toFixed(1),
+    fiber:    food.fiber_g > 0 ? +((food.fiber_g ?? 0) * r).toFixed(1) : null,
+  }
+}
+
 const SLOTS = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
 
 // Internal stored slot options for copy/move modal (maps snack timing to DB values)
@@ -1077,17 +1088,6 @@ function SearchLogger({ slotName, onSaved, logDate }) {
     setUnit(newUnit)
   }
 
-  function calcMacros(food, g) {
-    const r = g / 100
-    return {
-      calories: Math.round((food.calories  ?? 0) * r),
-      protein:  +((food.protein_g ?? 0) * r).toFixed(1),
-      carbs:    +((food.carbs_g   ?? 0) * r).toFixed(1),
-      fat:      +((food.fat_g     ?? 0) * r).toFixed(1),
-      fiber:    food.fiber_g > 0 ? +((food.fiber_g ?? 0) * r).toFixed(1) : null,
-    }
-  }
-
   async function save() {
     if (!selected) return
     setSaving(true); setError(null)
@@ -1689,6 +1689,18 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
   const [cSaving,   setCSaving]   = useState(false)
   const [cError,    setCError]    = useState(null)
 
+  // Ingredient source mode: 'search' | 'myfoods' | 'manual'
+  const [cIngMode,       setCIngMode]       = useState('search')
+  const [cQuery,         setCQuery]         = useState('')
+  const [cSearchResults, setCSearchResults] = useState([])
+  const [cSearching,     setCSearching]     = useState(false)
+  const [cIngFood,       setCIngFood]       = useState(null)   // selected DB food (search)
+  const [cIngAmount,     setCIngAmount]     = useState('100')
+  const [cIngUnit,       setCIngUnit]       = useState('g')
+  const [cMyFoodSel,     setCMyFoodSel]     = useState(null)   // selected My Food
+  const [cMyFoodQty,     setCMyFoodQty]     = useState('1')
+  const cDebounceRef = useRef(null)
+
   useEffect(() => {
     async function load() {
       try {
@@ -1790,6 +1802,67 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
     protein:  +(cTotals.protein / cSrv).toFixed(1),
     carbs:    +(cTotals.carbs   / cSrv).toFixed(1),
     fat:      +(cTotals.fat     / cSrv).toFixed(1),
+  }
+
+  // Ingredient search helpers
+  function handleCQuery(val) {
+    setCQuery(val); setCIngFood(null)
+    clearTimeout(cDebounceRef.current)
+    if (!val.trim()) { setCSearchResults([]); return }
+    cDebounceRef.current = setTimeout(() => doCIngSearch(val.trim()), 400)
+  }
+
+  async function doCIngSearch(q) {
+    setCSearching(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/foods/search?q=${encodeURIComponent(q)}&limit=20`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error()
+      setCSearchResults((await res.json()).filter(f => f.calories != null))
+    } catch { setCSearchResults([]) } finally { setCSearching(false) }
+  }
+
+  function selectCIngFood(food) {
+    setCIngFood(food); setCIngAmount('100'); setCIngUnit('g')
+    setCQuery(food.food_name); setCSearchResults([])
+  }
+
+  function addFromSearch() {
+    if (!cIngFood) { setCError('Select a food first'); return }
+    const g = toGrams(parseFloat(cIngAmount) || 0, cIngUnit)
+    if (g <= 0) { setCError('Enter a valid amount'); return }
+    const m = calcMacros(cIngFood, g)
+    setCIngs(prev => [...prev, {
+      food_name: cIngFood.food_name,
+      calories:  m.calories,
+      protein:   m.protein,
+      carbs:     m.carbs,
+      fat:       m.fat,
+      fiber:     m.fiber ?? '',
+      amount:    parseFloat(cIngAmount) || '',
+      unit:      cIngUnit,
+    }])
+    setCIngFood(null); setCQuery(''); setCIngAmount('100'); setCIngUnit('g')
+    setCError(null)
+  }
+
+  function addFromMyFood() {
+    if (!cMyFoodSel) { setCError('Select a food first'); return }
+    const qty = Math.max(parseFloat(cMyFoodQty) || 1, 0.01)
+    setCIngs(prev => [...prev, {
+      food_name: cMyFoodSel.food_name,
+      calories:  Math.round((parseFloat(cMyFoodSel.calories_per_serving) || 0) * qty),
+      protein:   +((parseFloat(cMyFoodSel.protein) || 0) * qty).toFixed(1),
+      carbs:     +((parseFloat(cMyFoodSel.carbs)   || 0) * qty).toFixed(1),
+      fat:       +((parseFloat(cMyFoodSel.fat)     || 0) * qty).toFixed(1),
+      fiber:     cMyFoodSel.fiber ? +((parseFloat(cMyFoodSel.fiber) || 0) * qty).toFixed(1) : '',
+      amount:    +((parseFloat(cMyFoodSel.serving_size) || 1) * qty).toFixed(2),
+      unit:      cMyFoodSel.serving_unit || '',
+    }])
+    setCMyFoodSel(null); setCMyFoodQty('1')
+    setCError(null)
   }
 
   function addIngredient() {
@@ -2002,43 +2075,179 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
 
         <div className="border border-gray-200 rounded-xl p-4 space-y-3 bg-white">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Add Ingredient</p>
-          <input type="text" value={cDraft.food_name} onChange={e => setCDraft(d => ({ ...d, food_name: e.target.value }))}
-            placeholder="Food name"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
-          <div className="grid grid-cols-2 gap-2">
-            {[['calories','Calories'],['protein','Protein (g)'],['carbs','Carbs (g)'],['fat','Fat (g)']].map(([k, lbl]) => (
-              <div key={k}>
-                <label className="block text-xs text-gray-500 mb-0.5">{lbl}</label>
-                <input type="number" min="0" value={cDraft[k]} onChange={e => setCDraft(d => ({ ...d, [k]: e.target.value }))}
-                  placeholder="0"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
-              </div>
+
+          {/* Mode tabs */}
+          <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs font-semibold">
+            {[['search','Search'],['myfoods','My Foods'],['manual','Manual']].map(([mode, label]) => (
+              <button key={mode} onClick={() => { setCIngMode(mode); setCError(null) }}
+                className={`flex-1 py-2 transition-colors ${cIngMode === mode ? 'bg-[#E8670A] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                {label}
+              </button>
             ))}
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="block text-xs text-gray-500 mb-0.5">Fiber (g) optional</label>
-              <input type="number" min="0" value={cDraft.fiber} onChange={e => setCDraft(d => ({ ...d, fiber: e.target.value }))}
-                placeholder="0"
+
+          {/* Search mode */}
+          {cIngMode === 'search' && (
+            <div className="space-y-2">
+              <input type="text" value={cQuery} onChange={e => handleCQuery(e.target.value)}
+                placeholder="Search foods…"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+              {cSearching && <p className="text-xs text-gray-400 text-center py-1">Searching…</p>}
+              {cSearchResults.length > 0 && !cIngFood && (
+                <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-40 overflow-y-auto">
+                  {cSearchResults.map(food => (
+                    <button key={food.id} onClick={() => selectCIngFood(food)}
+                      className="w-full text-left px-3 py-2 hover:bg-gray-50 transition-colors">
+                      <p className="text-sm text-gray-900 leading-snug">{food.food_name}</p>
+                      <p className="text-xs text-gray-400">{food.calories} cal / 100g</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {cIngFood && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium text-gray-900 truncate">{cIngFood.food_name}</p>
+                    <button onClick={() => { setCIngFood(null); setCQuery('') }} className="text-xs text-gray-400 hover:text-gray-600 shrink-0">Change</button>
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <label className="block text-xs text-gray-500 mb-0.5">Amount</label>
+                      <input type="number" min="0" value={cIngAmount} onChange={e => setCIngAmount(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-xs text-gray-500 mb-0.5">Unit</label>
+                      <select value={cIngUnit} onChange={e => setCIngUnit(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+                        {SERVING_UNITS.map(u => <option key={u}>{u}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  {(() => {
+                    const g = toGrams(parseFloat(cIngAmount) || 0, cIngUnit)
+                    if (g <= 0) return null
+                    const m = calcMacros(cIngFood, g)
+                    return (
+                      <div className="grid grid-cols-4 gap-1 text-center text-xs">
+                        {[['Cal', m.calories, 'text-[#E8670A]'], ['P', `${m.protein}g`, 'text-pink-500'], ['C', `${m.carbs}g`, 'text-blue-500'], ['F', `${m.fat}g`, 'text-green-500']].map(([l, v, c]) => (
+                          <div key={l} className="bg-gray-50 rounded py-1.5">
+                            <p className={`font-bold ${c}`}>{v}</p>
+                            <p className="text-gray-400">{l}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })()}
+                  <button onClick={addFromSearch}
+                    className="w-full py-2.5 rounded-lg text-sm font-semibold border-2 border-[#E8670A] text-[#E8670A] hover:bg-[#fff7ed] transition-colors">
+                    + Add Ingredient
+                  </button>
+                </div>
+              )}
             </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-0.5">Amount (optional)</label>
-              <div className="flex gap-1">
-                <input type="number" min="0" value={cDraft.amount} onChange={e => setCDraft(d => ({ ...d, amount: e.target.value }))}
-                  placeholder="100"
-                  className="w-1/2 border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
-                <input type="text" value={cDraft.unit} onChange={e => setCDraft(d => ({ ...d, unit: e.target.value }))}
-                  placeholder="g"
-                  className="w-1/2 border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+          )}
+
+          {/* My Foods mode */}
+          {cIngMode === 'myfoods' && (
+            <div className="space-y-2">
+              {myFoods.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-3">No saved foods yet.</p>
+              ) : cMyFoodSel ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium text-gray-900 truncate">{cMyFoodSel.food_name}</p>
+                    <button onClick={() => setCMyFoodSel(null)} className="text-xs text-gray-400 hover:text-gray-600 shrink-0">Change</button>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-0.5">Servings</label>
+                    <input type="number" min="0.1" step="0.1" value={cMyFoodQty} onChange={e => setCMyFoodQty(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+                  </div>
+                  {(() => {
+                    const q = Math.max(parseFloat(cMyFoodQty) || 1, 0.01)
+                    return (
+                      <div className="grid grid-cols-4 gap-1 text-center text-xs">
+                        {[
+                          ['Cal', Math.round((parseFloat(cMyFoodSel.calories_per_serving) || 0) * q), 'text-[#E8670A]'],
+                          ['P',   `${+((parseFloat(cMyFoodSel.protein) || 0) * q).toFixed(1)}g`, 'text-pink-500'],
+                          ['C',   `${+((parseFloat(cMyFoodSel.carbs)   || 0) * q).toFixed(1)}g`, 'text-blue-500'],
+                          ['F',   `${+((parseFloat(cMyFoodSel.fat)     || 0) * q).toFixed(1)}g`, 'text-green-500'],
+                        ].map(([l, v, c]) => (
+                          <div key={l} className="bg-gray-50 rounded py-1.5">
+                            <p className={`font-bold ${c}`}>{v}</p>
+                            <p className="text-gray-400">{l}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })()}
+                  <button onClick={addFromMyFood}
+                    className="w-full py-2.5 rounded-lg text-sm font-semibold border-2 border-[#E8670A] text-[#E8670A] hover:bg-[#fff7ed] transition-colors">
+                    + Add Ingredient
+                  </button>
+                </div>
+              ) : (
+                <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-48 overflow-y-auto">
+                  {myFoods.map(food => (
+                    <button key={food.id} onClick={() => { setCMyFoodSel(food); setCMyFoodQty('1') }}
+                      className="w-full text-left px-3 py-2.5 hover:bg-gray-50 transition-colors">
+                      <p className="text-sm text-gray-900 leading-snug">{food.food_name}</p>
+                      <p className="text-xs text-gray-400">
+                        {food.calories_per_serving != null ? `${Math.round(food.calories_per_serving)} cal` : ''}
+                        {food.protein != null ? ` · ${Number(food.protein).toFixed(0)}g P` : ''}
+                        {food.serving_size ? ` · ${food.serving_size} ${food.serving_unit ?? ''}` : ''}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Manual mode */}
+          {cIngMode === 'manual' && (
+            <div className="space-y-2">
+              <input type="text" value={cDraft.food_name} onChange={e => setCDraft(d => ({ ...d, food_name: e.target.value }))}
+                placeholder="Food name"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+              <div className="grid grid-cols-2 gap-2">
+                {[['calories','Calories'],['protein','Protein (g)'],['carbs','Carbs (g)'],['fat','Fat (g)']].map(([k, lbl]) => (
+                  <div key={k}>
+                    <label className="block text-xs text-gray-500 mb-0.5">{lbl}</label>
+                    <input type="number" min="0" value={cDraft[k]} onChange={e => setCDraft(d => ({ ...d, [k]: e.target.value }))}
+                      placeholder="0"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+                  </div>
+                ))}
               </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-0.5">Fiber (g) optional</label>
+                  <input type="number" min="0" value={cDraft.fiber} onChange={e => setCDraft(d => ({ ...d, fiber: e.target.value }))}
+                    placeholder="0"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-0.5">Amount (optional)</label>
+                  <div className="flex gap-1">
+                    <input type="number" min="0" value={cDraft.amount} onChange={e => setCDraft(d => ({ ...d, amount: e.target.value }))}
+                      placeholder="100"
+                      className="w-1/2 border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+                    <input type="text" value={cDraft.unit} onChange={e => setCDraft(d => ({ ...d, unit: e.target.value }))}
+                      placeholder="g"
+                      className="w-1/2 border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+                  </div>
+                </div>
+              </div>
+              <button onClick={addIngredient}
+                className="w-full py-2.5 rounded-lg text-sm font-semibold border-2 border-[#E8670A] text-[#E8670A] hover:bg-[#fff7ed] transition-colors">
+                + Add Ingredient
+              </button>
             </div>
-          </div>
+          )}
+
           {cError && <p className="text-sm text-red-500">{cError}</p>}
-          <button onClick={addIngredient}
-            className="w-full py-2.5 rounded-lg text-sm font-semibold border-2 border-[#E8670A] text-[#E8670A] hover:bg-[#fff7ed] transition-colors">
-            + Add Ingredient
-          </button>
         </div>
 
         <button onClick={createRecipe} disabled={cSaving || !cName.trim() || !cIngs.length}
