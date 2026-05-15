@@ -16,6 +16,18 @@ const FIELD_TYPES = [
   { value: 'multi_choice',  label: 'Multiple Choice' },
 ]
 
+// Type-specific placeholder examples for the Question input
+const QUESTION_PLACEHOLDER = {
+  short_text:    'e.g. What was your biggest win this week?',
+  long_text:     'e.g. Describe how your week went overall.',
+  number:        'e.g. How many hours of sleep did you get last night?',
+  date:          'e.g. What date did you last weigh in?',
+  rating:        'e.g. How was your energy this week?',
+  yes_no:        'e.g. Did you hit your water goal every day?',
+  single_choice: 'e.g. How many strength workouts did you complete?',
+  multi_choice:  'e.g. Which days did you fully track your food?',
+}
+
 const STATUS_STYLES = {
   draft:     'bg-gray-100 text-gray-600',
   published: 'bg-emerald-100 text-emerald-700',
@@ -34,65 +46,128 @@ function makeField(order) {
     description: '',
     required:    false,
     order,
-    options:     ['Option A', 'Option B'],
+    options:     ['', ''],   // two blank slots for choice fields
     max_chars:   null,
   }
 }
 
-// ── Field editor (inline, expanded when a field is selected) ──────────────────
+// Validate all fields before publishing; returns array of error strings
+function validateForPublish(fields) {
+  const errors = []
+  fields.forEach((f, idx) => {
+    const num = idx + 1
+    if (!f.label?.trim()) {
+      errors.push(`Question ${num}: question text cannot be blank.`)
+    }
+    if (f.type === 'single_choice' || f.type === 'multi_choice') {
+      const nonEmpty = (f.options ?? []).filter(o => o.trim())
+      if (nonEmpty.length < 2) {
+        errors.push(`Question ${num} (${f.label?.trim() || 'Untitled'}): needs at least 2 non-empty answer options.`)
+      }
+    }
+    if ((f.type === 'short_text' || f.type === 'long_text') && f.max_chars !== null) {
+      if (!Number.isInteger(f.max_chars) || f.max_chars < 1) {
+        errors.push(`Question ${num}: max characters must be a positive number.`)
+      }
+    }
+  })
+  return errors
+}
 
-function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst, isLast }) {
+// ── Field editor ──────────────────────────────────────────────────────────────
+
+function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst, isLast, publishError }) {
   const [open, setOpen] = useState(!field.label)  // open by default if new
 
   const needsOptions = field.type === 'single_choice' || field.type === 'multi_choice'
+  const hasMaxChars  = field.type === 'short_text' || field.type === 'long_text'
 
   function update(key, val) { onChange({ ...field, [key]: val }) }
 
-  function addOption() { update('options', [...(field.options ?? []), `Option ${(field.options?.length ?? 0) + 1}`]) }
-  function removeOption(i) { update('options', field.options.filter((_, idx) => idx !== i)) }
+  // Options helpers
+  function addOption() {
+    update('options', [...(field.options ?? []), ''])
+  }
+  function removeOption(i) {
+    update('options', (field.options ?? []).filter((_, idx) => idx !== i))
+  }
   function updateOption(i, val) {
     const opts = [...(field.options ?? [])]
     opts[i] = val
     update('options', opts)
   }
+  function moveOption(i, dir) {
+    const opts = [...(field.options ?? [])]
+    const swap = i + dir
+    if (swap < 0 || swap >= opts.length) return;
+    [opts[i], opts[swap]] = [opts[swap], opts[i]]
+    update('options', opts)
+  }
 
-  const typeLabel = FIELD_TYPES.find(t => t.value === field.type)?.label ?? field.type
+  const typeLabel    = FIELD_TYPES.find(t => t.value === field.type)?.label ?? field.type
+  const optionCount  = needsOptions ? (field.options ?? []).filter(o => o.trim()).length : 0
+  const hasError     = !!publishError
 
   return (
-    <div className={`bg-white border rounded-xl overflow-hidden transition-colors ${open ? 'border-[#E8670A]' : 'border-gray-200'}`}>
-      {/* Summary row */}
+    <div className={`bg-white border rounded-xl overflow-hidden transition-colors ${
+      hasError ? 'border-red-300' : open ? 'border-[#E8670A]' : 'border-gray-200'
+    }`}>
+      {/* ── Collapsed summary row ── */}
       <div
         className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none"
         onClick={() => setOpen(o => !o)}
       >
-        <div className="flex flex-col gap-1 shrink-0">
+        {/* Reorder arrows */}
+        <div className="flex flex-col gap-0.5 shrink-0">
           <button
             type="button"
             onClick={e => { e.stopPropagation(); onMoveUp() }}
             disabled={isFirst}
-            className="text-gray-300 hover:text-gray-500 disabled:opacity-20 text-xs leading-none"
-          >▲</button>
+            className="w-5 h-5 flex items-center justify-center text-gray-300 hover:text-gray-500 disabled:opacity-20 rounded"
+            aria-label="Move up"
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+            </svg>
+          </button>
           <button
             type="button"
             onClick={e => { e.stopPropagation(); onMoveDown() }}
             disabled={isLast}
-            className="text-gray-300 hover:text-gray-500 disabled:opacity-20 text-xs leading-none"
-          >▼</button>
+            className="w-5 h-5 flex items-center justify-center text-gray-300 hover:text-gray-500 disabled:opacity-20 rounded"
+            aria-label="Move down"
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
         </div>
+
+        {/* Label + meta */}
         <div className="flex-1 min-w-0">
           <p className={`text-sm font-medium truncate ${field.label ? 'text-gray-900' : 'text-gray-400 italic'}`}>
             {field.label || 'Untitled question'}
           </p>
-          <div className="flex items-center gap-2 mt-0.5">
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
             <span className="text-[10px] text-gray-400 bg-gray-100 rounded px-1.5 py-0.5 font-medium">{typeLabel}</span>
-            {field.required && <span className="text-[10px] text-[#E8670A] font-bold">Required</span>}
+            {field.required && (
+              <span className="text-[10px] text-[#E8670A] font-bold uppercase tracking-wide">Required</span>
+            )}
+            {needsOptions && optionCount > 0 && (
+              <span className="text-[10px] text-gray-400">{optionCount} option{optionCount !== 1 ? 's' : ''}</span>
+            )}
+            {hasError && (
+              <span className="text-[10px] text-red-500 font-semibold">⚠ Needs attention</span>
+            )}
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
           <button
             type="button"
             onClick={onDelete}
-            className="text-red-400 hover:text-red-600 text-xs font-medium px-2 py-1 rounded hover:bg-red-50 transition-colors"
+            className="text-red-400 hover:text-red-600 text-xs font-medium px-2 py-1.5 rounded hover:bg-red-50 transition-colors"
           >
             Delete
           </button>
@@ -103,13 +178,16 @@ function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
         </div>
       </div>
 
-      {/* Expanded editor */}
+      {/* ── Expanded editor ── */}
       {open && (
-        <div className="px-4 pb-4 border-t border-gray-100 pt-3 space-y-3">
-          {/* Type selector */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Field Type</label>
+        <div className="px-4 pb-5 border-t border-gray-100 pt-4 space-y-4">
+
+          {/* Row 1: Field type + Required toggle */}
+          <div className="flex gap-3 items-end">
+            <div className="flex-1">
+              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+                Answer Type
+              </label>
               <select
                 value={field.type}
                 onChange={e => update('type', e.target.value)}
@@ -120,34 +198,51 @@ function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
                 ))}
               </select>
             </div>
-            <div className="flex items-end pb-1">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <div
-                  onClick={() => update('required', !field.required)}
-                  className={`w-9 h-5 rounded-full relative transition-colors ${field.required ? 'bg-[#E8670A]' : 'bg-gray-200'}`}
-                >
-                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${field.required ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                </div>
-                <span className="text-sm text-gray-700 font-medium">Required</span>
-              </label>
+            <div className="pb-1">
+              <button
+                type="button"
+                onClick={() => update('required', !field.required)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                  field.required
+                    ? 'bg-[#E8670A]/10 border-[#E8670A]/30 text-[#E8670A]'
+                    : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
+                }`}
+              >
+                <span className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                  field.required ? 'bg-[#E8670A] border-[#E8670A]' : 'border-gray-300'
+                }`}>
+                  {field.required && (
+                    <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </span>
+                Required
+              </button>
             </div>
           </div>
 
-          {/* Label */}
+          {/* Question */}
           <div>
-            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Question Label *</label>
+            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+              Question <span className="text-red-400">*</span>
+            </label>
             <input
               type="text"
               value={field.label}
               onChange={e => update('label', e.target.value)}
-              placeholder="e.g. How was your energy this week?"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+              placeholder={QUESTION_PLACEHOLDER[field.type] ?? 'Enter your question'}
+              className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] transition-colors ${
+                !field.label.trim() && hasError ? 'border-red-300 bg-red-50' : 'border-gray-200'
+              }`}
             />
           </div>
 
           {/* Helper text */}
           <div>
-            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Helper Text <span className="text-gray-300 font-normal normal-case">(optional)</span></label>
+            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+              Helper Text <span className="text-gray-300 font-normal normal-case">(optional)</span>
+            </label>
             <input
               type="text"
               value={field.description}
@@ -157,50 +252,106 @@ function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
             />
           </div>
 
-          {/* Options for choice fields */}
-          {needsOptions && (
+          {/* Max characters (short/long text only) */}
+          {hasMaxChars && (
             <div>
-              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Options</label>
-              <div className="space-y-1.5">
-                {(field.options ?? []).map((opt, i) => (
-                  <div key={i} className="flex gap-2 items-center">
-                    <input
-                      type="text"
-                      value={opt}
-                      onChange={e => updateOption(i, e.target.value)}
-                      className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeOption(i)}
-                      disabled={(field.options?.length ?? 0) <= 1}
-                      className="text-red-400 hover:text-red-600 text-sm font-bold disabled:opacity-20"
-                    >✕</button>
-                  </div>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={addOption}
-                className="mt-2 text-xs text-[#E8670A] font-semibold hover:underline"
-              >
-                + Add option
-              </button>
-            </div>
-          )}
-
-          {/* Max chars for text fields */}
-          {(field.type === 'short_text' || field.type === 'long_text') && (
-            <div>
-              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Max Characters <span className="text-gray-300 font-normal normal-case">(optional)</span></label>
+              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+                Max Characters <span className="text-gray-300 font-normal normal-case">(optional)</span>
+              </label>
               <input
                 type="number"
-                min="1" max="10000"
+                min="1"
+                max="10000"
                 value={field.max_chars ?? ''}
                 onChange={e => update('max_chars', e.target.value ? Number(e.target.value) : null)}
                 placeholder="No limit"
                 className="w-32 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
               />
+            </div>
+          )}
+
+          {/* Answer Options (choice fields only) */}
+          {needsOptions && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                  Answer Options <span className="text-red-400">*</span>
+                </label>
+                <span className="text-[10px] text-gray-400">Min. 2 required</span>
+              </div>
+
+              {/* Validation hint */}
+              {(field.options ?? []).filter(o => o.trim()).length < 2 && hasError && (
+                <p className="text-xs text-red-500 mb-2 font-medium">Add at least 2 non-empty options.</p>
+              )}
+
+              <div className="space-y-2">
+                {(field.options ?? []).map((opt, i) => (
+                  <div key={i} className="flex gap-2 items-center">
+                    {/* Up/down for options */}
+                    <div className="flex flex-col gap-0.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => moveOption(i, -1)}
+                        disabled={i === 0}
+                        className="w-4 h-4 flex items-center justify-center text-gray-300 hover:text-gray-500 disabled:opacity-20"
+                        aria-label="Move option up"
+                      >
+                        <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveOption(i, 1)}
+                        disabled={i === (field.options?.length ?? 1) - 1}
+                        className="w-4 h-4 flex items-center justify-center text-gray-300 hover:text-gray-500 disabled:opacity-20"
+                        aria-label="Move option down"
+                      >
+                        <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                    </div>
+
+                    {/* Option number pill */}
+                    <span className="text-[10px] font-bold text-gray-400 w-5 text-center shrink-0">{i + 1}</span>
+
+                    <input
+                      type="text"
+                      value={opt}
+                      onChange={e => updateOption(i, e.target.value)}
+                      placeholder={`Option ${i + 1}`}
+                      className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] transition-colors ${
+                        !opt.trim() && hasError ? 'border-red-200 bg-red-50/50' : 'border-gray-200'
+                      }`}
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => removeOption(i)}
+                      disabled={(field.options?.length ?? 0) <= 1}
+                      className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-20 shrink-0"
+                      aria-label="Remove option"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={addOption}
+                className="mt-3 flex items-center gap-1.5 text-xs text-[#E8670A] font-semibold hover:underline"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                </svg>
+                Add Option
+              </button>
             </div>
           )}
         </div>
@@ -212,25 +363,25 @@ function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function FormBuilder() {
-  const { getToken } = useAuth()
-  const navigate = useNavigate()
+  const { getToken }  = useAuth()
+  const navigate      = useNavigate()
   const { id: paramId } = useParams()
-  const isNew = !paramId
 
-  const [template,  setTemplate]  = useState(null)
-  const [title,     setTitle]     = useState('')
-  const [desc,      setDesc]      = useState('')
-  const [fields,    setFields]    = useState([])
-  const [loading,   setLoading]   = useState(!isNew)
-  const [saving,    setSaving]    = useState(false)
+  const [template,   setTemplate]   = useState(null)
+  const [title,      setTitle]      = useState('')
+  const [desc,       setDesc]       = useState('')
+  const [fields,     setFields]     = useState([])
+  const [loading,    setLoading]    = useState(!!paramId)
+  const [saving,     setSaving]     = useState(false)
   const [publishing, setPublishing] = useState(false)
-  const [saveMsg,   setSaveMsg]   = useState('')
-  const [error,     setError]     = useState(null)
+  const [saveMsg,    setSaveMsg]    = useState('')
+  const [error,      setError]      = useState(null)
+  const [publishErrors, setPublishErrors] = useState([])  // per-field + global
   const saveTimer = useRef(null)
 
   // Load existing form
   useEffect(() => {
-    if (isNew || !paramId) return
+    if (!paramId) return
     async function load() {
       try {
         const token = await getToken()
@@ -247,9 +398,9 @@ export default function FormBuilder() {
       finally { setLoading(false) }
     }
     load()
-  }, [paramId, isNew, getToken])
+  }, [paramId, getToken])
 
-  // Save (debounced helper)
+  // Save helper
   const saveNow = useCallback(async (newTitle, newDesc, newFields, quiet = false) => {
     if (!paramId) return
     if (!quiet) setSaving(true)
@@ -259,8 +410,8 @@ export default function FormBuilder() {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title:       newTitle,
-          description: newDesc || null,
+          title:        newTitle,
+          description:  newDesc || null,
           draft_schema: newFields,
         }),
       })
@@ -269,43 +420,33 @@ export default function FormBuilder() {
       setTemplate(updated)
       setSaveMsg('Saved')
       setTimeout(() => setSaveMsg(''), 2000)
-    } catch (e) { setSaveMsg('Save failed') }
+    } catch { setSaveMsg('Save failed') }
     finally { if (!quiet) setSaving(false) }
   }, [paramId, getToken])
 
-  // Debounced auto-save when fields/title/desc change
+  // Debounced auto-save
   function triggerAutoSave(newTitle, newDesc, newFields) {
     if (!paramId) return
     clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => saveNow(newTitle, newDesc, newFields, true), 1200)
   }
 
-  function updateTitle(v) {
-    setTitle(v)
-    triggerAutoSave(v, desc, fields)
-  }
-  function updateDesc(v) {
-    setDesc(v)
-    triggerAutoSave(title, v, fields)
-  }
-  function updateFields(newFields) {
-    setFields(newFields)
-    triggerAutoSave(title, desc, newFields)
-  }
+  function updateTitle(v)  { setTitle(v);  triggerAutoSave(v, desc, fields) }
+  function updateDesc(v)   { setDesc(v);   triggerAutoSave(title, v, fields) }
+  function updateFields(f) { setFields(f); triggerAutoSave(title, desc, f) }
 
   function addField() {
     updateFields([...fields, makeField(fields.length)])
   }
-
   function updateField(idx, updated) {
     const next = fields.map((f, i) => i === idx ? { ...updated, order: i } : f)
     updateFields(next)
+    // Clear publish errors for this field if it changes
+    if (publishErrors.length > 0) setPublishErrors([])
   }
-
   function deleteField(idx) {
     updateFields(fields.filter((_, i) => i !== idx).map((f, i) => ({ ...f, order: i })))
   }
-
   function moveField(idx, dir) {
     const next = [...fields]
     const swap = idx + dir
@@ -320,10 +461,28 @@ export default function FormBuilder() {
   }
 
   async function handlePublish() {
+    setPublishErrors([])
+    setError(null)
+
+    // Client-side validation
+    if (!title.trim()) {
+      setError('Form title is required before publishing.')
+      return
+    }
+    if (fields.length === 0) {
+      setError('Add at least one question before publishing.')
+      return
+    }
+    const valErrors = validateForPublish(fields)
+    if (valErrors.length > 0) {
+      setPublishErrors(valErrors)
+      setError('Please fix the issues below before publishing.')
+      return
+    }
+
     clearTimeout(saveTimer.current)
     await saveNow(title, desc, fields, true)
     setPublishing(true)
-    setError(null)
     try {
       const token = await getToken()
       const res = await fetch(`${API_URL}/api/forms/${paramId}/publish`, {
@@ -339,15 +498,20 @@ export default function FormBuilder() {
     finally { setPublishing(false) }
   }
 
-  // ── Render: loading ──────────────────────────────────────────────────────────
+  // Map publish errors to individual field ids for per-card highlighting
+  // Errors are formatted as "Question N: ..." so we index by position
+  function fieldHasPublishError(idx) {
+    if (publishErrors.length === 0) return false
+    return publishErrors.some(e => e.startsWith(`Question ${idx + 1}:`))
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────────
 
   if (loading) {
     return <p className="text-center text-gray-400 py-12 text-sm">Loading form…</p>
   }
 
-  // ── Render: main ─────────────────────────────────────────────────────────────
-
-  const status = template?.status ?? 'draft'
+  const status     = template?.status ?? 'draft'
   const isArchived = status === 'archived'
 
   return (
@@ -372,8 +536,16 @@ export default function FormBuilder() {
         {saveMsg && <span className="text-xs text-gray-400">{saveMsg}</span>}
       </div>
 
+      {/* Global error banner */}
       {error && (
-        <div className="mb-4 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">{error}</div>
+        <div className="mb-4 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">
+          <p className="font-semibold mb-1">{error}</p>
+          {publishErrors.length > 0 && (
+            <ul className="list-disc list-inside space-y-0.5 text-red-600">
+              {publishErrors.map((e, i) => <li key={i}>{e}</li>)}
+            </ul>
+          )}
+        </div>
       )}
 
       {isArchived && (
@@ -396,7 +568,9 @@ export default function FormBuilder() {
           />
         </div>
         <div>
-          <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Description <span className="text-gray-300 font-normal normal-case">(shown to client)</span></label>
+          <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+            Description <span className="text-gray-300 font-normal normal-case">(shown to client)</span>
+          </label>
           <textarea
             value={desc}
             onChange={e => updateDesc(e.target.value)}
@@ -412,7 +586,8 @@ export default function FormBuilder() {
       <div className="space-y-3 mb-4">
         {fields.length === 0 ? (
           <div className="bg-gray-50 border border-dashed border-gray-200 rounded-xl p-8 text-center">
-            <p className="text-sm text-gray-400 mb-3">No questions yet. Add your first question below.</p>
+            <p className="text-sm text-gray-400 mb-1">No questions yet.</p>
+            <p className="text-xs text-gray-300">Click "Add Question" below to get started.</p>
           </div>
         ) : (
           fields.map((field, idx) => (
@@ -425,12 +600,13 @@ export default function FormBuilder() {
               onMoveDown={() => moveField(idx, 1)}
               isFirst={idx === 0}
               isLast={idx === fields.length - 1}
+              publishError={fieldHasPublishError(idx)}
             />
           ))
         )}
       </div>
 
-      {/* Add field button */}
+      {/* Add question */}
       {!isArchived && (
         <button
           type="button"
@@ -458,7 +634,7 @@ export default function FormBuilder() {
           <button
             type="button"
             onClick={handlePublish}
-            disabled={publishing || fields.length === 0}
+            disabled={publishing}
             className="flex-1 bg-[#E8670A] text-white font-bold py-3 rounded-xl text-sm hover:bg-[#c45e09] disabled:opacity-60 transition-colors"
           >
             {publishing
@@ -470,7 +646,7 @@ export default function FormBuilder() {
         </div>
       )}
 
-      {/* Preview link if published */}
+      {/* Preview link */}
       {status === 'published' && (
         <div className="mt-4 text-center">
           <button
