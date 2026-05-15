@@ -665,6 +665,33 @@ export async function migrate() {
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_comeback_user_date ON comeback_events (user_id, comeback_date)`)
 
+  // ── Weekly Check-Ins ─────────────────────────────────────────────────────────
+  // One submission per client per week (unique on user_id + week_start).
+  // week_start is always the Monday of the client's week (YYYY-MM-DD).
+  // On duplicate submit for the same week, the row is updated (upsert).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS weekly_checkins (
+      id                  SERIAL PRIMARY KEY,
+      user_id             INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      week_start          DATE NOT NULL,
+      current_weight      NUMERIC(6,1),
+      sleep_quality       INTEGER CHECK (sleep_quality BETWEEN 1 AND 5),
+      energy              INTEGER CHECK (energy BETWEEN 1 AND 5),
+      stress              INTEGER CHECK (stress BETWEEN 1 AND 5),
+      cravings            INTEGER CHECK (cravings BETWEEN 1 AND 5),
+      workouts_completed  INTEGER,
+      days_food_logged    INTEGER,
+      days_hit_protein    INTEGER,
+      biggest_win         TEXT,
+      biggest_struggle    TEXT,
+      coach_notes         TEXT,
+      submitted_at        TIMESTAMPTZ DEFAULT NOW(),
+      updated_at          TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (user_id, week_start)
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_weekly_checkins_user ON weekly_checkins (user_id, week_start DESC)`)
+
   // ── Grandfather existing users ───────────────────────────────────────────────
   // Any user who already completed onboarding before the assessment feature was
   // introduced should be treated as having completed the assessment so they are

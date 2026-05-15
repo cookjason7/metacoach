@@ -1327,6 +1327,158 @@ function ProgressTab({ clientId, getToken }) {
 
 // ─── Assessment Tab ───────────────────────────────────────────────────────────
 
+// ─── Weekly Check-Ins section (inside Forms tab) ──────────────────────────────
+
+function WeeklyCheckinsSection({ clientId, getToken }) {
+  const [checkins, setCheckins] = useState(undefined)
+  const [loading, setLoading]   = useState(true)
+  const [openId,  setOpenId]    = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/checkins`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!cancelled) setCheckins(res.ok ? await res.json() : [])
+      } catch { if (!cancelled) setCheckins([]) }
+      finally  { if (!cancelled) setLoading(false) }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [clientId, getToken])
+
+  function fmtWR(ws) {
+    const [y, m, d] = ws.slice(0, 10).split('-').map(Number)
+    const mon = new Date(y, m - 1, d)
+    const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
+    const f = (dt) => dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    return `${f(mon)} – ${f(sun)}, ${y}`
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-3">
+        <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider">Weekly Check-Ins</p>
+        {!loading && checkins?.length > 0 && (
+          <span className="text-[10px] bg-orange-100 text-[#E8670A] font-bold px-1.5 py-0.5 rounded-full">
+            {checkins.length}
+          </span>
+        )}
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-gray-400 py-3">Loading check-ins…</p>
+      ) : !checkins?.length ? (
+        <div className="bg-gray-50 border border-gray-100 rounded-xl p-6 text-center">
+          <p className="text-sm text-gray-500">No weekly check-ins submitted yet.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {checkins.map(c => {
+            const isOpen = openId === c.id
+            return (
+              <div key={c.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                {/* Summary row */}
+                <button
+                  onClick={() => setOpenId(isOpen ? null : c.id)}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900">{fmtWR(c.week_start)}</p>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 mt-0.5">
+                      {c.energy             != null && <span className="text-xs text-gray-500">⚡ {c.energy}/5</span>}
+                      {c.stress             != null && <span className="text-xs text-gray-500">😤 {c.stress}/5</span>}
+                      {c.workouts_completed != null && <span className="text-xs text-gray-500">💪 {c.workouts_completed} workouts</span>}
+                      {c.current_weight     != null && <span className="text-xs text-gray-500">⚖️ {c.current_weight} lbs</span>}
+                    </div>
+                  </div>
+                  <svg className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                    fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {/* Expanded detail */}
+                {isOpen && (
+                  <div className="px-4 pb-4 border-t border-gray-100 pt-3 space-y-4">
+                    {/* Ratings */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {[
+                        { label: 'Sleep',    val: c.sleep_quality },
+                        { label: 'Energy',   val: c.energy },
+                        { label: 'Stress',   val: c.stress },
+                        { label: 'Cravings', val: c.cravings },
+                      ].map(({ label, val }) => (
+                        <div key={label}>
+                          <p className="text-[10px] text-gray-400 uppercase tracking-wider font-bold mb-1">{label}</p>
+                          {val != null ? (
+                            <span className="inline-flex gap-0.5">
+                              {[1,2,3,4,5].map(n => (
+                                <span key={n} className={`w-4 h-4 rounded text-[9px] font-bold flex items-center justify-center ${
+                                  n <= val ? 'bg-[#E8670A] text-white' : 'bg-gray-100 text-gray-300'
+                                }`}>{n}</span>
+                              ))}
+                            </span>
+                          ) : <span className="text-xs text-gray-400">—</span>}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Activity counts */}
+                    <div className="grid grid-cols-3 gap-3">
+                      {[
+                        { label: 'Workouts',    val: c.workouts_completed },
+                        { label: 'Days logged', val: c.days_food_logged },
+                        { label: 'Hit protein', val: c.days_hit_protein },
+                      ].map(({ label, val }) => (
+                        <div key={label} className="text-center bg-gray-50 rounded-lg p-2">
+                          <p className="text-xl font-bold text-gray-900 leading-tight">{val ?? '—'}</p>
+                          <p className="text-[10px] text-gray-400 mt-0.5">{label}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Text answers */}
+                    {[
+                      { label: 'Biggest win',      val: c.biggest_win },
+                      { label: 'Biggest struggle', val: c.biggest_struggle },
+                      { label: 'Notes for coach',  val: c.coach_notes },
+                    ].filter(x => x.val).map(({ label, val }) => (
+                      <div key={label}>
+                        <p className="text-[10px] text-gray-400 uppercase tracking-wider font-bold mb-0.5">{label}</p>
+                        <p className="text-sm text-gray-800 whitespace-pre-wrap">{val}</p>
+                      </div>
+                    ))}
+
+                    {c.current_weight != null && (
+                      <div>
+                        <p className="text-[10px] text-gray-400 uppercase tracking-wider font-bold mb-0.5">Weight</p>
+                        <p className="text-sm text-gray-800">{c.current_weight} lbs</p>
+                      </div>
+                    )}
+
+                    <p className="text-[10px] text-gray-300">
+                      Submitted {new Date(c.submitted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      {c.updated_at && c.updated_at !== c.submitted_at
+                        ? ` · Updated ${new Date(c.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                        : ''}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Assessment tab ────────────────────────────────────────────────────────────
+
 function AssessmentTab({ clientId, getToken }) {
   const [data, setData] = useState(undefined)
   const [loading, setLoading] = useState(true)
@@ -1344,17 +1496,6 @@ function AssessmentTab({ clientId, getToken }) {
     }
     load()
   }, [clientId, getToken])
-
-  if (loading) return <p className="text-sm text-gray-400 text-center py-8">Loading assessment…</p>
-  if (!data) {
-    return (
-      <div className="bg-white border border-gray-200 rounded-xl p-8 text-center">
-        <p className="text-2xl mb-2">★</p>
-        <p className="text-sm font-medium text-gray-700">No forms submitted yet.</p>
-        <p className="text-xs text-gray-400 mt-1">Intake forms, assessments, and check-ins will appear here once submitted.</p>
-      </div>
-    )
-  }
 
   function Field({ label, value, full = false }) {
     if (!value && value !== 0) return null
@@ -1380,79 +1521,98 @@ function AssessmentTab({ clientId, getToken }) {
   }
 
   return (
-    <div className="space-y-4">
-      {data.completed_at && (
-        <p className="text-xs text-gray-400">
-          Completed {fmtDate(data.completed_at)}
-          {data.updated_at && ` · Last updated ${fmtDate(data.updated_at)}`}
-        </p>
-      )}
+    <div className="space-y-6">
 
-      {/* Life Warrior identity */}
-      {Array.isArray(data.identity_traits) && data.identity_traits.length > 0 && (
-        <div className="bg-gradient-to-br from-[#1e2a3a] to-[#243347] rounded-xl p-5 text-white">
-          <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider mb-2">Life Warrior Identity</p>
-          <div className="space-y-1.5">
-            {data.identity_traits.map((trait, i) => (
-              <div key={i} className="flex items-start gap-2">
-                <span className="text-[#E8670A] mt-0.5">✓</span>
-                <p className="text-sm font-medium text-white/95">{trait}</p>
-              </div>
-            ))}
+      {/* ── Weekly Check-Ins (always shown) ── */}
+      <WeeklyCheckinsSection clientId={clientId} getToken={getToken} />
+
+      {/* ── Health Assessment / Intake Form ── */}
+      <div>
+        <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider mb-3">Health Assessment</p>
+
+        {loading ? (
+          <p className="text-sm text-gray-400 py-3">Loading assessment…</p>
+        ) : !data ? (
+          <div className="bg-gray-50 border border-gray-100 rounded-xl p-6 text-center">
+            <p className="text-sm text-gray-500">No intake form submitted yet.</p>
           </div>
-        </div>
-      )}
-
-      {/* Goals & limitations */}
-      <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
-        <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider">Goals &amp; Health</p>
-        <div className="grid sm:grid-cols-2 gap-4">
-          <Field label="6-month goals" value={data.goals_6_months} full />
-          <Field label="Injuries / limitations" value={data.injuries_limitations} full />
-          <Field label="Supplements" value={data.supplements} full />
-          <Field label="Occupation" value={data.occupation} />
-          <Field label="Kids" value={data.num_kids != null ? String(data.num_kids) : null} />
-          <Field label="Shirt size" value={data.shirt_size} />
-          <Field label="Activity level" value={data.activity_level} />
-        </div>
-      </div>
-
-      {/* Ratings */}
-      <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-3">
-        <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider">Energy &amp; Lifestyle</p>
-        <div className="space-y-2">
-          <div className="flex items-center justify-between"><span className="text-xs text-gray-500">Energy</span><Rating value={data.energy_level} /></div>
-          <div className="flex items-center justify-between"><span className="text-xs text-gray-500">Sleep quality</span><Rating value={data.sleep_quality} /></div>
-          <div className="flex items-center justify-between"><span className="text-xs text-gray-500">Stress mgmt</span><Rating value={data.stress_management} /></div>
-          <div className="flex items-center justify-between"><span className="text-xs text-gray-500">Happiness</span><Rating value={data.happiness_level} /></div>
-          <div className="flex items-center justify-between"><span className="text-xs text-gray-500">Confidence</span><Rating value={data.confidence_level} /></div>
-        </div>
-        <div className="grid sm:grid-cols-3 gap-3 pt-2 border-t border-gray-100">
-          <Field label="Sleep hours" value={data.sleep_hours} />
-          <Field label="Daily water" value={data.daily_water} />
-          <Field label="Drinks weekday" value={data.alcohol_weekdays != null ? `${data.alcohol_weekdays}/day` : null} />
-          <Field label="Drinks weekend" value={data.alcohol_weekends != null ? `${data.alcohol_weekends}/day` : null} />
-        </div>
-      </div>
-
-      {/* Contact */}
-      <div className="bg-white border border-gray-200 rounded-xl p-5">
-        <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider mb-3">Contact</p>
-        <div className="grid sm:grid-cols-2 gap-3">
-          <Field label="Phone" value={data.phone} />
-          <Field label="Date of birth" value={fmtDob(data.date_of_birth)} />
-          <Field label="Coach name" value={data.coach_name} />
-          {(data.street_address || data.city) && (
-            <div className="sm:col-span-2">
-              <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-0.5">Address</p>
-              <p className="text-sm text-gray-800">
-                {data.street_address && <>{data.street_address}<br /></>}
-                {[data.city, data.state].filter(Boolean).join(', ')}{data.zip_code ? ` ${data.zip_code}` : ''}
-                {data.country && data.country !== 'United States' && <><br />{data.country}</>}
+        ) : (
+          <div className="space-y-4">
+            {data.completed_at && (
+              <p className="text-xs text-gray-400">
+                Completed {fmtDate(data.completed_at)}
+                {data.updated_at && ` · Last updated ${fmtDate(data.updated_at)}`}
               </p>
+            )}
+
+            {/* Life Warrior identity */}
+            {Array.isArray(data.identity_traits) && data.identity_traits.length > 0 && (
+              <div className="bg-gradient-to-br from-[#1e2a3a] to-[#243347] rounded-xl p-5 text-white">
+                <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider mb-2">Life Warrior Identity</p>
+                <div className="space-y-1.5">
+                  {data.identity_traits.map((trait, i) => (
+                    <div key={i} className="flex items-start gap-2">
+                      <span className="text-[#E8670A] mt-0.5">✓</span>
+                      <p className="text-sm font-medium text-white/95">{trait}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Goals & limitations */}
+            <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+              <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider">Goals &amp; Health</p>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <Field label="6-month goals" value={data.goals_6_months} full />
+                <Field label="Injuries / limitations" value={data.injuries_limitations} full />
+                <Field label="Supplements" value={data.supplements} full />
+                <Field label="Occupation" value={data.occupation} />
+                <Field label="Kids" value={data.num_kids != null ? String(data.num_kids) : null} />
+                <Field label="Shirt size" value={data.shirt_size} />
+                <Field label="Activity level" value={data.activity_level} />
+              </div>
             </div>
-          )}
-        </div>
+
+            {/* Ratings */}
+            <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-3">
+              <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider">Energy &amp; Lifestyle</p>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between"><span className="text-xs text-gray-500">Energy</span><Rating value={data.energy_level} /></div>
+                <div className="flex items-center justify-between"><span className="text-xs text-gray-500">Sleep quality</span><Rating value={data.sleep_quality} /></div>
+                <div className="flex items-center justify-between"><span className="text-xs text-gray-500">Stress mgmt</span><Rating value={data.stress_management} /></div>
+                <div className="flex items-center justify-between"><span className="text-xs text-gray-500">Happiness</span><Rating value={data.happiness_level} /></div>
+                <div className="flex items-center justify-between"><span className="text-xs text-gray-500">Confidence</span><Rating value={data.confidence_level} /></div>
+              </div>
+              <div className="grid sm:grid-cols-3 gap-3 pt-2 border-t border-gray-100">
+                <Field label="Sleep hours" value={data.sleep_hours} />
+                <Field label="Daily water" value={data.daily_water} />
+                <Field label="Drinks weekday" value={data.alcohol_weekdays != null ? `${data.alcohol_weekdays}/day` : null} />
+                <Field label="Drinks weekend" value={data.alcohol_weekends != null ? `${data.alcohol_weekends}/day` : null} />
+              </div>
+            </div>
+
+            {/* Contact */}
+            <div className="bg-white border border-gray-200 rounded-xl p-5">
+              <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider mb-3">Contact</p>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <Field label="Phone" value={data.phone} />
+                <Field label="Date of birth" value={fmtDob(data.date_of_birth)} />
+                <Field label="Coach name" value={data.coach_name} />
+                {(data.street_address || data.city) && (
+                  <div className="sm:col-span-2">
+                    <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-0.5">Address</p>
+                    <p className="text-sm text-gray-800">
+                      {data.street_address && <>{data.street_address}<br /></>}
+                      {[data.city, data.state].filter(Boolean).join(', ')}{data.zip_code ? ` ${data.zip_code}` : ''}
+                      {data.country && data.country !== 'United States' && <><br />{data.country}</>}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

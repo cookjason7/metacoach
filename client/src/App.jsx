@@ -23,6 +23,7 @@ import Messages from './pages/Messages'
 import ClientList from './pages/admin/ClientList'
 import ClientProfile from './pages/admin/ClientProfile'
 import InviteAccept from './pages/InviteAccept'
+import WeeklyCheckin from './pages/WeeklyCheckin'
 import { API_URL } from './config.js'
 
 // Module-level cache: null | { onboardingComplete: bool, paid: bool }
@@ -159,6 +160,7 @@ export default function App() {
           <Route path="/settings"     element={<Settings />} />
           <Route path="/calendar"     element={<Calendar />} />
           <Route path="/messages"     element={<Messages />} />
+          <Route path="/weekly-checkin"      element={<WeeklyCheckin />} />
           <Route path="/admin"               element={<Admin />} />
           <Route path="/admin/clients"       element={<ClientList />} />
           <Route path="/admin/clients/:id"   element={<ClientProfile />} />

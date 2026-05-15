@@ -991,6 +991,23 @@ router.post('/clients/:id/messages', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// ─── Weekly Check-Ins ─────────────────────────────────────────────────────────
+
+// GET /api/coach-admin/clients/:id/checkins — staff views client's check-in history
+// Admin sees all clients; assigned coach sees their own clients only (enforced by canAccessClient)
+router.get('/clients/:id/checkins', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+    const { rows } = await pool.query(
+      'SELECT * FROM weekly_checkins WHERE user_id = $1 ORDER BY week_start DESC',
+      [id],
+    )
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
 // ─── Assessment view/edit ─────────────────────────────────────────────────────
 
 // GET /api/coach-admin/clients/:id/assessment — admin/coach can view assessment
