@@ -1200,6 +1200,20 @@ function ProgressTab({ clientId, getToken }) {
   if (loading) return <p className="text-sm text-gray-400 text-center py-8">Loading progress…</p>
   if (!data)   return <p className="text-sm text-red-500 text-center py-8">Failed to load progress.</p>
 
+  const weights = data.weights ?? []
+  const water = data.water ?? []
+  const steps = data.steps ?? []
+  const recentMeals = data.recent_meals ?? []
+  const recentWorkouts = data.recent_workouts ?? []
+  const progressPhotos = data.progress_photos ?? []
+  const hasAnyProgress =
+    weights.length > 0 ||
+    water.length > 0 ||
+    steps.length > 0 ||
+    recentMeals.length > 0 ||
+    recentWorkouts.length > 0 ||
+    progressPhotos.length > 0
+
   function StatBox({ label, items, valueKey }) {
     const latest = items[0]
     return (
@@ -1215,19 +1229,58 @@ function ProgressTab({ clientId, getToken }) {
     )
   }
 
+  function SectionEmpty({ children }) {
+    return (
+      <p className="text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg px-3 py-2">
+        {children}
+      </p>
+    )
+  }
+
+  if (!hasAnyProgress) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900">Progress</h2>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-6 sm:p-8 text-center">
+          <p className="text-2xl mb-2">↗</p>
+          <p className="text-sm text-gray-500 max-w-xl mx-auto">
+            Progress tracking will show this client's weight trends, measurements, progress photos, workout history, and wins once they start logging more data.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-bold text-gray-900">Progress</h2>
+      </div>
+
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <StatBox label="Latest weight (lbs)" items={data.weights} valueKey="weight_lbs" />
-        <StatBox label="Latest water (oz)"   items={data.water}   valueKey="water_oz" />
-        <StatBox label="Latest steps"        items={data.steps}   valueKey="steps" />
+        <StatBox label="Latest weight (lbs)" items={weights} valueKey="weight_lbs" />
+        <StatBox label="Latest water (oz)"   items={water}   valueKey="water_oz" />
+        <StatBox label="Latest steps"        items={steps}   valueKey="steps" />
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-3">
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-sm font-semibold text-gray-900 mb-2">Measurements</p>
+          <SectionEmpty>Not logged yet.</SectionEmpty>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-sm font-semibold text-gray-900 mb-2">Recent wins</p>
+          <SectionEmpty>Not logged yet.</SectionEmpty>
+        </div>
       </div>
 
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <p className="text-sm font-semibold text-gray-900 mb-3">Recent meals</p>
-        {data.recent_meals.length === 0 && <p className="text-xs text-gray-400">No meals logged yet.</p>}
+        {recentMeals.length === 0 && <SectionEmpty>Not logged yet.</SectionEmpty>}
         <div className="space-y-1.5">
-          {data.recent_meals.map((m, i) => (
+          {recentMeals.map((m, i) => (
             <div key={i} className="flex justify-between text-sm">
               <span className="text-gray-800 truncate">{m.meal_name}</span>
               <span className="text-gray-500 text-xs shrink-0 ml-2">
@@ -1240,9 +1293,9 @@ function ProgressTab({ clientId, getToken }) {
 
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <p className="text-sm font-semibold text-gray-900 mb-3">Recent workouts</p>
-        {data.recent_workouts.length === 0 && <p className="text-xs text-gray-400">No workouts logged yet.</p>}
+        {recentWorkouts.length === 0 && <SectionEmpty>Not logged yet.</SectionEmpty>}
         <div className="space-y-1.5">
-          {data.recent_workouts.map((w, i) => (
+          {recentWorkouts.map((w, i) => (
             <div key={i} className="flex justify-between text-sm">
               <span className="text-gray-800 truncate">{w.workout_name ?? 'Workout'}</span>
               <span className="text-gray-500 text-xs shrink-0 ml-2">{fmtDate(w.completed_at)}</span>
@@ -1251,18 +1304,20 @@ function ProgressTab({ clientId, getToken }) {
         </div>
       </div>
 
-      {data.progress_photos.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl p-4">
-          <p className="text-sm font-semibold text-gray-900 mb-3">Progress photos</p>
+      <div className="bg-white border border-gray-200 rounded-xl p-4">
+        <p className="text-sm font-semibold text-gray-900 mb-3">Progress photos</p>
+        {progressPhotos.length === 0 ? (
+          <SectionEmpty>Not logged yet.</SectionEmpty>
+        ) : (
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-            {data.progress_photos.map((p, i) => (
+            {progressPhotos.map((p, i) => (
               <div key={i} className="aspect-[3/4] rounded-lg overflow-hidden bg-gray-100">
                 <img src={p.photo_url} alt={p.angle} className="w-full h-full object-cover" />
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }
