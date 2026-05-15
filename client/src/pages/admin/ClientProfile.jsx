@@ -184,7 +184,7 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                       ? '! Needs Assessment'
                       : '○ In progress'
                 } />
-                <InfoRow label="Client status"   value={client.client_status ?? 'active'} />
+                <InfoRow label="Client status"   value={(() => { const s = client.client_status ?? 'active'; return s.charAt(0).toUpperCase() + s.slice(1) })()} />
                 <InfoRow label="Role"            value={client.role} />
               </div>
             )

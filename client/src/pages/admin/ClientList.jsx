@@ -20,11 +20,33 @@ const STATUS_STYLES = {
   'Invited':               'bg-purple-50 text-purple-700 border-purple-200',
 }
 
+const LIFECYCLE_STYLES = {
+  'Active':   'bg-emerald-50 text-emerald-700 border-emerald-200',
+  'Invited':  'bg-purple-50 text-purple-700 border-purple-200',
+  'Archived': 'bg-gray-100 text-gray-600 border-gray-300',
+  'Deleted':  'bg-red-50 text-red-500 border-red-200',
+}
+
+function lifecycleLabel(raw) {
+  if (!raw) return 'Active'
+  return raw.charAt(0).toUpperCase() + raw.slice(1)
+}
+
 function StatusBadge({ status }) {
   const style = STATUS_STYLES[status] ?? STATUS_STYLES['New Client']
   return (
     <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold whitespace-nowrap ${style}`}>
       {status}
+    </span>
+  )
+}
+
+function LifecycleBadge({ status }) {
+  const label = lifecycleLabel(status)
+  const style = LIFECYCLE_STYLES[label] ?? LIFECYCLE_STYLES['Active']
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold whitespace-nowrap ${style}`}>
+      {label}
     </span>
   )
 }
@@ -1085,7 +1107,8 @@ export default function ClientList() {
                   <th className="text-left px-3 py-3 font-semibold">Last Activity</th>
                   <th className="text-center px-3 py-3 font-semibold">7d</th>
                   <th className="text-center px-3 py-3 font-semibold">30d</th>
-                  <th className="text-left px-3 py-3 font-semibold">Status</th>
+                  <th className="text-left px-3 py-3 font-semibold">Momentum</th>
+                  <th className="text-left px-3 py-3 font-semibold">Account</th>
                   <th className="text-right px-3 py-3 font-semibold">Actions</th>
                 </tr>
               </thead>
@@ -1123,14 +1146,10 @@ export default function ClientList() {
                         {Math.round(Number(c.adherence_30d) || 0)}%
                       </td>
                       <td className="px-3 py-3">
-                        <div className="flex flex-col gap-1">
-                          <StatusBadge status={c.status_tag} />
-                          {c.client_status === 'archived' && (
-                            <span className="inline-flex items-center rounded-full border border-gray-300 bg-gray-100 px-2 py-0.5 text-[9px] font-bold text-gray-600 w-fit">
-                              📦 Archived
-                            </span>
-                          )}
-                        </div>
+                        <StatusBadge status={c.status_tag} />
+                      </td>
+                      <td className="px-3 py-3">
+                        <LifecycleBadge status={c.client_status} />
                       </td>
                       <td className="px-3 py-3 text-right whitespace-nowrap">
                         {c.client_status === 'archived' ? (
@@ -1202,15 +1221,7 @@ export default function ClientList() {
                     </div>
                   </div>
                   <div className="mt-3 pt-2 border-t border-gray-100 flex items-center justify-between gap-2">
-                    {c.client_status === 'archived' ? (
-                      <span className="inline-flex items-center rounded-full border border-gray-300 bg-gray-100 px-2 py-0.5 text-[9px] font-bold text-gray-600">
-                        📦 Archived
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-700">
-                        ● Active
-                      </span>
-                    )}
+                    <LifecycleBadge status={c.client_status} />
                     <div className="flex gap-3">
                       {c.client_status === 'archived' ? (
                         <span onClick={e => reactivateClient(e, c.id)} className="text-[11px] text-emerald-600 hover:text-emerald-700 font-semibold cursor-pointer">
