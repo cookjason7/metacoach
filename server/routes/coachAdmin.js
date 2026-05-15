@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
-import { sendEmail } from '../services/email.js'
+import { sendInviteEmail } from '../services/email.js'
 
 const router = Router()
 
@@ -206,43 +206,22 @@ router.post('/clients/invite', requireAuth(), async (req, res, next) => {
       ],
     )
 
-    const appUrl    = process.env.APP_URL ?? 'https://app.lwcvip.com'
+    const appUrl    = process.env.APP_BASE_URL ?? process.env.APP_URL ?? 'https://app.lwcvip.com'
     const inviteUrl = `${appUrl}/invite/${invite.token}`
 
-    // Attempt email but NEVER let it block or delay the response.
-    // sendEmail already has its own timeout; this outer wrapper is an extra
-    // safety net so any unforeseen hang cannot stall the HTTP response.
+    // Attempt email — never let it block or delay the response.
+    // sendInviteEmail never throws; outer race is a belt-and-suspenders cap.
     let emailResult = { sent: false, reason: 'Email send skipped' }
     try {
       emailResult = await Promise.race([
-        sendEmail({
-          to:      invite.email,
-          subject: `You're invited to Life Warrior Coaching`,
-          html: `
-            <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a;">
-              <h2 style="margin:0 0 8px;">Welcome, ${invite.first_name}!</h2>
-              <p style="color:#555;margin:0 0 24px;">
-                You've been personally invited to join Life Warrior Coaching as a VIP client.
-                Click below to set up your account and get started.
-              </p>
-              <p style="text-align:center;margin:32px 0;">
-                <a href="${inviteUrl}"
-                   style="background:#E8670A;color:white;padding:14px 32px;border-radius:8px;
-                          text-decoration:none;font-weight:bold;font-size:15px;display:inline-block;">
-                  Set Up My Account →
-                </a>
-              </p>
-              <p style="color:#999;font-size:12px;margin-top:32px;">
-                This invite expires in 30 days.<br/>
-                Or copy this link: <a href="${inviteUrl}" style="color:#E8670A;">${inviteUrl}</a>
-              </p>
-            </div>
-          `,
-          text: `Welcome to Life Warrior Coaching, ${invite.first_name}!\n\nYou've been personally invited to join as a VIP coaching client.\n\nSet up your account here:\n${inviteUrl}\n\nThis invite expires in 30 days.`,
+        sendInviteEmail({
+          to:        invite.email,
+          firstName: invite.first_name,
+          inviteUrl,
         }),
-        // Hard outer cap — respond within 10 s regardless
+        // Hard outer cap — respond within 12 s regardless
         new Promise(resolve =>
-          setTimeout(() => resolve({ sent: false, reason: 'Email send timed out' }), 10_000),
+          setTimeout(() => resolve({ sent: false, reason: 'Email send timed out' }), 12_000),
         ),
       ])
     } catch (emailErr) {
