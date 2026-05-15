@@ -17,6 +17,7 @@ const STATUS_STYLES = {
   'Rebuilding Momentum':   'bg-amber-50 text-amber-700 border-amber-200',
   'Needs Attention':       'bg-orange-50 text-[#E8670A] border-orange-200',
   'New Client':            'bg-gray-50 text-gray-600 border-gray-200',
+  'Invited':               'bg-purple-50 text-purple-700 border-purple-200',
 }
 
 function StatusBadge({ status }) {
@@ -1056,6 +1057,7 @@ export default function ClientList() {
               <select value={lifecycleFilter} onChange={e => setLifecycleFilter(e.target.value)}
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
                 <option value="active">Active clients</option>
+                <option value="invited">Invited clients</option>
                 <option value="archived">Archived clients</option>
                 <option value="all">All (active + archived)</option>
               </select>

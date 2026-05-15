@@ -120,10 +120,17 @@ router.post('/', requireAuth(), async (req, res, next) => {
       completed ? new Date().toISOString() : null,
     ])
 
-    // Mark user's assessment_complete flag when completing
+    // On final submit: mark assessment complete and promote 'invited' → 'active'.
+    // Only 'invited' users are promoted — archived/deleted stay untouched.
     if (completed) {
       await pool.query(
-        'UPDATE users SET assessment_complete = TRUE WHERE id = $1',
+        `UPDATE users
+         SET assessment_complete = TRUE,
+             client_status = CASE
+               WHEN client_status = 'invited' THEN 'active'
+               ELSE client_status
+             END
+         WHERE id = $1`,
         [dbUserId],
       )
     }

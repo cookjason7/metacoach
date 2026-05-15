@@ -44,6 +44,8 @@ async function canAccessClient(ctx, clientId) {
 
 // Internal supportive status tag — never use shame words
 function computeStatusTag(client) {
+  // Invited = accepted invite, assessment not yet complete
+  if (client.client_status === 'invited') return 'Invited'
   if (!client.onboarding_complete || !client.assessment_complete) return 'New Client'
   const adh7  = Number(client.adherence_7d  || 0)
   const adh30 = Number(client.adherence_30d || 0)
@@ -77,6 +79,8 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
       where += ` AND COALESCE(u.client_status, 'active') = 'active'`
     } else if (statusFilter === 'archived') {
       where += ` AND u.client_status = 'archived'`
+    } else if (statusFilter === 'invited') {
+      where += ` AND u.client_status = 'invited'`
     }
     // 'all' → no extra filter (still excludes deleted)
 
