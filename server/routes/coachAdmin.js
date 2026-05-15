@@ -159,23 +159,34 @@ router.post('/clients/invite', requireAuth(), async (req, res, next) => {
       return res.status(400).json({ error: 'Please enter a valid email address.' })
     }
 
-    // Block if user already has a live account
+    // Block if an active or archived user already exists for this email.
+    // Soft-deleted rows (client_status = 'deleted') are intentionally excluded —
+    // admins must be able to reinvite after deleting a test / incomplete client.
     const { rows: existing } = await pool.query(
-      'SELECT id FROM users WHERE LOWER(email) = $1',
+      `SELECT id, client_status
+       FROM users
+       WHERE LOWER(email) = $1
+         AND COALESCE(client_status, 'active') != 'deleted'`,
       [normalizedEmail],
     )
     if (existing.length > 0) {
-      return res.status(409).json({ error: 'A user with this email already exists in the system.' })
+      const isArchived = existing[0].client_status === 'archived'
+      if (isArchived) {
+        return res.status(409).json({
+          error:       'This email belongs to an archived client. Reactivate them from the client list before reinviting, or use a different email.',
+          is_archived: true,
+        })
+      }
+      return res.status(409).json({ error: 'A client with this email already exists in the system.' })
     }
 
-    // Block duplicate pending invites
-    const { rows: dupInvite } = await pool.query(
-      `SELECT id FROM client_invites WHERE LOWER(email) = $1 AND accepted_at IS NULL AND expires_at > NOW()`,
+    // Remove any stale pending (unaccepted) invite for this email so the admin
+    // can always issue a fresh invite link — replaces rather than blocks.
+    // Accepted invites (accepted_at IS NOT NULL) are left untouched.
+    await pool.query(
+      `DELETE FROM client_invites WHERE LOWER(email) = $1 AND accepted_at IS NULL`,
       [normalizedEmail],
     )
-    if (dupInvite.length > 0) {
-      return res.status(409).json({ error: 'An active invite already exists for this email.' })
-    }
 
     const coachId = assigned_coach_id ? parseInt(assigned_coach_id, 10) : null
 

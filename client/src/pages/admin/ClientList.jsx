@@ -689,17 +689,18 @@ function PlaceholderTab({ title, description }) {
 const EMPTY_INVITE = { first_name: '', last_name: '', email: '', phone: '', notes: '' }
 
 function InviteModal({ getToken, onClose, onSuccess }) {
-  const [form,      setForm]      = useState(EMPTY_INVITE)
-  const [saving,    setSaving]    = useState(false)
-  const [error,     setError]     = useState(null)
-  const [result,    setResult]    = useState(null)  // { invite_url, email_sent, email_note, first_name }
-  const [copied,    setCopied]    = useState(false)
+  const [form,       setForm]       = useState(EMPTY_INVITE)
+  const [saving,     setSaving]     = useState(false)
+  const [error,      setError]      = useState(null)
+  const [isArchived, setIsArchived] = useState(false)   // true when 409 is an archived-client conflict
+  const [result,     setResult]     = useState(null)    // { invite_url, email_sent, email_note, first_name }
+  const [copied,     setCopied]     = useState(false)
 
   function setF(e) { setForm(f => ({ ...f, [e.target.name]: e.target.value })) }
 
   async function submit(e) {
     e.preventDefault()
-    setSaving(true); setError(null)
+    setSaving(true); setError(null); setIsArchived(false)
     try {
       const token = await getToken()
       const res = await fetch(`${API_URL}/api/coach-admin/clients/invite`, {
@@ -714,7 +715,11 @@ function InviteModal({ getToken, onClose, onSuccess }) {
         }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.error ?? 'Invite failed. Please try again.'); return }
+      if (!res.ok) {
+        setError(data.error ?? 'Invite failed. Please try again.')
+        setIsArchived(!!data.is_archived)
+        return
+      }
       setResult(data)
     } catch { setError('Network error. Please try again.') }
     finally { setSaving(false) }
@@ -838,7 +843,20 @@ function InviteModal({ getToken, onClose, onSuccess }) {
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none"
               />
             </div>
-            {error && <p className="text-xs text-red-500 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+            {error && (
+              <div className="bg-red-50 rounded-lg px-3 py-2">
+                <p className="text-xs text-red-600">{error}</p>
+                {isArchived && (
+                  <button
+                    type="button"
+                    onClick={() => { onClose(); /* caller navigates to archived tab */ }}
+                    className="text-xs text-[#E8670A] underline mt-1 block"
+                  >
+                    Go to Archived Clients → Reactivate, then reinvite
+                  </button>
+                )}
+              </div>
+            )}
             <div className="flex gap-2 pt-1">
               <button
                 type="button" onClick={onClose}
