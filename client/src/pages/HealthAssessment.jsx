@@ -871,8 +871,8 @@ export default function HealthAssessment() {
               <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-left">
                 <p className="text-sm font-semibold text-[#E8670A] mb-1">What happens next?</p>
                 <ul className="space-y-1.5 text-xs text-gray-600">
-                  <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> Coach Katie will review your assessment and may reach out.</li>
-                  <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> Your macro targets will be personalized based on your responses.</li>
+                  <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> Your coach will review your assessment.</li>
+                  <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> We'll schedule your launch conference so you know exactly how to get started.</li>
                   <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> You can update your assessment anytime in Settings.</li>
                 </ul>
               </div>
