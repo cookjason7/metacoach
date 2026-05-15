@@ -5,6 +5,7 @@ import { v2 as cloudinary } from 'cloudinary'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 import { awardAction, checkFullDay, checkProteinGoal } from '../gamification.js'
+import { normalizeMealPayload } from '../mealValidation.js'
 
 // Fire gamification hooks non-blocking so they never fail the main request
 function fireGamification(pool, dbUserId, dateStr) {
@@ -136,10 +137,9 @@ router.post('/manual', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const dbUserId = await getOrCreateUser(userId)
-    const { meal_name, calories, protein_g, carbs_g, fat_g, fiber_g, meal_slot, log_date } = req.body
-    const meta = mealMetaFromBody(req.body)
-
-    if (!meal_name?.trim()) return res.status(400).json({ error: 'Meal name required' })
+    const v = normalizeMealPayload(req.body)
+    if (!v.ok) return res.status(400).json({ error: v.error })
+    const d = v.data
 
     const { rows } = await pool.query(
       `INSERT INTO meals (
@@ -148,12 +148,13 @@ router.post('/manual', requireAuth(), async (req, res, next) => {
        )
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        RETURNING *`,
-      [dbUserId, meal_name.trim(), calories ?? null, protein_g ?? null,
-       carbs_g ?? null, fat_g ?? null, fiber_g ?? null, meal_slot ?? null, log_date ?? null,
-       meta.serving_size, meta.serving_unit, meta.source_type, meta.source_label,
-       meta.is_verified, meta.micronutrients],
+      [dbUserId, d.meal_name, d.calories, d.protein, d.carbs, d.fat, d.fiber,
+       d.meal_slot, d.log_date,
+       d.serving_size ?? null, d.serving_unit ?? null,
+       d.source_type ?? null, d.source_label ?? null,
+       d.is_verified ?? false, d.micronutrients ?? null],
     )
-    fireGamification(pool, dbUserId, log_date ?? null)
+    fireGamification(pool, dbUserId, d.log_date)
     res.status(201).json(rows[0])
   } catch (err) {
     next(err)
@@ -198,14 +199,17 @@ Return only valid JSON, no markdown.`,
       return res.status(422).json({ error: 'Could not parse that food description. Try being more specific.' })
     }
 
+    const v = normalizeMealPayload({ ...parsed, meal_slot, log_date })
+    if (!v.ok) return res.status(400).json({ error: v.error })
+    const d = v.data
+
     const { rows } = await pool.query(
       `INSERT INTO meals (user_id, meal_name, calories, protein, carbs, fat, fiber, sugar, meal_slot, log_date)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-      [dbUserId, parsed.meal_name, parsed.calories ?? null, parsed.protein_g ?? null,
-       parsed.carbs_g ?? null, parsed.fat_g ?? null, parsed.fiber_g ?? null,
-       parsed.sugar_g ?? null, meal_slot ?? null, log_date ?? null],
+      [dbUserId, d.meal_name, d.calories, d.protein, d.carbs, d.fat, d.fiber,
+       d.sugar, d.meal_slot, d.log_date],
     )
-    fireGamification(pool, dbUserId, log_date ?? null)
+    fireGamification(pool, dbUserId, d.log_date)
     res.status(201).json(rows[0])
   } catch (err) {
     next(err)
@@ -294,8 +298,9 @@ router.post('/:id/copy', requireAuth(), async (req, res, next) => {
 router.post('/', requireAuth(), upload.single('photo'), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
-    const { meal_name, calories, protein_g, carbs_g, fat_g, fiber_g, sugar_g, meal_slot, log_date } = req.body
-    const meta = mealMetaFromBody(req.body)
+    const v = normalizeMealPayload(req.body)
+    if (!v.ok) return res.status(400).json({ error: v.error })
+    const d = v.data
     const dbUserId = await getOrCreateUser(userId)
 
     let photo_url = null
@@ -315,12 +320,13 @@ router.post('/', requireAuth(), upload.single('photo'), async (req, res, next) =
        )
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
        RETURNING *`,
-      [dbUserId, meal_name, photo_url, calories, protein_g, carbs_g, fat_g,
-       fiber_g ?? null, sugar_g ?? null, meal_slot ?? null, log_date ?? null,
-       meta.serving_size, meta.serving_unit, meta.source_type, meta.source_label,
-       meta.is_verified, meta.micronutrients],
+      [dbUserId, d.meal_name, photo_url, d.calories, d.protein, d.carbs, d.fat,
+       d.fiber, d.sugar, d.meal_slot, d.log_date,
+       d.serving_size ?? null, d.serving_unit ?? null,
+       d.source_type ?? null, d.source_label ?? null,
+       d.is_verified ?? false, d.micronutrients ?? null],
     )
-    fireGamification(pool, dbUserId, log_date ?? null)
+    fireGamification(pool, dbUserId, d.log_date)
     res.status(201).json(rows[0])
   } catch (err) {
     next(err)
@@ -451,7 +457,9 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
     const dbUserId = await getOrCreateUser(userId)
     const mealId   = parseInt(req.params.id, 10)
 
-    const { meal_name, calories, protein, carbs, fat, fiber, portion_notes, meal_slot, log_date, serving_size, serving_unit } = req.body
+    const v = normalizeMealPayload(req.body, { partial: true })
+    if (!v.ok) return res.status(400).json({ error: v.error })
+    const d = v.data
 
     const { rows } = await pool.query(
       `UPDATE meals SET
@@ -469,11 +477,11 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
        WHERE id = $12 AND user_id = $13
        RETURNING *`,
       [
-        meal_name ?? null, calories ?? null, protein ?? null,
-        carbs ?? null, fat ?? null, fiber ?? null, portion_notes ?? null,
-        meal_slot ?? null, log_date ?? null,
-        serving_size != null ? Number(serving_size) : null,
-        serving_unit ?? null,
+        d.meal_name ?? null, d.calories ?? null, d.protein ?? null,
+        d.carbs ?? null, d.fat ?? null, d.fiber ?? null,
+        req.body.portion_notes ?? null,
+        d.meal_slot ?? null, d.log_date ?? null,
+        d.serving_size ?? null, d.serving_unit ?? null,
         mealId, dbUserId,
       ],
     )
