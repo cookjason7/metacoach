@@ -24,6 +24,9 @@ import ClientList from './pages/admin/ClientList'
 import ClientProfile from './pages/admin/ClientProfile'
 import InviteAccept from './pages/InviteAccept'
 import WeeklyCheckin from './pages/WeeklyCheckin'
+import FormsList from './pages/admin/FormsList'
+import FormBuilder from './pages/admin/FormBuilder'
+import FormFill from './pages/FormFill'
 import { API_URL } from './config.js'
 
 // Module-level cache: null | { onboardingComplete: bool, paid: bool }
@@ -161,9 +164,12 @@ export default function App() {
           <Route path="/calendar"     element={<Calendar />} />
           <Route path="/messages"     element={<Messages />} />
           <Route path="/weekly-checkin"      element={<WeeklyCheckin />} />
+          <Route path="/forms/:id/fill"        element={<FormFill />} />
           <Route path="/admin"               element={<Admin />} />
           <Route path="/admin/clients"       element={<ClientList />} />
           <Route path="/admin/clients/:id"   element={<ClientProfile />} />
+          <Route path="/admin/forms"         element={<FormsList />} />
+          <Route path="/admin/forms/:id/edit" element={<FormBuilder />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -1327,6 +1327,111 @@ function ProgressTab({ clientId, getToken }) {
 
 // ─── Assessment Tab ───────────────────────────────────────────────────────────
 
+// ─── Form Submissions section (inside Forms tab) ──────────────────────────────
+
+function FormSubmissionsSection({ clientId, getToken }) {
+  const [submissions, setSubmissions] = useState(undefined)
+  const [loading, setLoading]         = useState(true)
+  const [openId, setOpenId]           = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/form-submissions`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!cancelled) setSubmissions(res.ok ? await res.json() : [])
+      } catch { if (!cancelled) setSubmissions([]) }
+      finally { if (!cancelled) setLoading(false) }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [clientId, getToken])
+
+  function fmtSubmittedAt(iso) {
+    if (!iso) return '—'
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
+  function renderAnswer(field, val) {
+    if (val === undefined || val === null || val === '') return <span className="text-gray-400">—</span>
+    if (field.type === 'rating') {
+      return (
+        <span className="inline-flex gap-0.5">
+          {[1,2,3,4,5].map(n => (
+            <span key={n} className={`w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center ${
+              n <= val ? 'bg-[#E8670A] text-white' : 'bg-gray-100 text-gray-300'
+            }`}>{n}</span>
+          ))}
+        </span>
+      )
+    }
+    if (field.type === 'multi_choice' && Array.isArray(val)) {
+      return <span>{val.join(', ')}</span>
+    }
+    return <span>{String(val)}</span>
+  }
+
+  return (
+    <div>
+      <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider mb-3">Form Submissions</p>
+      {loading ? (
+        <p className="text-sm text-gray-400 py-2">Loading…</p>
+      ) : !submissions || submissions.length === 0 ? (
+        <div className="bg-gray-50 border border-gray-100 rounded-xl p-5 text-center">
+          <p className="text-sm text-gray-500">No form submissions yet.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {submissions.map(sub => {
+            const isOpen = openId === sub.id
+            const schema = Array.isArray(sub.version_schema) ? sub.version_schema : []
+            return (
+              <div key={sub.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setOpenId(isOpen ? null : sub.id)}
+                  className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{sub.form_title}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Submitted {fmtSubmittedAt(sub.submitted_at)}</p>
+                  </div>
+                  <svg
+                    className={`w-4 h-4 text-gray-400 flex-shrink-0 ml-3 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                    fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {isOpen && (
+                  <div className="border-t border-gray-100 px-4 py-3 bg-gray-50/50 space-y-3">
+                    {schema.length === 0 ? (
+                      <p className="text-xs text-gray-400">No schema available.</p>
+                    ) : (
+                      schema.map(field => (
+                        <div key={field.id}>
+                          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-0.5">{field.label}</p>
+                          <p className="text-sm text-gray-800">
+                            {renderAnswer(field, sub.answers?.[field.id])}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Weekly Check-Ins section (inside Forms tab) ──────────────────────────────
 
 function WeeklyCheckinsSection({ clientId, getToken }) {
@@ -1522,6 +1627,9 @@ function AssessmentTab({ clientId, getToken }) {
 
   return (
     <div className="space-y-6">
+
+      {/* ── Form Submissions (always shown) ── */}
+      <FormSubmissionsSection clientId={clientId} getToken={getToken} />
 
       {/* ── Weekly Check-Ins (always shown) ── */}
       <WeeklyCheckinsSection clientId={clientId} getToken={getToken} />

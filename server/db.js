@@ -692,6 +692,93 @@ export async function migrate() {
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_weekly_checkins_user ON weekly_checkins (user_id, week_start DESC)`)
 
+  // ── Forms Foundation ─────────────────────────────────────────────────────────
+  //
+  // VERSIONING STRATEGY
+  // --------------------
+  // form_templates  — admin-managed master form; draft_schema is the working copy
+  // form_versions   — immutable snapshot created on each publish; referenced by
+  //                   submissions forever (old answers always show exact questions)
+  // form_submissions— one row per client fill; answers keyed by field id in the schema
+  // form_assignments— skeleton for future in-app scheduled delivery (unused now)
+  //
+  // Publishing flow:
+  //   1. Admin edits draft_schema on form_templates (non-destructive)
+  //   2. Admin hits Publish → new form_version row created from draft_schema
+  //   3. form_templates.current_version_id updated to the new version
+  //   4. Clients fill the current_version_id version
+  //   5. Submissions always store version_id → answers are permanently tied to
+  //      the exact fields the client saw, even after the form is edited again
+  //
+  // Field schema object format (stored as JSONB array):
+  //   { id, type, label, description, required, order, options, max_chars }
+  //   type: short_text | long_text | number | date | single_choice |
+  //         multi_choice | yes_no | rating
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS form_templates (
+      id                 SERIAL PRIMARY KEY,
+      title              TEXT NOT NULL,
+      description        TEXT,
+      status             TEXT NOT NULL DEFAULT 'draft'
+                           CHECK (status IN ('draft', 'published', 'archived')),
+      draft_schema       JSONB NOT NULL DEFAULT '[]',
+      created_by         INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at         TIMESTAMPTZ DEFAULT NOW(),
+      updated_at         TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS form_versions (
+      id           SERIAL PRIMARY KEY,
+      template_id  INTEGER NOT NULL REFERENCES form_templates(id) ON DELETE CASCADE,
+      version_num  INTEGER NOT NULL DEFAULT 1,
+      schema       JSONB NOT NULL,
+      published_at TIMESTAMPTZ DEFAULT NOW(),
+      published_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      UNIQUE (template_id, version_num)
+    )
+  `)
+
+  // Add FK from templates → versions after both tables exist
+  await pool.query(`
+    ALTER TABLE form_templates
+      ADD COLUMN IF NOT EXISTS current_version_id INTEGER
+        REFERENCES form_versions(id) ON DELETE SET NULL
+  `)
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS form_submissions (
+      id           SERIAL PRIMARY KEY,
+      template_id  INTEGER NOT NULL REFERENCES form_templates(id) ON DELETE CASCADE,
+      version_id   INTEGER NOT NULL REFERENCES form_versions(id) ON DELETE CASCADE,
+      user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      answers      JSONB NOT NULL DEFAULT '{}',
+      submitted_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at   TIMESTAMPTZ DEFAULT NOW(),
+      reviewed_at  TIMESTAMPTZ,
+      reviewed_by  INTEGER REFERENCES users(id) ON DELETE SET NULL
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_form_submissions_user     ON form_submissions (user_id, submitted_at DESC)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_form_submissions_template ON form_submissions (template_id, submitted_at DESC)`)
+
+  // Future: in-app scheduled delivery + recurring assignments (schema ready, no UI yet)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS form_assignments (
+      id             SERIAL PRIMARY KEY,
+      template_id    INTEGER NOT NULL REFERENCES form_templates(id) ON DELETE CASCADE,
+      client_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      assigned_by    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      send_at        TIMESTAMPTZ,
+      recurring_rule JSONB,
+      is_active      BOOLEAN DEFAULT TRUE,
+      created_at     TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_form_assignments_client ON form_assignments (client_id, send_at)`)
+
   // ── Grandfather existing users ───────────────────────────────────────────────
   // Any user who already completed onboarding before the assessment feature was
   // introduced should be treated as having completed the assessment so they are

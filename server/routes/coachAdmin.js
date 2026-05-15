@@ -1087,4 +1087,64 @@ router.get('/clients/:id/comeback', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// ─── Form Submissions (staff view) ───────────────────────────────────────────
+
+// GET /api/coach-admin/clients/:id/form-submissions
+// Returns all form submissions for a client, with the version schema embedded
+// so the viewer can show exact questions alongside answers.
+router.get('/clients/:id/form-submissions', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+
+    const { rows } = await pool.query(`
+      SELECT
+        fs.id, fs.template_id, fs.version_id, fs.user_id,
+        fs.answers, fs.submitted_at, fs.updated_at,
+        fs.reviewed_at, fs.reviewed_by,
+        ft.title  AS form_title,
+        ft.status AS form_status,
+        fv.version_num,
+        fv.schema AS version_schema
+      FROM form_submissions fs
+      JOIN form_templates ft ON ft.id = fs.template_id
+      JOIN form_versions  fv ON fv.id = fs.version_id
+      WHERE fs.user_id = $1
+      ORDER BY fs.submitted_at DESC
+    `, [id])
+
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
+// GET /api/coach-admin/form-submissions/:submissionId
+// Single submission with full answers + schema (staff only, permission checked via client lookup)
+router.get('/form-submissions/:submissionId', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const subId = parseInt(req.params.submissionId, 10)
+
+    const { rows: [sub] } = await pool.query(`
+      SELECT
+        fs.id, fs.template_id, fs.version_id, fs.user_id,
+        fs.answers, fs.submitted_at, fs.updated_at,
+        fs.reviewed_at, fs.reviewed_by,
+        ft.title  AS form_title,
+        ft.status AS form_status,
+        fv.version_num,
+        fv.schema AS version_schema
+      FROM form_submissions fs
+      JOIN form_templates ft ON ft.id = fs.template_id
+      JOIN form_versions  fv ON fv.id = fs.version_id
+      WHERE fs.id = $1
+    `, [subId])
+
+    if (!sub) return res.status(404).json({ error: 'Submission not found' })
+    if (!await canAccessClient(ctx, sub.user_id)) return res.status(403).json({ error: 'Forbidden' })
+
+    res.json(sub)
+  } catch (err) { next(err) }
+})
+
 export default router

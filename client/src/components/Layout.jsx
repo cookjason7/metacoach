@@ -22,6 +22,7 @@ const CLIENT_NAV_ITEMS = [
 const STAFF_NAV_ITEMS = [
   { to: '/dashboard',     label: 'Coaching Dashboard' },
   { to: '/admin/clients', label: 'Clients' },
+  { to: '/admin/forms',   label: 'Forms' },
   { to: '/messages',      label: 'Messages' },
   { to: '/workouts',      label: 'Workouts' },
   { to: '/calendar',      label: 'Calendar' },
