@@ -273,6 +273,206 @@ function WomensHealthFoundation({ meals, waterOz, onAddWater }) {
   )
 }
 
+// ── Coaching Dashboard (shown to coaches and admins) ─────────────────────────
+
+function CoachStatCard({ label, value, sub, accent = false, href }) {
+  const inner = (
+    <div className={`bg-white rounded-xl border p-4 ${accent ? 'border-[#E8670A]' : 'border-gray-200'}`}>
+      <p className="text-xs text-gray-500 mb-1">{label}</p>
+      <p className={`text-2xl font-bold ${accent ? 'text-[#E8670A]' : 'text-gray-900'}`}>{value}</p>
+      {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+    </div>
+  )
+  return href ? <Link to={href} className="block hover:opacity-90 transition-opacity">{inner}</Link> : inner
+}
+
+function CoachDashboard({ getToken }) {
+  const [clients,      setClients]      = useState([])
+  const [msgUnread,    setMsgUnread]    = useState(0)
+  const [loading,      setLoading]      = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const token   = await getToken()
+        const headers = { Authorization: `Bearer ${token}` }
+        const [r1, r2] = await Promise.all([
+          fetch(`${API_URL}/api/coach-admin/clients?status=active`, { headers }),
+          fetch(`${API_URL}/api/messages/unread-count`,             { headers }),
+        ])
+        if (!cancelled) {
+          if (r1.ok) setClients(await r1.json())
+          if (r2.ok) { const d = await r2.json(); setMsgUnread(d.unread ?? 0) }
+        }
+      } catch {} finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [getToken])
+
+  function daysSince(iso) {
+    if (!iso) return null
+    return Math.floor((Date.now() - new Date(iso)) / 86400_000)
+  }
+
+  const needsAttention = clients.filter(c => c.status_tag === 'Needs Attention')
+  const noRecentLogs   = clients.filter(c => {
+    const d = daysSince(c.last_meal_at)
+    return d === null || d > 3
+  })
+
+  const adherenceColor = v => {
+    const n = Number(v) || 0
+    if (n >= 80) return 'text-emerald-600'
+    if (n >= 50) return 'text-blue-600'
+    if (n >= 30) return 'text-amber-600'
+    return 'text-gray-400'
+  }
+
+  return (
+    <div className="max-w-4xl space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Coaching Dashboard</h1>
+        <p className="text-sm text-gray-500 mt-0.5">What needs your attention today.</p>
+      </div>
+
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <CoachStatCard
+          label="Active Clients"
+          value={loading ? '…' : clients.length}
+          sub="in your roster"
+          href="/admin/clients"
+        />
+        <CoachStatCard
+          label="Needs Attention"
+          value={loading ? '…' : needsAttention.length}
+          sub="by status tag"
+          accent={!loading && needsAttention.length > 0}
+          href="/admin/clients"
+        />
+        <CoachStatCard
+          label="Unread Messages"
+          value={loading ? '…' : msgUnread}
+          sub="from clients"
+          accent={!loading && msgUnread > 0}
+          href="/messages"
+        />
+        <CoachStatCard
+          label="No Recent Logs"
+          value={loading ? '…' : noRecentLogs.length}
+          sub="3+ days inactive"
+          accent={!loading && noRecentLogs.length > 0}
+          href="/admin/clients"
+        />
+      </div>
+
+      {/* Clients needing attention */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm font-semibold text-gray-700">Clients Needing Attention</p>
+          <Link to="/admin/clients" className="text-xs text-[#E8670A] hover:text-[#c45e09] font-medium">View all →</Link>
+        </div>
+        {loading ? (
+          <p className="text-sm text-gray-400 py-6 text-center">Loading…</p>
+        ) : needsAttention.length === 0 ? (
+          <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-4 text-center">
+            <p className="text-sm text-green-700 font-medium">No clients need review right now.</p>
+            <p className="text-xs text-green-600 mt-0.5">All clients are on track.</p>
+          </div>
+        ) : (
+          <div className="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100">
+            {needsAttention.slice(0, 5).map(c => {
+              const inactive = daysSince(c.last_meal_at ?? c.last_login_at)
+              return (
+                <Link key={c.id} to={`/admin/clients/${c.id}`}
+                  className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-orange-50/50 transition-colors">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900">
+                      {[c.first_name, c.display_last_name].filter(Boolean).join(' ') || c.email || 'Unknown'}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      {inactive === null ? 'No meals logged' : inactive === 0 ? 'Active today' : `Last log: ${inactive}d ago`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className={`text-xs font-bold ${adherenceColor(c.adherence_7d)}`}>
+                      {Math.round(Number(c.adherence_7d) || 0)}% 7d
+                    </span>
+                    <svg className="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                </Link>
+              )
+            })}
+            {needsAttention.length > 5 && (
+              <div className="px-4 py-2 text-xs text-gray-400 text-center">
+                +{needsAttention.length - 5} more — <Link to="/admin/clients" className="text-[#E8670A]">view all</Link>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Inactive clients */}
+      {!loading && noRecentLogs.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-semibold text-gray-700">No Recent Logs (3+ days)</p>
+            <Link to="/admin/clients" className="text-xs text-[#E8670A] hover:text-[#c45e09] font-medium">View all →</Link>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100">
+            {noRecentLogs.slice(0, 4).map(c => {
+              const inactive = daysSince(c.last_meal_at ?? c.last_login_at)
+              return (
+                <Link key={c.id} to={`/admin/clients/${c.id}`}
+                  className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-orange-50/50 transition-colors">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900">
+                      {[c.first_name, c.display_last_name].filter(Boolean).join(' ') || c.email || 'Unknown'}
+                    </p>
+                  </div>
+                  <p className="text-xs text-gray-400 shrink-0">
+                    {inactive === null ? 'Never logged' : `${inactive}d ago`}
+                  </p>
+                </Link>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Placeholder cards for future features */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="bg-gray-50 border border-dashed border-gray-200 rounded-xl p-4">
+          <p className="text-sm font-semibold text-gray-500 mb-1">Check-ins Due</p>
+          <p className="text-xs text-gray-400">Check-ins will appear here once weekly forms are built.</p>
+        </div>
+        <div className="bg-gray-50 border border-dashed border-gray-200 rounded-xl p-4">
+          <p className="text-sm font-semibold text-gray-500 mb-1">Recent Client Activity</p>
+          <p className="text-xs text-gray-400">Live activity feed coming soon.</p>
+        </div>
+      </div>
+
+      {/* Quick links */}
+      <div className="flex flex-wrap gap-2 pt-1">
+        <Link to="/admin/clients"
+          className="inline-flex items-center gap-1.5 bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors">
+          View All Clients
+        </Link>
+        <Link to="/messages"
+          className="inline-flex items-center gap-1.5 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors">
+          Open Inbox {msgUnread > 0 && <span className="bg-[#E8670A] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{msgUnread}</span>}
+        </Link>
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const { getToken } = useAuth()
 
@@ -378,6 +578,11 @@ export default function Dashboard() {
     { label: 'Steps',  unit: 'steps', field: 'steps',      currentValue: todayLog?.steps },
     { label: 'Weight', unit: 'lbs',   field: 'weight_lbs', currentValue: todayLog?.weight_lbs },
   ]
+
+  // Staff (admin/coach) see the coaching dashboard instead
+  if (!loading && (userProfile?.role === 'admin' || userProfile?.role === 'coach')) {
+    return <CoachDashboard getToken={getToken} />
+  }
 
   return (
     <div>

@@ -697,7 +697,8 @@ export default function ClientList() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [lifecycleFilter, setLifecycleFilter] = useState('active')
   const [activeTab, setActiveTab] = useState('clients')
-  const [isAdmin, setIsAdmin] = useState(false)
+  const [isAdmin,      setIsAdmin]      = useState(false)
+  const [inviteOpen,   setInviteOpen]   = useState(false)
 
   // Detect admin role once on mount
   useEffect(() => {
@@ -787,10 +788,44 @@ export default function ClientList() {
 
   return (
     <div className="max-w-7xl">
-      <div className="mb-5">
-        <h1 className="text-2xl font-bold text-gray-900 mb-1">Coaching Command Center</h1>
-        <p className="text-sm text-gray-500">Clients, macros, habits, and coaching tools in one place.</p>
+      <div className="mb-5 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-1">Coaching Command Center</h1>
+          <p className="text-sm text-gray-500">Clients, macros, habits, and coaching tools in one place.</p>
+        </div>
+        {isAdmin && (
+          <button
+            onClick={() => setInviteOpen(true)}
+            className="shrink-0 bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors"
+          >
+            + Invite Client
+          </button>
+        )}
       </div>
+
+      {/* Invite Client placeholder modal */}
+      {inviteOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setInviteOpen(false)}>
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-[#fff7ed] flex items-center justify-center text-[#E8670A] text-lg">✉️</div>
+              <div>
+                <p className="text-base font-bold text-gray-900">Invite Client</p>
+                <p className="text-xs text-gray-400">VIP invite-only access</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 mb-5">
+              The client invite flow is coming soon. VIP clients will receive a secure invite link via email. Only admins can invite new clients.
+            </p>
+            <button
+              onClick={() => setInviteOpen(false)}
+              className="w-full bg-gray-100 text-gray-700 py-2.5 rounded-lg text-sm font-semibold hover:bg-gray-200 transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Tab bar (scrollable on mobile) ── */}
       <div className="mb-6 -mx-4 px-4 sm:mx-0 sm:px-0 overflow-x-auto">
