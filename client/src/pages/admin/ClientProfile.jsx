@@ -1707,9 +1707,35 @@ function EngagementTab({ clientId, getToken }) {
   if (loading) return <p className="text-sm text-gray-400 text-center py-8">Loading engagement…</p>
   if (!stats)   return <p className="text-sm text-red-500 text-center py-8">Failed to load.</p>
 
-  function Stat({ label, value, sub }) {
+  const foodLogs = Number(stats.food_logs_week) || 0
+  const workouts = Number(stats.workouts_week) || 0
+  const waterLogs = Number(stats.water_logs_week) || 0
+  const stepLogs = Number(stats.step_logs_week) || 0
+  const habitsComplete = Number(stats.habits_complete_week) || 0
+  const habitsMissed = Number(stats.habits_missed_week) || 0
+  const comebackCount = Number(stats.comeback_count) || 0
+  const lastMealDays = stats.last_meal_at ? daysSince(stats.last_meal_at) : null
+  const lastDailyLogDays = stats.last_daily_log ? daysSince(stats.last_daily_log) : null
+  const lastActivityDays =
+    [lastMealDays, lastDailyLogDays].filter(v => v !== null).sort((a, b) => a - b)[0] ?? null
+  const hasActivity =
+    foodLogs > 0 ||
+    workouts > 0 ||
+    waterLogs > 0 ||
+    stepLogs > 0 ||
+    habitsComplete > 0 ||
+    habitsMissed > 0 ||
+    comebackCount > 0 ||
+    lastActivityDays !== null
+
+  function Stat({ label, value, sub, tone = 'default' }) {
+    const toneClass = tone === 'attention'
+      ? 'border-amber-200 bg-amber-50'
+      : tone === 'positive'
+        ? 'border-emerald-200 bg-emerald-50'
+        : 'border-gray-200 bg-white'
     return (
-      <div className="bg-white border border-gray-200 rounded-xl p-4">
+      <div className={`border rounded-xl p-4 ${toneClass}`}>
         <p className="text-xs text-gray-400 mb-1">{label}</p>
         <p className="text-2xl font-bold text-gray-900">{value ?? 0}</p>
         {sub && <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>}
@@ -1717,48 +1743,109 @@ function EngagementTab({ clientId, getToken }) {
     )
   }
 
-  const lastMealDays = stats.last_meal_at ? daysSince(stats.last_meal_at) : null
+  function EmptyNote({ children }) {
+    return (
+      <p className="text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg px-3 py-2">
+        {children}
+      </p>
+    )
+  }
+
+  const activityText =
+    lastActivityDays === null ? 'No activity yet' :
+    lastActivityDays === 0 ? 'Active today' :
+    lastActivityDays === 1 ? 'Yesterday' :
+    `${lastActivityDays} days ago`
+  const followUps = []
+  if (lastActivityDays === null) followUps.push('No activity logged yet. Consider a first check-in or onboarding nudge.')
+  else if (lastActivityDays >= 3) followUps.push('No recent activity in the last few days. A quick follow-up may help.')
+  if (foodLogs === 0) followUps.push('No food logs this week.')
+  if (workouts === 0) followUps.push('No workouts logged this week.')
+  if (habitsMissed > habitsComplete) followUps.push('More missed habit days than completed days this week.')
 
   return (
     <div className="space-y-4">
-      <div className="bg-gradient-to-br from-blue-50 to-orange-50 border border-orange-200 rounded-xl p-4">
-        <p className="text-xs text-gray-500 mb-1">Last activity</p>
-        <p className="text-lg font-bold text-gray-900">
-          {lastMealDays === null ? 'No activity yet' :
-           lastMealDays === 0 ? 'Active today 🎯' :
-           lastMealDays === 1 ? 'Yesterday' :
-           `${lastMealDays} days ago`}
+      <div>
+        <h2 className="text-lg font-bold text-gray-900">Engagement</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          Use this section to quickly see whether the client is staying active with their plan and where they may need follow-up.
         </p>
       </div>
 
-      <div>
-        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">This week</p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <Stat label="Food logs"     value={stats.food_logs_week} />
-          <Stat label="Workouts"      value={stats.workouts_week} />
-          <Stat label="Water logs"    value={stats.water_logs_week} />
-          <Stat label="Step logs"     value={stats.step_logs_week} />
+      {!hasActivity ? (
+        <div className="bg-white border border-gray-200 rounded-xl p-6 sm:p-8 text-center">
+          <p className="text-2xl mb-2">⚡</p>
+          <p className="text-sm text-gray-500 max-w-xl mx-auto">
+            Engagement data will appear here once the client starts logging food, workouts, habits, messages, or check-ins.
+          </p>
         </div>
-      </div>
-
-      <div>
-        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Habits</p>
-        <div className="grid grid-cols-2 gap-3">
-          <Stat label="Completed (week)" value={stats.habits_complete_week} sub="80%+ adherence days" />
-          <Stat label="Missed (week)"    value={stats.habits_missed_week}   sub="No completion logged" />
-        </div>
-      </div>
-
-      <div>
-        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Comebacks</p>
-        <div className="bg-white border border-emerald-200 rounded-xl p-4 flex items-center gap-3">
-          <span className="text-3xl">🌱</span>
-          <div>
-            <p className="text-2xl font-bold text-emerald-700">{stats.comeback_count ?? 0}</p>
-            <p className="text-xs text-gray-500">comeback events on record — every restart is progress.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <Stat
+              label="Last activity"
+              value={activityText}
+              sub={lastDailyLogDays !== null ? `Daily log ${lastDailyLogDays === 0 ? 'today' : `${lastDailyLogDays}d ago`}` : 'No daily log yet'}
+              tone={lastActivityDays !== null && lastActivityDays <= 1 ? 'positive' : 'attention'}
+            />
+            <Stat label="Food logs" value={foodLogs} sub="this week" />
+            <Stat label="Workouts" value={workouts} sub="this week" />
+            <Stat label="Habits" value={`${habitsComplete}/${habitsComplete + habitsMissed}`} sub="completed this week" />
           </div>
-        </div>
-      </div>
+
+          <div>
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">What they logged recently</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <Stat label="Food" value={foodLogs || '—'} sub={foodLogs > 0 ? 'logs this week' : 'Not logged yet'} />
+              <Stat label="Workouts" value={workouts || '—'} sub={workouts > 0 ? 'this week' : 'Not logged yet'} />
+              <Stat label="Water" value={waterLogs || '—'} sub={waterLogs > 0 ? 'logs this week' : 'Not logged yet'} />
+              <Stat label="Steps" value={stepLogs || '—'} sub={stepLogs > 0 ? 'logs this week' : 'Not logged yet'} />
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Habit follow-through</p>
+              <div className="grid grid-cols-2 gap-3">
+                <Stat label="Completed" value={habitsComplete || '—'} sub={habitsComplete > 0 ? 'this week' : 'Not logged yet'} />
+                <Stat label="Missed" value={habitsMissed || '—'} sub={habitsMissed > 0 ? 'this week' : 'No misses logged'} tone={habitsMissed > habitsComplete ? 'attention' : 'default'} />
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Coach follow-up</p>
+              <div className="bg-white border border-gray-200 rounded-xl p-4">
+                {followUps.length === 0 ? (
+                  <p className="text-sm text-emerald-700 font-medium">Client looks active this week.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {followUps.map((item, i) => (
+                      <p key={i} className="text-xs text-gray-600 flex gap-2">
+                        <span className="text-[#E8670A] mt-0.5">•</span>
+                        <span>{item}</span>
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Comebacks</p>
+            {comebackCount > 0 ? (
+              <div className="bg-white border border-emerald-200 rounded-xl p-4 flex items-center gap-3">
+                <span className="text-3xl">🌱</span>
+                <div>
+                  <p className="text-2xl font-bold text-emerald-700">{comebackCount}</p>
+                  <p className="text-xs text-gray-500">comeback events on record — every restart is progress.</p>
+                </div>
+              </div>
+            ) : (
+              <EmptyNote>No comeback events logged yet.</EmptyNote>
+            )}
+          </div>
+        </>
+      )}
     </div>
   )
 }
