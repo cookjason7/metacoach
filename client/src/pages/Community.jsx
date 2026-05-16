@@ -1450,16 +1450,300 @@ function MindsetTab({ getToken, isStaff }) {
   )
 }
 
+// ── Resources helpers ─────────────────────────────────────────────────────────
+
+const RESOURCE_TYPES = [
+  { id: 'link',  label: 'Link',  icon: '🔗', badge: 'bg-blue-100 text-blue-700'   },
+  { id: 'pdf',   label: 'PDF',   icon: '📄', badge: 'bg-red-100 text-red-700'     },
+  { id: 'video', label: 'Video', icon: '🎥', badge: 'bg-purple-100 text-purple-700'},
+  { id: 'guide', label: 'Guide', icon: '📖', badge: 'bg-emerald-100 text-emerald-700' },
+  { id: 'other', label: 'Other', icon: '📌', badge: 'bg-gray-100 text-gray-600'   },
+]
+function rtype(id) { return RESOURCE_TYPES.find(t => t.id === id) ?? RESOURCE_TYPES[0] }
+
+const EMPTY_RESOURCE = { title: '', description: '', resource_type: 'link', url: '', category: '', display_order: 0, published: false }
+
+function ResourceModal({ initial, onSave, onClose, saving }) {
+  const [form, setForm] = useState(initial ?? EMPTY_RESOURCE)
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const isEdit = !!initial?.id
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h2 className="text-base font-bold text-gray-900">{isEdit ? 'Edit Resource' : 'Add Resource'}</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="px-6 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Title *</label>
+            <input value={form.title} onChange={e => set('title', e.target.value)} placeholder="Resource title"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#E8670A]" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Type</label>
+            <div className="flex flex-wrap gap-2">
+              {RESOURCE_TYPES.map(t => (
+                <button key={t.id} type="button" onClick={() => set('resource_type', t.id)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border-2 transition-colors ${
+                    form.resource_type === t.id
+                      ? 'bg-[#E8670A] border-[#E8670A] text-white'
+                      : 'border-gray-200 text-gray-600 hover:border-[#E8670A]'
+                  }`}>
+                  {t.icon} {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">URL *</label>
+            <input value={form.url} onChange={e => set('url', e.target.value)} placeholder="https://…"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#E8670A]" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Description</label>
+            <textarea value={form.description} onChange={e => set('description', e.target.value)}
+              rows={3} placeholder="Short description (optional)"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#E8670A] resize-none" />
+          </div>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Category</label>
+              <input value={form.category} onChange={e => set('category', e.target.value)} placeholder="e.g. Nutrition"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#E8670A]" />
+            </div>
+            <div className="w-24">
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Order</label>
+              <input type="number" value={form.display_order} onChange={e => set('display_order', Number(e.target.value))}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#E8670A]" />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={form.published} onChange={e => set('published', e.target.checked)}
+              className="w-4 h-4 accent-[#E8670A]" />
+            <span className="text-sm font-medium text-gray-700">Published (visible to clients)</span>
+          </label>
+        </div>
+        <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 font-medium">Cancel</button>
+          <button onClick={() => onSave(form)}
+            disabled={saving || !form.title.trim() || !form.url.trim()}
+            className="px-5 py-2 bg-[#E8670A] text-white text-sm font-bold rounded-xl hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
+            {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Resource'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ResourceCard({ resource, isStaff, onEdit, onDelete, onTogglePublish }) {
+  const t = rtype(resource.resource_type)
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-4">
+      <div className="flex items-start gap-3">
+        <div className="text-2xl leading-none shrink-0 mt-0.5">{t.icon}</div>
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${t.badge}`}>{t.label}</span>
+            {resource.category && (
+              <span className="text-xs font-semibold bg-[#fde8c8] text-[#c45e09] px-2 py-0.5 rounded-full">{resource.category}</span>
+            )}
+            {isStaff && (
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                resource.published ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
+              }`}>
+                {resource.published ? 'Published' : 'Draft'}
+              </span>
+            )}
+          </div>
+          <p className="text-sm font-bold text-gray-900 leading-snug">{resource.title}</p>
+          {resource.description && (
+            <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{resource.description}</p>
+          )}
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
+            <a href={resource.url} target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] transition-colors">
+              Open {t.icon}
+            </a>
+            {isStaff && (
+              <>
+                <span className="text-gray-200">|</span>
+                <button onClick={() => onTogglePublish(resource)}
+                  className={`text-xs font-semibold transition-colors ${
+                    resource.published ? 'text-emerald-600 hover:text-emerald-800' : 'text-gray-400 hover:text-gray-600'
+                  }`}>
+                  {resource.published ? 'Unpublish' : 'Publish'}
+                </button>
+                <button onClick={() => onEdit(resource)} className="text-xs font-semibold text-gray-400 hover:text-[#E8670A] transition-colors">Edit</button>
+                <button onClick={() => onDelete(resource)} className="text-xs font-semibold text-gray-400 hover:text-red-500 transition-colors">Delete</button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Resources tab ─────────────────────────────────────────────────────────────
 
-function ResourcesTab() {
+function ResourcesTab({ getToken, isStaff }) {
+  const [resources,    setResources]    = useState([])
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState(null)
+  const [modal,        setModal]        = useState(null)
+  const [saving,       setSaving]       = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleting,     setDeleting]     = useState(false)
+
+  async function load() {
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/community-resources`, { headers: { Authorization: `Bearer ${token}` } })
+      if (!res.ok) throw new Error(`Server error ${res.status}`)
+      setResources(await res.json())
+    } catch (e) { setError(e.message) }
+    finally { setLoading(false) }
+  }
+
+  useEffect(() => { load() }, [getToken])
+
+  async function handleSave(form) {
+    setSaving(true)
+    try {
+      const token = await getToken()
+      const isEdit = !!modal?.id
+      const url = isEdit ? `${API_URL}/api/community-resources/${modal.id}` : `${API_URL}/api/community-resources`
+      const res = await fetch(url, {
+        method: isEdit ? 'PUT' : 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Save failed') }
+      setModal(null)
+      await load()
+    } catch (e) { alert(e.message) }
+    finally { setSaving(false) }
+  }
+
+  async function handleTogglePublish(resource) {
+    try {
+      const token = await getToken()
+      await fetch(`${API_URL}/api/community-resources/${resource.id}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...resource, published: !resource.published }),
+      })
+      await load()
+    } catch (e) { alert(e.message) }
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      const token = await getToken()
+      await fetch(`${API_URL}/api/community-resources/${deleteTarget.id}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+      })
+      setDeleteTarget(null)
+      await load()
+    } catch (e) { alert(e.message) }
+    finally { setDeleting(false) }
+  }
+
+  const grouped = resources.reduce((acc, r) => {
+    const key = r.category || 'General'
+    if (!acc[key]) acc[key] = []
+    acc[key].push(r)
+    return acc
+  }, {})
+
   return (
-    <div className="flex flex-col items-center justify-center py-24 text-center max-w-2xl">
-      <div className="text-5xl mb-4">📚</div>
-      <h2 className="text-lg font-semibold text-gray-800 mb-2">Resources</h2>
-      <p className="text-sm text-gray-500 max-w-xs">
-        Guides, templates, and reference materials from your coaching team. Coming soon.
-      </p>
+    <div className="max-w-2xl">
+      {/* Header */}
+      {isStaff ? (
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">Resources</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Manage guides, links, and materials for clients</p>
+          </div>
+          <button onClick={() => setModal('add')}
+            className="flex items-center gap-2 bg-[#E8670A] text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-[#c45e09] transition-colors">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Add Resource
+          </button>
+        </div>
+      ) : (
+        <div className="mb-5">
+          <h2 className="text-lg font-bold text-gray-900">Resources</h2>
+          <p className="text-sm text-gray-500 mt-0.5">Guides, links, and materials from your coaching team</p>
+        </div>
+      )}
+
+      {loading && <p className="text-sm text-gray-400 text-center py-16">Loading…</p>}
+      {error   && <p className="text-sm text-red-500 text-center py-8">{error}</p>}
+
+      {!loading && !error && resources.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <p className="text-4xl mb-3">📚</p>
+          <p className="text-sm font-semibold text-gray-700 mb-1">No resources yet</p>
+          <p className="text-sm text-gray-400">
+            {isStaff ? 'Add your first resource with the button above.' : 'Check back soon — content is on the way.'}
+          </p>
+        </div>
+      )}
+
+      {!loading && !error && resources.length > 0 && (
+        isStaff ? (
+          <div className="space-y-3">
+            {resources.map(r => (
+              <ResourceCard key={r.id} resource={r} isStaff
+                onEdit={setModal} onDelete={setDeleteTarget} onTogglePublish={handleTogglePublish} />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-8">
+            {Object.entries(grouped).map(([cat, items]) => (
+              <div key={cat}>
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">{cat}</h3>
+                <div className="space-y-3">
+                  {items.map(r => (
+                    <ResourceCard key={r.id} resource={r} isStaff={false}
+                      onEdit={() => {}} onDelete={() => {}} onTogglePublish={() => {}} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+
+      {modal !== null && (
+        <ResourceModal initial={modal === 'add' ? null : modal} onSave={handleSave} onClose={() => setModal(null)} saving={saving} />
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setDeleteTarget(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl" onClick={e => e.stopPropagation()}>
+            <h2 className="text-base font-bold text-gray-900 mb-2">Delete resource?</h2>
+            <p className="text-sm text-gray-500 mb-5">
+              "<span className="font-medium text-gray-700">{deleteTarget.title}</span>" will be permanently removed.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setDeleteTarget(null)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 font-medium">Cancel</button>
+              <button onClick={handleDelete} disabled={deleting}
+                className="px-5 py-2 bg-red-500 text-white text-sm font-bold rounded-xl hover:bg-red-600 disabled:opacity-50 transition-colors">
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1557,7 +1841,7 @@ export default function Community() {
         />
       )}
       {tab === 'mindset'   && <MindsetTab getToken={getToken} isStaff={isStaff} />}
-      {tab === 'resources' && <ResourcesTab />}
+      {tab === 'resources' && <ResourcesTab getToken={getToken} isStaff={isStaff} />}
     </div>
   )
 }
