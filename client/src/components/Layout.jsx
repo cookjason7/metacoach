@@ -446,7 +446,7 @@ export default function Layout() {
               <div className="px-4 pb-10 pt-1 grid grid-cols-3 gap-3">
                 {[
                   { id: 'food',     emoji: '🍽️', label: 'Log Food' },
-                  { id: 'photo',    emoji: '📸', label: 'Photo' },
+                  { id: 'photo',    emoji: '📸', label: 'Progress Photo' },
                   { id: 'water',    emoji: '💧', label: 'Water' },
                   { id: 'weight',   emoji: '⚖️', label: 'Weight' },
                   { id: 'steps',    emoji: '👟', label: 'Steps' },
