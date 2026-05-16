@@ -268,10 +268,82 @@ router.post('/copy-day', requireAuth(), async (req, res, next) => {
              user_id, meal_name, photo_url, calories, protein, carbs, fat, fiber, sugar, portion_notes,
              meal_slot, log_date, serving_size, serving_unit, source_type, source_label, is_verified, micronutrients
            )
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::date,$12,$13,$14,$15,$16,$17,$18)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::date,$13,$14,$15,$16,$17,$18)
            RETURNING *`,
           [dbUserId, m.meal_name, m.photo_url, m.calories, m.protein, m.carbs, m.fat,
            m.fiber, m.sugar, m.portion_notes, m.meal_slot, to_date,
+           m.serving_size, m.serving_unit, m.source_type, m.source_label, m.is_verified, m.micronutrients],
+        )
+        inserted.push(rows[0])
+      }
+      await client.query('COMMIT')
+      res.status(201).json({ copied: inserted.length, meals: inserted })
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
+  } catch (err) { next(err) }
+})
+
+// POST /api/meals/copy-meal — copy one meal slot from one date to another
+// mode: 'add' | 'replace' | absent (409 if target slot has meals)
+router.post('/copy-meal', requireAuth(), async (req, res, next) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId = await getOrCreateUser(userId)
+    const { from_date, from_slot, to_date, to_slot, mode } = req.body
+
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/
+    if (!from_date || !to_date || !dateRe.test(from_date) || !dateRe.test(to_date))
+      return res.status(400).json({ error: 'from_date and to_date must be YYYY-MM-DD' })
+    if (!from_slot || !to_slot)
+      return res.status(400).json({ error: 'from_slot and to_slot are required' })
+    if (from_date === to_date && from_slot === to_slot)
+      return res.status(400).json({ error: 'Source and target slot cannot be the same' })
+
+    const { rows: srcMeals } = await pool.query(
+      `SELECT meal_name, photo_url, calories, protein, carbs, fat, fiber, sugar, portion_notes,
+              serving_size, serving_unit, source_type, source_label, is_verified, micronutrients
+       FROM meals
+       WHERE user_id = $1
+         AND COALESCE(log_date, logged_at::date) = $2::date
+         AND meal_slot = $3
+       ORDER BY logged_at`,
+      [dbUserId, from_date, from_slot],
+    )
+    if (!srcMeals.length) return res.status(404).json({ error: 'No meals found for source date and slot' })
+
+    const { rows: tgtCheck } = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM meals
+       WHERE user_id = $1 AND COALESCE(log_date, logged_at::date) = $2::date AND meal_slot = $3`,
+      [dbUserId, to_date, to_slot],
+    )
+    const targetCount = tgtCheck[0].count
+    if (targetCount > 0 && !mode)
+      return res.status(409).json({ target_has_logs: true, target_count: targetCount })
+
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      if (mode === 'replace' && targetCount > 0) {
+        await client.query(
+          `DELETE FROM meals WHERE user_id = $1 AND COALESCE(log_date, logged_at::date) = $2::date AND meal_slot = $3`,
+          [dbUserId, to_date, to_slot],
+        )
+      }
+      const inserted = []
+      for (const m of srcMeals) {
+        const { rows } = await client.query(
+          `INSERT INTO meals (
+             user_id, meal_name, photo_url, calories, protein, carbs, fat, fiber, sugar, portion_notes,
+             meal_slot, log_date, serving_size, serving_unit, source_type, source_label, is_verified, micronutrients
+           )
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::date,$13,$14,$15,$16,$17,$18)
+           RETURNING *`,
+          [dbUserId, m.meal_name, m.photo_url, m.calories, m.protein, m.carbs, m.fat,
+           m.fiber, m.sugar, m.portion_notes, to_slot, to_date,
            m.serving_size, m.serving_unit, m.source_type, m.source_label, m.is_verified, m.micronutrients],
         )
         inserted.push(rows[0])

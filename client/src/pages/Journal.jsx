@@ -904,6 +904,178 @@ function CopyDayModal({ selectedDate, getToken, onClose, onSuccess }) {
   )
 }
 
+// ── Copy Slot Modal ────────────────────────────────────────────────────────────
+
+const COPY_SLOT_OPTIONS = [
+  { value: 'Breakfast', label: 'Breakfast' },
+  { value: 'Lunch',     label: 'Lunch' },
+  { value: 'Dinner',    label: 'Dinner' },
+  { value: 'Snack',     label: 'Snack' },
+  { value: 'AM Snack',  label: 'Morning Snack' },
+  { value: 'PM Snack',  label: 'Afternoon Snack' },
+]
+
+function CopySlotModal({ selectedDate, getToken, onClose, onSuccess }) {
+  const curDate  = toDateStr(selectedDate)
+  const todayStr = toDateStr(new Date())
+  const minStr   = toDateStr((() => { const d = new Date(); d.setDate(d.getDate() - 90); return d })())
+  const maxStr   = toDateStr((() => { const d = new Date(); d.setDate(d.getDate() + 7); return d })())
+
+  const defaultOther = todayStr === curDate
+    ? toDateStr((() => { const d = new Date(); d.setDate(d.getDate() - 1); return d })())
+    : todayStr
+
+  const [fromDate, setFromDate] = useState(curDate)
+  const [fromSlot, setFromSlot] = useState('Breakfast')
+  const [toDate,   setToDate]   = useState(defaultOther)
+  const [toSlot,   setToSlot]   = useState('Breakfast')
+  const [step,     setStep]     = useState('pick')
+  const [conflict, setConflict] = useState(null)
+  const [saving,   setSaving]   = useState(false)
+  const [error,    setError]    = useState(null)
+
+  const sameSlot = fromDate === toDate && fromSlot === toSlot
+
+  function syncToSlot(newFromSlot) {
+    setFromSlot(newFromSlot)
+    setToSlot(newFromSlot)
+  }
+
+  async function doCopy(mode) {
+    setSaving(true); setError(null)
+    try {
+      const token = await getToken()
+      const body  = { from_date: fromDate, from_slot: fromSlot, to_date: toDate, to_slot: toSlot }
+      if (mode) body.mode = mode
+      const res = await fetch(`${API_URL}/api/meals/copy-meal`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (res.status === 409) {
+        const data = await res.json()
+        setConflict(data); setStep('conflict')
+        return
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setError(data.error ?? 'Failed to copy. Please try again.')
+        return
+      }
+      const data = await res.json()
+      onSuccess(toDate, toSlot, data.copied)
+    } catch { setError('Failed to copy. Please try again.') }
+    finally  { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h3 className="text-base font-semibold text-gray-900">Copy Meal</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="p-5 space-y-4">
+
+          {step === 'pick' && (
+            <>
+              <div className="space-y-3">
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">From</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Date</label>
+                      <input type="date" value={fromDate} min={minStr} max={maxStr}
+                        onChange={e => setFromDate(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Meal</label>
+                      <select value={fromSlot} onChange={e => syncToSlot(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]">
+                        {COPY_SLOT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-px bg-gray-200" />
+                  <span className="text-xs text-gray-400 font-medium">→</span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">To</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Date</label>
+                      <input type="date" value={toDate} min={minStr} max={maxStr}
+                        onChange={e => setToDate(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Meal</label>
+                      <select value={toSlot} onChange={e => setToSlot(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]">
+                        {COPY_SLOT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {sameSlot && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  Source and destination must be different.
+                </p>
+              )}
+              {error && <p className="text-xs text-red-500">{error}</p>}
+
+              <div className="flex gap-2">
+                <button onClick={() => doCopy(null)} disabled={saving || sameSlot}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
+                  {saving ? 'Copying…' : 'Copy Meal'}
+                </button>
+                <button onClick={onClose}
+                  className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-500 border border-gray-200 hover:bg-gray-50 transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
+
+          {step === 'conflict' && (
+            <>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                <p className="text-sm font-semibold text-amber-900">
+                  {toSlot} on {toDate} already has {conflict?.target_count} item{conflict?.target_count !== 1 ? 's' : ''}.
+                </p>
+                <p className="text-xs text-amber-700 mt-1">How would you like to proceed?</p>
+              </div>
+              {error && <p className="text-xs text-red-500">{error}</p>}
+              <div className="space-y-2">
+                <button onClick={() => doCopy('add')} disabled={saving}
+                  className="w-full py-2.5 rounded-xl text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
+                  {saving ? 'Copying…' : 'Add to existing'}
+                </button>
+                <button onClick={() => doCopy('replace')} disabled={saving}
+                  className="w-full py-2.5 rounded-xl text-sm font-semibold bg-red-500 text-white hover:bg-red-600 disabled:opacity-50 transition-colors">
+                  {saving ? 'Replacing…' : 'Replace existing'}
+                </button>
+                <button onClick={onClose} className="w-full py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
+
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Photo Logger (auto-save) ───────────────────────────────────────────────────
 
 function PhotoLogger({ slotName, onSaved, logDate, initialFile = null }) {
@@ -2719,6 +2891,9 @@ export default function Journal() {
   const [movingMeal,   setMovingMeal]   = useState(null)
   const [copyDayOpen,  setCopyDayOpen]  = useState(false)
   const [copyDayMsg,   setCopyDayMsg]   = useState(null)
+  const [copySlotOpen, setCopySlotOpen] = useState(false)
+  const [copyMenuOpen, setCopyMenuOpen] = useState(false)
+  const copyMenuRef = useRef(null)
 
   const weekDays = getWeekDays(weekStart)
   const todayStr = toDateStr(new Date())
@@ -2865,6 +3040,24 @@ export default function Journal() {
     setTimeout(() => setCopyDayMsg(null), 4000)
   }, [selectedDate, loadMeals])
 
+  const handleCopySlotSuccess = useCallback((toDate, toSlot, count) => {
+    setCopySlotOpen(false)
+    if (toDate === toDateStr(selectedDate)) loadMeals()
+    setActiveDates(prev => new Set([...prev, toDate]))
+    setCopyDayMsg(`Copied ${count} item${count !== 1 ? 's' : ''} to ${toSlot} on ${toDate}`)
+    setTimeout(() => setCopyDayMsg(null), 4000)
+  }, [selectedDate, loadMeals])
+
+  // Close copy menu on outside click
+  useEffect(() => {
+    if (!copyMenuOpen) return
+    function handler(e) {
+      if (copyMenuRef.current && !copyMenuRef.current.contains(e.target)) setCopyMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [copyMenuOpen])
+
   const totals    = sumMacros(meals)
   const slotMeals = groupBySlot(meals)
 
@@ -2882,12 +3075,30 @@ export default function Journal() {
               Today
             </button>
           )}
-          <button
-            onClick={() => setCopyDayOpen(true)}
-            className="text-xs font-medium text-gray-500 hover:text-[#E8670A] border border-gray-200 rounded-lg px-2.5 py-1.5 transition-colors"
-          >
-            Copy Day
-          </button>
+          <div className="relative" ref={copyMenuRef}>
+            <button
+              onClick={() => setCopyMenuOpen(v => !v)}
+              className="text-xs font-medium text-gray-500 hover:text-[#E8670A] border border-gray-200 rounded-lg px-2.5 py-1.5 transition-colors flex items-center gap-1"
+            >
+              Copy <span className="opacity-60">▾</span>
+            </button>
+            {copyMenuOpen && (
+              <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-20 min-w-[130px] overflow-hidden">
+                <button
+                  onClick={() => { setCopyMenuOpen(false); setCopyDayOpen(true) }}
+                  className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Copy Day
+                </button>
+                <button
+                  onClick={() => { setCopyMenuOpen(false); setCopySlotOpen(true) }}
+                  className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 border-t border-gray-100 transition-colors"
+                >
+                  Copy Meal
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
       {copyDayMsg && (
@@ -2974,6 +3185,16 @@ export default function Journal() {
           getToken={getToken}
           onClose={() => setCopyDayOpen(false)}
           onSuccess={handleCopyDaySuccess}
+        />
+      )}
+
+      {/* Copy meal modal */}
+      {copySlotOpen && (
+        <CopySlotModal
+          selectedDate={selectedDate}
+          getToken={getToken}
+          onClose={() => setCopySlotOpen(false)}
+          onSuccess={handleCopySlotSuccess}
         />
       )}
 
