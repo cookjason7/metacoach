@@ -35,6 +35,7 @@ export default function AICoach() {
   const [loading, setLoading]     = useState(true)
   const [streaming, setStreaming] = useState(false)
   const [error, setError]         = useState(null)
+  const [isVip, setIsVip]         = useState(false)
   const bottomRef = useRef(null)
   const inputRef  = useRef(null)
 
@@ -104,8 +105,20 @@ export default function AICoach() {
         const token = await getToken()
         const headers = { Authorization: `Bearer ${token}` }
 
-        // Fire check-proactive (non-blocking — generates a message if triggered)
-        fetch(`${API_URL}/api/coach/check-proactive`, { method: 'POST', headers }).catch(() => {})
+        // Determine coaching type before firing proactive check
+        const profileRes = await fetch(`${API_URL}/api/users/me`, { headers })
+        if (profileRes.ok) {
+          const profile = await profileRes.json()
+          const vip = profile.coaching_type !== 'ai'
+          setIsVip(vip)
+          // Only fire check-proactive for AI coaching clients
+          if (!vip) {
+            fetch(`${API_URL}/api/coach/check-proactive`, { method: 'POST', headers }).catch(() => {})
+          }
+        } else {
+          // Fire check-proactive (server will gate VIP clients)
+          fetch(`${API_URL}/api/coach/check-proactive`, { method: 'POST', headers }).catch(() => {})
+        }
 
         // Mark all unread proactive messages as read (clears sidebar/mobile badge)
         fetch(`${API_URL}/api/coach/mark-read`, { method: 'POST', headers }).catch(() => {})
@@ -150,7 +163,11 @@ export default function AICoach() {
       {/* Header */}
       <div className="px-6 pt-6 pb-4 border-b border-gray-100 shrink-0">
         <h1 className="text-xl font-bold text-gray-900">Coach Katie</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Chat with Katie, your personal coaching engine</p>
+        <p className="text-sm text-gray-500 mt-0.5">
+          {isVip
+            ? 'Ask Katie a question anytime. Your human coach still leads your coaching.'
+            : 'Chat with Katie, your personal coaching engine'}
+        </p>
       </div>
 
       {/* Messages */}

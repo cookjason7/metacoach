@@ -439,6 +439,15 @@ router.post('/check-proactive', requireAuth(), async (req, res, next) => {
     const { userId } = getAuth(req)
     const dbUserId   = await getOrCreateUser(userId)
 
+    // ── VIP gate: proactive messages only for AI coaching clients ───────────
+    const { rows: typeRows } = await pool.query(
+      'SELECT coaching_type FROM users WHERE id = $1',
+      [dbUserId],
+    )
+    if (typeRows[0]?.coaching_type !== 'ai') {
+      return res.json({ generated: false, reason: 'vip_client' })
+    }
+
     // ── Cooldown: max 1 proactive message per calendar day ──────────────────
     const { rows: todayRows } = await pool.query(
       `SELECT id FROM coaching_conversations

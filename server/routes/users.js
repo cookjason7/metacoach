@@ -34,7 +34,7 @@ router.get('/me', requireAuth(), async (req, res, next) => {
               activity_level, tried_before, why_joined, identity_anchors,
               onboarding_complete, assessment_complete,
               goal_calories, goal_protein, goal_carbs, goal_fat, goal_fiber, goal_water,
-              gender, phone_number, paid, role
+              gender, phone_number, paid, role, coaching_type
        FROM users WHERE id = $1`,
       [dbUserId],
     )
