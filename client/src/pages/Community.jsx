@@ -1453,20 +1453,22 @@ function MindsetTab({ getToken, isStaff }) {
 // ── Resources helpers ─────────────────────────────────────────────────────────
 
 const RESOURCE_TYPES = [
-  { id: 'link',  label: 'Link',  icon: '🔗', badge: 'bg-blue-100 text-blue-700'   },
-  { id: 'pdf',   label: 'PDF',   icon: '📄', badge: 'bg-red-100 text-red-700'     },
-  { id: 'video', label: 'Video', icon: '🎥', badge: 'bg-purple-100 text-purple-700'},
-  { id: 'guide', label: 'Guide', icon: '📖', badge: 'bg-emerald-100 text-emerald-700' },
-  { id: 'other', label: 'Other', icon: '📌', badge: 'bg-gray-100 text-gray-600'   },
+  { id: 'link', label: 'Link', icon: '🔗', badge: 'bg-blue-100 text-blue-700' },
+  { id: 'file', label: 'File', icon: '📎', badge: 'bg-gray-100 text-gray-700' },
 ]
-function rtype(id) { return RESOURCE_TYPES.find(t => t.id === id) ?? RESOURCE_TYPES[0] }
+function rtype(id) { return id === 'file' ? RESOURCE_TYPES[1] : RESOURCE_TYPES[0] }
 
 const EMPTY_RESOURCE = { title: '', description: '', resource_type: 'link', url: '', category: '', display_order: 0, published: false }
 
 function ResourceModal({ initial, onSave, onClose, saving }) {
-  const [form, setForm] = useState(initial ?? EMPTY_RESOURCE)
+  const [form,    setForm]    = useState(initial ?? EMPTY_RESOURCE)
+  const [file,    setFile]    = useState(null)
+  const fileInputRef           = useRef(null)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
-  const isEdit = !!initial?.id
+  const isEdit  = !!initial?.id
+  const isFile  = form.resource_type === 'file'
+  const canSave = !saving && form.title.trim() &&
+    (isFile ? (file || form.url) : form.url.trim())
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
@@ -1483,10 +1485,11 @@ function ResourceModal({ initial, onSave, onClose, saving }) {
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-700 mb-1">Type</label>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex gap-2">
               {RESOURCE_TYPES.map(t => (
-                <button key={t.id} type="button" onClick={() => set('resource_type', t.id)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border-2 transition-colors ${
+                <button key={t.id} type="button"
+                  onClick={() => { set('resource_type', t.id); setFile(null) }}
+                  className={`px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-colors ${
                     form.resource_type === t.id
                       ? 'bg-[#E8670A] border-[#E8670A] text-white'
                       : 'border-gray-200 text-gray-600 hover:border-[#E8670A]'
@@ -1496,11 +1499,51 @@ function ResourceModal({ initial, onSave, onClose, saving }) {
               ))}
             </div>
           </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1">URL *</label>
-            <input value={form.url} onChange={e => set('url', e.target.value)} placeholder="https://…"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#E8670A]" />
-          </div>
+
+          {/* URL field (Link type) */}
+          {!isFile && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">URL *</label>
+              <input value={form.url} onChange={e => set('url', e.target.value)}
+                placeholder="https://drive.google.com/…, https://youtu.be/…, any link"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#E8670A]" />
+              <p className="text-xs text-gray-400 mt-1">Google Drive, YouTube, Loom, websites, PDFs — any URL works.</p>
+            </div>
+          )}
+
+          {/* File upload field */}
+          {isFile && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">File *</label>
+              {isEdit && form.url && !file && (
+                <div className="flex items-center gap-2 mb-2 p-2.5 bg-gray-50 rounded-xl border border-gray-200">
+                  <span className="text-lg">📎</span>
+                  <span className="text-xs text-gray-600 flex-1 truncate">Current file uploaded</span>
+                  <button type="button" onClick={() => fileInputRef.current?.click()}
+                    className="text-xs text-[#E8670A] font-semibold hover:text-[#c45e09]">Replace</button>
+                </div>
+              )}
+              {file ? (
+                <div className="flex items-center gap-2 p-2.5 bg-emerald-50 rounded-xl border border-emerald-200">
+                  <span className="text-lg">📎</span>
+                  <span className="text-xs text-emerald-700 flex-1 truncate font-medium">{file.name}</span>
+                  <button type="button" onClick={() => setFile(null)}
+                    className="text-xs text-gray-400 hover:text-gray-600 font-semibold">✕</button>
+                </div>
+              ) : (!isEdit || !form.url) && (
+                <button type="button" onClick={() => fileInputRef.current?.click()}
+                  className="w-full border-2 border-dashed border-gray-300 rounded-xl py-5 text-sm text-gray-400 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors">
+                  📎 Tap to select file
+                </button>
+              )}
+              <input ref={fileInputRef} type="file" className="hidden"
+                accept=".pdf,.doc,.docx,.xls,.xlsx,image/*"
+                onChange={e => { const f = e.target.files?.[0]; if (f) setFile(f) }}
+              />
+              <p className="text-xs text-gray-400 mt-1">PDF, images, Word, Excel (max 20 MB)</p>
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-semibold text-gray-700 mb-1">Description</label>
             <textarea value={form.description} onChange={e => set('description', e.target.value)}
@@ -1527,8 +1570,7 @@ function ResourceModal({ initial, onSave, onClose, saving }) {
         </div>
         <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 font-medium">Cancel</button>
-          <button onClick={() => onSave(form)}
-            disabled={saving || !form.title.trim() || !form.url.trim()}
+          <button onClick={() => onSave(form, file)} disabled={!canSave}
             className="px-5 py-2 bg-[#E8670A] text-white text-sm font-bold rounded-xl hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
             {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Resource'}
           </button>
@@ -1610,17 +1652,34 @@ function ResourcesTab({ getToken, isStaff }) {
 
   useEffect(() => { load() }, [getToken])
 
-  async function handleSave(form) {
+  async function handleSave(form, file) {
     setSaving(true)
     try {
       const token = await getToken()
       const isEdit = !!modal?.id
-      const url = isEdit ? `${API_URL}/api/community-resources/${modal.id}` : `${API_URL}/api/community-resources`
-      const res = await fetch(url, {
-        method: isEdit ? 'PUT' : 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      })
+      const endpoint = isEdit ? `${API_URL}/api/community-resources/${modal.id}` : `${API_URL}/api/community-resources`
+      let res
+      if (form.resource_type === 'file' && file) {
+        const body = new FormData()
+        body.append('file', file)
+        body.append('title', form.title)
+        body.append('description', form.description ?? '')
+        body.append('resource_type', 'file')
+        body.append('category', form.category ?? '')
+        body.append('display_order', String(form.display_order ?? 0))
+        body.append('published', String(form.published ?? false))
+        res = await fetch(endpoint, {
+          method: isEdit ? 'PUT' : 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body,
+        })
+      } else {
+        res = await fetch(endpoint, {
+          method: isEdit ? 'PUT' : 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(form),
+        })
+      }
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Save failed') }
       setModal(null)
       await load()

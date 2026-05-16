@@ -1,10 +1,40 @@
 import { Router } from 'express'
+import multer from 'multer'
+import { v2 as cloudinary } from 'cloudinary'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 
 const router = Router()
 
-const VALID_TYPES = new Set(['link', 'pdf', 'video', 'guide', 'other'])
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key:    process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+})
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const mime = file.mimetype
+    const ok = mime.startsWith('image/') ||
+               mime === 'application/pdf' ||
+               mime.startsWith('application/msword') ||
+               mime.startsWith('application/vnd.openxmlformats-officedocument') ||
+               mime.startsWith('application/vnd.ms-')
+    cb(null, ok)
+  },
+})
+
+function uploadToCloudinary(buffer) {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: 'metacoach/resources', resource_type: 'auto' },
+      (err, result) => (err ? reject(err) : resolve(result)),
+    )
+    stream.end(buffer)
+  })
+}
 
 async function requireStaff(req, res) {
   const { userId } = getAuth(req)
@@ -16,6 +46,26 @@ async function requireStaff(req, res) {
     return null
   }
   return dbUserId
+}
+
+// Resolve URL: file upload takes priority over body.url
+async function resolveUrl(req) {
+  if (req.file) {
+    const result = await uploadToCloudinary(req.file.buffer)
+    return result.secure_url
+  }
+  return req.body.url?.trim() ?? null
+}
+
+// Normalise resource_type to 'link' or 'file'
+function normaliseType(raw) {
+  return raw === 'file' ? 'file' : 'link'
+}
+
+// Parse published from JSON boolean or FormData string
+function parseBool(v) {
+  if (typeof v === 'boolean') return v
+  return v === 'true' || v === '1'
 }
 
 // GET /api/community-resources — staff gets all, clients get published only
@@ -40,22 +90,24 @@ router.get('/', requireAuth(), async (req, res) => {
   }
 })
 
-// POST /api/community-resources — staff only
-router.post('/', requireAuth(), async (req, res) => {
+// POST /api/community-resources — staff only; accepts JSON or multipart
+router.post('/', requireAuth(), upload.single('file'), async (req, res) => {
   try {
     if (!await requireStaff(req, res)) return
-    const { title, description, resource_type, url, category, display_order, published } = req.body
-    if (!title?.trim() || !url?.trim()) {
-      return res.status(400).json({ error: 'title and url are required' })
-    }
-    const rtype = VALID_TYPES.has(resource_type) ? resource_type : 'link'
+    const { title, description, resource_type, category, display_order, published } = req.body
+    if (!title?.trim()) return res.status(400).json({ error: 'title is required' })
+
+    const rtype = normaliseType(resource_type)
+    const finalUrl = await resolveUrl(req)
+    if (!finalUrl) return res.status(400).json({ error: 'url or file is required' })
+
     const { rows } = await pool.query(
       `INSERT INTO community_resources
          (title, description, resource_type, url, category, display_order, published)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [title.trim(), description?.trim() ?? null, rtype, url.trim(),
-       category?.trim() ?? null, display_order ?? 0, published ?? false],
+      [title.trim(), description?.trim() ?? null, rtype, finalUrl,
+       category?.trim() ?? null, Number(display_order ?? 0), parseBool(published)],
     )
     res.status(201).json(rows[0])
   } catch (e) {
@@ -64,24 +116,26 @@ router.post('/', requireAuth(), async (req, res) => {
   }
 })
 
-// PUT /api/community-resources/:id — staff only
-router.put('/:id', requireAuth(), async (req, res) => {
+// PUT /api/community-resources/:id — staff only; accepts JSON or multipart
+router.put('/:id', requireAuth(), upload.single('file'), async (req, res) => {
   try {
     if (!await requireStaff(req, res)) return
     const { id } = req.params
-    const { title, description, resource_type, url, category, display_order, published } = req.body
-    if (!title?.trim() || !url?.trim()) {
-      return res.status(400).json({ error: 'title and url are required' })
-    }
-    const rtype = VALID_TYPES.has(resource_type) ? resource_type : 'link'
+    const { title, description, resource_type, category, display_order, published } = req.body
+    if (!title?.trim()) return res.status(400).json({ error: 'title is required' })
+
+    const rtype = normaliseType(resource_type)
+    const finalUrl = await resolveUrl(req)
+    if (!finalUrl) return res.status(400).json({ error: 'url or file is required' })
+
     const { rows } = await pool.query(
       `UPDATE community_resources
        SET title=$1, description=$2, resource_type=$3, url=$4, category=$5,
            display_order=$6, published=$7, updated_at=NOW()
        WHERE id=$8
        RETURNING *`,
-      [title.trim(), description?.trim() ?? null, rtype, url.trim(),
-       category?.trim() ?? null, display_order ?? 0, published ?? false, id],
+      [title.trim(), description?.trim() ?? null, rtype, finalUrl,
+       category?.trim() ?? null, Number(display_order ?? 0), parseBool(published), id],
     )
     if (!rows.length) return res.status(404).json({ error: 'Not found' })
     res.json(rows[0])
