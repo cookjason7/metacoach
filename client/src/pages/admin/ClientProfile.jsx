@@ -1184,143 +1184,226 @@ function HabitsTab({ clientId, getToken }) {
 
 // ─── Progress Tab ─────────────────────────────────────────────────────────────
 
+function MiniChart({ series, valueKey = 'value', series2, valueKey2, color = '#E8670A', color2 = '#10b981' }) {
+  const vals1 = (series ?? []).map(d => Number(d[valueKey]) || 0)
+  const vals2 = series2 ? (series2 ?? []).map(d => Number(d[valueKey2 ?? valueKey]) || 0) : []
+  if (vals1.length < 2) return <p className="text-[11px] text-gray-300 text-center py-6">Not enough data</p>
+  const all = [...vals1, ...vals2].filter(v => v > 0)
+  const mn = all.length ? Math.min(...all) : 0
+  const mx = all.length ? Math.max(...all) : 1
+  const sp = mx - mn || 1
+  const W = 300, H = 72
+  function pts(vals) {
+    return vals.map((v, i) => {
+      const x = (i / Math.max(vals.length - 1, 1)) * W
+      const y = H - 4 - ((v - mn) / sp) * (H - 12)
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    }).join(' ')
+  }
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" preserveAspectRatio="none" style={{ height: 72 }}>
+      <polyline points={pts(vals1)} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      {vals2.length >= 2 && (
+        <polyline points={pts(vals2)} fill="none" stroke={color2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="5 3" />
+      )}
+    </svg>
+  )
+}
+
+function ChartCard({ title, legend, series, valueKey, series2, valueKey2, color2 }) {
+  const hasData = (series ?? []).some(d => Number(d[valueKey]) > 0)
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-4">
+      <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+        <p className="text-xs font-semibold text-gray-700">{title}</p>
+        {legend && <div className="flex items-center gap-3 text-[10px] text-gray-400">{legend}</div>}
+      </div>
+      {hasData
+        ? <MiniChart series={series} valueKey={valueKey} series2={series2} valueKey2={valueKey2} color2={color2} />
+        : <p className="text-[11px] text-gray-300 text-center py-6">No data yet</p>}
+    </div>
+  )
+}
+
+function SummaryCard({ label, value, sub, color }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-3 sm:p-4">
+      <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide truncate">{label}</p>
+      <p className={`text-xl sm:text-2xl font-bold mt-0.5 ${color ?? 'text-gray-900'}`}>{value}</p>
+      {sub && <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>}
+    </div>
+  )
+}
+
 function ProgressTab({ clientId, getToken }) {
-  const [data, setData] = useState(null)
+  const [range,   setRange]   = useState('daily')
+  const [data,    setData]    = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error,   setError]   = useState(false)
 
   useEffect(() => {
+    let cancelled = false
+    setLoading(true); setError(false)
     async function load() {
-      const token = await getToken()
-      const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/progress`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (res.ok) setData(await res.json())
-      setLoading(false)
+      try {
+        const token = await getToken()
+        const res = await fetch(
+          `${API_URL}/api/coach-admin/clients/${clientId}/progress?range=${range}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        )
+        if (!cancelled) {
+          if (res.ok) setData(await res.json()); else setError(true)
+          setLoading(false)
+        }
+      } catch { if (!cancelled) { setError(true); setLoading(false) } }
     }
     load()
-  }, [clientId, getToken])
+    return () => { cancelled = true }
+  }, [clientId, getToken, range])
 
-  if (loading) return <p className="text-sm text-gray-400 text-center py-8">Loading progress…</p>
-  if (!data)   return <p className="text-sm text-red-500 text-center py-8">Failed to load progress.</p>
+  const s      = data?.summary        ?? {}
+  const wt     = data?.weight_series  ?? []
+  const mac    = data?.macro_series   ?? []
+  const stp    = data?.step_series    ?? []
+  const wko    = data?.workout_series ?? []
+  const rows   = data?.table_rows     ?? []
+  const photos = data?.progress_photos ?? []
 
-  const weights = data.weights ?? []
-  const water = data.water ?? []
-  const steps = data.steps ?? []
-  const recentMeals = data.recent_meals ?? []
-  const recentWorkouts = data.recent_workouts ?? []
-  const progressPhotos = data.progress_photos ?? []
-  const hasAnyProgress =
-    weights.length > 0 ||
-    water.length > 0 ||
-    steps.length > 0 ||
-    recentMeals.length > 0 ||
-    recentWorkouts.length > 0 ||
-    progressPhotos.length > 0
-
-  function StatBox({ label, items, valueKey }) {
-    const latest = items[0]
-    return (
-      <div className="bg-white border border-gray-200 rounded-xl p-4">
-        <p className="text-xs text-gray-400 mb-1">{label}</p>
-        <p className="text-2xl font-bold text-gray-900">
-          {latest ? Number(latest[valueKey]).toLocaleString() : '—'}
-        </p>
-        <p className="text-[10px] text-gray-400 mt-0.5">
-          {items.length > 0 ? `${items.length} log${items.length === 1 ? '' : 's'} · 30d` : 'No logs yet'}
-        </p>
-      </div>
-    )
-  }
-
-  function SectionEmpty({ children }) {
-    return (
-      <p className="text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg px-3 py-2">
-        {children}
-      </p>
-    )
-  }
-
-  if (!hasAnyProgress) {
-    return (
-      <div className="space-y-4">
-        <div>
-          <h2 className="text-lg font-bold text-gray-900">Progress</h2>
-        </div>
-        <div className="bg-white border border-gray-200 rounded-xl p-6 sm:p-8 text-center">
-          <p className="text-2xl mb-2">↗</p>
-          <p className="text-sm text-gray-500 max-w-xl mx-auto">
-            Progress tracking will show this client's weight trends, measurements, progress photos, workout history, and wins once they start logging more data.
-          </p>
-        </div>
-      </div>
-    )
-  }
+  const wc = s.weight_change
+  const wtColor = wc == null ? 'text-gray-900' : wc < 0 ? 'text-emerald-600' : wc > 0 ? 'text-red-500' : 'text-gray-900'
+  const hasData = wt.length > 0 || mac.length > 0 || stp.length > 0 || wko.length > 0
 
   return (
-    <div className="space-y-4">
-      <div>
+    <div className="space-y-5">
+      {/* Header + range toggle */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-lg font-bold text-gray-900">Progress</h2>
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <StatBox label="Latest weight (lbs)" items={weights} valueKey="weight_lbs" />
-        <StatBox label="Latest water (oz)"   items={water}   valueKey="water_oz" />
-        <StatBox label="Latest steps"        items={steps}   valueKey="steps" />
-      </div>
-
-      <div className="grid sm:grid-cols-2 gap-3">
-        <div className="bg-white border border-gray-200 rounded-xl p-4">
-          <p className="text-sm font-semibold text-gray-900 mb-2">Measurements</p>
-          <SectionEmpty>Not logged yet.</SectionEmpty>
-        </div>
-        <div className="bg-white border border-gray-200 rounded-xl p-4">
-          <p className="text-sm font-semibold text-gray-900 mb-2">Recent wins</p>
-          <SectionEmpty>Not logged yet.</SectionEmpty>
-        </div>
-      </div>
-
-      <div className="bg-white border border-gray-200 rounded-xl p-4">
-        <p className="text-sm font-semibold text-gray-900 mb-3">Recent meals</p>
-        {recentMeals.length === 0 && <SectionEmpty>Not logged yet.</SectionEmpty>}
-        <div className="space-y-1.5">
-          {recentMeals.map((m, i) => (
-            <div key={i} className="flex justify-between text-sm">
-              <span className="text-gray-800 truncate">{m.meal_name}</span>
-              <span className="text-gray-500 text-xs shrink-0 ml-2">
-                {m.calories} cal · {fmtDate(m.logged_at)}
-              </span>
-            </div>
+        <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-semibold">
+          {['daily','weekly','monthly'].map(r => (
+            <button key={r} onClick={() => setRange(r)}
+              className={`px-3 py-1.5 capitalize transition-colors ${range === r ? 'bg-[#E8670A] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+              {r.charAt(0).toUpperCase() + r.slice(1)}
+            </button>
           ))}
         </div>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-xl p-4">
-        <p className="text-sm font-semibold text-gray-900 mb-3">Recent workouts</p>
-        {recentWorkouts.length === 0 && <SectionEmpty>Not logged yet.</SectionEmpty>}
-        <div className="space-y-1.5">
-          {recentWorkouts.map((w, i) => (
-            <div key={i} className="flex justify-between text-sm">
-              <span className="text-gray-800 truncate">{w.workout_name ?? 'Workout'}</span>
-              <span className="text-gray-500 text-xs shrink-0 ml-2">{fmtDate(w.completed_at)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+      {loading && <p className="text-sm text-gray-400 text-center py-10">Loading…</p>}
+      {error   && <p className="text-sm text-red-500 text-center py-10">Failed to load progress data.</p>}
 
-      <div className="bg-white border border-gray-200 rounded-xl p-4">
-        <p className="text-sm font-semibold text-gray-900 mb-3">Progress photos</p>
-        {progressPhotos.length === 0 ? (
-          <SectionEmpty>Not logged yet.</SectionEmpty>
-        ) : (
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-            {progressPhotos.map((p, i) => (
-              <div key={i} className="aspect-[3/4] rounded-lg overflow-hidden bg-gray-100">
-                <img src={p.photo_url} alt={p.angle} className="w-full h-full object-cover" />
-              </div>
-            ))}
+      {!loading && !error && (
+        <>
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
+            <SummaryCard
+              label="Weight change"
+              value={wc != null ? `${wc > 0 ? '+' : ''}${wc} lbs` : '—'}
+              sub="last 30 days"
+              color={wtColor}
+            />
+            <SummaryCard
+              label="Avg calories"
+              value={s.avg_calories ? `${Number(s.avg_calories).toLocaleString()} kcal` : '—'}
+              sub={`${s.logged_day_count ?? 0} logged day${s.logged_day_count !== 1 ? 's' : ''}`}
+            />
+            <SummaryCard
+              label="Avg protein"
+              value={s.avg_protein ? `${s.avg_protein}g` : '—'}
+              sub="per logged day"
+            />
+            <SummaryCard
+              label="Avg steps"
+              value={s.avg_steps ? Number(s.avg_steps).toLocaleString() : '—'}
+              sub="per day with data"
+            />
+            <SummaryCard
+              label="Workouts"
+              value={s.workouts_completed ?? '—'}
+              sub="last 30 days"
+            />
           </div>
-        )}
-      </div>
+
+          {/* Charts */}
+          {hasData ? (
+            <div className="grid sm:grid-cols-2 gap-4">
+              <ChartCard title="Weight (lbs)" series={wt} valueKey="value" />
+              <ChartCard
+                title="Calories & Protein"
+                legend={<><span style={{ color: '#E8670A' }}>— Cal</span><span style={{ color: '#10b981' }}>- - Prot</span></>}
+                series={mac} valueKey="calories"
+                series2={mac} valueKey2="protein" color2="#10b981"
+              />
+              <ChartCard title="Daily Steps" series={stp} valueKey="value" />
+              <ChartCard title="Workouts per Period" series={wko} valueKey="count" />
+            </div>
+          ) : (
+            <div className="bg-white border border-gray-200 rounded-xl p-8 text-center">
+              <p className="text-2xl mb-2">↗</p>
+              <p className="text-sm text-gray-500">No logged data in this period yet.</p>
+            </div>
+          )}
+
+          {/* Averages table */}
+          {rows.length > 0 && (
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+              <p className="text-sm font-semibold text-gray-900 px-4 py-3 border-b border-gray-100">Averages &amp; Trends</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs min-w-[540px]">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500 text-[10px] uppercase tracking-wide">
+                      <th className="px-3 py-2 text-left font-semibold">Period</th>
+                      <th className="px-3 py-2 text-right font-semibold">Calories</th>
+                      <th className="px-3 py-2 text-right font-semibold">Protein</th>
+                      <th className="px-3 py-2 text-right font-semibold">Weight</th>
+                      <th className="px-3 py-2 text-right font-semibold">Steps</th>
+                      <th className="px-3 py-2 text-right font-semibold">Workouts</th>
+                      <th className="px-3 py-2 text-right font-semibold">Sleep</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {rows.map((r, i) => (
+                      <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}>
+                        <td className="px-3 py-2 text-gray-700 font-medium whitespace-nowrap">{r.period}</td>
+                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.calories ? `${Number(r.calories).toLocaleString()} cal` : '—'}</td>
+                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.protein  ? `${r.protein}g`                          : '—'}</td>
+                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.weight   ? `${r.weight} lbs`                         : '—'}</td>
+                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.steps    ? Number(r.steps).toLocaleString()           : '—'}</td>
+                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.workouts != null ? r.workouts                         : '—'}</td>
+                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.sleep_quality != null ? `${r.sleep_quality}/5`        : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Measurements placeholder */}
+          <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <p className="text-sm font-semibold text-gray-900 mb-2">Measurements</p>
+            <p className="text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg px-3 py-2">
+              Measurements tracking coming soon.
+            </p>
+          </div>
+
+          {/* Progress photos */}
+          <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <p className="text-sm font-semibold text-gray-900 mb-3">Progress Photos</p>
+            {photos.length === 0 ? (
+              <p className="text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg px-3 py-2">No progress photos yet.</p>
+            ) : (
+              <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">
+                {photos.map((p, i) => (
+                  <a key={i} href={p.photo_url} target="_blank" rel="noopener noreferrer"
+                    className="aspect-[3/4] rounded-lg overflow-hidden bg-gray-100 block hover:opacity-90 transition-opacity">
+                    <img src={p.photo_url} alt={p.angle ?? 'Progress photo'} className="w-full h-full object-cover" />
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   )
 }
