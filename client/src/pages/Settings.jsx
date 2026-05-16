@@ -146,7 +146,7 @@ function ProgressPhotoPanel({ angle, photos, getToken, onUploaded }) {
         ref={inputRef}
         type="file"
         accept="image/*"
-        capture="environment"
+
         className="hidden"
         onChange={e => handleFile(e.target.files[0])}
       />
