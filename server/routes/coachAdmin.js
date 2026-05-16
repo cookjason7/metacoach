@@ -627,6 +627,42 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// ─── Client Measurements ──────────────────────────────────────────────────────
+
+// GET /api/coach-admin/clients/:id/measurements
+router.get('/clients/:id/measurements', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+    const { rows } = await pool.query(
+      `SELECT id, user_id, measurement_date, chest, waist, hips, created_at
+       FROM client_measurements WHERE user_id = $1
+       ORDER BY measurement_date DESC, created_at DESC`,
+      [id],
+    )
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
+// POST /api/coach-admin/clients/:id/measurements
+router.post('/clients/:id/measurements', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+    const { measurement_date, chest, waist, hips } = req.body
+    const date = measurement_date || new Date().toISOString().slice(0, 10)
+    const { rows } = await pool.query(
+      `INSERT INTO client_measurements (user_id, measurement_date, chest, waist, hips)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, user_id, measurement_date, chest, waist, hips, created_at`,
+      [id, date, chest ?? null, waist ?? null, hips ?? null],
+    )
+    res.json(rows[0])
+  } catch (err) { next(err) }
+})
+
 // ─── Nutrition data for coaches ───────────────────────────────────────────────
 
 // GET /api/coach-admin/clients/:id/nutrition?date=YYYY-MM-DD

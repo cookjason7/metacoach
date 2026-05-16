@@ -889,6 +889,21 @@ export async function migrate() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_invites_token ON client_invites (token)`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT`)
 
+  // ── Client Measurements ───────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS client_measurements (
+      id               SERIAL PRIMARY KEY,
+      user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      measurement_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      chest            NUMERIC(5,1),
+      waist            NUMERIC(5,1),
+      hips             NUMERIC(5,1),
+      created_at       TIMESTAMPTZ DEFAULT NOW(),
+      updated_at       TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_measurements_user ON client_measurements (user_id, measurement_date DESC)`)
+
   // ── Remove old onboarding gate — mark all users as onboarding_complete ──────
   // The multi-step onboarding form (name/gender/age/height/weight) is removed.
   // New post-signup flow is: Health Assessment → Identity Traits → Enter app.

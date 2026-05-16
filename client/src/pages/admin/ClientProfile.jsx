@@ -1202,6 +1202,176 @@ function HabitsTab({ clientId, getToken }) {
 
 // ─── Progress Tab ─────────────────────────────────────────────────────────────
 
+const MFIELDS = [
+  { key: 'chest', label: 'Chest/Bust', sub: 'nipple line' },
+  { key: 'waist', label: 'Waist',      sub: 'belly button' },
+  { key: 'hips',  label: 'Hips',       sub: 'widest point' },
+]
+
+function MeasurementsSection({ clientId, getToken }) {
+  const [measurements, setMeasurements] = useState([])
+  const [mLoading,     setMLoading]     = useState(true)
+  const [showForm,     setShowForm]     = useState(false)
+  const [mForm,        setMForm]        = useState({
+    measurement_date: new Date().toISOString().slice(0, 10),
+    chest: '', waist: '', hips: '',
+  })
+  const [mSaving, setMSaving] = useState(false)
+  const [mError,  setMError]  = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/measurements`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.ok && !cancelled) setMeasurements(await res.json())
+      } finally { if (!cancelled) setMLoading(false) }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [clientId, getToken])
+
+  async function addMeasurement(e) {
+    e.preventDefault()
+    setMSaving(true); setMError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/measurements`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          measurement_date: mForm.measurement_date,
+          chest: mForm.chest !== '' ? Number(mForm.chest) : null,
+          waist: mForm.waist !== '' ? Number(mForm.waist) : null,
+          hips:  mForm.hips  !== '' ? Number(mForm.hips)  : null,
+        }),
+      })
+      if (res.ok) {
+        const m = await res.json()
+        setMeasurements(prev => [m, ...prev])
+        setMForm({ measurement_date: new Date().toISOString().slice(0, 10), chest: '', waist: '', hips: '' })
+        setShowForm(false)
+      } else {
+        setMError('Failed to save. Please try again.')
+      }
+    } catch { setMError('Failed to save. Please try again.') }
+    finally  { setMSaving(false) }
+  }
+
+  const latest = measurements[0] ?? null
+  const first  = measurements.length > 1 ? measurements[measurements.length - 1] : null
+
+  function delta(key) {
+    if (!latest || !first) return null
+    const l = Number(latest[key]), f = Number(first[key])
+    if (!l || !f) return null
+    const d = +(l - f).toFixed(1)
+    return { d, from: f.toFixed(1), to: l.toFixed(1) }
+  }
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-sm font-semibold text-gray-900">Measurements</p>
+        <button onClick={() => setShowForm(s => !s)}
+          className="text-xs text-[#E8670A] hover:text-[#c45e09] font-medium">
+          {showForm ? 'Cancel' : '+ Add'}
+        </button>
+      </div>
+
+      {showForm && (
+        <form onSubmit={addMeasurement} className="bg-gray-50 rounded-xl border border-gray-200 p-4 mb-4 space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
+            <input type="date" value={mForm.measurement_date}
+              onChange={e => setMForm(f => ({ ...f, measurement_date: e.target.value }))}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-full max-w-[180px]" />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {MFIELDS.map(({ key, label, sub }) => (
+              <div key={key}>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  {label} <span className="font-normal text-gray-400 hidden sm:inline">({sub})</span>
+                </label>
+                <div className="relative">
+                  <input type="number" step="0.1" min="0" value={mForm[key]}
+                    onChange={e => setMForm(f => ({ ...f, [key]: e.target.value }))}
+                    placeholder="0.0"
+                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-full pr-7" />
+                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">in</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          {mError && <p className="text-xs text-red-500">{mError}</p>}
+          <button type="submit" disabled={mSaving}
+            className="bg-[#E8670A] text-white px-5 py-2 rounded-lg text-xs font-semibold hover:bg-[#c45e09] disabled:opacity-60">
+            {mSaving ? 'Saving…' : 'Save Measurement'}
+          </button>
+        </form>
+      )}
+
+      {mLoading && <p className="text-xs text-gray-400 py-4 text-center">Loading…</p>}
+
+      {!mLoading && measurements.length === 0 && (
+        <p className="text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg px-3 py-2">
+          No measurements recorded yet.
+        </p>
+      )}
+
+      {!mLoading && measurements.length > 0 && (
+        <>
+          {/* Latest + trend summary */}
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
+            {MFIELDS.map(({ key, label }) => {
+              const val = latest?.[key] ? `${Number(latest[key]).toFixed(1)}"` : '—'
+              const d = delta(key)
+              return (
+                <div key={key} className="bg-gray-50 rounded-lg p-2.5 sm:p-3">
+                  <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide mb-0.5 truncate">{label}</p>
+                  <p className="text-base font-bold text-gray-900">{val}</p>
+                  {d && (
+                    <p className={`text-[10px] font-medium mt-0.5 ${d.d < 0 ? 'text-emerald-600' : d.d > 0 ? 'text-red-500' : 'text-gray-400'}`}>
+                      {d.from}" → {d.to}" ({d.d > 0 ? '+' : ''}{d.d}")
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* History table */}
+          <div className="overflow-x-auto -mx-4 px-4">
+            <table className="w-full text-xs min-w-[280px]">
+              <thead>
+                <tr className="bg-gray-50 text-gray-500 text-[10px] uppercase tracking-wide">
+                  <th className="px-3 py-2 text-left font-semibold">Date</th>
+                  <th className="px-3 py-2 text-right font-semibold">Chest</th>
+                  <th className="px-3 py-2 text-right font-semibold">Waist</th>
+                  <th className="px-3 py-2 text-right font-semibold">Hips</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {measurements.map((m, i) => (
+                  <tr key={m.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}>
+                    <td className="px-3 py-2 text-gray-700 font-medium whitespace-nowrap">{String(m.measurement_date).slice(0, 10)}</td>
+                    <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.chest ? `${Number(m.chest).toFixed(1)}"` : '—'}</td>
+                    <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.waist ? `${Number(m.waist).toFixed(1)}"` : '—'}</td>
+                    <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.hips  ? `${Number(m.hips).toFixed(1)}"` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function MiniChart({ series, valueKey = 'value', series2, valueKey2, color = '#E8670A', color2 = '#10b981' }) {
   const vals1 = (series ?? []).map(d => Number(d[valueKey]) || 0)
   const vals2 = series2 ? (series2 ?? []).map(d => Number(d[valueKey2 ?? valueKey]) || 0) : []
@@ -1396,13 +1566,8 @@ function ProgressTab({ clientId, getToken }) {
             </div>
           )}
 
-          {/* Measurements placeholder */}
-          <div className="bg-white border border-gray-200 rounded-xl p-4">
-            <p className="text-sm font-semibold text-gray-900 mb-2">Measurements</p>
-            <p className="text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg px-3 py-2">
-              Measurements tracking coming soon.
-            </p>
-          </div>
+          {/* Measurements */}
+          <MeasurementsSection clientId={clientId} getToken={getToken} />
 
           {/* Progress photos */}
           <div className="bg-white border border-gray-200 rounded-xl p-4">
