@@ -49,6 +49,8 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
     client.start_date ? String(client.start_date).slice(0, 10) :
     client.effective_start_date ? String(client.effective_start_date).slice(0, 10) : ''
   const [form, setForm] = useState({
+    first_name:        client.first_name ?? '',
+    last_name:         client.last_name  ?? '',
     coaching_type:     client.coaching_type ?? 'vip',
     assigned_coach_id: client.assigned_coach_id ?? '',
     role:              client.role ?? 'client',
@@ -75,6 +77,8 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        first_name:        form.first_name.trim()  || null,
+        last_name:         form.last_name.trim()   || null,
         coaching_type:     form.coaching_type,
         assigned_coach_id: form.assigned_coach_id === '' ? null : Number(form.assigned_coach_id),
         role:              form.role,
@@ -191,6 +195,20 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
           })()
         ) : (
           <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">First name</label>
+                <input type="text" value={form.first_name} onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))}
+                  placeholder="First name"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Last name</label>
+                <input type="text" value={form.last_name} onChange={e => setForm(f => ({ ...f, last_name: e.target.value }))}
+                  placeholder="Last name"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </div>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Coaching type</label>
@@ -2323,7 +2341,7 @@ export default function ClientProfile() {
       {/* Header */}
       <div className="mb-5">
         <h1 className="text-2xl font-bold text-gray-900">
-          {[client.display_first_name || client.first_name, client.display_last_name].filter(Boolean).join(' ') || client.email?.split('@')[0] || 'Client'}
+          {[client.display_first_name || client.first_name, client.display_last_name || client.last_name].filter(Boolean).join(' ') || client.email?.split('@')[0] || 'Client'}
         </h1>
         <p className="text-sm text-gray-500">{client.email}</p>
       </div>

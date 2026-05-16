@@ -324,7 +324,7 @@ router.patch('/clients/:id', requireAuth(), async (req, res, next) => {
     const id = parseInt(req.params.id, 10)
 
     const allowed = ['coaching_type', 'assigned_coach_id', 'role', 'start_date',
-                     'phone_number', 'paid', 'first_name']
+                     'phone_number', 'paid', 'first_name', 'last_name']
     const setClauses = []
     const params = []
     for (const key of allowed) {
