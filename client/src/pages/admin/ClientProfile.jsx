@@ -1354,12 +1354,12 @@ function fmtDateTime(iso) {
   })
 }
 
-function ViewedBadge({ sub }) {
+function ReviewedBadge({ sub }) {
   if (sub.reviewed_at) {
     return (
       <span className="inline-flex flex-col gap-0.5">
-        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold text-emerald-700 uppercase tracking-wide">
-          Viewed
+        <span className="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold text-emerald-700 uppercase tracking-wide">
+          Reviewed
         </span>
         {sub.reviewed_by_name && (
           <span className="text-[10px] text-gray-400">
@@ -1370,17 +1370,19 @@ function ViewedBadge({ sub }) {
     )
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-700 uppercase tracking-wide">
-      Not Viewed
+    <span className="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-700 uppercase tracking-wide">
+      Not Reviewed
     </span>
   )
 }
 
 function FormSubmissionsSection({ clientId, getToken }) {
   const [submissions, setSubmissions] = useState(undefined)
-  const [loading, setLoading]         = useState(true)
-  const [openId, setOpenId]           = useState(null)
-  const [marking, setMarking]         = useState(null)   // submissionId being marked
+  const [loading,     setLoading]     = useState(true)
+  const [openId,      setOpenId]      = useState(null)
+  const [reviewing,   setReviewing]   = useState(null)   // subId in-flight
+  const [savingNote,  setSavingNote]  = useState(null)   // subId in-flight
+  const [noteDrafts,  setNoteDrafts]  = useState({})     // { [subId]: string }
 
   useEffect(() => {
     let cancelled = false
@@ -1398,32 +1400,119 @@ function FormSubmissionsSection({ clientId, getToken }) {
     return () => { cancelled = true }
   }, [clientId, getToken])
 
-  async function handleView(sub) {
-    const isOpen = openId === sub.id
-    // Toggle closed
-    if (isOpen) { setOpenId(null); return }
-
+  function handleView(sub) {
+    if (openId === sub.id) { setOpenId(null); return }
     setOpenId(sub.id)
-
-    // Mark viewed if not already
-    if (!sub.reviewed_at && marking !== sub.id) {
-      setMarking(sub.id)
-      try {
-        const token = await getToken()
-        const res = await fetch(
-          `${API_URL}/api/coach-admin/form-submissions/${sub.id}/mark-viewed`,
-          { method: 'PATCH', headers: { Authorization: `Bearer ${token}` } },
-        )
-        if (res.ok) {
-          const data = await res.json()
-          const viewedAt = data.reviewed_at ?? new Date().toISOString()
-          setSubmissions(prev => prev.map(s =>
-            s.id === sub.id ? { ...s, reviewed_at: viewedAt } : s
-          ))
-        }
-      } catch {}
-      finally { setMarking(null) }
+    // Seed draft note from saved value if not already editing
+    if (noteDrafts[sub.id] === undefined) {
+      setNoteDrafts(prev => ({ ...prev, [sub.id]: sub.coach_note ?? '' }))
     }
+  }
+
+  async function handleMarkReviewed(sub) {
+    if (reviewing === sub.id) return
+    setReviewing(sub.id)
+    try {
+      const token = await getToken()
+      const res = await fetch(
+        `${API_URL}/api/coach-admin/form-submissions/${sub.id}/mark-reviewed`,
+        { method: 'PATCH', headers: { Authorization: `Bearer ${token}` } },
+      )
+      if (res.ok) {
+        const data = await res.json()
+        setSubmissions(prev => prev.map(s =>
+          s.id === sub.id
+            ? { ...s, reviewed_at: data.reviewed_at, reviewed_by: data.reviewed_by, reviewed_by_name: data.reviewed_by_name }
+            : s
+        ))
+      }
+    } catch {}
+    finally { setReviewing(null) }
+  }
+
+  async function handleSaveNote(sub) {
+    if (savingNote === sub.id) return
+    const note = noteDrafts[sub.id] ?? ''
+    setSavingNote(sub.id)
+    try {
+      const token = await getToken()
+      const res = await fetch(
+        `${API_URL}/api/coach-admin/form-submissions/${sub.id}/note`,
+        {
+          method:  'PATCH',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ note }),
+        },
+      )
+      if (res.ok) {
+        setSubmissions(prev => prev.map(s =>
+          s.id === sub.id ? { ...s, coach_note: note.trim() || null } : s
+        ))
+      }
+    } catch {}
+    finally { setSavingNote(null) }
+  }
+
+  function ExpandedPanel({ sub }) {
+    const schema = Array.isArray(sub.version_schema) ? sub.version_schema : []
+    const draft  = noteDrafts[sub.id] ?? sub.coach_note ?? ''
+    const isDirty = draft !== (sub.coach_note ?? '')
+
+    return (
+      <div className="space-y-4">
+        {/* Answers */}
+        {schema.length === 0 ? (
+          <p className="text-xs text-gray-400">No schema available.</p>
+        ) : (
+          <div className="space-y-3">
+            {schema.map(field => (
+              <div key={field.id}>
+                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-0.5">{field.label}</p>
+                <p className="text-sm text-gray-800">{renderAnswer(field, sub.answers?.[field.id])}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Note */}
+        <div className="pt-3 border-t border-gray-200">
+          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-1">Staff Note</p>
+          <textarea
+            rows={2}
+            value={draft}
+            onChange={e => setNoteDrafts(prev => ({ ...prev, [sub.id]: e.target.value }))}
+            placeholder="Add a note about this submission…"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+          />
+          {isDirty && (
+            <button
+              onClick={() => handleSaveNote(sub)}
+              disabled={savingNote === sub.id}
+              className="mt-1.5 text-xs bg-[#E8670A] text-white font-bold px-3 py-1.5 rounded-lg hover:bg-[#c45e09] disabled:opacity-50"
+            >
+              {savingNote === sub.id ? 'Saving…' : 'Save Note'}
+            </button>
+          )}
+        </div>
+
+        {/* Review action */}
+        <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+          {sub.reviewed_at ? (
+            <p className="text-xs text-emerald-700 font-semibold">
+              Reviewed{sub.reviewed_by_name ? ` by ${sub.reviewed_by_name}` : ''} · {new Date(sub.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </p>
+          ) : (
+            <button
+              onClick={() => handleMarkReviewed(sub)}
+              disabled={reviewing === sub.id}
+              className="text-xs bg-emerald-600 text-white font-bold px-3 py-1.5 rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {reviewing === sub.id ? 'Marking…' : 'Mark Reviewed'}
+            </button>
+          )}
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -1444,7 +1533,7 @@ function FormSubmissionsSection({ clientId, getToken }) {
                 <tr>
                   <th className="text-left px-4 py-2.5 font-semibold">Form</th>
                   <th className="text-left px-4 py-2.5 font-semibold">Submitted</th>
-                  <th className="text-left px-4 py-2.5 font-semibold">Viewed</th>
+                  <th className="text-left px-4 py-2.5 font-semibold">Reviewed</th>
                   <th className="text-left px-4 py-2.5 font-semibold">Notes</th>
                   <th className="text-right px-4 py-2.5 font-semibold">Action</th>
                 </tr>
@@ -1452,7 +1541,6 @@ function FormSubmissionsSection({ clientId, getToken }) {
               <tbody>
                 {submissions.map(sub => {
                   const isOpen = openId === sub.id
-                  const schema = Array.isArray(sub.version_schema) ? sub.version_schema : []
                   return (
                     <>
                       <tr key={sub.id} className="border-t border-gray-100 hover:bg-gray-50/60 transition-colors">
@@ -1461,8 +1549,10 @@ function FormSubmissionsSection({ clientId, getToken }) {
                           {sub.version_num && <p className="text-[10px] text-gray-400 mt-0.5">v{sub.version_num}</p>}
                         </td>
                         <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">{fmtDateTime(sub.submitted_at)}</td>
-                        <td className="px-4 py-3"><ViewedBadge sub={sub} /></td>
-                        <td className="px-4 py-3 text-xs text-gray-400">—</td>
+                        <td className="px-4 py-3"><ReviewedBadge sub={sub} /></td>
+                        <td className="px-4 py-3 text-xs text-gray-500 max-w-[140px]">
+                          <span className="truncate block">{sub.coach_note || '—'}</span>
+                        </td>
                         <td className="px-4 py-3 text-right">
                           <button
                             onClick={() => handleView(sub)}
@@ -1475,18 +1565,7 @@ function FormSubmissionsSection({ clientId, getToken }) {
                       {isOpen && (
                         <tr key={sub.id + '_detail'}>
                           <td colSpan={5} className="px-4 pb-4 pt-2 bg-gray-50/60">
-                            <div className="space-y-3">
-                              {schema.length === 0 ? (
-                                <p className="text-xs text-gray-400">No schema available.</p>
-                              ) : (
-                                schema.map(field => (
-                                  <div key={field.id}>
-                                    <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-0.5">{field.label}</p>
-                                    <p className="text-sm text-gray-800">{renderAnswer(field, sub.answers?.[field.id])}</p>
-                                  </div>
-                                ))
-                              )}
-                            </div>
+                            <ExpandedPanel sub={sub} />
                           </td>
                         </tr>
                       )}
@@ -1501,7 +1580,6 @@ function FormSubmissionsSection({ clientId, getToken }) {
           <div className="md:hidden space-y-3">
             {submissions.map(sub => {
               const isOpen = openId === sub.id
-              const schema = Array.isArray(sub.version_schema) ? sub.version_schema : []
               return (
                 <div key={sub.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
                   <div className="px-4 py-3">
@@ -1510,30 +1588,23 @@ function FormSubmissionsSection({ clientId, getToken }) {
                         <p className="text-sm font-semibold text-gray-900 truncate">{sub.form_title}</p>
                         <p className="text-xs text-gray-400 mt-0.5">{fmtDateTime(sub.submitted_at)}</p>
                       </div>
-                      <ViewedBadge sub={sub} />
+                      <ReviewedBadge sub={sub} />
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-400">Notes: —</span>
+                      <span className="text-xs text-gray-500 truncate max-w-[60%]">
+                        {sub.coach_note ? `Note: ${sub.coach_note}` : 'Notes: —'}
+                      </span>
                       <button
                         onClick={() => handleView(sub)}
-                        className="text-xs text-[#E8670A] hover:text-[#c45e09] font-semibold"
+                        className="text-xs text-[#E8670A] hover:text-[#c45e09] font-semibold ml-2"
                       >
                         {isOpen ? 'Close' : 'View'}
                       </button>
                     </div>
                   </div>
                   {isOpen && (
-                    <div className="border-t border-gray-100 px-4 py-3 bg-gray-50/50 space-y-3">
-                      {schema.length === 0 ? (
-                        <p className="text-xs text-gray-400">No schema available.</p>
-                      ) : (
-                        schema.map(field => (
-                          <div key={field.id}>
-                            <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-0.5">{field.label}</p>
-                            <p className="text-sm text-gray-800">{renderAnswer(field, sub.answers?.[field.id])}</p>
-                          </div>
-                        ))
-                      )}
+                    <div className="border-t border-gray-100 px-4 py-3 bg-gray-50/50">
+                      <ExpandedPanel sub={sub} />
                     </div>
                   )}
                 </div>

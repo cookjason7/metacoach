@@ -1102,7 +1102,7 @@ router.get('/clients/:id/form-submissions', requireAuth(), async (req, res, next
       SELECT
         fs.id, fs.template_id, fs.version_id, fs.user_id,
         fs.answers, fs.submitted_at, fs.updated_at,
-        fs.reviewed_at, fs.reviewed_by,
+        fs.reviewed_at, fs.reviewed_by, fs.coach_note,
         ft.title  AS form_title,
         ft.status AS form_status,
         fv.version_num,
@@ -1131,7 +1131,7 @@ router.get('/form-submissions/:submissionId', requireAuth(), async (req, res, ne
       SELECT
         fs.id, fs.template_id, fs.version_id, fs.user_id,
         fs.answers, fs.submitted_at, fs.updated_at,
-        fs.reviewed_at, fs.reviewed_by,
+        fs.reviewed_at, fs.reviewed_by, fs.coach_note,
         ft.title  AS form_title,
         ft.status AS form_status,
         fv.version_num,
@@ -1151,10 +1151,10 @@ router.get('/form-submissions/:submissionId', requireAuth(), async (req, res, ne
   } catch (err) { next(err) }
 })
 
-// PATCH /api/coach-admin/form-submissions/:submissionId/mark-viewed
-// Stamps reviewed_at/reviewed_by (displayed as "Viewed") if not already set.
-// Client viewing their own submission never calls this endpoint.
-router.patch('/form-submissions/:submissionId/mark-viewed', requireAuth(), async (req, res, next) => {
+// PATCH /api/coach-admin/form-submissions/:submissionId/mark-reviewed
+// Stamps reviewed_at/reviewed_by on explicit staff action (not on open).
+// Idempotent: never overwrites an existing reviewed_at.
+router.patch('/form-submissions/:submissionId/mark-reviewed', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireStaff(req, res); if (!ctx) return
     const subId = parseInt(req.params.submissionId, 10)
@@ -1166,15 +1166,47 @@ router.patch('/form-submissions/:submissionId/mark-viewed', requireAuth(), async
     if (!sub) return res.status(404).json({ error: 'Submission not found' })
     if (!await canAccessClient(ctx, sub.user_id)) return res.status(403).json({ error: 'Forbidden' })
 
-    // Idempotent: don't overwrite existing viewed timestamp
-    if (sub.reviewed_at) return res.json({ already_viewed: true, reviewed_at: sub.reviewed_at })
+    if (sub.reviewed_at) return res.json({ already_reviewed: true, reviewed_at: sub.reviewed_at })
 
     const { rows: [updated] } = await pool.query(
       `UPDATE form_submissions SET reviewed_at = NOW(), reviewed_by = $1
        WHERE id = $2 RETURNING reviewed_at, reviewed_by`,
       [ctx.dbUserId, subId],
     )
-    res.json({ ok: true, reviewed_at: updated.reviewed_at, reviewed_by: updated.reviewed_by })
+    // Return reviewer name so the UI can display it without a page reload
+    const { rows: [reviewer] } = await pool.query(
+      'SELECT first_name FROM users WHERE id = $1',
+      [ctx.dbUserId],
+    )
+    res.json({
+      ok:               true,
+      reviewed_at:      updated.reviewed_at,
+      reviewed_by:      updated.reviewed_by,
+      reviewed_by_name: reviewer?.first_name ?? null,
+    })
+  } catch (err) { next(err) }
+})
+
+// PATCH /api/coach-admin/form-submissions/:submissionId/note
+// Saves or replaces the staff coach note for a submission.
+router.patch('/form-submissions/:submissionId/note', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const subId = parseInt(req.params.submissionId, 10)
+    const { note } = req.body
+
+    const { rows: [sub] } = await pool.query(
+      'SELECT id, user_id FROM form_submissions WHERE id = $1',
+      [subId],
+    )
+    if (!sub) return res.status(404).json({ error: 'Submission not found' })
+    if (!await canAccessClient(ctx, sub.user_id)) return res.status(403).json({ error: 'Forbidden' })
+
+    await pool.query(
+      'UPDATE form_submissions SET coach_note = $1 WHERE id = $2',
+      [note?.trim() ?? null, subId],
+    )
+    res.json({ ok: true, coach_note: note?.trim() ?? null })
   } catch (err) { next(err) }
 })
 
