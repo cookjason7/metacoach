@@ -55,22 +55,30 @@ function SingleChoiceField({ field, value, onChange, disabled }) {
   const options = field.options ?? []
   return (
     <div className="space-y-2">
-      {options.map(opt => (
-        <button
-          key={opt}
-          type="button"
-          onClick={() => !disabled && onChange(opt)}
-          className={`w-full text-left px-4 py-3 rounded-xl text-sm font-medium border-2 transition-all ${
-            disabled ? 'cursor-default opacity-70' : ''
-          } ${
-            value === opt
-              ? 'bg-[#E8670A] border-[#E8670A] text-white'
-              : 'bg-white border-gray-200 text-gray-700 hover:border-[#E8670A]/50'
-          }`}
-        >
-          {opt}
-        </button>
-      ))}
+      {options.map(opt => {
+        const selected = value === opt
+        return (
+          <button
+            key={opt}
+            type="button"
+            onClick={() => !disabled && onChange(opt)}
+            className={`w-full text-left flex items-center gap-3 px-4 rounded-xl text-sm font-medium border-2 transition-all min-h-[44px] ${
+              disabled ? 'cursor-default opacity-70' : ''
+            } ${
+              selected
+                ? 'bg-[#E8670A] border-[#E8670A] text-white'
+                : 'bg-white border-gray-200 text-gray-700 hover:border-[#E8670A]/50'
+            }`}
+          >
+            <span className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+              selected ? 'border-white' : 'border-gray-300'
+            }`}>
+              {selected && <span className="w-2 h-2 rounded-full bg-white block" />}
+            </span>
+            {opt}
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -94,7 +102,7 @@ function MultiChoiceField({ field, value, onChange, disabled }) {
             key={opt}
             type="button"
             onClick={() => toggle(opt)}
-            className={`w-full text-left px-4 py-3 rounded-xl text-sm font-medium border-2 transition-all ${
+            className={`w-full text-left flex items-center gap-3 px-4 rounded-xl text-sm font-medium border-2 transition-all min-h-[44px] ${
               disabled ? 'cursor-default opacity-70' : ''
             } ${
               active
@@ -102,11 +110,11 @@ function MultiChoiceField({ field, value, onChange, disabled }) {
                 : 'bg-white border-gray-200 text-gray-700 hover:border-[#E8670A]/50'
             }`}
           >
-            <span className={`inline-flex items-center justify-center w-5 h-5 rounded border-2 mr-2 flex-shrink-0 align-middle ${
+            <span className={`flex-shrink-0 w-4 h-4 rounded border-2 flex items-center justify-center ${
               active ? 'bg-white/30 border-white' : 'border-gray-300'
             }`}>
               {active && (
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               )}
@@ -240,6 +248,7 @@ export default function FormFill() {
 
     const errors = {}
     for (const field of schema) {
+      if (field.type === 'text_block') continue
       if (!field.required) continue
       const val = answers[field.id]
       const empty = val === undefined || val === null || val === '' ||
@@ -369,36 +378,49 @@ export default function FormFill() {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6" noValidate>
-        {schema.map((field, idx) => (
-          <div
-            key={field.id}
-            id={`field-${field.id}`}
-            className={`bg-white rounded-2xl border p-5 transition-colors ${
-              fieldErrors[field.id] ? 'border-red-300 bg-red-50/30' : 'border-gray-200'
-            }`}
-          >
-            <label className="block mb-3">
-              <span className="text-sm font-bold text-gray-900">
-                {idx + 1}. {field.label}
-                {field.required && !isPreview && <span className="text-red-500 ml-1">*</span>}
-              </span>
-              {field.description && (
-                <span className="block text-xs text-gray-500 mt-0.5">{field.description}</span>
-              )}
-            </label>
+        {(() => {
+          let qNum = 0
+          return schema.map(field => {
+            if (field.type === 'text_block') {
+              return (
+                <div key={field.id} className="rounded-2xl border border-blue-100 bg-blue-50/60 px-5 py-4">
+                  <p className="text-sm text-gray-700 whitespace-pre-wrap">{field.label}</p>
+                </div>
+              )
+            }
+            qNum++
+            return (
+              <div
+                key={field.id}
+                id={`field-${field.id}`}
+                className={`bg-white rounded-2xl border p-5 transition-colors ${
+                  fieldErrors[field.id] ? 'border-red-300 bg-red-50/30' : 'border-gray-200'
+                }`}
+              >
+                <label className="block mb-3">
+                  <span className="text-sm font-bold text-gray-900">
+                    {qNum}. {field.label}
+                    {field.required && !isPreview && <span className="text-red-500 ml-1">*</span>}
+                  </span>
+                  {field.description && (
+                    <span className="block text-xs text-gray-500 mt-0.5">{field.description}</span>
+                  )}
+                </label>
 
-            <FieldInput
-              field={field}
-              value={answers[field.id]}
-              onChange={val => setAnswer(field.id, val)}
-              disabled={isPreview}
-            />
+                <FieldInput
+                  field={field}
+                  value={answers[field.id]}
+                  onChange={val => setAnswer(field.id, val)}
+                  disabled={isPreview}
+                />
 
-            {fieldErrors[field.id] && (
-              <p className="mt-2 text-xs text-red-500 font-medium">{fieldErrors[field.id]}</p>
-            )}
-          </div>
-        ))}
+                {fieldErrors[field.id] && (
+                  <p className="mt-2 text-xs text-red-500 font-medium">{fieldErrors[field.id]}</p>
+                )}
+              </div>
+            )
+          })
+        })()}
 
         {schema.length === 0 && (
           <p className="text-center text-gray-400 py-8 text-sm">This form has no questions yet.</p>

@@ -14,6 +14,7 @@ const FIELD_TYPES = [
   { value: 'yes_no',        label: 'Yes / No' },
   { value: 'single_choice', label: 'Single Choice' },
   { value: 'multi_choice',  label: 'Multiple Choice' },
+  { value: 'text_block',    label: 'Text Block' },
 ]
 
 // Type-specific placeholder examples for the Question input
@@ -75,6 +76,7 @@ function changeFieldType(field, newType) {
 function validateForPublish(fields) {
   const errors = []
   fields.forEach((f, idx) => {
+    if (f.type === 'text_block') return
     const num = idx + 1
     if (!f.label?.trim()) {
       errors.push(`Question ${num}: question text cannot be blank.`)
@@ -139,6 +141,7 @@ function YesNoPreview() {
 function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst, isLast, publishError }) {
   const [open, setOpen] = useState(!field.label)  // open by default if new
 
+  const isTextBlock   = field.type === 'text_block'
   const needsOptions  = field.type === 'single_choice' || field.type === 'multi_choice'
   const showRating    = field.type === 'rating'
   const showYesNo     = field.type === 'yes_no'
@@ -214,11 +217,11 @@ function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
         {/* Label + meta */}
         <div className="flex-1 min-w-0">
           <p className={`text-sm font-medium truncate ${field.label ? 'text-gray-900' : 'text-gray-400 italic'}`}>
-            {field.label || 'Untitled question'}
+            {field.label || (isTextBlock ? 'Empty text block' : 'Untitled question')}
           </p>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
             <span className="text-[10px] text-gray-400 bg-gray-100 rounded px-1.5 py-0.5 font-medium">{typeLabel}</span>
-            {field.required && (
+            {!isTextBlock && field.required && (
               <span className="text-[10px] text-[#E8670A] font-bold uppercase tracking-wide">Required</span>
             )}
             {choiceBadge()}
@@ -264,59 +267,78 @@ function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
                 ))}
               </select>
             </div>
-            <div className="pb-1">
-              <button
-                type="button"
-                onClick={() => update('required', !field.required)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
-                  field.required
-                    ? 'bg-[#E8670A]/10 border-[#E8670A]/30 text-[#E8670A]'
-                    : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
-                }`}
-              >
-                <span className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                  field.required ? 'bg-[#E8670A] border-[#E8670A]' : 'border-gray-300'
-                }`}>
-                  {field.required && (
-                    <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                </span>
-                Required
-              </button>
+            {!isTextBlock && (
+              <div className="pb-1">
+                <button
+                  type="button"
+                  onClick={() => update('required', !field.required)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    field.required
+                      ? 'bg-[#E8670A]/10 border-[#E8670A]/30 text-[#E8670A]'
+                      : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
+                  }`}
+                >
+                  <span className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                    field.required ? 'bg-[#E8670A] border-[#E8670A]' : 'border-gray-300'
+                  }`}>
+                    {field.required && (
+                      <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </span>
+                  Required
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Instruction Text (text_block) or Question (all other types) */}
+          {isTextBlock ? (
+            <div>
+              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+                Instruction Text
+              </label>
+              <textarea
+                value={field.label}
+                onChange={e => update('label', e.target.value)}
+                placeholder="Enter instruction or section text shown to the client"
+                rows={3}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none"
+              />
             </div>
-          </div>
+          ) : (
+            <div>
+              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+                Question <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="text"
+                value={field.label}
+                onChange={e => update('label', e.target.value)}
+                placeholder={QUESTION_PLACEHOLDER[field.type] ?? 'Enter your question'}
+                className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] transition-colors ${
+                  !field.label.trim() && hasError ? 'border-red-300 bg-red-50' : 'border-gray-200'
+                }`}
+              />
+            </div>
+          )}
 
-          {/* Question */}
-          <div>
-            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
-              Question <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="text"
-              value={field.label}
-              onChange={e => update('label', e.target.value)}
-              placeholder={QUESTION_PLACEHOLDER[field.type] ?? 'Enter your question'}
-              className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] transition-colors ${
-                !field.label.trim() && hasError ? 'border-red-300 bg-red-50' : 'border-gray-200'
-              }`}
-            />
-          </div>
-
-          {/* Helper text */}
-          <div>
-            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
-              Helper Text <span className="text-gray-300 font-normal normal-case">(optional)</span>
-            </label>
-            <input
-              type="text"
-              value={field.description}
-              onChange={e => update('description', e.target.value)}
-              placeholder="Short hint or instruction shown below the question"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-            />
-          </div>
+          {/* Helper text (not shown for text_block) */}
+          {!isTextBlock && (
+            <div>
+              <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+                Helper Text <span className="text-gray-300 font-normal normal-case">(optional)</span>
+              </label>
+              <input
+                type="text"
+                value={field.description}
+                onChange={e => update('description', e.target.value)}
+                placeholder="Short hint or instruction shown below the question"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+              />
+            </div>
+          )}
 
           {/* Max characters (short/long text only) */}
           {hasMaxChars && (
