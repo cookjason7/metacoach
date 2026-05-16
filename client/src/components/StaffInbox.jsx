@@ -3,12 +3,35 @@ import { API_URL } from '../config.js'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function fmtTime(iso) {
-  if (!iso) return ''
+function _labels(iso) {
+  if (!iso) return null
   const d = new Date(iso)
-  const today = new Date()
-  if (d.toDateString() === today.toDateString()) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-  return d.toLocaleDateString()
+  const now = new Date()
+  const yest = new Date(now); yest.setDate(yest.getDate() - 1)
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const sameYear = d.getFullYear() === now.getFullYear()
+  const dateStr = d.toLocaleDateString([], sameYear
+    ? { month: 'short', day: 'numeric' }
+    : { month: 'short', day: 'numeric', year: 'numeric' })
+  const isToday = d.toDateString() === now.toDateString()
+  const isYest  = d.toDateString() === yest.toDateString()
+  return { time, dateStr, isToday, isYest }
+}
+
+// Inbox-list short format: "Today 8:32 PM", "Yesterday", "May 15"
+function fmtShort(iso) {
+  const l = _labels(iso); if (!l) return ''
+  if (l.isToday) return `Today ${l.time}`
+  if (l.isYest)  return 'Yesterday'
+  return l.dateStr
+}
+
+// Full format with time: "Today 8:32 PM", "Yesterday 8:32 PM", "May 15 8:32 PM"
+function fmtFull(iso) {
+  const l = _labels(iso); if (!l) return ''
+  if (l.isToday) return `Today ${l.time}`
+  if (l.isYest)  return `Yesterday ${l.time}`
+  return `${l.dateStr} ${l.time}`
 }
 
 // Team tab is hidden from staff UI — thread data still exists, just not shown as a tab.
@@ -253,7 +276,7 @@ export default function StaffInbox({ getToken }) {
                     {g.first_name ?? 'Client'}
                   </p>
                   <p className={`text-[10px] mt-0.5 ${isSelected ? 'text-white/70' : 'text-gray-400'}`}>
-                    {g.last_message_at ? fmtTime(g.last_message_at) : ''}
+                    {g.last_message_at ? fmtShort(g.last_message_at) : ''}
                     {g.threads.length > 1 && (
                       <span className={`ml-1 ${isSelected ? 'text-white/60' : 'text-gray-300'}`}>
                         · {g.threads.length} threads
@@ -330,7 +353,7 @@ export default function StaffInbox({ getToken }) {
                       isStaff ? 'bg-[#E8670A] text-white' : 'bg-white border border-gray-200 text-gray-800'
                     }`}>
                       <p className="text-[10px] font-semibold opacity-70 mb-0.5">
-                        {m.sender_name ?? m.sender_role} · {fmtTime(m.created_at)}
+                        {m.sender_name ?? m.sender_role} · {fmtFull(m.created_at)}
                       </p>
                       {m.message_body && <p className="text-sm whitespace-pre-wrap">{m.message_body}</p>}
                       {m.image_url && (
@@ -349,7 +372,7 @@ export default function StaffInbox({ getToken }) {
                       )}
                       {isStaff && m.read_at && (
                         <p className="text-[9px] opacity-60 text-right mt-0.5">
-                          Read {new Date(m.read_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                          Read {fmtFull(m.read_at)}
                         </p>
                       )}
                     </div>

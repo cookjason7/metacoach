@@ -15,10 +15,33 @@ function getThreadMeta(threadType, coachName) {
 }
 
 function fmtTime(iso) {
+  if (!iso) return ''
   const d = new Date(iso)
-  const today = new Date()
-  if (d.toDateString() === today.toDateString()) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-  return d.toLocaleDateString()
+  const now = new Date()
+  const yest = new Date(now); yest.setDate(yest.getDate() - 1)
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const sameYear = d.getFullYear() === now.getFullYear()
+  const dateStr = d.toLocaleDateString([], sameYear
+    ? { month: 'short', day: 'numeric' }
+    : { month: 'short', day: 'numeric', year: 'numeric' })
+  if (d.toDateString() === now.toDateString()) return `Today ${time}`
+  if (d.toDateString() === yest.toDateString()) return `Yesterday ${time}`
+  return `${dateStr} ${time}`
+}
+
+function fmtShort(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const now = new Date()
+  const yest = new Date(now); yest.setDate(yest.getDate() - 1)
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const sameYear = d.getFullYear() === now.getFullYear()
+  const dateStr = d.toLocaleDateString([], sameYear
+    ? { month: 'short', day: 'numeric' }
+    : { month: 'short', day: 'numeric', year: 'numeric' })
+  if (d.toDateString() === now.toDateString()) return `Today ${time}`
+  if (d.toDateString() === yest.toDateString()) return 'Yesterday'
+  return dateStr
 }
 
 export default function Messages() {
@@ -231,14 +254,21 @@ export default function Messages() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <p className={`text-sm font-semibold flex items-center gap-1.5 ${isActive ? 'text-white' : 'text-gray-900'}`}>
-                        <span>{meta.icon}</span>{meta.title}
-                      </p>
+                      <div className="flex items-center justify-between gap-1">
+                        <p className={`text-sm font-semibold flex items-center gap-1.5 ${isActive ? 'text-white' : 'text-gray-900'}`}>
+                          <span>{meta.icon}</span>{meta.title}
+                        </p>
+                        {t.last_message_at && (
+                          <span className={`text-[10px] shrink-0 ${isActive ? 'text-white/70' : 'text-gray-400'}`}>
+                            {fmtShort(t.last_message_at)}
+                          </span>
+                        )}
+                      </div>
                       <p className={`text-[10px] mt-0.5 ${isActive ? 'text-white/80' : 'text-gray-400'}`}>
                         {meta.subtitle}
                       </p>
                       {t.last_message_body && (
-                        <p className={`text-xs mt-1.5 truncate ${isActive ? 'text-white/80' : hasUnread ? 'text-gray-800 font-medium' : 'text-gray-500'}`}>
+                        <p className={`text-xs mt-1 truncate ${isActive ? 'text-white/80' : hasUnread ? 'text-gray-800 font-medium' : 'text-gray-500'}`}>
                           {t.last_message_body}
                         </p>
                       )}
