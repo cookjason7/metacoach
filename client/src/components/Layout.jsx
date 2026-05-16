@@ -40,6 +40,51 @@ export default function Layout() {
   const [katieUnread,  setKatieUnread]  = useState(0)
   const [msgUnread,    setMsgUnread]    = useState(0)
   const [sidebarOpen,  setSidebarOpen]  = useState(false)
+  const [quickMenuOpen, setQuickMenuOpen] = useState(false)
+  const [quickAction,   setQuickAction]   = useState(null) // null | 'water' | 'weight' | 'steps'
+  const [quickValue,    setQuickValue]    = useState('')
+  const [quickSaving,   setQuickSaving]   = useState(false)
+  const [quickDone,     setQuickDone]     = useState(false)
+
+  function openQuickMenu() {
+    setQuickMenuOpen(true)
+    setQuickAction(null)
+    setQuickValue('')
+    setQuickDone(false)
+  }
+
+  function closeQuickMenu() {
+    setQuickMenuOpen(false)
+    setQuickAction(null)
+    setQuickValue('')
+    setQuickDone(false)
+  }
+
+  async function submitQuickLog() {
+    if (!quickValue || quickSaving) return
+    setQuickSaving(true)
+    try {
+      const token = await getToken()
+      let body = {}
+      if (quickAction === 'water') {
+        const todayRes = await fetch(`${API_URL}/api/daily-logs/today`, { headers: { Authorization: `Bearer ${token}` } })
+        const today = todayRes.ok ? await todayRes.json() : {}
+        body.water_oz = (today.water_oz ?? 0) + Number(quickValue)
+      } else if (quickAction === 'weight') {
+        body.weight_lbs = Number(quickValue)
+      } else if (quickAction === 'steps') {
+        body.steps = Number(quickValue)
+      }
+      await fetch(`${API_URL}/api/daily-logs`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      setQuickDone(true)
+      setTimeout(() => closeQuickMenu(), 1200)
+    } catch {}
+    finally { setQuickSaving(false) }
+  }
 
   const fetchRole = useCallback(async () => {
     if (!isLoaded || !user) return
@@ -269,33 +314,184 @@ export default function Layout() {
           { to: '/community',     label: 'Community', badge: notifCount > 0, icon: <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /> },
         ] : [
           // Client bottom nav
-          { to: '/dashboard', label: 'Home',      badge: false,          icon: <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /> },
-          { to: '/journal',   label: 'Log',       badge: false,          icon: <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /> },
+          { to: '/dashboard', label: 'Home',      badge: false,           icon: <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /> },
           { to: '/ai-coach',  label: 'Katie',     badge: katieUnread > 0, icon: <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /> },
           { to: '/messages',  label: 'Messages',  badge: msgUnread > 0,   icon: <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /> },
           { to: '/community', label: 'Community', badge: notifCount > 0,  icon: <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /> },
-        ]).map(({ to, label, icon, badge }) => (
-          <NavLink
-            key={to}
-            to={to}
-            className={({ isActive }) =>
-              `flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-xs font-medium transition-colors ${
-                isActive ? 'text-[#E8670A]' : 'text-gray-400'
-              }`
-            }
-          >
-            <div className="relative">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                {icon}
-              </svg>
-              {badge && (
-                <span className="absolute -top-1 -right-1 w-2 h-2 bg-[#E8670A] rounded-full" />
-              )}
-            </div>
-            <span>{label}</span>
-          </NavLink>
-        ))}
+        ]).reduce((acc, { to, label, icon, badge }, i) => {
+          // Inject the plus button in the middle (after Home)
+          if (i === 1) acc.push(
+            <button
+              key="quick-log"
+              onClick={openQuickMenu}
+              className="flex-1 flex flex-col items-center justify-center py-2 gap-0.5"
+            >
+              <div className="w-11 h-11 rounded-full bg-[#E8670A] flex items-center justify-center shadow-md -mt-5">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                </svg>
+              </div>
+              <span className="text-xs font-medium text-gray-400">Log</span>
+            </button>
+          )
+          acc.push(
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) =>
+                `flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-xs font-medium transition-colors ${
+                  isActive ? 'text-[#E8670A]' : 'text-gray-400'
+                }`
+              }
+            >
+              <div className="relative">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  {icon}
+                </svg>
+                {badge && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-[#E8670A] rounded-full" />
+                )}
+              </div>
+              <span>{label}</span>
+            </NavLink>
+          )
+          return acc
+        }, [])}
       </nav>
+      {/* Quick-log bottom sheet */}
+      {quickMenuOpen && (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/40" onClick={closeQuickMenu} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl">
+            {/* drag handle */}
+            <div className="flex justify-center pt-3 pb-1">
+              <div className="w-10 h-1 bg-gray-200 rounded-full" />
+            </div>
+            {/* header */}
+            <div className="flex items-center justify-between px-5 py-3">
+              {quickAction ? (
+                <button
+                  onClick={() => { setQuickAction(null); setQuickValue(''); setQuickDone(false) }}
+                  className="flex items-center gap-1 text-sm font-medium text-gray-500 hover:text-gray-800"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                  </svg>
+                  Back
+                </button>
+              ) : (
+                <h2 className="text-base font-bold text-gray-900">Quick Log</h2>
+              )}
+              <button onClick={closeQuickMenu} className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 text-lg leading-none">
+                ×
+              </button>
+            </div>
+
+            {/* tile grid */}
+            {!quickAction && (
+              <div className="px-4 pb-10 pt-1 grid grid-cols-3 gap-3">
+                {[
+                  { id: 'food',     emoji: '🍽️', label: 'Log Food' },
+                  { id: 'photo',    emoji: '📸', label: 'Photo' },
+                  { id: 'water',    emoji: '💧', label: 'Water' },
+                  { id: 'weight',   emoji: '⚖️', label: 'Weight' },
+                  { id: 'steps',    emoji: '👟', label: 'Steps' },
+                  { id: 'activity', emoji: '🏃', label: 'Activity' },
+                ].map(({ id, emoji, label }) => (
+                  <button
+                    key={id}
+                    onClick={() => {
+                      if (id === 'food')     { closeQuickMenu(); navigate('/journal') }
+                      else if (id === 'photo')    { closeQuickMenu(); navigate('/settings') }
+                      else if (id === 'activity') { closeQuickMenu(); navigate('/workouts') }
+                      else setQuickAction(id)
+                    }}
+                    className="flex flex-col items-center gap-2 bg-gray-50 hover:bg-[#fde8c8] active:bg-[#fcd9b0] rounded-2xl py-4 px-2 transition-colors min-h-[80px]"
+                  >
+                    <span className="text-2xl leading-none">{emoji}</span>
+                    <span className="text-xs font-semibold text-gray-700">{label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* success state */}
+            {quickAction && quickDone && (
+              <div className="px-5 pb-12 pt-4 text-center">
+                <p className="text-3xl mb-2">✅</p>
+                <p className="text-sm font-semibold text-gray-700">Logged!</p>
+              </div>
+            )}
+
+            {/* mini-form */}
+            {quickAction && !quickDone && (
+              <div className="px-5 pb-10 pt-2">
+                {quickAction === 'water' && (
+                  <>
+                    <p className="text-sm text-gray-500 mb-3">How many oz to add today?</p>
+                    <div className="flex gap-2 mb-3">
+                      {['8', '16', '24'].map(oz => (
+                        <button
+                          key={oz}
+                          onClick={() => setQuickValue(oz)}
+                          className={`flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-colors ${
+                            quickValue === oz
+                              ? 'bg-[#E8670A] border-[#E8670A] text-white'
+                              : 'border-gray-200 text-gray-600 hover:border-[#E8670A]'
+                          }`}
+                        >
+                          {oz} oz
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="number"
+                      value={quickValue}
+                      onChange={e => setQuickValue(e.target.value)}
+                      placeholder="Custom amount (oz)"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-4"
+                    />
+                  </>
+                )}
+                {quickAction === 'weight' && (
+                  <>
+                    <p className="text-sm text-gray-500 mb-3">Today's weight (lbs)</p>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={quickValue}
+                      onChange={e => setQuickValue(e.target.value)}
+                      placeholder="e.g. 145.5"
+                      autoFocus
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-4"
+                    />
+                  </>
+                )}
+                {quickAction === 'steps' && (
+                  <>
+                    <p className="text-sm text-gray-500 mb-3">Today's steps</p>
+                    <input
+                      type="number"
+                      value={quickValue}
+                      onChange={e => setQuickValue(e.target.value)}
+                      placeholder="e.g. 8500"
+                      autoFocus
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-4"
+                    />
+                  </>
+                )}
+                <button
+                  onClick={submitQuickLog}
+                  disabled={!quickValue || quickSaving}
+                  className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors"
+                >
+                  {quickSaving ? 'Saving…' : `Log ${quickAction === 'water' ? 'Water' : quickAction === 'weight' ? 'Weight' : 'Steps'}`}
+                </button>
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   )
 }
