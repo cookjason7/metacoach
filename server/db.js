@@ -785,13 +785,31 @@ export async function migrate() {
   await pool.query(`ALTER TABLE form_assignments ADD COLUMN IF NOT EXISTS sent_at        TIMESTAMPTZ`)
   await pool.query(`ALTER TABLE form_assignments ADD COLUMN IF NOT EXISTS last_sent_at   TIMESTAMPTZ`)
   await pool.query(`ALTER TABLE form_assignments ADD COLUMN IF NOT EXISTS next_send_at   TIMESTAMPTZ`)
+  await pool.query(`ALTER TABLE form_assignments ADD COLUMN IF NOT EXISTS parent_assignment_id INTEGER REFERENCES form_assignments(id) ON DELETE CASCADE`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_form_assignments_due ON form_assignments (next_send_at, status, is_active)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_form_assignments_parent ON form_assignments (parent_assignment_id)`)
 
   // Form assignment tracking on submissions + metadata on messages (for in-app form delivery)
   await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS assignment_id INTEGER REFERENCES form_assignments(id) ON DELETE SET NULL`)
   await pool.query(`ALTER TABLE client_messages  ADD COLUMN IF NOT EXISTS metadata JSONB`)
   // Staff review note per submission
   await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS coach_note TEXT`)
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM form_submissions
+        WHERE assignment_id IS NOT NULL
+        GROUP BY assignment_id, user_id
+        HAVING COUNT(*) > 1
+      ) THEN
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_form_submissions_assignment_user_unique
+          ON form_submissions (assignment_id, user_id)
+          WHERE assignment_id IS NOT NULL;
+      END IF;
+    END $$;
+  `)
 
   // ── Grandfather existing users ───────────────────────────────────────────────
   // Any user who already completed onboarding before the assessment feature was

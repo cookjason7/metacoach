@@ -4,6 +4,9 @@ import { pool, getOrCreateUser } from '../db.js'
 
 const router = Router()
 
+const SUBMITTABLE_ASSIGNMENT_TYPES = new Set(['manual', 'scheduled', 'recurring_occurrence'])
+const SUBMITTABLE_ASSIGNMENT_STATUSES = new Set(['sent', 'pending', 'active'])
+
 // ── Auth helpers (mirrors coachAdmin.js pattern) ──────────────────────────────
 
 async function getCurrentUser(req) {
@@ -287,11 +290,38 @@ router.post('/:id/submit', requireAuth(), async (req, res, next) => {
       return res.status(400).json({ error: 'answers must be an object.' })
     }
 
-    // Duplicate check: if an assignment_id is provided, one submission per user per assignment
-    if (assignment_id) {
+    let assignId = null
+    if (assignment_id !== undefined && assignment_id !== null && assignment_id !== '') {
+      assignId = Number.parseInt(assignment_id, 10)
+      if (!Number.isInteger(assignId) || assignId <= 0) {
+        return res.status(400).json({ error: 'Invalid form assignment.' })
+      }
+
+      const { rows: [assignment] } = await pool.query(
+        `SELECT id, template_id, client_id, assignment_type, status
+         FROM form_assignments
+         WHERE id = $1`,
+        [assignId],
+      )
+      if (!assignment) {
+        return res.status(400).json({ error: 'Form assignment not found.' })
+      }
+      if (assignment.client_id !== ctx.dbUserId) {
+        return res.status(403).json({ error: 'This form assignment does not belong to you.' })
+      }
+      if (assignment.template_id !== id) {
+        return res.status(400).json({ error: 'This assignment is for a different form.' })
+      }
+      if (!SUBMITTABLE_ASSIGNMENT_STATUSES.has(assignment.status)) {
+        return res.status(400).json({ error: 'This form assignment is no longer active.' })
+      }
+      if (!SUBMITTABLE_ASSIGNMENT_TYPES.has(assignment.assignment_type)) {
+        return res.status(400).json({ error: 'This form link is not a submission occurrence. Please use the latest form link.' })
+      }
+
       const { rows: [existing] } = await pool.query(
         'SELECT id FROM form_submissions WHERE assignment_id = $1 AND user_id = $2 LIMIT 1',
-        [assignment_id, ctx.dbUserId],
+        [assignId, ctx.dbUserId],
       )
       if (existing) {
         return res.status(409).json({
@@ -321,7 +351,6 @@ router.post('/:id/submit', requireAuth(), async (req, res, next) => {
       })
     }
 
-    const assignId = assignment_id ? parseInt(assignment_id, 10) : null
     const { rows: [submission] } = await pool.query(`
       INSERT INTO form_submissions (template_id, version_id, user_id, answers, assignment_id)
       VALUES ($1, $2, $3, $4::jsonb, $5)
@@ -329,7 +358,15 @@ router.post('/:id/submit', requireAuth(), async (req, res, next) => {
     `, [id, tpl.current_version_id, ctx.dbUserId, JSON.stringify(answers), assignId])
 
     res.status(201).json(submission)
-  } catch (err) { next(err) }
+  } catch (err) {
+    if (err.code === '23505' && err.constraint === 'idx_form_submissions_assignment_user_unique') {
+      return res.status(409).json({
+        error: 'You already submitted this form.',
+        already_submitted: true,
+      })
+    }
+    next(err)
+  }
 })
 
 export default router

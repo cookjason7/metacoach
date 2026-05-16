@@ -61,7 +61,24 @@ export async function processFormSchedules() {
 
       const firstName   = client.first_name ?? 'there'
       const messageBody = `Hey ${firstName}, please complete your ${fa.form_title} when you have a chance.`
-      const metadata    = { form_id: fa.template_id, assignment_id: fa.id, form_title: fa.form_title }
+      let submissionAssignmentId = fa.id
+
+      if (fa.assignment_type === 'recurring') {
+        const { rows: [occurrence] } = await pool.query(`
+          INSERT INTO form_assignments
+            (template_id, client_id, assigned_by, send_at, is_active,
+             assignment_type, status, sent_at, parent_assignment_id)
+          VALUES ($1, $2, $3, NOW(), FALSE, 'recurring_occurrence', 'sent', NOW(), $4)
+          RETURNING id
+        `, [fa.template_id, fa.client_id, fa.assigned_by, fa.id])
+        submissionAssignmentId = occurrence.id
+      }
+
+      const metadata = {
+        form_id:       fa.template_id,
+        assignment_id: submissionAssignmentId,
+        form_title:    fa.form_title,
+      }
 
       await pool.query(`
         INSERT INTO client_messages
