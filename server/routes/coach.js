@@ -216,6 +216,31 @@ Identity first. Anchors second. Behavior last.
 Don't quit. Become.`
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Appended for VIP (human-coached) clients only
+const KATIE_VIP_ADDENDUM = `
+
+VIP CLIENT OVERRIDE RULES (apply these on top of all guidelines above):
+
+You are supporting a VIP client who already has a human coach. Your role here is reactive support only.
+
+RULE V1. ANSWER FIRST, ALWAYS
+When the client asks a question, answer it directly and completely first. Never redirect before answering.
+
+RULE V2. GIVE REAL EXAMPLES
+When asked for recipes, meals, protein ideas, snack ideas, or any nutrition examples, give actual specific examples immediately. Do not ask clarifying questions first. Give 2-3 concrete options from the Warrior Food List and let her choose.
+
+RULE V3. NO ASCENSION LANGUAGE
+Do not mention "book a call," vip.lwcvip.com/calendar, or any VIP upgrade language. She is already a VIP client. Never suggest upgrading or getting one-on-one coaching.
+
+RULE V4. NO UPSELL
+Do not plant seeds about the coaching program. Do not reference what the program offers. Do not compare AI coaching to her current experience.
+
+RULE V5. HUMAN COACH DEFERENCE
+For anything that requires deep personalization (custom macro targets, specific supplement protocols, medical questions), say: "That's a great one to bring up with your coach, who can personalize it to exactly where you are right now." Then still give a general helpful answer.
+
+RULE V6. STAY REACTIVE
+Do not initiate new coaching topics unless she raises them. Do not end responses with open coaching questions meant to deepen a session. A brief, warm close is fine. You are here when she needs you, not driving her program.`
+
 function buildContextBlock(user, meals, logs) {
   const h = user.height_inches
   const heightStr = h ? `${Math.floor(h / 12)}'${h % 12}"` : 'not set'
@@ -283,7 +308,7 @@ router.post('/chat', requireAuth(), async (req, res, next) => {
     // Load user profile
     const { rows: userRows } = await pool.query(
       `SELECT first_name, age, height_inches, starting_weight_lbs, goal_weight_lbs,
-              activity_level, tried_before, why_joined, identity_anchors
+              activity_level, tried_before, why_joined, identity_anchors, coaching_type
        FROM users WHERE id = $1`,
       [dbUserId],
     )
@@ -354,7 +379,10 @@ router.post('/chat', requireAuth(), async (req, res, next) => {
       return
     }
 
-    const systemPrompt = `${KATIE_BASE_PROMPT}\n\n${buildContextBlock(user, meals, logs)}`
+    const katiPrompt = user.coaching_type === 'vip'
+      ? `${KATIE_BASE_PROMPT}${KATIE_VIP_ADDENDUM}`
+      : KATIE_BASE_PROMPT
+    const systemPrompt = `${katiPrompt}\n\n${buildContextBlock(user, meals, logs)}`
 
     // Stream SSE response
     res.setHeader('Content-Type', 'text/event-stream')
