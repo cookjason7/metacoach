@@ -685,10 +685,10 @@ function EditMealModal({ meal, onSave, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
       <form
         onSubmit={submit}
-        className="bg-white rounded-2xl p-5 w-full max-w-sm shadow-xl space-y-3"
+        className="bg-white rounded-2xl p-5 w-full max-w-sm shadow-xl space-y-3 max-h-[calc(100vh-2rem)] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
         <h3 className="text-base font-semibold text-gray-900">Edit Meal</h3>
@@ -763,8 +763,8 @@ function CopyMealModal({ meal, mode = 'copy', onConfirm, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl p-5 w-full max-w-sm shadow-xl space-y-3" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-5 w-full max-w-sm shadow-xl space-y-3 max-h-[calc(100vh-2rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <h3 className="text-base font-semibold text-gray-900">{isMove ? 'Move Meal' : 'Copy Meal'}</h3>
         <p className="text-xs text-gray-500">{meal.meal_name}</p>
         <div>
@@ -845,7 +845,7 @@ function CopyDayModal({ selectedDate, getToken, onClose, onSuccess }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl max-h-[calc(100vh-2rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h3 className="text-base font-semibold text-gray-900">Copy Day</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
@@ -891,13 +891,13 @@ function CopyDayModal({ selectedDate, getToken, onClose, onSuccess }) {
               )}
               {error && <p className="text-xs text-red-500">{error}</p>}
 
-              <div className="flex gap-2">
+              <div className="flex flex-col-reverse sm:flex-row gap-2">
                 <button onClick={() => doCopy(null)} disabled={saving || sameDate}
                   className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
                   {saving ? 'Copying…' : 'Copy Day'}
                 </button>
                 <button onClick={onClose}
-                  className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-500 border border-gray-200 hover:bg-gray-50 transition-colors">
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-sm font-medium text-gray-500 border border-gray-200 hover:bg-gray-50 transition-colors">
                   Cancel
                 </button>
               </div>
@@ -993,7 +993,7 @@ function CopySlotModal({ sourceDate, sourceSlot, getToken, onClose, onSuccess })
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl max-h-[calc(100vh-2rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div>
             <h3 className="text-base font-semibold text-gray-900">Copy Meal</h3>
@@ -1008,14 +1008,14 @@ function CopySlotModal({ sourceDate, sourceSlot, getToken, onClose, onSuccess })
               <div className="space-y-3">
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Copy to</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="min-w-0">
                       <label className="block text-xs text-gray-500 mb-1">Date</label>
                       <input type="date" value={toDate} min={minStr} max={maxStr}
                         onChange={e => setToDate(e.target.value)}
                         className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]" />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <label className="block text-xs text-gray-500 mb-1">Meal</label>
                       <select value={toSlot} onChange={e => setToSlot(e.target.value)}
                         className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]">
@@ -1033,13 +1033,13 @@ function CopySlotModal({ sourceDate, sourceSlot, getToken, onClose, onSuccess })
               )}
               {error && <p className="text-xs text-red-500">{error}</p>}
 
-              <div className="flex gap-2">
+              <div className="flex flex-col-reverse sm:flex-row gap-2">
                 <button onClick={() => doCopy(null)} disabled={saving || sameSlot}
                   className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
                   {saving ? 'Copying…' : 'Copy Meal'}
                 </button>
                 <button onClick={onClose}
-                  className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-500 border border-gray-200 hover:bg-gray-50 transition-colors">
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-sm font-medium text-gray-500 border border-gray-200 hover:bg-gray-50 transition-colors">
                   Cancel
                 </button>
               </div>
@@ -2816,7 +2816,7 @@ function AddFoodDrawer({ slotName, onClose, onSaved, logDate }) {
           </button>
         </div>
 
-        <div className="p-5 pb-24">
+        <div className="p-5 pb-[calc(6rem+env(safe-area-inset-bottom))]">
           {/* Step 1 (snack only): pick timing */}
           {showTimingPicker && (
             <div className="grid grid-cols-3 gap-3">
@@ -3066,7 +3066,7 @@ export default function Journal() {
           )}
           <button
             onClick={() => setCopyDayOpen(true)}
-            className="text-xs font-medium text-gray-500 hover:text-[#E8670A] border border-gray-200 rounded-lg px-2.5 py-1.5 transition-colors"
+            className="text-xs font-medium text-gray-500 hover:text-[#E8670A] border border-gray-200 rounded-lg px-2.5 py-2 min-h-10 transition-colors"
           >
             Copy Day
           </button>

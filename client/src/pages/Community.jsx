@@ -91,7 +91,7 @@ function MentionInput({ value, onChange, members, placeholder, rows = 3, inputCl
   const isTextarea = rows > 1
 
   return (
-    <div className="relative">
+    <div className="relative w-full">
       {isTextarea ? (
         <textarea
           ref={ref}
@@ -500,7 +500,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
 
       <div className="p-5">
         {/* Header */}
-        <div className="flex items-center gap-3 mb-3">
+        <div className="flex items-start gap-3 mb-3">
           <Avatar name={post.first_name} />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
@@ -510,11 +510,11 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
             <p className="text-xs text-gray-400">{timeAgo(post.created_at)}</p>
           </div>
           {catStyle && !isEditing && (
-            <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${catStyle}`}>
+            <span className={`text-xs px-2 py-0.5 rounded-full border font-medium shrink-0 max-w-[9rem] truncate ${catStyle}`}>
               {post.category}
             </span>
           )}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
             {canEdit && (
               <button
                 onClick={() => { setIsEditing(e => !e); setEditContent(post.content); setEditCategory(post.category ?? CATEGORIES[0]) }}
@@ -627,19 +627,19 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
             {comments?.map(c => (
               <CommentItem key={c.id} comment={c} getToken={getToken} isAdmin={isAdmin} onDelete={deleteComment} members={members} />
             ))}
-            <form onSubmit={submitComment} className="flex gap-2 mt-3">
+            <form onSubmit={submitComment} className="flex gap-2 mt-3 items-end">
               <MentionInput
                 value={commentText}
                 onChange={setCommentText}
                 members={members}
                 placeholder="Add a comment…"
                 rows={1}
-                inputClassName="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                inputClassName="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
               />
               <button
                 type="submit"
                 disabled={!commentText.trim() || submitting}
-                className="bg-[#E8670A] text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-[#c45e09] disabled:opacity-40 transition-colors"
+                className="bg-[#E8670A] text-white px-3 py-2 rounded-lg text-xs font-semibold hover:bg-[#c45e09] disabled:opacity-40 transition-colors shrink-0"
               >
                 Post
               </button>
@@ -876,14 +876,14 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
         </div>
 
         {/* Compose */}
-        <form onSubmit={submitPost} className="bg-white rounded-xl border border-gray-200 p-5 mb-5">
+        <form onSubmit={submitPost} className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5 mb-5">
           <MentionInput
             value={newPost}
             onChange={setNewPost}
             members={members}
             placeholder="Share a win, ask a question, or check in with the group…"
             rows={3}
-            textareaClassName="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+            textareaClassName="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#E8670A] min-h-[96px]"
           />
 
           {/* Category dropdown */}
@@ -912,7 +912,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
             </div>
           )}
 
-          <div className="flex items-center justify-between mt-3">
+          <div className="flex items-center justify-between gap-3 mt-3">
             <div className="flex items-center gap-3">
               <button type="button" onClick={() => photoInputRef.current?.click()} className="text-gray-400 hover:text-[#c45e09] transition-colors text-sm" title="Photo">
                 📷
@@ -927,7 +927,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
             <button
               type="submit"
               disabled={!newPost.trim() || posting}
-              className="bg-[#E8670A] text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="bg-[#E8670A] text-white px-5 py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0 min-w-[88px]"
             >
               {posting ? 'Posting…' : 'Post'}
             </button>
@@ -1041,8 +1041,8 @@ function VideoModal({ initial, onSave, onClose, saving }) {
   const isEdit = !!initial?.id
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden max-h-[calc(100vh-2rem)]" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <h2 className="text-base font-bold text-gray-900">{isEdit ? 'Edit Video' : 'Add Video'}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
@@ -1086,7 +1086,7 @@ function VideoModal({ initial, onSave, onClose, saving }) {
               className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#E8670A] resize-none"
             />
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-col sm:flex-row gap-3">
             <div className="flex-1">
               <label className="block text-xs font-semibold text-gray-700 mb-1">Module / Category</label>
               <input
@@ -1096,7 +1096,7 @@ function VideoModal({ initial, onSave, onClose, saving }) {
                 className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#E8670A]"
               />
             </div>
-            <div className="w-24">
+            <div className="w-full sm:w-24">
               <label className="block text-xs font-semibold text-gray-700 mb-1">Order</label>
               <input
                 type="number"
@@ -1116,7 +1116,7 @@ function VideoModal({ initial, onSave, onClose, saving }) {
             <span className="text-sm font-medium text-gray-700">Published (visible to clients)</span>
           </label>
         </div>
-        <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
+        <div className="px-6 py-4 border-t border-gray-100 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 font-medium">Cancel</button>
           <button
             onClick={() => onSave(form)}
@@ -1335,14 +1335,14 @@ function MindsetTab({ getToken, isStaff }) {
     <div className="max-w-2xl">
       {/* Staff toolbar */}
       {isStaff && (
-        <div className="flex items-center justify-between mb-5">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
           <div>
             <h2 className="text-lg font-bold text-gray-900">Brain Mapping / Mindset</h2>
             <p className="text-xs text-gray-400 mt-0.5">Manage videos visible to clients</p>
           </div>
           <button
             onClick={() => setModal('add')}
-            className="flex items-center gap-2 bg-[#E8670A] text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-[#c45e09] transition-colors"
+            className="inline-flex items-center justify-center gap-2 bg-[#E8670A] text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-[#c45e09] transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -1724,13 +1724,13 @@ function ResourcesTab({ getToken, isStaff }) {
     <div className="max-w-2xl">
       {/* Header */}
       {isStaff ? (
-        <div className="flex items-center justify-between mb-5">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
           <div>
             <h2 className="text-lg font-bold text-gray-900">Resources</h2>
             <p className="text-xs text-gray-400 mt-0.5">Manage guides, links, and materials for clients</p>
           </div>
           <button onClick={() => setModal('add')}
-            className="flex items-center gap-2 bg-[#E8670A] text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-[#c45e09] transition-colors">
+            className="inline-flex items-center justify-center gap-2 bg-[#E8670A] text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-[#c45e09] transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
             </svg>
@@ -1879,7 +1879,7 @@ export default function Community() {
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`flex-1 py-2 px-3 rounded-lg text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
+            className={`shrink-0 sm:flex-1 py-2 px-3 rounded-lg text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
               tab === t.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}
           >

@@ -125,7 +125,7 @@ function ProgressPhotoPanel({ angle, photos, getToken, onUploaded }) {
         ) : uploading ? (
           <span className="text-xs text-gray-400">Uploading…</span>
         ) : (
-          <span className="text-xs text-gray-400">Tap to upload</span>
+          <span className="text-xs text-gray-400 px-2 text-center leading-tight">Tap to upload</span>
         )}
       </div>
       {latest && (
@@ -430,7 +430,7 @@ export default function Settings() {
   const anglesWithComparison = ANGLES.filter(a => photos[a].length >= 2)
 
   return (
-    <div className="w-full max-w-lg">
+    <div className="w-full max-w-lg mx-auto pb-6">
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Settings</h1>
       <p className="text-sm text-gray-500 mb-8">Account and preferences</p>
 
@@ -438,7 +438,7 @@ export default function Settings() {
       <h2 className="text-sm font-semibold text-gray-700 mb-3">Account</h2>
       <div className="bg-white rounded-xl border border-gray-200 p-5 mb-8">
         <form onSubmit={saveName} className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="First name">
               <input
                 type="text"
@@ -495,7 +495,7 @@ export default function Settings() {
       <h2 className="text-sm font-semibold text-gray-700 mb-3">Progress Photos</h2>
       <div className="bg-white rounded-xl border border-gray-200 p-4 mb-8">
         <p className="text-sm text-gray-500 mb-4">Upload front, back, and side photos to track your visual progress over time.</p>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-3">
           {ANGLES.map(angle => (
             <ProgressPhotoPanel
               key={angle}
@@ -519,7 +519,7 @@ export default function Settings() {
               onChange={e => setMForm(f => ({ ...f, measurement_date: e.target.value }))}
               className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full max-w-[180px] focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]" />
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {[
               { key: 'chest', label: 'Chest/Bust', sub: 'nipple line' },
               { key: 'waist', label: 'Waist',      sub: 'belly button' },

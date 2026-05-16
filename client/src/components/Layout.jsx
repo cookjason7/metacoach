@@ -344,7 +344,7 @@ export default function Layout() {
         </div>
       )}
 
-      <main className="flex-1 overflow-y-auto p-4 lg:p-8 pb-20 lg:pb-8">
+      <main className="flex-1 overflow-y-auto p-4 lg:p-8 pb-[calc(5.75rem+env(safe-area-inset-bottom))] lg:pb-8">
         {/* Mobile hamburger */}
         <button
           className="lg:hidden mb-4 p-2 rounded-lg text-gray-500 hover:bg-gray-200 transition-colors"
@@ -359,7 +359,7 @@ export default function Layout() {
       </main>
 
       {/* Mobile bottom nav */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200 flex">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200 flex pb-[env(safe-area-inset-bottom)]">
         {(isStaff ? [
           // Staff bottom nav
           { to: '/dashboard',     label: 'Coaching',  badge: false,          icon: <path strokeLinecap="round" strokeLinejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" /> },
@@ -378,7 +378,7 @@ export default function Layout() {
             <button
               key="quick-log"
               onClick={openQuickMenu}
-              className="flex-1 flex flex-col items-center justify-center py-2 gap-0.5"
+              className="flex-1 flex flex-col items-center justify-center py-2 gap-0.5 min-w-0"
             >
               <div className="w-11 h-11 rounded-full bg-[#E8670A] flex items-center justify-center shadow-md -mt-5">
                 <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
@@ -393,7 +393,7 @@ export default function Layout() {
               key={to}
               to={to}
               className={({ isActive }) =>
-                `flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-xs font-medium transition-colors ${
+                `flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-[11px] font-medium transition-colors min-w-0 ${
                   isActive ? 'text-[#E8670A]' : 'text-gray-400'
                 }`
               }
@@ -406,7 +406,7 @@ export default function Layout() {
                   <span className="absolute -top-1 -right-1 w-2 h-2 bg-[#E8670A] rounded-full" />
                 )}
               </div>
-              <span>{label}</span>
+              <span className="max-w-full truncate">{label}</span>
             </NavLink>
           )
           return acc
@@ -416,7 +416,7 @@ export default function Layout() {
       {quickMenuOpen && (
         <>
           <div className="fixed inset-0 z-50 bg-black/40" onClick={closeQuickMenu} />
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl">
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl max-h-[calc(100vh-1rem)] overflow-y-auto pb-[env(safe-area-inset-bottom)]">
             {/* drag handle */}
             <div className="flex justify-center pt-3 pb-1">
               <div className="w-10 h-1 bg-gray-200 rounded-full" />
@@ -443,7 +443,7 @@ export default function Layout() {
 
             {/* tile grid */}
             {!quickAction && (
-              <div className="px-4 pb-10 pt-1 grid grid-cols-3 gap-3">
+              <div className="px-4 pb-10 pt-1 grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {[
                   { id: 'food',     emoji: '🍽️', label: 'Log Food' },
                   { id: 'photo',    emoji: '📸', label: 'Progress Photo' },
@@ -458,10 +458,10 @@ export default function Layout() {
                       if (id === 'food') { closeQuickMenu(); navigate('/journal') }
                       else setQuickAction(id)
                     }}
-                    className="flex flex-col items-center gap-2 bg-gray-50 hover:bg-[#fde8c8] active:bg-[#fcd9b0] rounded-2xl py-4 px-2 transition-colors min-h-[80px]"
+                    className="flex flex-col items-center justify-center gap-2 bg-gray-50 hover:bg-[#fde8c8] active:bg-[#fcd9b0] rounded-2xl py-4 px-2 transition-colors min-h-[84px]"
                   >
                     <span className="text-2xl leading-none">{emoji}</span>
-                    <span className="text-xs font-semibold text-gray-700">{label}</span>
+                    <span className="text-xs font-semibold text-gray-700 text-center leading-tight">{label}</span>
                   </button>
                 ))}
               </div>

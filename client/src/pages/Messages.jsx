@@ -232,7 +232,7 @@ export default function Messages() {
       )}
 
       {!loading && threads.length > 0 && (
-        <div className="flex gap-4 min-h-[500px]">
+        <div className="flex gap-4 min-h-[calc(100vh-13rem)] lg:min-h-[500px]">
 
           {/* Thread list — hidden on mobile when a conversation is open */}
           <div className={`lg:w-64 shrink-0 space-y-1.5 ${active ? 'hidden lg:block' : 'w-full lg:w-64'}`}>
@@ -285,7 +285,7 @@ export default function Messages() {
           </div>
 
           {/* Conversation pane — full-width on mobile when active */}
-          <div className={`flex-1 flex-col bg-white border border-gray-200 rounded-xl overflow-hidden ${active ? 'flex' : 'hidden lg:flex'}`}>
+          <div className={`flex-1 min-w-0 flex-col bg-white border border-gray-200 rounded-xl overflow-hidden ${active ? 'flex' : 'hidden lg:flex'}`}>
             {active && activeMeta ? (
               <>
                 {/* Header */}
@@ -313,7 +313,7 @@ export default function Messages() {
                 </div>
 
                 {/* Messages */}
-                <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 bg-gray-50 space-y-3 max-h-[500px]">
+                <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 sm:p-4 bg-gray-50 space-y-3 max-h-[calc(100vh-23rem)] lg:max-h-[500px]">
                   {loadingMsgs && <p className="text-center text-xs text-gray-400">Loading…</p>}
                   {!loadingMsgs && messages.length === 0 && (
                     <p className="text-center text-xs text-gray-400 py-8">No messages yet in this thread.</p>
@@ -322,7 +322,7 @@ export default function Messages() {
                     const isMe = m.sender_role === 'client'
                     return (
                       <div key={m.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[80%] rounded-2xl px-4 py-2 ${
+                        <div className={`max-w-[88%] sm:max-w-[80%] rounded-2xl px-4 py-2 ${
                           isMe ? 'bg-[#E8670A] text-white' : 'bg-white border border-gray-200 text-gray-800'
                         }`}>
                           <p className={`text-[10px] font-semibold mb-0.5 ${isMe ? 'text-white/80' : 'text-gray-500'}`}>
@@ -359,7 +359,7 @@ export default function Messages() {
                         <button onClick={clearImage} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center leading-none font-bold">×</button>
                       </div>
                     )}
-                    <div className="space-y-2">
+                    <div className="space-y-2 pb-[env(safe-area-inset-bottom)]">
                       {/* Camera input */}
                       <input ref={fileInputRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp" capture="environment" className="hidden" onChange={handleFileSelect} />
                       {/* Gallery input */}
@@ -371,7 +371,7 @@ export default function Messages() {
                           placeholder="Type a message…"
                           rows={3}
                           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-                          className="flex-1 min-h-[84px] max-h-36 border border-gray-300 rounded-lg px-3 py-2 text-sm leading-5 focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none overflow-y-auto"
+                          className="flex-1 min-w-0 min-h-[84px] max-h-36 border border-gray-300 rounded-lg px-3 py-2 text-sm leading-5 focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none overflow-y-auto"
                         />
                         <button
                           onClick={send}
