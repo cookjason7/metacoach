@@ -779,6 +779,14 @@ export async function migrate() {
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_form_assignments_client ON form_assignments (client_id, send_at)`)
 
+  // Scheduling columns for form_assignments
+  await pool.query(`ALTER TABLE form_assignments ADD COLUMN IF NOT EXISTS assignment_type TEXT DEFAULT 'manual'`)
+  await pool.query(`ALTER TABLE form_assignments ADD COLUMN IF NOT EXISTS status         TEXT DEFAULT 'sent'`)
+  await pool.query(`ALTER TABLE form_assignments ADD COLUMN IF NOT EXISTS sent_at        TIMESTAMPTZ`)
+  await pool.query(`ALTER TABLE form_assignments ADD COLUMN IF NOT EXISTS last_sent_at   TIMESTAMPTZ`)
+  await pool.query(`ALTER TABLE form_assignments ADD COLUMN IF NOT EXISTS next_send_at   TIMESTAMPTZ`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_form_assignments_due ON form_assignments (next_send_at, status, is_active)`)
+
   // Form assignment tracking on submissions + metadata on messages (for in-app form delivery)
   await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS assignment_id INTEGER REFERENCES form_assignments(id) ON DELETE SET NULL`)
   await pool.query(`ALTER TABLE client_messages  ADD COLUMN IF NOT EXISTS metadata JSONB`)

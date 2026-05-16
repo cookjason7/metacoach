@@ -1199,8 +1199,9 @@ router.post('/forms/:id/send', requireAuth(), async (req, res, next) => {
 
       // Create assignment record
       const { rows: [assignment] } = await pool.query(`
-        INSERT INTO form_assignments (template_id, client_id, assigned_by, send_at, is_active)
-        VALUES ($1, $2, $3, NOW(), TRUE)
+        INSERT INTO form_assignments
+          (template_id, client_id, assigned_by, send_at, is_active, assignment_type, status, sent_at)
+        VALUES ($1, $2, $3, NOW(), TRUE, 'manual', 'sent', NOW())
         RETURNING id
       `, [templateId, clientId, ctx.dbUserId])
 
@@ -1232,6 +1233,208 @@ router.post('/forms/:id/send', requireAuth(), async (req, res, next) => {
       sent_list:    sent,
       skipped_list: skipped,
     })
+  } catch (err) { next(err) }
+})
+
+// ─── Form Scheduling ──────────────────────────────────────────────────────────
+
+// Helper: next occurrence of dayOfWeek/hour/minute after `after`
+function computeNextSendAt(dayOfWeek, hour, minute = 0, after = new Date()) {
+  const dt = new Date(after)
+  dt.setHours(hour, minute, 0, 0)
+  const currentDay = dt.getDay()
+  let daysUntil = (dayOfWeek - currentDay + 7) % 7
+  if (daysUntil === 0 && dt <= after) daysUntil = 7
+  dt.setDate(dt.getDate() + daysUntil)
+  return dt
+}
+
+// POST /api/coach-admin/forms/:id/schedule
+// Body: { client_ids, send_mode:'scheduled'|'recurring', send_at:ISO, recurring_rule:{day_of_week,hour,minute} }
+router.post('/forms/:id/schedule', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+
+    const templateId = parseInt(req.params.id, 10)
+    const { client_ids, send_mode, send_at, recurring_rule } = req.body
+
+    if (!Array.isArray(client_ids) || client_ids.length === 0)
+      return res.status(400).json({ error: 'client_ids must be a non-empty array.' })
+    if (!['scheduled', 'recurring'].includes(send_mode))
+      return res.status(400).json({ error: 'send_mode must be scheduled or recurring.' })
+    if (send_mode === 'scheduled' && !send_at)
+      return res.status(400).json({ error: 'send_at is required for scheduled sends.' })
+    if (send_mode === 'recurring' && (!recurring_rule || recurring_rule.day_of_week == null || recurring_rule.hour == null))
+      return res.status(400).json({ error: 'recurring_rule with day_of_week and hour is required for recurring sends.' })
+
+    const { rows: [tpl] } = await pool.query(
+      'SELECT id, title, status, current_version_id FROM form_templates WHERE id = $1',
+      [templateId],
+    )
+    if (!tpl) return res.status(404).json({ error: 'Form not found' })
+    if (tpl.status !== 'published' || !tpl.current_version_id)
+      return res.status(400).json({ error: 'Form must be published before scheduling.' })
+
+    const scheduled = []
+    const skipped   = []
+
+    for (const rawId of client_ids) {
+      const clientId = parseInt(rawId, 10)
+      if (isNaN(clientId)) { skipped.push({ client_id: rawId, reason: 'Invalid ID' }); continue }
+
+      if (!await canAccessClient(ctx, clientId)) {
+        skipped.push({ client_id: clientId, reason: 'Not assigned to you' }); continue
+      }
+
+      const { rows: [client] } = await pool.query(
+        'SELECT id, first_name, client_status FROM users WHERE id = $1',
+        [clientId],
+      )
+      if (!client) { skipped.push({ client_id: clientId, reason: 'Client not found' }); continue }
+      if (client.client_status === 'archived' || client.client_status === 'deleted') {
+        skipped.push({ client_id: clientId, reason: 'Client is not active' }); continue
+      }
+
+      let nextSendAt, recurringRuleJson = null, status
+
+      if (send_mode === 'scheduled') {
+        nextSendAt = new Date(send_at)
+        status     = 'pending'
+      } else {
+        const rule    = recurring_rule
+        nextSendAt    = computeNextSendAt(rule.day_of_week, rule.hour, rule.minute ?? 0)
+        recurringRuleJson = JSON.stringify(rule)
+        status        = 'active'
+      }
+
+      const { rows: [assignment] } = await pool.query(`
+        INSERT INTO form_assignments
+          (template_id, client_id, assigned_by, send_at, recurring_rule, is_active,
+           assignment_type, status, next_send_at)
+        VALUES ($1, $2, $3, $4, $5::jsonb, TRUE, $6, $7, $8)
+        RETURNING id
+      `, [templateId, clientId, ctx.dbUserId, nextSendAt, recurringRuleJson, send_mode, status, nextSendAt])
+
+      scheduled.push({ client_id: clientId, assignment_id: assignment.id })
+    }
+
+    res.status(201).json({
+      scheduled:      scheduled.length,
+      skipped:        skipped.length,
+      scheduled_list: scheduled,
+      skipped_list:   skipped,
+    })
+  } catch (err) { next(err) }
+})
+
+// GET /api/coach-admin/form-schedules
+// Returns all non-manual assignments; admin sees all, coach sees assigned clients only.
+router.get('/form-schedules', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+
+    const baseSelect = `
+      SELECT fa.id, fa.template_id, fa.client_id, fa.assigned_by,
+             fa.assignment_type, fa.status, fa.next_send_at, fa.last_sent_at,
+             fa.sent_at, fa.recurring_rule, fa.created_at, fa.is_active,
+             ft.title AS form_title,
+             u.first_name AS client_first_name, u.last_name AS client_last_name
+      FROM form_assignments fa
+      JOIN form_templates ft ON ft.id = fa.template_id
+      JOIN users u ON u.id = fa.client_id
+      WHERE fa.assignment_type IN ('scheduled', 'recurring')
+    `
+
+    let rows
+    if (ctx.role === 'admin') {
+      ;({ rows } = await pool.query(baseSelect + ' ORDER BY fa.created_at DESC LIMIT 200'))
+    } else {
+      ;({ rows } = await pool.query(
+        baseSelect + ' AND u.assigned_coach_id = $1 ORDER BY fa.created_at DESC LIMIT 200',
+        [ctx.dbUserId],
+      ))
+    }
+
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
+// PATCH /api/coach-admin/form-schedules/:id/cancel
+router.patch('/form-schedules/:id/cancel', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id  = parseInt(req.params.id, 10)
+
+    const { rows: [fa] } = await pool.query(
+      'SELECT id, client_id FROM form_assignments WHERE id = $1',
+      [id],
+    )
+    if (!fa) return res.status(404).json({ error: 'Schedule not found' })
+    if (!await canAccessClient(ctx, fa.client_id))
+      return res.status(403).json({ error: 'Not your client' })
+
+    const { rows: [updated] } = await pool.query(
+      `UPDATE form_assignments SET status = 'cancelled', is_active = FALSE WHERE id = $1 RETURNING *`,
+      [id],
+    )
+    res.json(updated)
+  } catch (err) { next(err) }
+})
+
+// PATCH /api/coach-admin/form-schedules/:id/pause  (recurring only)
+router.patch('/form-schedules/:id/pause', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id  = parseInt(req.params.id, 10)
+
+    const { rows: [fa] } = await pool.query(
+      'SELECT id, client_id, assignment_type FROM form_assignments WHERE id = $1',
+      [id],
+    )
+    if (!fa) return res.status(404).json({ error: 'Schedule not found' })
+    if (fa.assignment_type !== 'recurring') return res.status(400).json({ error: 'Only recurring schedules can be paused.' })
+    if (!await canAccessClient(ctx, fa.client_id)) return res.status(403).json({ error: 'Not your client' })
+
+    const { rows: [updated] } = await pool.query(
+      `UPDATE form_assignments SET status = 'paused', is_active = FALSE WHERE id = $1 RETURNING *`,
+      [id],
+    )
+    res.json(updated)
+  } catch (err) { next(err) }
+})
+
+// PATCH /api/coach-admin/form-schedules/:id/resume  (recurring only)
+router.patch('/form-schedules/:id/resume', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id  = parseInt(req.params.id, 10)
+
+    const { rows: [fa] } = await pool.query(
+      'SELECT id, client_id, assignment_type, recurring_rule FROM form_assignments WHERE id = $1',
+      [id],
+    )
+    if (!fa) return res.status(404).json({ error: 'Schedule not found' })
+    if (fa.assignment_type !== 'recurring') return res.status(400).json({ error: 'Only recurring schedules can be resumed.' })
+    if (!await canAccessClient(ctx, fa.client_id)) return res.status(403).json({ error: 'Not your client' })
+
+    const rule     = fa.recurring_rule
+    const nextSend = computeNextSendAt(rule.day_of_week, rule.hour, rule.minute ?? 0)
+
+    const { rows: [updated] } = await pool.query(
+      `UPDATE form_assignments SET status = 'active', is_active = TRUE, next_send_at = $1 WHERE id = $2 RETURNING *`,
+      [nextSend, id],
+    )
+    res.json(updated)
+  } catch (err) { next(err) }
+})
+
+// POST /api/coach-admin/form-schedules/process  (admin only — manual trigger)
+router.post('/form-schedules/process', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireAdmin(req, res); if (!ctx) return
+    const { processFormSchedules } = await import('../jobs/formScheduler.js')
+    const count = await processFormSchedules()
+    res.json({ processed: count })
   } catch (err) { next(err) }
 })
 

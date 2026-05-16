@@ -3,15 +3,28 @@ import { useAuth } from '@clerk/clerk-react'
 import { useNavigate } from 'react-router-dom'
 import { API_URL } from '../../config.js'
 
-// ── Send Form Modal ───────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 
-function SendModal({ form, getToken, onClose }) {
+const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+// ── Send / Schedule Modal ─────────────────────────────────────────────────────
+
+function SendModal({ form, getToken, onClose, onScheduled }) {
+  const [sendMode, setSendMode] = useState('now')      // 'now' | 'scheduled' | 'recurring'
   const [clients,  setClients]  = useState([])
   const [loading,  setLoading]  = useState(true)
   const [selected, setSelected] = useState(new Set())
   const [sending,  setSending]  = useState(false)
-  const [result,   setResult]   = useState(null)   // { sent, skipped, skipped_list }
+  const [result,   setResult]   = useState(null)
   const [err,      setErr]      = useState(null)
+
+  // scheduled mode
+  const [schedDate, setSchedDate] = useState('')
+  const [schedTime, setSchedTime] = useState('09:00')
+
+  // recurring mode
+  const [recurDay,  setRecurDay]  = useState(1)
+  const [recurTime, setRecurTime] = useState('09:00')
 
   useEffect(() => {
     async function load() {
@@ -34,29 +47,82 @@ function SendModal({ form, getToken, onClose }) {
       return next
     })
   }
-  function selectAll()   { setClients(cs => { setSelected(new Set(cs.map(c => c.id))); return cs }) }
-  function selectNone()  { setSelected(new Set()) }
+  function selectAll()  { setSelected(new Set(clients.map(c => c.id))) }
+  function selectNone() { setSelected(new Set()) }
 
-  async function handleSend() {
+  async function handleAction() {
     if (selected.size === 0) return
     setSending(true); setErr(null)
     try {
       const token = await getToken()
-      const res = await fetch(`${API_URL}/api/coach-admin/forms/${form.id}/send`, {
-        method:  'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ client_ids: [...selected] }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Send failed')
-      setResult(data)
+
+      if (sendMode === 'now') {
+        const res = await fetch(`${API_URL}/api/coach-admin/forms/${form.id}/send`, {
+          method:  'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ client_ids: [...selected] }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error ?? 'Send failed')
+        setResult({ mode: 'now', ...data })
+      } else if (sendMode === 'scheduled') {
+        if (!schedDate || !schedTime) throw new Error('Please pick a date and time.')
+        const send_at = new Date(`${schedDate}T${schedTime}:00`).toISOString()
+        const res = await fetch(`${API_URL}/api/coach-admin/forms/${form.id}/schedule`, {
+          method:  'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ client_ids: [...selected], send_mode: 'scheduled', send_at }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error ?? 'Schedule failed')
+        setResult({ mode: 'scheduled', ...data })
+        onScheduled?.()
+      } else {
+        const res = await fetch(`${API_URL}/api/coach-admin/forms/${form.id}/schedule`, {
+          method:  'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            client_ids:     [...selected],
+            send_mode:      'recurring',
+            recurring_rule: {
+              day_of_week: recurDay,
+              hour:        parseInt(recurTime.split(':')[0], 10),
+              minute:      parseInt(recurTime.split(':')[1], 10),
+            },
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error ?? 'Schedule failed')
+        setResult({ mode: 'recurring', ...data })
+        onScheduled?.()
+      }
     } catch (e) { setErr(e.message) }
     finally { setSending(false) }
   }
 
+  const modeTab = (value, label) => (
+    <button
+      key={value}
+      onClick={() => { setSendMode(value); setResult(null); setErr(null) }}
+      className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-colors ${
+        sendMode === value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+      }`}
+    >
+      {label}
+    </button>
+  )
+
+  const actionLabel = () => {
+    if (sending) return sendMode === 'now' ? 'Sending…' : 'Scheduling…'
+    const n = selected.size
+    if (sendMode === 'now')       return `Send to ${n || ''} Client${n !== 1 ? 's' : ''}`
+    if (sendMode === 'scheduled') return `Schedule for ${n || ''} Client${n !== 1 ? 's' : ''}`
+    return `Set Recurring for ${n || ''} Client${n !== 1 ? 's' : ''}`
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-gray-900">Send Form</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
@@ -65,24 +131,50 @@ function SendModal({ form, getToken, onClose }) {
             </svg>
           </button>
         </div>
-        <p className="text-sm text-gray-600 mb-1">Sending: <span className="font-semibold text-gray-900">{form.title}</span></p>
-        <p className="text-xs text-gray-400 mb-4">An in-app message with a form link will be sent to each selected client.</p>
+
+        <p className="text-sm text-gray-600 mb-3">
+          Sending: <span className="font-semibold text-gray-900">{form.title}</span>
+        </p>
+
+        {/* Mode tabs */}
+        <div className="flex gap-1 mb-4 bg-gray-100 rounded-xl p-1">
+          {modeTab('now',       'Send Now')}
+          {modeTab('scheduled', 'Schedule')}
+          {modeTab('recurring', 'Recurring')}
+        </div>
 
         {err && <p className="mb-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{err}</p>}
 
         {result ? (
           <div className="space-y-3">
             <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
-              <p className="text-sm font-bold text-emerald-700">✓ Sent to {result.sent} client{result.sent !== 1 ? 's' : ''}</p>
-              {result.skipped > 0 && (
-                <div className="mt-1">
-                  <p className="text-xs text-amber-600 font-medium">{result.skipped} skipped:</p>
-                  <ul className="text-xs text-amber-600 list-disc list-inside mt-0.5">
-                    {result.skipped_list.map((s, i) => (
-                      <li key={i}>Client {s.client_id}: {s.reason}</li>
-                    ))}
-                  </ul>
-                </div>
+              {result.mode === 'now' ? (
+                <>
+                  <p className="text-sm font-bold text-emerald-700">✓ Sent to {result.sent} client{result.sent !== 1 ? 's' : ''}</p>
+                  {result.skipped > 0 && (
+                    <div className="mt-1">
+                      <p className="text-xs text-amber-600 font-medium">{result.skipped} skipped:</p>
+                      <ul className="text-xs text-amber-600 list-disc list-inside mt-0.5">
+                        {result.skipped_list.map((s, i) => <li key={i}>Client {s.client_id}: {s.reason}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-bold text-emerald-700">
+                    ✓ {result.mode === 'recurring' ? 'Recurring schedule set' : 'Scheduled'} for {result.scheduled} client{result.scheduled !== 1 ? 's' : ''}
+                  </p>
+                  {result.skipped > 0 && (
+                    <div className="mt-1">
+                      <p className="text-xs text-amber-600 font-medium">{result.skipped} skipped:</p>
+                      <ul className="text-xs text-amber-600 list-disc list-inside mt-0.5">
+                        {result.skipped_list.map((s, i) => <li key={i}>Client {s.client_id}: {s.reason}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  <p className="text-xs text-emerald-600 mt-1">Visible in Scheduled Sends below.</p>
+                </>
               )}
             </div>
             <button onClick={onClose}
@@ -103,7 +195,7 @@ function SendModal({ form, getToken, onClose }) {
                   <button onClick={selectAll}  className="text-xs text-[#E8670A] font-semibold hover:underline">All</button>
                   <button onClick={selectNone} className="text-xs text-gray-400 hover:underline">None</button>
                 </div>
-                <div className="max-h-52 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-100 mb-4">
+                <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-100 mb-4">
                   {clients.map(c => (
                     <label key={c.id} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50">
                       <input
@@ -113,9 +205,7 @@ function SendModal({ form, getToken, onClose }) {
                         className="accent-[#E8670A] w-4 h-4"
                       />
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">
-                          {c.first_name} {c.last_name}
-                        </p>
+                        <p className="text-sm font-medium text-gray-900 truncate">{c.first_name} {c.last_name}</p>
                         <p className="text-xs text-gray-400 truncate">{c.email}</p>
                       </div>
                     </label>
@@ -123,23 +213,316 @@ function SendModal({ form, getToken, onClose }) {
                 </div>
               </>
             )}
+
+            {/* Timing inputs */}
+            {sendMode === 'scheduled' && (
+              <div className="mb-4 grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">Date</label>
+                  <input
+                    type="date"
+                    value={schedDate}
+                    min={new Date().toISOString().slice(0, 10)}
+                    onChange={e => setSchedDate(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">Time</label>
+                  <input
+                    type="time"
+                    value={schedTime}
+                    onChange={e => setSchedTime(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                  />
+                </div>
+              </div>
+            )}
+
+            {sendMode === 'recurring' && (
+              <div className="mb-4 grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">Day of Week</label>
+                  <select
+                    value={recurDay}
+                    onChange={e => setRecurDay(parseInt(e.target.value, 10))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                  >
+                    {DAY_LABELS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">Time</label>
+                  <input
+                    type="time"
+                    value={recurTime}
+                    onChange={e => setRecurTime(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                  />
+                </div>
+              </div>
+            )}
+
+            {sendMode === 'now' && (
+              <p className="text-xs text-gray-400 mb-4">An in-app message with a form link will be sent to each selected client.</p>
+            )}
+            {sendMode === 'scheduled' && (
+              <p className="text-xs text-gray-400 mb-4">Form will be delivered as an in-app message at the selected date and time.</p>
+            )}
+            {sendMode === 'recurring' && (
+              <p className="text-xs text-gray-400 mb-4">Form will be sent every week on {DAY_LABELS[recurDay]} at {recurTime}. You can pause or cancel below.</p>
+            )}
+
             <div className="flex gap-3">
               <button onClick={onClose}
                 className="flex-1 border border-gray-200 text-gray-600 font-semibold py-2.5 rounded-xl text-sm hover:bg-gray-50">
                 Cancel
               </button>
               <button
-                onClick={handleSend}
+                onClick={handleAction}
                 disabled={sending || selected.size === 0 || loading}
                 className="flex-1 bg-[#E8670A] text-white font-bold py-2.5 rounded-xl text-sm hover:bg-[#c45e09] disabled:opacity-50"
               >
-                {sending ? 'Sending…' : `Send to ${selected.size || ''} Client${selected.size !== 1 ? 's' : ''}`}
+                {actionLabel()}
               </button>
             </div>
           </>
         )}
       </div>
     </div>
+  )
+}
+
+// ── Scheduled Sends Panel ─────────────────────────────────────────────────────
+
+function fmtDt(iso) {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
+
+function ScheduledSends({ getToken, refreshKey }) {
+  const [rows,       setRows]       = useState([])
+  const [loading,    setLoading]    = useState(true)
+  const [actioning,  setActioning]  = useState(null)
+  const [processing, setProcessing] = useState(false)
+  const [processMsg, setProcessMsg] = useState(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/form-schedules`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) setRows(await res.json())
+    } catch {}
+    finally { setLoading(false) }
+  }, [getToken])
+
+  useEffect(() => { load() }, [load, refreshKey])
+
+  async function cancel(id) {
+    if (!confirm('Cancel this scheduled send?')) return
+    setActioning(id + '_cancel')
+    try {
+      const token = await getToken()
+      await fetch(`${API_URL}/api/coach-admin/form-schedules/${id}/cancel`, {
+        method: 'PATCH', headers: { Authorization: `Bearer ${token}` },
+      })
+      await load()
+    } finally { setActioning(null) }
+  }
+
+  async function pause(id) {
+    setActioning(id + '_pause')
+    try {
+      const token = await getToken()
+      await fetch(`${API_URL}/api/coach-admin/form-schedules/${id}/pause`, {
+        method: 'PATCH', headers: { Authorization: `Bearer ${token}` },
+      })
+      await load()
+    } finally { setActioning(null) }
+  }
+
+  async function resume(id) {
+    setActioning(id + '_resume')
+    try {
+      const token = await getToken()
+      await fetch(`${API_URL}/api/coach-admin/form-schedules/${id}/resume`, {
+        method: 'PATCH', headers: { Authorization: `Bearer ${token}` },
+      })
+      await load()
+    } finally { setActioning(null) }
+  }
+
+  async function runProcessor() {
+    setProcessing(true); setProcessMsg(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/form-schedules/process`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const { processed } = await res.json()
+        setProcessMsg(`Processed ${processed} due assignment${processed !== 1 ? 's' : ''}.`)
+        await load()
+      } else {
+        const d = await res.json().catch(() => ({}))
+        setProcessMsg(d.error ?? 'Error')
+      }
+    } finally { setProcessing(false) }
+  }
+
+  const STATUS_COLORS = {
+    pending:   'bg-blue-50 text-blue-700 border-blue-200',
+    active:    'bg-emerald-50 text-emerald-700 border-emerald-200',
+    sent:      'bg-gray-100 text-gray-500 border-gray-200',
+    paused:    'bg-amber-50 text-amber-700 border-amber-200',
+    cancelled: 'bg-red-50 text-red-500 border-red-200',
+  }
+
+  const active = rows.filter(r => ['pending', 'active', 'paused'].includes(r.status))
+  const past   = rows.filter(r => ['sent', 'cancelled'].includes(r.status))
+
+  return (
+    <section className="mt-10">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900">Scheduled Sends</h2>
+          <p className="text-xs text-gray-500 mt-0.5">Pending one-time and recurring form deliveries</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {processMsg && <span className="text-xs text-gray-500">{processMsg}</span>}
+          <button
+            onClick={runProcessor}
+            disabled={processing}
+            className="text-xs border border-gray-200 text-gray-600 font-semibold px-3 py-1.5 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+          >
+            {processing ? 'Running…' : 'Run Processor'}
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-gray-400 py-6 text-center">Loading…</p>
+      ) : rows.length === 0 ? (
+        <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center">
+          <p className="text-sm text-gray-400">No scheduled sends yet. Use the Send button on a published form to schedule.</p>
+        </div>
+      ) : (
+        <>
+          {active.length > 0 && (
+            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-4">
+              <div className="px-5 py-3 bg-gray-50 border-b border-gray-200">
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Active</span>
+              </div>
+              {/* Desktop */}
+              <table className="w-full hidden md:table">
+                <thead className="text-xs text-gray-400 uppercase tracking-wider border-b border-gray-100">
+                  <tr>
+                    <th className="text-left px-5 py-2.5 font-semibold">Form</th>
+                    <th className="text-left px-4 py-2.5 font-semibold">Client</th>
+                    <th className="text-left px-4 py-2.5 font-semibold">Type</th>
+                    <th className="text-left px-4 py-2.5 font-semibold">Status</th>
+                    <th className="text-left px-4 py-2.5 font-semibold">Next Send</th>
+                    <th className="text-right px-4 py-2.5 font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {active.map(r => (
+                    <tr key={r.id} className="text-sm">
+                      <td className="px-5 py-3 font-medium text-gray-900 truncate max-w-[180px]">{r.form_title}</td>
+                      <td className="px-4 py-3 text-gray-600">{r.client_first_name} {r.client_last_name}</td>
+                      <td className="px-4 py-3">
+                        <span className="capitalize text-xs font-semibold text-gray-500">{r.assignment_type}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${STATUS_COLORS[r.status] ?? STATUS_COLORS.active}`}>
+                          {r.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-500">{fmtDt(r.next_send_at)}</td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        {r.assignment_type === 'recurring' && r.status === 'active' && (
+                          <button
+                            onClick={() => pause(r.id)}
+                            disabled={actioning === r.id + '_pause'}
+                            className="text-xs text-amber-600 hover:text-amber-700 font-semibold mr-3 disabled:opacity-50"
+                          >
+                            {actioning === r.id + '_pause' ? '…' : 'Pause'}
+                          </button>
+                        )}
+                        {r.assignment_type === 'recurring' && r.status === 'paused' && (
+                          <button
+                            onClick={() => resume(r.id)}
+                            disabled={actioning === r.id + '_resume'}
+                            className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold mr-3 disabled:opacity-50"
+                          >
+                            {actioning === r.id + '_resume' ? '…' : 'Resume'}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => cancel(r.id)}
+                          disabled={actioning === r.id + '_cancel'}
+                          className="text-xs text-red-400 hover:text-red-600 font-medium disabled:opacity-50"
+                        >
+                          {actioning === r.id + '_cancel' ? '…' : 'Cancel'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {/* Mobile */}
+              <div className="md:hidden divide-y divide-gray-100">
+                {active.map(r => (
+                  <div key={r.id} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{r.form_title}</p>
+                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide shrink-0 ${STATUS_COLORS[r.status] ?? STATUS_COLORS.active}`}>
+                        {r.status}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mb-1">{r.client_first_name} {r.client_last_name}</p>
+                    <p className="text-xs text-gray-400 mb-2">Next: {fmtDt(r.next_send_at)}</p>
+                    <div className="flex gap-3">
+                      {r.assignment_type === 'recurring' && r.status === 'active' && (
+                        <button onClick={() => pause(r.id)} className="text-xs text-amber-600 font-semibold">Pause</button>
+                      )}
+                      {r.assignment_type === 'recurring' && r.status === 'paused' && (
+                        <button onClick={() => resume(r.id)} className="text-xs text-emerald-600 font-semibold">Resume</button>
+                      )}
+                      <button onClick={() => cancel(r.id)} className="text-xs text-red-400 font-medium ml-auto">Cancel</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {past.length > 0 && (
+            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+              <div className="px-5 py-3 bg-gray-50 border-b border-gray-200">
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">History</span>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {past.slice(0, 20).map(r => (
+                  <div key={r.id} className="px-5 py-3 flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-700 truncate">{r.form_title}</p>
+                      <p className="text-xs text-gray-400">{r.client_first_name} {r.client_last_name} · {fmtDt(r.sent_at || r.last_sent_at)}</p>
+                    </div>
+                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide shrink-0 ${STATUS_COLORS[r.status] ?? STATUS_COLORS.sent}`}>
+                      {r.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </section>
   )
 }
 
@@ -232,10 +615,11 @@ export default function FormsList() {
   const [forms,   setForms]   = useState([])
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(null)
-  const [creating,    setCreating]    = useState(false)
-  const [filter,      setFilter]      = useState('all')   // all | draft | published | archived
+  const [creating,      setCreating]      = useState(false)
+  const [filter,        setFilter]        = useState('all')
   const [actionLoading, setActionLoading] = useState(null)
-  const [sendingForm, setSendingForm] = useState(null)   // form object being sent
+  const [sendingForm,   setSendingForm]   = useState(null)
+  const [scheduleKey,   setScheduleKey]   = useState(0)   // bump to refresh ScheduledSends
 
   const load = useCallback(async () => {
     try {
@@ -273,8 +657,7 @@ export default function FormsList() {
     try {
       const token = await getToken()
       const res = await fetch(`${API_URL}/api/forms/${id}/publish`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
@@ -290,8 +673,7 @@ export default function FormsList() {
     try {
       const token = await getToken()
       await fetch(`${API_URL}/api/forms/${id}/archive`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}` },
+        method: 'PATCH', headers: { Authorization: `Bearer ${token}` },
       })
       await load()
     } finally { setActionLoading(null) }
@@ -303,16 +685,13 @@ export default function FormsList() {
     try {
       const token = await getToken()
       const res = await fetch(`${API_URL}/api/forms/${id}/duplicate`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
       })
       if (res.ok) { await load() }
     } finally { setActionLoading(null) }
   }
 
-  const displayed = filter === 'all'
-    ? forms
-    : forms.filter(f => f.status === filter)
+  const displayed = filter === 'all' ? forms : forms.filter(f => f.status === filter)
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -480,6 +859,9 @@ export default function FormsList() {
         </>
       )}
 
+      {/* Scheduled Sends section */}
+      <ScheduledSends getToken={getToken} refreshKey={scheduleKey} />
+
       {creating && (
         <CreateModal onClose={() => setCreating(false)} onCreate={handleCreate} />
       )}
@@ -489,6 +871,7 @@ export default function FormsList() {
           form={sendingForm}
           getToken={getToken}
           onClose={() => setSendingForm(null)}
+          onScheduled={() => setScheduleKey(k => k + 1)}
         />
       )}
     </div>

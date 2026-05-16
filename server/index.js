@@ -26,6 +26,7 @@ import invitesRouter from './routes/invites.js'
 import weeklyCheckinsRouter from './routes/weeklyCheckins.js'
 import formsRouter from './routes/forms.js'
 import { runInactivityAlert } from './jobs/inactivityAlert.js'
+import { processFormSchedules } from './jobs/formScheduler.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname  = path.dirname(__filename)
@@ -91,5 +92,8 @@ migrate()
       // Run inactivity check at startup, then every 24 hours
       runInactivityAlert()
       setInterval(runInactivityAlert, 24 * 60 * 60 * 1000)
+      // Run form schedule processor at startup, then every hour
+      processFormSchedules()
+      setInterval(processFormSchedules, 60 * 60 * 1000)
     })
   })
