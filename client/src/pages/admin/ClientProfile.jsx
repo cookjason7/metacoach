@@ -87,7 +87,15 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
         paid:              form.paid,
       }),
     })
-    if (res.ok) { onUpdate(await res.json()); setEditing(false) }
+    if (res.ok) {
+      const updated = await res.json()
+      onUpdate({
+        ...updated,
+        display_first_name: updated.first_name ?? null,
+        display_last_name:  updated.last_name  ?? null,
+      })
+      setEditing(false)
+    }
   }
 
   const adh7  = Math.round(Number(client.adherence_7d)  || 0)
@@ -144,7 +152,7 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
             // Fallback chain: users table → health_assessments → null
             const fullName = [
               client.display_first_name || client.first_name,
-              client.display_last_name,
+              client.display_last_name  || client.last_name,
             ].filter(Boolean).join(' ') || null
             const phone = client.display_phone || client.phone_number || null
             const addr  = client.display_address
