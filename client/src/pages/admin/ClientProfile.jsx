@@ -1354,6 +1354,12 @@ function fmtDateTime(iso) {
   })
 }
 
+function notePreview(note) {
+  const text = String(note ?? '').trim()
+  if (!text) return '—'
+  return text.length > 80 ? `${text.slice(0, 77)}...` : text
+}
+
 function ReviewedBadge({ sub }) {
   if (sub.reviewed_at) {
     return (
@@ -1449,9 +1455,12 @@ function FormSubmissionsSection({ clientId, getToken }) {
         },
       )
       if (res.ok) {
+        const data = await res.json()
+        const savedNote = data.coach_note ?? null
         setSubmissions(prev => prev.map(s =>
-          s.id === sub.id ? { ...s, coach_note: note.trim() || null } : s
+          s.id === sub.id ? { ...s, coach_note: savedNote } : s
         ))
+        setNoteDrafts(prev => ({ ...prev, [sub.id]: savedNote ?? '' }))
       }
     } catch {}
     finally { setSavingNote(null) }
@@ -1488,15 +1497,13 @@ function FormSubmissionsSection({ clientId, getToken }) {
             placeholder="Add a note about this submission…"
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
           />
-          {isDirty && (
-            <button
-              onClick={() => handleSaveNote(sub)}
-              disabled={savingNote === sub.id}
-              className="mt-1.5 text-xs bg-[#E8670A] text-white font-bold px-3 py-1.5 rounded-lg hover:bg-[#c45e09] disabled:opacity-50"
-            >
-              {savingNote === sub.id ? 'Saving…' : 'Save Note'}
-            </button>
-          )}
+          <button
+            onClick={() => handleSaveNote(sub)}
+            disabled={savingNote === sub.id || !isDirty}
+            className="mt-1.5 min-h-11 md:min-h-0 text-xs bg-[#E8670A] text-white font-bold px-3 py-1.5 rounded-lg hover:bg-[#c45e09] disabled:opacity-50"
+          >
+            {savingNote === sub.id ? 'Saving…' : 'Save Note'}
+          </button>
         </div>
 
         <div className="flex items-center justify-between pt-2 border-t border-gray-200">
@@ -1552,7 +1559,7 @@ function FormSubmissionsSection({ clientId, getToken }) {
                       <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">{fmtDateTime(sub.submitted_at)}</td>
                       <td className="px-4 py-3"><ReviewedBadge sub={sub} /></td>
                       <td className="px-4 py-3 text-xs text-gray-500 max-w-[140px]">
-                        <span className="truncate block">{sub.coach_note || '—'}</span>
+                        <span className="truncate block" title={sub.coach_note || ''}>{notePreview(sub.coach_note)}</span>
                       </td>
                       <td className="px-4 py-3 text-right">
                         <button
@@ -1593,7 +1600,7 @@ function FormSubmissionsSection({ clientId, getToken }) {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-gray-500 truncate max-w-[60%]">
-                      {sub.coach_note || '—'}
+                      {notePreview(sub.coach_note)}
                     </span>
                     <button
                       onClick={() => handleView(sub)}

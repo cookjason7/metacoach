@@ -1160,13 +1160,24 @@ router.patch('/form-submissions/:submissionId/mark-reviewed', requireAuth(), asy
     const subId = parseInt(req.params.submissionId, 10)
 
     const { rows: [sub] } = await pool.query(
-      'SELECT id, user_id, reviewed_at FROM form_submissions WHERE id = $1',
+      `SELECT fs.id, fs.user_id, fs.reviewed_at, fs.reviewed_by,
+              reviewer.first_name AS reviewed_by_name
+       FROM form_submissions fs
+       LEFT JOIN users reviewer ON reviewer.id = fs.reviewed_by
+       WHERE fs.id = $1`,
       [subId],
     )
     if (!sub) return res.status(404).json({ error: 'Submission not found' })
     if (!await canAccessClient(ctx, sub.user_id)) return res.status(403).json({ error: 'Forbidden' })
 
-    if (sub.reviewed_at) return res.json({ already_reviewed: true, reviewed_at: sub.reviewed_at })
+    if (sub.reviewed_at) {
+      return res.json({
+        already_reviewed: true,
+        reviewed_at:      sub.reviewed_at,
+        reviewed_by:      sub.reviewed_by,
+        reviewed_by_name: sub.reviewed_by_name,
+      })
+    }
 
     const { rows: [updated] } = await pool.query(
       `UPDATE form_submissions SET reviewed_at = NOW(), reviewed_by = $1
@@ -1194,6 +1205,7 @@ router.patch('/form-submissions/:submissionId/note', requireAuth(), async (req, 
     const ctx = await requireStaff(req, res); if (!ctx) return
     const subId = parseInt(req.params.submissionId, 10)
     const { note } = req.body
+    const normalizedNote = typeof note === 'string' ? note.trim() : ''
 
     const { rows: [sub] } = await pool.query(
       'SELECT id, user_id FROM form_submissions WHERE id = $1',
@@ -1202,11 +1214,11 @@ router.patch('/form-submissions/:submissionId/note', requireAuth(), async (req, 
     if (!sub) return res.status(404).json({ error: 'Submission not found' })
     if (!await canAccessClient(ctx, sub.user_id)) return res.status(403).json({ error: 'Forbidden' })
 
-    await pool.query(
-      'UPDATE form_submissions SET coach_note = $1 WHERE id = $2',
-      [note?.trim() ?? null, subId],
+    const { rows: [updated] } = await pool.query(
+      'UPDATE form_submissions SET coach_note = $1 WHERE id = $2 RETURNING coach_note',
+      [normalizedNote || null, subId],
     )
-    res.json({ ok: true, coach_note: note?.trim() ?? null })
+    res.json({ ok: true, coach_note: updated.coach_note })
   } catch (err) { next(err) }
 })
 
