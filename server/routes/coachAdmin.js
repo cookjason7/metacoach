@@ -1441,12 +1441,18 @@ router.patch('/form-schedules/:id/cancel', requireAuth(), async (req, res, next)
     const id  = parseInt(req.params.id, 10)
 
     const { rows: [fa] } = await pool.query(
-      'SELECT id, client_id FROM form_assignments WHERE id = $1',
+      'SELECT id, client_id, assignment_type, status FROM form_assignments WHERE id = $1',
       [id],
     )
     if (!fa) return res.status(404).json({ error: 'Schedule not found' })
     if (!await canAccessClient(ctx, fa.client_id))
       return res.status(403).json({ error: 'Not your client' })
+    if (!['scheduled', 'recurring'].includes(fa.assignment_type))
+      return res.status(400).json({ error: 'Only scheduled or recurring form sends can be cancelled.' })
+    if (fa.assignment_type === 'scheduled' && fa.status !== 'pending')
+      return res.status(400).json({ error: 'Only pending scheduled sends can be cancelled.' })
+    if (fa.assignment_type === 'recurring' && !['active', 'paused'].includes(fa.status))
+      return res.status(400).json({ error: 'Only active or paused recurring schedules can be cancelled.' })
 
     const { rows: [updated] } = await pool.query(
       `UPDATE form_assignments SET status = 'cancelled', is_active = FALSE WHERE id = $1 RETURNING *`,
@@ -1463,12 +1469,13 @@ router.patch('/form-schedules/:id/pause', requireAuth(), async (req, res, next) 
     const id  = parseInt(req.params.id, 10)
 
     const { rows: [fa] } = await pool.query(
-      'SELECT id, client_id, assignment_type FROM form_assignments WHERE id = $1',
+      'SELECT id, client_id, assignment_type, status FROM form_assignments WHERE id = $1',
       [id],
     )
     if (!fa) return res.status(404).json({ error: 'Schedule not found' })
     if (fa.assignment_type !== 'recurring') return res.status(400).json({ error: 'Only recurring schedules can be paused.' })
     if (!await canAccessClient(ctx, fa.client_id)) return res.status(403).json({ error: 'Not your client' })
+    if (fa.status !== 'active') return res.status(400).json({ error: 'Only active recurring schedules can be paused.' })
 
     const { rows: [updated] } = await pool.query(
       `UPDATE form_assignments SET status = 'paused', is_active = FALSE WHERE id = $1 RETURNING *`,
@@ -1485,12 +1492,13 @@ router.patch('/form-schedules/:id/resume', requireAuth(), async (req, res, next)
     const id  = parseInt(req.params.id, 10)
 
     const { rows: [fa] } = await pool.query(
-      'SELECT id, client_id, assignment_type, recurring_rule FROM form_assignments WHERE id = $1',
+      'SELECT id, client_id, assignment_type, status, recurring_rule FROM form_assignments WHERE id = $1',
       [id],
     )
     if (!fa) return res.status(404).json({ error: 'Schedule not found' })
     if (fa.assignment_type !== 'recurring') return res.status(400).json({ error: 'Only recurring schedules can be resumed.' })
     if (!await canAccessClient(ctx, fa.client_id)) return res.status(403).json({ error: 'Not your client' })
+    if (fa.status !== 'paused') return res.status(400).json({ error: 'Only paused recurring schedules can be resumed.' })
 
     const rule     = fa.recurring_rule
     const nextSend = computeNextSendAt(rule.day_of_week, rule.hour, rule.minute ?? 0)

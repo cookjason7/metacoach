@@ -300,12 +300,20 @@ function fmtDt(iso) {
   return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 
+function scheduleTypeLabel(type) {
+  if (type === 'scheduled') return 'Scheduled'
+  if (type === 'recurring') return 'Recurring'
+  return type ?? 'Schedule'
+}
+
+function clientName(row) {
+  return [row.client_first_name, row.client_last_name].filter(Boolean).join(' ') || 'Client'
+}
+
 function ScheduledSends({ getToken, refreshKey }) {
   const [rows,       setRows]       = useState([])
   const [loading,    setLoading]    = useState(true)
   const [actioning,  setActioning]  = useState(null)
-  const [processing, setProcessing] = useState(false)
-  const [processMsg, setProcessMsg] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -355,24 +363,6 @@ function ScheduledSends({ getToken, refreshKey }) {
     } finally { setActioning(null) }
   }
 
-  async function runProcessor() {
-    setProcessing(true); setProcessMsg(null)
-    try {
-      const token = await getToken()
-      const res = await fetch(`${API_URL}/api/coach-admin/form-schedules/process`, {
-        method: 'POST', headers: { Authorization: `Bearer ${token}` },
-      })
-      if (res.ok) {
-        const { processed } = await res.json()
-        setProcessMsg(`Processed ${processed} due assignment${processed !== 1 ? 's' : ''}.`)
-        await load()
-      } else {
-        const d = await res.json().catch(() => ({}))
-        setProcessMsg(d.error ?? 'Error')
-      }
-    } finally { setProcessing(false) }
-  }
-
   const STATUS_COLORS = {
     pending:   'bg-blue-50 text-blue-700 border-blue-200',
     active:    'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -386,20 +376,10 @@ function ScheduledSends({ getToken, refreshKey }) {
 
   return (
     <section className="mt-10">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between gap-3 mb-4">
         <div>
-          <h2 className="text-lg font-bold text-gray-900">Scheduled Sends</h2>
+          <h2 className="text-lg font-bold text-gray-900">Scheduled Forms</h2>
           <p className="text-xs text-gray-500 mt-0.5">Pending one-time and recurring form deliveries</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {processMsg && <span className="text-xs text-gray-500">{processMsg}</span>}
-          <button
-            onClick={runProcessor}
-            disabled={processing}
-            className="text-xs border border-gray-200 text-gray-600 font-semibold px-3 py-1.5 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-          >
-            {processing ? 'Running…' : 'Run Processor'}
-          </button>
         </div>
       </div>
 
@@ -407,7 +387,7 @@ function ScheduledSends({ getToken, refreshKey }) {
         <p className="text-sm text-gray-400 py-6 text-center">Loading…</p>
       ) : rows.length === 0 ? (
         <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center">
-          <p className="text-sm text-gray-400">No scheduled sends yet. Use the Send button on a published form to schedule.</p>
+          <p className="text-sm text-gray-400">No scheduled forms yet. Use Send on a published form to schedule one.</p>
         </div>
       ) : (
         <>
@@ -425,6 +405,7 @@ function ScheduledSends({ getToken, refreshKey }) {
                     <th className="text-left px-4 py-2.5 font-semibold">Type</th>
                     <th className="text-left px-4 py-2.5 font-semibold">Status</th>
                     <th className="text-left px-4 py-2.5 font-semibold">Next Send</th>
+                    <th className="text-left px-4 py-2.5 font-semibold">Last Sent</th>
                     <th className="text-right px-4 py-2.5 font-semibold">Actions</th>
                   </tr>
                 </thead>
@@ -432,9 +413,9 @@ function ScheduledSends({ getToken, refreshKey }) {
                   {active.map(r => (
                     <tr key={r.id} className="text-sm">
                       <td className="px-5 py-3 font-medium text-gray-900 truncate max-w-[180px]">{r.form_title}</td>
-                      <td className="px-4 py-3 text-gray-600">{r.client_first_name} {r.client_last_name}</td>
+                      <td className="px-4 py-3 text-gray-600">{clientName(r)}</td>
                       <td className="px-4 py-3">
-                        <span className="capitalize text-xs font-semibold text-gray-500">{r.assignment_type}</span>
+                        <span className="text-xs font-semibold text-gray-500">{scheduleTypeLabel(r.assignment_type)}</span>
                       </td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${STATUS_COLORS[r.status] ?? STATUS_COLORS.active}`}>
@@ -442,6 +423,7 @@ function ScheduledSends({ getToken, refreshKey }) {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-500">{fmtDt(r.next_send_at)}</td>
+                      <td className="px-4 py-3 text-xs text-gray-500">{fmtDt(r.last_sent_at || r.sent_at)}</td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
                         {r.assignment_type === 'recurring' && r.status === 'active' && (
                           <button
@@ -483,16 +465,35 @@ function ScheduledSends({ getToken, refreshKey }) {
                         {r.status}
                       </span>
                     </div>
-                    <p className="text-xs text-gray-500 mb-1">{r.client_first_name} {r.client_last_name}</p>
+                    <p className="text-xs text-gray-500 mb-1">{clientName(r)} · {scheduleTypeLabel(r.assignment_type)}</p>
                     <p className="text-xs text-gray-400 mb-2">Next: {fmtDt(r.next_send_at)}</p>
+                    <p className="text-xs text-gray-400 mb-2">Last sent: {fmtDt(r.last_sent_at || r.sent_at)}</p>
                     <div className="flex gap-3">
                       {r.assignment_type === 'recurring' && r.status === 'active' && (
-                        <button onClick={() => pause(r.id)} className="text-xs text-amber-600 font-semibold">Pause</button>
+                        <button
+                          onClick={() => pause(r.id)}
+                          disabled={actioning === r.id + '_pause'}
+                          className="text-xs text-amber-600 font-semibold disabled:opacity-50"
+                        >
+                          {actioning === r.id + '_pause' ? '…' : 'Pause'}
+                        </button>
                       )}
                       {r.assignment_type === 'recurring' && r.status === 'paused' && (
-                        <button onClick={() => resume(r.id)} className="text-xs text-emerald-600 font-semibold">Resume</button>
+                        <button
+                          onClick={() => resume(r.id)}
+                          disabled={actioning === r.id + '_resume'}
+                          className="text-xs text-emerald-600 font-semibold disabled:opacity-50"
+                        >
+                          {actioning === r.id + '_resume' ? '…' : 'Resume'}
+                        </button>
                       )}
-                      <button onClick={() => cancel(r.id)} className="text-xs text-red-400 font-medium ml-auto">Cancel</button>
+                      <button
+                        onClick={() => cancel(r.id)}
+                        disabled={actioning === r.id + '_cancel'}
+                        className="text-xs text-red-400 font-medium ml-auto disabled:opacity-50"
+                      >
+                        {actioning === r.id + '_cancel' ? '…' : 'Cancel'}
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -510,6 +511,7 @@ function ScheduledSends({ getToken, refreshKey }) {
                   <div key={r.id} className="px-5 py-3 flex items-center justify-between gap-4">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-700 truncate">{r.form_title}</p>
+                      <p className="text-xs text-gray-500">{clientName(r)} · {scheduleTypeLabel(r.assignment_type)}</p>
                       <p className="text-xs text-gray-400">{r.client_first_name} {r.client_last_name} · {fmtDt(r.sent_at || r.last_sent_at)}</p>
                     </div>
                     <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide shrink-0 ${STATUS_COLORS[r.status] ?? STATUS_COLORS.sent}`}>
