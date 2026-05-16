@@ -1019,42 +1019,433 @@ function MembersTab({ members, loading }) {
   )
 }
 
-// ── Classroom tab ─────────────────────────────────────────────────────────────
+// ── Mindset Videos helpers ────────────────────────────────────────────────────
 
-function ClassroomTab() {
+function ytVideoId(url) {
+  if (!url) return null
+  const short = url.match(/youtu\.be\/([A-Za-z0-9_-]{11})/)
+  if (short) return short[1]
+  const watch = url.match(/[?&]v=([A-Za-z0-9_-]{11})/)
+  if (watch) return watch[1]
+  const embed = url.match(/youtube\.com\/embed\/([A-Za-z0-9_-]{11})/)
+  if (embed) return embed[1]
+  return null
+}
+
+const EMPTY_VIDEO = { title: '', description: '', youtube_url: '', module_name: '', display_order: 0, published: false }
+
+function VideoModal({ initial, onSave, onClose, saving }) {
+  const [form, setForm] = useState(initial ?? EMPTY_VIDEO)
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const vid = ytVideoId(form.youtube_url)
+  const isEdit = !!initial?.id
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h2 className="text-base font-bold text-gray-900">{isEdit ? 'Edit Video' : 'Add Video'}</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="px-6 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Title *</label>
+            <input
+              value={form.title}
+              onChange={e => set('title', e.target.value)}
+              placeholder="Video title"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#E8670A]"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">YouTube URL *</label>
+            <input
+              value={form.youtube_url}
+              onChange={e => set('youtube_url', e.target.value)}
+              placeholder="https://www.youtube.com/watch?v=..."
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#E8670A]"
+            />
+            {form.youtube_url && !vid && (
+              <p className="text-xs text-red-500 mt-1">Unrecognised YouTube URL</p>
+            )}
+            {vid && (
+              <img
+                src={`https://img.youtube.com/vi/${vid}/mqdefault.jpg`}
+                alt="thumbnail"
+                className="mt-2 rounded-lg w-full max-w-xs h-auto"
+              />
+            )}
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Description</label>
+            <textarea
+              value={form.description}
+              onChange={e => set('description', e.target.value)}
+              rows={3}
+              placeholder="Short description (optional)"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#E8670A] resize-none"
+            />
+          </div>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Module / Category</label>
+              <input
+                value={form.module_name}
+                onChange={e => set('module_name', e.target.value)}
+                placeholder="e.g. Brain Mapping"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#E8670A]"
+              />
+            </div>
+            <div className="w-24">
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Order</label>
+              <input
+                type="number"
+                value={form.display_order}
+                onChange={e => set('display_order', Number(e.target.value))}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#E8670A]"
+              />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={form.published}
+              onChange={e => set('published', e.target.checked)}
+              className="w-4 h-4 accent-[#E8670A]"
+            />
+            <span className="text-sm font-medium text-gray-700">Published (visible to clients)</span>
+          </label>
+        </div>
+        <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 font-medium">Cancel</button>
+          <button
+            onClick={() => onSave(form)}
+            disabled={saving || !form.title.trim() || !form.youtube_url.trim() || (form.youtube_url && !ytVideoId(form.youtube_url))}
+            className="px-5 py-2 bg-[#E8670A] text-white text-sm font-bold rounded-xl hover:bg-[#c45e09] disabled:opacity-50 transition-colors"
+          >
+            {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Video'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded, onToggleExpand }) {
+  const vid = ytVideoId(video.youtube_url)
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+      {/* Thumbnail / embed area */}
+      <div className="relative bg-black" style={{ aspectRatio: '16/9' }}>
+        {expanded && vid ? (
+          <iframe
+            src={`https://www.youtube.com/embed/${vid}?autoplay=1`}
+            title={video.title}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            className="w-full h-full"
+          />
+        ) : vid ? (
+          <button
+            onClick={onToggleExpand}
+            className="w-full h-full relative group"
+            aria-label="Play video"
+          >
+            <img
+              src={`https://img.youtube.com/vi/${vid}/mqdefault.jpg`}
+              alt={video.title}
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/30 transition-colors">
+              <div className="w-14 h-14 bg-[#E8670A] rounded-full flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                <svg className="w-6 h-6 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </div>
+            </div>
+          </button>
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">No valid YouTube URL</div>
+        )}
+      </div>
+
+      {/* Info */}
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-2 mb-1">
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2 mb-1">
+              {video.module_name && (
+                <span className="text-xs font-semibold bg-[#fde8c8] text-[#c45e09] px-2 py-0.5 rounded-full">
+                  {video.module_name}
+                </span>
+              )}
+              {isStaff && (
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                  video.published ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
+                }`}>
+                  {video.published ? 'Published' : 'Draft'}
+                </span>
+              )}
+            </div>
+            <h3 className="text-sm font-bold text-gray-900 leading-snug">{video.title}</h3>
+            {video.description && (
+              <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{video.description}</p>
+            )}
+          </div>
+          {/* Staff controls */}
+          {isStaff && (
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={() => onTogglePublish(video)}
+                title={video.published ? 'Unpublish' : 'Publish'}
+                className={`p-2 rounded-lg text-xs font-semibold transition-colors ${
+                  video.published
+                    ? 'text-emerald-600 hover:bg-emerald-50'
+                    : 'text-gray-400 hover:bg-gray-100'
+                }`}
+              >
+                {video.published ? (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                  </svg>
+                )}
+              </button>
+              <button
+                onClick={() => onEdit(video)}
+                title="Edit"
+                className="p-2 rounded-lg text-gray-400 hover:text-[#E8670A] hover:bg-[#fde8c8] transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
+              </button>
+              <button
+                onClick={() => onDelete(video)}
+                title="Delete"
+                className="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {!isStaff && (
+          <button
+            onClick={onToggleExpand}
+            className="mt-2 text-xs font-semibold text-[#E8670A] hover:underline"
+          >
+            {expanded ? 'Close video' : 'Watch video →'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Mindset tab ───────────────────────────────────────────────────────────────
+
+function MindsetTab({ getToken, isStaff }) {
+  const [videos,      setVideos]      = useState([])
+  const [loading,     setLoading]     = useState(true)
+  const [error,       setError]       = useState(null)
+  const [modal,       setModal]       = useState(null)  // null | 'add' | videoObj (edit)
+  const [saving,      setSaving]      = useState(false)
+  const [expandedId,  setExpandedId]  = useState(null)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleting,    setDeleting]    = useState(false)
+
+  async function load() {
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/mindset-videos`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error(`Server error ${res.status}`)
+      setVideos(await res.json())
+    } catch (e) { setError(e.message) }
+    finally { setLoading(false) }
+  }
+
+  useEffect(() => { load() }, [getToken])
+
+  async function handleSave(form) {
+    setSaving(true)
+    try {
+      const token = await getToken()
+      const isEdit = !!modal?.id
+      const url = isEdit
+        ? `${API_URL}/api/mindset-videos/${modal.id}`
+        : `${API_URL}/api/mindset-videos`
+      const res = await fetch(url, {
+        method: isEdit ? 'PUT' : 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Save failed') }
+      setModal(null)
+      await load()
+    } catch (e) { alert(e.message) }
+    finally { setSaving(false) }
+  }
+
+  async function handleTogglePublish(video) {
+    try {
+      const token = await getToken()
+      await fetch(`${API_URL}/api/mindset-videos/${video.id}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...video, published: !video.published }),
+      })
+      await load()
+    } catch (e) { alert(e.message) }
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      const token = await getToken()
+      await fetch(`${API_URL}/api/mindset-videos/${deleteTarget.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      setDeleteTarget(null)
+      await load()
+    } catch (e) { alert(e.message) }
+    finally { setDeleting(false) }
+  }
+
+  // Group videos by module_name for client view
+  const grouped = videos.reduce((acc, v) => {
+    const key = v.module_name || 'General'
+    if (!acc[key]) acc[key] = []
+    acc[key].push(v)
+    return acc
+  }, {})
+
   return (
     <div className="max-w-2xl">
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
-        <div className="px-6 py-5" style={{ background: 'linear-gradient(135deg, #0F1E35 0%, #1e3a5f 100%)' }}>
-          <p className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-1">Module 1</p>
-          <h2 className="text-xl font-bold text-white mb-2">Brain Mapping</h2>
-          <p className="text-sm text-white/70 leading-relaxed">
-            Rewire your relationship with food and your body at the identity level.
-            This is the foundational work that makes everything else stick.
-          </p>
-        </div>
-        <div className="p-6">
-          <p className="text-sm text-gray-600 leading-relaxed mb-5">
-            Brain Mapping is the core methodology behind Life Warrior Coaching.
-            Before you change your plate, you change your mind. This module walks you
-            through the identity shift that separates women who transform from women who cycle.
-          </p>
-          <a
-            href="https://www.lwcvip.com/mindset"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-block bg-[#E8670A] text-white px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-[#c45e09] transition-colors"
+      {/* Staff toolbar */}
+      {isStaff && (
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">Brain Mapping / Mindset</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Manage videos visible to clients</p>
+          </div>
+          <button
+            onClick={() => setModal('add')}
+            className="flex items-center gap-2 bg-[#E8670A] text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-[#c45e09] transition-colors"
           >
-            Start Brain Mapping →
-          </a>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Add Video
+          </button>
         </div>
-      </div>
+      )}
 
-      <div className="flex flex-col items-center justify-center py-12 text-center text-gray-400">
-        <p className="text-3xl mb-3">📚</p>
-        <p className="text-sm font-semibold text-gray-600 mb-1">More courses coming soon</p>
-        <p className="text-sm">New content drops regularly. Check back often.</p>
-      </div>
+      {!isStaff && (
+        <div className="mb-5">
+          <h2 className="text-lg font-bold text-gray-900">Brain Mapping / Mindset</h2>
+          <p className="text-sm text-gray-500 mt-0.5">Foundational mindset work from your coaching team</p>
+        </div>
+      )}
+
+      {loading && <p className="text-sm text-gray-400 text-center py-16">Loading…</p>}
+      {error   && <p className="text-sm text-red-500 text-center py-8">{error}</p>}
+
+      {!loading && !error && videos.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <p className="text-4xl mb-3">🧠</p>
+          <p className="text-sm font-semibold text-gray-700 mb-1">No videos yet</p>
+          <p className="text-sm text-gray-400">
+            {isStaff ? 'Add your first video with the button above.' : 'Check back soon — content is on the way.'}
+          </p>
+        </div>
+      )}
+
+      {!loading && !error && videos.length > 0 && (
+        isStaff ? (
+          /* Staff: flat list with management controls */
+          <div className="space-y-4">
+            {videos.map(v => (
+              <VideoCard
+                key={v.id}
+                video={v}
+                isStaff
+                onEdit={setModal}
+                onDelete={setDeleteTarget}
+                onTogglePublish={handleTogglePublish}
+                expanded={expandedId === v.id}
+                onToggleExpand={() => setExpandedId(expandedId === v.id ? null : v.id)}
+              />
+            ))}
+          </div>
+        ) : (
+          /* Client: grouped by module */
+          <div className="space-y-8">
+            {Object.entries(grouped).map(([module, mvids]) => (
+              <div key={module}>
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">{module}</h3>
+                <div className="space-y-4">
+                  {mvids.map(v => (
+                    <VideoCard
+                      key={v.id}
+                      video={v}
+                      isStaff={false}
+                      onEdit={() => {}}
+                      onDelete={() => {}}
+                      onTogglePublish={() => {}}
+                      expanded={expandedId === v.id}
+                      onToggleExpand={() => setExpandedId(expandedId === v.id ? null : v.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+
+      {/* Add/Edit modal */}
+      {modal !== null && (
+        <VideoModal
+          initial={modal === 'add' ? null : modal}
+          onSave={handleSave}
+          onClose={() => setModal(null)}
+          saving={saving}
+        />
+      )}
+
+      {/* Delete confirm */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setDeleteTarget(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl" onClick={e => e.stopPropagation()}>
+            <h2 className="text-base font-bold text-gray-900 mb-2">Delete video?</h2>
+            <p className="text-sm text-gray-500 mb-5">
+              "<span className="font-medium text-gray-700">{deleteTarget.title}</span>" will be permanently removed.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setDeleteTarget(null)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 font-medium">Cancel</button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="px-5 py-2 bg-red-500 text-white text-sm font-bold rounded-xl hover:bg-red-600 disabled:opacity-50 transition-colors"
+              >
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1165,7 +1556,7 @@ export default function Community() {
           members={members}
         />
       )}
-      {tab === 'mindset'   && <ClassroomTab />}
+      {tab === 'mindset'   && <MindsetTab getToken={getToken} isStaff={isStaff} />}
       {tab === 'resources' && <ResourcesTab />}
     </div>
   )
