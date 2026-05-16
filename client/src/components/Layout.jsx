@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { UserButton, useUser, useAuth, useClerk } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
@@ -40,17 +40,31 @@ export default function Layout() {
   const [katieUnread,  setKatieUnread]  = useState(0)
   const [msgUnread,    setMsgUnread]    = useState(0)
   const [sidebarOpen,  setSidebarOpen]  = useState(false)
-  const [quickMenuOpen, setQuickMenuOpen] = useState(false)
-  const [quickAction,   setQuickAction]   = useState(null) // null | 'water' | 'weight' | 'steps'
-  const [quickValue,    setQuickValue]    = useState('')
-  const [quickSaving,   setQuickSaving]   = useState(false)
-  const [quickDone,     setQuickDone]     = useState(false)
+  const [quickMenuOpen,       setQuickMenuOpen]       = useState(false)
+  const [quickAction,         setQuickAction]         = useState(null)
+  const [quickValue,          setQuickValue]          = useState('')
+  const [quickSaving,         setQuickSaving]         = useState(false)
+  const [quickDone,           setQuickDone]           = useState(false)
+  const [quickActivityType,   setQuickActivityType]   = useState('')
+  const [quickActivityDur,    setQuickActivityDur]    = useState('')
+  const [quickActivityNotes,  setQuickActivityNotes]  = useState('')
+  const [quickPhotoAngle,     setQuickPhotoAngle]     = useState('front')
+  const [quickPhotoFile,      setQuickPhotoFile]      = useState(null)
+  const [quickPhotoPreview,   setQuickPhotoPreview]   = useState(null)
+  const quickPhotoInputRef = useRef(null)
+
+  function resetQuickExtras() {
+    setQuickActivityType(''); setQuickActivityDur(''); setQuickActivityNotes('')
+    setQuickPhotoAngle('front'); setQuickPhotoFile(null)
+    setQuickPhotoPreview(p => { if (p) URL.revokeObjectURL(p); return null })
+  }
 
   function openQuickMenu() {
     setQuickMenuOpen(true)
     setQuickAction(null)
     setQuickValue('')
     setQuickDone(false)
+    resetQuickExtras()
   }
 
   function closeQuickMenu() {
@@ -58,6 +72,7 @@ export default function Layout() {
     setQuickAction(null)
     setQuickValue('')
     setQuickDone(false)
+    resetQuickExtras()
   }
 
   async function submitQuickLog() {
@@ -79,6 +94,45 @@ export default function Layout() {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+      })
+      setQuickDone(true)
+      setTimeout(() => closeQuickMenu(), 1200)
+    } catch {}
+    finally { setQuickSaving(false) }
+  }
+
+  async function submitQuickActivity() {
+    if (!quickActivityType || quickSaving) return
+    setQuickSaving(true)
+    try {
+      const token = await getToken()
+      await fetch(`${API_URL}/api/workouts/log-activity`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          activity_type: quickActivityType,
+          duration_minutes: quickActivityDur ? Number(quickActivityDur) : null,
+          notes: quickActivityNotes || null,
+        }),
+      })
+      setQuickDone(true)
+      setTimeout(() => closeQuickMenu(), 1200)
+    } catch {}
+    finally { setQuickSaving(false) }
+  }
+
+  async function submitQuickPhoto() {
+    if (!quickPhotoFile || quickSaving) return
+    setQuickSaving(true)
+    try {
+      const token = await getToken()
+      const body = new FormData()
+      body.append('photo', quickPhotoFile)
+      body.append('angle', quickPhotoAngle)
+      await fetch(`${API_URL}/api/progress-photos`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body,
       })
       setQuickDone(true)
       setTimeout(() => closeQuickMenu(), 1200)
@@ -371,7 +425,7 @@ export default function Layout() {
             <div className="flex items-center justify-between px-5 py-3">
               {quickAction ? (
                 <button
-                  onClick={() => { setQuickAction(null); setQuickValue(''); setQuickDone(false) }}
+                  onClick={() => { setQuickAction(null); setQuickValue(''); setQuickDone(false); resetQuickExtras() }}
                   className="flex items-center gap-1 text-sm font-medium text-gray-500 hover:text-gray-800"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -401,9 +455,7 @@ export default function Layout() {
                   <button
                     key={id}
                     onClick={() => {
-                      if (id === 'food')     { closeQuickMenu(); navigate('/journal') }
-                      else if (id === 'photo')    { closeQuickMenu(); navigate('/settings') }
-                      else if (id === 'activity') { closeQuickMenu(); navigate('/workouts') }
+                      if (id === 'food') { closeQuickMenu(); navigate('/journal') }
                       else setQuickAction(id)
                     }}
                     className="flex flex-col items-center gap-2 bg-gray-50 hover:bg-[#fde8c8] active:bg-[#fcd9b0] rounded-2xl py-4 px-2 transition-colors min-h-[80px]"
@@ -426,6 +478,7 @@ export default function Layout() {
             {/* mini-form */}
             {quickAction && !quickDone && (
               <div className="px-5 pb-10 pt-2">
+                {/* water */}
                 {quickAction === 'water' && (
                   <>
                     <p className="text-sm text-gray-500 mb-3">How many oz to add today?</p>
@@ -451,42 +504,135 @@ export default function Layout() {
                       placeholder="Custom amount (oz)"
                       className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-4"
                     />
+                    <button onClick={submitQuickLog} disabled={!quickValue || quickSaving}
+                      className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
+                      {quickSaving ? 'Saving…' : 'Log Water'}
+                    </button>
                   </>
                 )}
+
+                {/* weight */}
                 {quickAction === 'weight' && (
                   <>
                     <p className="text-sm text-gray-500 mb-3">Today's weight (lbs)</p>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={quickValue}
+                    <input type="number" step="0.1" value={quickValue}
                       onChange={e => setQuickValue(e.target.value)}
-                      placeholder="e.g. 145.5"
-                      autoFocus
+                      placeholder="e.g. 145.5" autoFocus
                       className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-4"
                     />
+                    <button onClick={submitQuickLog} disabled={!quickValue || quickSaving}
+                      className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
+                      {quickSaving ? 'Saving…' : 'Log Weight'}
+                    </button>
                   </>
                 )}
+
+                {/* steps */}
                 {quickAction === 'steps' && (
                   <>
                     <p className="text-sm text-gray-500 mb-3">Today's steps</p>
-                    <input
-                      type="number"
-                      value={quickValue}
+                    <input type="number" value={quickValue}
                       onChange={e => setQuickValue(e.target.value)}
-                      placeholder="e.g. 8500"
-                      autoFocus
+                      placeholder="e.g. 8500" autoFocus
                       className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-4"
                     />
+                    <button onClick={submitQuickLog} disabled={!quickValue || quickSaving}
+                      className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
+                      {quickSaving ? 'Saving…' : 'Log Steps'}
+                    </button>
                   </>
                 )}
-                <button
-                  onClick={submitQuickLog}
-                  disabled={!quickValue || quickSaving}
-                  className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors"
-                >
-                  {quickSaving ? 'Saving…' : `Log ${quickAction === 'water' ? 'Water' : quickAction === 'weight' ? 'Weight' : 'Steps'}`}
-                </button>
+
+                {/* activity */}
+                {quickAction === 'activity' && (
+                  <>
+                    <p className="text-sm text-gray-500 mb-3">What did you do?</p>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {['Walking', 'Running', 'Cycling', 'Strength', 'Cardio', 'Stretching', 'Yoga', 'Other'].map(t => (
+                        <button
+                          key={t}
+                          onClick={() => setQuickActivityType(t)}
+                          className={`px-3 py-1.5 rounded-full text-xs font-semibold border-2 transition-colors ${
+                            quickActivityType === t
+                              ? 'bg-[#E8670A] border-[#E8670A] text-white'
+                              : 'border-gray-200 text-gray-600 hover:border-[#E8670A]'
+                          }`}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-gray-500 mb-1">Duration (minutes)</p>
+                    <input type="number" value={quickActivityDur}
+                      onChange={e => setQuickActivityDur(e.target.value)}
+                      placeholder="e.g. 30"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#E8670A] mb-3"
+                    />
+                    <textarea value={quickActivityNotes}
+                      onChange={e => setQuickActivityNotes(e.target.value)}
+                      placeholder="Notes (optional)" rows={2}
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#E8670A] resize-none mb-4"
+                    />
+                    <button onClick={submitQuickActivity} disabled={!quickActivityType || quickSaving}
+                      className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
+                      {quickSaving ? 'Saving…' : 'Log Activity'}
+                    </button>
+                  </>
+                )}
+
+                {/* photo */}
+                {quickAction === 'photo' && (
+                  <>
+                    <p className="text-sm text-gray-500 mb-3">Select angle</p>
+                    <div className="flex gap-2 mb-4">
+                      {['front', 'back', 'side'].map(a => (
+                        <button key={a} onClick={() => setQuickPhotoAngle(a)}
+                          className={`flex-1 py-2 rounded-xl text-sm font-bold border-2 transition-colors capitalize ${
+                            quickPhotoAngle === a
+                              ? 'bg-[#E8670A] border-[#E8670A] text-white'
+                              : 'border-gray-200 text-gray-600 hover:border-[#E8670A]'
+                          }`}
+                        >
+                          {a}
+                        </button>
+                      ))}
+                    </div>
+                    {quickPhotoPreview ? (
+                      <div className="relative mb-4">
+                        <img src={quickPhotoPreview} alt="Preview" className="w-full max-h-44 object-cover rounded-xl" />
+                        <button
+                          onClick={() => { URL.revokeObjectURL(quickPhotoPreview); setQuickPhotoPreview(null); setQuickPhotoFile(null) }}
+                          className="absolute top-2 right-2 w-7 h-7 bg-white rounded-full flex items-center justify-center shadow text-gray-600 font-bold"
+                        >×</button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => quickPhotoInputRef.current?.click()}
+                        className="w-full border-2 border-dashed border-gray-300 rounded-xl py-7 text-sm text-gray-400 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors mb-4"
+                      >
+                        📷 Tap to select photo
+                      </button>
+                    )}
+                    <input
+                      ref={quickPhotoInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={e => {
+                        const f = e.target.files?.[0]
+                        if (!f) return
+                        if (quickPhotoPreview) URL.revokeObjectURL(quickPhotoPreview)
+                        setQuickPhotoFile(f)
+                        setQuickPhotoPreview(URL.createObjectURL(f))
+                      }}
+                    />
+                    <button onClick={submitQuickPhoto} disabled={!quickPhotoFile || quickSaving}
+                      className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
+                      {quickSaving ? 'Uploading…' : 'Upload Photo'}
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>

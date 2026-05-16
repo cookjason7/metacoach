@@ -74,6 +74,26 @@ router.post('/generate', requireAuth(), async (req, res, next) => {
   }
 })
 
+// POST /api/workouts/log-activity — quick activity log (no plan required)
+router.post('/log-activity', requireAuth(), async (req, res, next) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId = await getOrCreateUser(userId)
+    const { activity_type, duration_minutes, notes } = req.body
+    if (!activity_type?.trim()) return res.status(400).json({ error: 'activity_type required' })
+    await pool.query(
+      `INSERT INTO activity_logs (user_id, activity_type, duration_minutes, notes)
+       VALUES ($1, $2, $3, $4)`,
+      [dbUserId, activity_type.trim(), duration_minutes ?? null, notes?.trim() ?? null],
+    )
+    const today = new Date().toISOString().slice(0, 10)
+    awardAction(pool, dbUserId, 'workout', today).catch(e => console.error('[gami activity]', e.message))
+    res.status(201).json({ success: true })
+  } catch (err) {
+    next(err)
+  }
+})
+
 // GET /api/workouts — list user's saved programs
 router.get('/', requireAuth(), async (req, res, next) => {
   try {

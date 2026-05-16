@@ -437,10 +437,8 @@ function MealEntry({ meal, onEdit, onDelete, onCopy, onMove }) {
   return (
     <div className="px-4 py-3 border-b border-gray-50 last:border-0">
       <div className="flex gap-3">
-        {meal.photo_url ? (
+        {meal.photo_url && (
           <img src={meal.photo_url} alt="" className="w-12 h-12 rounded-lg object-cover shrink-0" />
-        ) : (
-          <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center text-gray-300 text-lg shrink-0">🍽</div>
         )}
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">

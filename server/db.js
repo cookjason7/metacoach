@@ -890,6 +890,16 @@ export async function migrate() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT`)
   await pool.query(`ALTER TABLE community_posts ADD COLUMN IF NOT EXISTS channel TEXT DEFAULT 'vip'`)
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS activity_logs (
+      id               SERIAL PRIMARY KEY,
+      user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      activity_type    TEXT    NOT NULL,
+      duration_minutes INTEGER,
+      notes            TEXT,
+      logged_at        TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS mindset_videos (
       id            SERIAL PRIMARY KEY,
       title         TEXT    NOT NULL,
