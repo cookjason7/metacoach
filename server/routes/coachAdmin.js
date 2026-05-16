@@ -1147,4 +1147,92 @@ router.get('/form-submissions/:submissionId', requireAuth(), async (req, res, ne
   } catch (err) { next(err) }
 })
 
+// ─── Form Send / Assignment ───────────────────────────────────────────────────
+
+// POST /api/coach-admin/forms/:id/send
+// Body: { client_ids: [1, 2, 3] }
+// Creates a form_assignment and an in-app message for each accessible client.
+router.post('/forms/:id/send', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+
+    const templateId = parseInt(req.params.id, 10)
+    const { client_ids } = req.body
+
+    if (!Array.isArray(client_ids) || client_ids.length === 0) {
+      return res.status(400).json({ error: 'client_ids must be a non-empty array.' })
+    }
+
+    // Verify form exists and is published
+    const { rows: [tpl] } = await pool.query(
+      'SELECT id, title, status, current_version_id FROM form_templates WHERE id = $1',
+      [templateId],
+    )
+    if (!tpl) return res.status(404).json({ error: 'Form not found' })
+    if (tpl.status !== 'published' || !tpl.current_version_id) {
+      return res.status(400).json({ error: 'Form must be published before sending.' })
+    }
+
+    const sent = []
+    const skipped = []
+
+    for (const rawId of client_ids) {
+      const clientId = parseInt(rawId, 10)
+      if (isNaN(clientId)) { skipped.push({ client_id: rawId, reason: 'Invalid ID' }); continue }
+
+      // Permission: admin sees all, coach sees only assigned clients
+      if (!await canAccessClient(ctx, clientId)) {
+        skipped.push({ client_id: clientId, reason: 'Not assigned to you' })
+        continue
+      }
+
+      // Fetch client details needed for message personalisation + thread routing
+      const { rows: [client] } = await pool.query(
+        'SELECT id, first_name, coaching_type, client_status FROM users WHERE id = $1',
+        [clientId],
+      )
+      if (!client) { skipped.push({ client_id: clientId, reason: 'Client not found' }); continue }
+      if (client.client_status === 'archived' || client.client_status === 'deleted') {
+        skipped.push({ client_id: clientId, reason: 'Client is not active' })
+        continue
+      }
+
+      // Create assignment record
+      const { rows: [assignment] } = await pool.query(`
+        INSERT INTO form_assignments (template_id, client_id, assigned_by, send_at, is_active)
+        VALUES ($1, $2, $3, NOW(), TRUE)
+        RETURNING id
+      `, [templateId, clientId, ctx.dbUserId])
+
+      // Determine thread type and visibility
+      // Coaches are limited to coach_thread; admin uses admin_private for AI clients, coach_thread for VIP
+      let thread_type = 'coach_thread'
+      if (ctx.role === 'admin' && client.coaching_type === 'ai') thread_type = 'ai_admin'
+
+      const visibility = (thread_type === 'admin_private' || thread_type === 'ai_admin')
+        ? 'client_and_admin_only'
+        : 'client_and_staff'
+
+      const firstName = client.first_name ?? 'there'
+      const messageBody = `Hey ${firstName}, please complete your ${tpl.title} when you have a chance.`
+      const metadata = { form_id: templateId, assignment_id: assignment.id, form_title: tpl.title }
+
+      await pool.query(`
+        INSERT INTO client_messages
+          (client_id, sender_id, sender_role, message_body, thread_type, visibility, metadata)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+      `, [clientId, ctx.dbUserId, ctx.role, messageBody, thread_type, visibility, JSON.stringify(metadata)])
+
+      sent.push({ client_id: clientId, assignment_id: assignment.id })
+    }
+
+    res.status(201).json({
+      sent:         sent.length,
+      skipped:      skipped.length,
+      sent_list:    sent,
+      skipped_list: skipped,
+    })
+  } catch (err) { next(err) }
+})
+
 export default router

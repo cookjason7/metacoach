@@ -727,7 +727,7 @@ export default function FormBuilder() {
       {status === 'published' && (
         <div className="mt-4 text-center">
           <button
-            onClick={() => navigate(`/forms/${paramId}/fill`)}
+            onClick={() => navigate(`/forms/${paramId}/fill?preview=1`)}
             className="text-sm text-blue-600 hover:underline font-medium"
           >
             Preview as client →

@@ -3,6 +3,146 @@ import { useAuth } from '@clerk/clerk-react'
 import { useNavigate } from 'react-router-dom'
 import { API_URL } from '../../config.js'
 
+// ── Send Form Modal ───────────────────────────────────────────────────────────
+
+function SendModal({ form, getToken, onClose }) {
+  const [clients,  setClients]  = useState([])
+  const [loading,  setLoading]  = useState(true)
+  const [selected, setSelected] = useState(new Set())
+  const [sending,  setSending]  = useState(false)
+  const [result,   setResult]   = useState(null)   // { sent, skipped, skipped_list }
+  const [err,      setErr]      = useState(null)
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/coach-admin/clients?status=active`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.ok) setClients(await res.json())
+      } catch {}
+      finally { setLoading(false) }
+    }
+    load()
+  }, [getToken])
+
+  function toggleClient(id) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+  function selectAll()   { setClients(cs => { setSelected(new Set(cs.map(c => c.id))); return cs }) }
+  function selectNone()  { setSelected(new Set()) }
+
+  async function handleSend() {
+    if (selected.size === 0) return
+    setSending(true); setErr(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/forms/${form.id}/send`, {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ client_ids: [...selected] }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Send failed')
+      setResult(data)
+    } catch (e) { setErr(e.message) }
+    finally { setSending(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-gray-900">Send Form</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <p className="text-sm text-gray-600 mb-1">Sending: <span className="font-semibold text-gray-900">{form.title}</span></p>
+        <p className="text-xs text-gray-400 mb-4">An in-app message with a form link will be sent to each selected client.</p>
+
+        {err && <p className="mb-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{err}</p>}
+
+        {result ? (
+          <div className="space-y-3">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+              <p className="text-sm font-bold text-emerald-700">✓ Sent to {result.sent} client{result.sent !== 1 ? 's' : ''}</p>
+              {result.skipped > 0 && (
+                <div className="mt-1">
+                  <p className="text-xs text-amber-600 font-medium">{result.skipped} skipped:</p>
+                  <ul className="text-xs text-amber-600 list-disc list-inside mt-0.5">
+                    {result.skipped_list.map((s, i) => (
+                      <li key={i}>Client {s.client_id}: {s.reason}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+            <button onClick={onClose}
+              className="w-full bg-[#E8670A] text-white font-bold py-2.5 rounded-xl text-sm hover:bg-[#c45e09]">
+              Done
+            </button>
+          </div>
+        ) : (
+          <>
+            {loading ? (
+              <p className="text-sm text-gray-400 py-4 text-center">Loading clients…</p>
+            ) : clients.length === 0 ? (
+              <p className="text-sm text-gray-400 py-4 text-center">No active clients found.</p>
+            ) : (
+              <>
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="text-xs font-semibold text-gray-500">{selected.size} of {clients.length} selected</span>
+                  <button onClick={selectAll}  className="text-xs text-[#E8670A] font-semibold hover:underline">All</button>
+                  <button onClick={selectNone} className="text-xs text-gray-400 hover:underline">None</button>
+                </div>
+                <div className="max-h-52 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-100 mb-4">
+                  {clients.map(c => (
+                    <label key={c.id} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(c.id)}
+                        onChange={() => toggleClient(c.id)}
+                        className="accent-[#E8670A] w-4 h-4"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">
+                          {c.first_name} {c.last_name}
+                        </p>
+                        <p className="text-xs text-gray-400 truncate">{c.email}</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+            <div className="flex gap-3">
+              <button onClick={onClose}
+                className="flex-1 border border-gray-200 text-gray-600 font-semibold py-2.5 rounded-xl text-sm hover:bg-gray-50">
+                Cancel
+              </button>
+              <button
+                onClick={handleSend}
+                disabled={sending || selected.size === 0 || loading}
+                className="flex-1 bg-[#E8670A] text-white font-bold py-2.5 rounded-xl text-sm hover:bg-[#c45e09] disabled:opacity-50"
+              >
+                {sending ? 'Sending…' : `Send to ${selected.size || ''} Client${selected.size !== 1 ? 's' : ''}`}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const STATUS_STYLES = {
@@ -92,9 +232,10 @@ export default function FormsList() {
   const [forms,   setForms]   = useState([])
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(null)
-  const [creating, setCreating] = useState(false)
-  const [filter,  setFilter]  = useState('all')   // all | draft | published | archived
+  const [creating,    setCreating]    = useState(false)
+  const [filter,      setFilter]      = useState('all')   // all | draft | published | archived
   const [actionLoading, setActionLoading] = useState(null)
+  const [sendingForm, setSendingForm] = useState(null)   // form object being sent
 
   const load = useCallback(async () => {
     try {
@@ -259,12 +400,20 @@ export default function FormsList() {
                         </button>
                       )}
                       {f.status === 'published' && (
-                        <button
-                          onClick={() => navigate(`/forms/${f.id}/fill`)}
-                          className="text-xs text-blue-600 hover:text-blue-700 font-semibold mr-3"
-                        >
-                          Preview
-                        </button>
+                        <>
+                          <button
+                            onClick={e => { e.stopPropagation(); navigate(`/forms/${f.id}/fill?preview=1`) }}
+                            className="text-xs text-blue-600 hover:text-blue-700 font-semibold mr-3"
+                          >
+                            Preview
+                          </button>
+                          <button
+                            onClick={e => { e.stopPropagation(); setSendingForm(f) }}
+                            className="text-xs text-[#E8670A] hover:text-[#c45e09] font-semibold mr-3"
+                          >
+                            Send
+                          </button>
+                        </>
                       )}
                       <button
                         onClick={e => handleDuplicate(e, f.id)}
@@ -311,8 +460,12 @@ export default function FormsList() {
                       className="text-xs text-emerald-600 font-semibold">Publish</button>
                   )}
                   {f.status === 'published' && (
-                    <button onClick={() => navigate(`/forms/${f.id}/fill`)}
-                      className="text-xs text-blue-600 font-semibold">Preview</button>
+                    <>
+                      <button onClick={e => { e.stopPropagation(); navigate(`/forms/${f.id}/fill?preview=1`) }}
+                        className="text-xs text-blue-600 font-semibold">Preview</button>
+                      <button onClick={e => { e.stopPropagation(); setSendingForm(f) }}
+                        className="text-xs text-[#E8670A] font-semibold">Send</button>
+                    </>
                   )}
                   <button onClick={e => handleDuplicate(e, f.id)}
                     className="text-xs text-gray-500 font-medium">Duplicate</button>
@@ -329,6 +482,14 @@ export default function FormsList() {
 
       {creating && (
         <CreateModal onClose={() => setCreating(false)} onCreate={handleCreate} />
+      )}
+
+      {sendingForm && (
+        <SendModal
+          form={sendingForm}
+          getToken={getToken}
+          onClose={() => setSendingForm(null)}
+        />
       )}
     </div>
   )

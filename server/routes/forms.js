@@ -196,6 +196,43 @@ router.post('/:id/duplicate', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// ── Staff: preview (no submission) ───────────────────────────────────────────
+
+// GET /api/forms/:id/preview — staff only; returns schema for preview without requiring published status
+router.get('/:id/preview', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await getCurrentUser(req)
+    if (!isStaff(ctx.role)) return res.status(403).json({ error: 'Staff only' })
+
+    const id = parseInt(req.params.id, 10)
+    const { rows: [tpl] } = await pool.query(`
+      SELECT ft.id, ft.title, ft.description, ft.status,
+             ft.draft_schema, ft.current_version_id,
+             fv.version_num, fv.schema AS published_schema
+      FROM form_templates ft
+      LEFT JOIN form_versions fv ON fv.id = ft.current_version_id
+      WHERE ft.id = $1
+    `, [id])
+
+    if (!tpl) return res.status(404).json({ error: 'Form not found' })
+
+    const hasPublished = !!tpl.current_version_id
+    const schema = hasPublished ? tpl.published_schema : tpl.draft_schema
+
+    res.json({
+      id:           tpl.id,
+      title:        tpl.title,
+      description:  tpl.description,
+      status:       tpl.status,
+      version_id:   tpl.current_version_id ?? null,
+      version_num:  tpl.version_num ?? null,
+      schema:       Array.isArray(schema) ? schema : [],
+      is_preview:   true,
+      is_draft:     !hasPublished,
+    })
+  } catch (err) { next(err) }
+})
+
 // ── Client: fill & submit ─────────────────────────────────────────────────────
 
 // GET /api/forms/:id/fill — get the published version for a client to fill
@@ -245,9 +282,23 @@ router.post('/:id/submit', requireAuth(), async (req, res, next) => {
       return res.status(400).json({ error: 'This form is not currently accepting submissions.' })
     }
 
-    const { answers } = req.body
+    const { answers, assignment_id } = req.body
     if (!answers || typeof answers !== 'object' || Array.isArray(answers)) {
       return res.status(400).json({ error: 'answers must be an object.' })
+    }
+
+    // Duplicate check: if an assignment_id is provided, one submission per user per assignment
+    if (assignment_id) {
+      const { rows: [existing] } = await pool.query(
+        'SELECT id FROM form_submissions WHERE assignment_id = $1 AND user_id = $2 LIMIT 1',
+        [assignment_id, ctx.dbUserId],
+      )
+      if (existing) {
+        return res.status(409).json({
+          error: 'You already submitted this form.',
+          already_submitted: true,
+        })
+      }
     }
 
     // Validate required fields against the published version schema
@@ -270,11 +321,12 @@ router.post('/:id/submit', requireAuth(), async (req, res, next) => {
       })
     }
 
+    const assignId = assignment_id ? parseInt(assignment_id, 10) : null
     const { rows: [submission] } = await pool.query(`
-      INSERT INTO form_submissions (template_id, version_id, user_id, answers)
-      VALUES ($1, $2, $3, $4::jsonb)
+      INSERT INTO form_submissions (template_id, version_id, user_id, answers, assignment_id)
+      VALUES ($1, $2, $3, $4::jsonb, $5)
       RETURNING *
-    `, [id, tpl.current_version_id, ctx.dbUserId, JSON.stringify(answers)])
+    `, [id, tpl.current_version_id, ctx.dbUserId, JSON.stringify(answers), assignId])
 
     res.status(201).json(submission)
   } catch (err) { next(err) }

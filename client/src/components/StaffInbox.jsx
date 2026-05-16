@@ -336,6 +336,17 @@ export default function StaffInbox({ getToken }) {
                       {m.image_url && (
                         <img src={m.image_url} alt="attachment" className="max-w-[240px] rounded-lg mt-1 cursor-pointer" onClick={() => window.open(m.image_url, '_blank')} />
                       )}
+                      {m.metadata?.form_id && (
+                        <a
+                          href={`/forms/${m.metadata.form_id}/fill?preview=1`}
+                          className="mt-2 flex items-center gap-1.5 bg-white/20 hover:bg-white/30 border border-white/30 rounded-lg px-3 py-2 text-xs font-bold transition-colors"
+                        >
+                          <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                          </svg>
+                          View Form (Preview)
+                        </a>
+                      )}
                       {isStaff && m.read_at && (
                         <p className="text-[9px] opacity-60 text-right mt-0.5">
                           Read {new Date(m.read_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
