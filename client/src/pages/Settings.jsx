@@ -192,15 +192,26 @@ export default function Settings() {
   // Progress photos: each angle holds an array sorted newest-first
   const [photos, setPhotos] = useState({ front: [], back: [], side: [] })
 
+  // Measurements
+  const [measurements,   setMeasurements]   = useState([])
+  const [mForm,          setMForm]          = useState({
+    measurement_date: new Date().toISOString().slice(0, 10),
+    chest: '', waist: '', hips: '',
+  })
+  const [mSaving, setMSaving] = useState(false)
+  const [mSaved,  setMSaved]  = useState(false)
+  const [mError,  setMError]  = useState(null)
+
   const email = user?.primaryEmailAddress?.emailAddress ?? ''
 
   useEffect(() => {
     async function load() {
       const token = await getToken()
-      const [profileRes, photosRes, assessmentRes] = await Promise.all([
+      const [profileRes, photosRes, assessmentRes, measurementsRes] = await Promise.all([
         fetch(`${API_URL}/api/users/me`,              { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API_URL}/api/progress-photos`,       { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API_URL}/api/health-assessment/me`,  { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/measurements`,          { headers: { Authorization: `Bearer ${token}` } }),
       ])
       if (profileRes.ok) {
         const data = await profileRes.json()
@@ -225,6 +236,7 @@ export default function Settings() {
         }
         setPhotos(byAngle)
       }
+      if (measurementsRes.ok) setMeasurements(await measurementsRes.json())
       if (assessmentRes.ok) {
         const data = await assessmentRes.json()
         if (data) {
@@ -387,6 +399,34 @@ export default function Settings() {
     }))
   }
 
+  async function saveMeasurement(e) {
+    e.preventDefault()
+    setMSaving(true); setMError(null); setMSaved(false)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/measurements`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          measurement_date: mForm.measurement_date,
+          chest: mForm.chest !== '' ? Number(mForm.chest) : null,
+          waist: mForm.waist !== '' ? Number(mForm.waist) : null,
+          hips:  mForm.hips  !== '' ? Number(mForm.hips)  : null,
+        }),
+      })
+      if (!res.ok) throw new Error('Failed to save')
+      const m = await res.json()
+      setMeasurements(prev => [m, ...prev])
+      setMForm({ measurement_date: new Date().toISOString().slice(0, 10), chest: '', waist: '', hips: '' })
+      setMSaved(true)
+      setTimeout(() => setMSaved(false), 3000)
+    } catch (err) {
+      setMError('Failed to save. Please try again.')
+    } finally {
+      setMSaving(false)
+    }
+  }
+
   const anglesWithComparison = ANGLES.filter(a => photos[a].length >= 2)
 
   return (
@@ -466,6 +506,72 @@ export default function Settings() {
             />
           ))}
         </div>
+      </div>
+
+      {/* Measurements */}
+      <h2 className="text-sm font-semibold text-gray-700 mb-3">Measurements</h2>
+      <div className="bg-white rounded-xl border border-gray-200 p-4 mb-8">
+        <p className="text-sm text-gray-500 mb-4">Track chest, waist, and hip measurements over time.</p>
+        <form onSubmit={saveMeasurement} className="space-y-3 mb-5">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
+            <input type="date" value={mForm.measurement_date}
+              onChange={e => setMForm(f => ({ ...f, measurement_date: e.target.value }))}
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full max-w-[180px] focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]" />
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { key: 'chest', label: 'Chest/Bust', sub: 'nipple line' },
+              { key: 'waist', label: 'Waist',      sub: 'belly button' },
+              { key: 'hips',  label: 'Hips',       sub: 'widest point' },
+            ].map(({ key, label, sub }) => (
+              <div key={key}>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  {label}
+                  <span className="block text-[10px] font-normal text-gray-400">{sub}</span>
+                </label>
+                <div className="relative">
+                  <input type="number" step="0.1" min="0" value={mForm[key]}
+                    onChange={e => setMForm(f => ({ ...f, [key]: e.target.value }))}
+                    placeholder="0.0"
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full pr-7 focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]" />
+                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">in</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          {mError && <p className="text-xs text-red-500">{mError}</p>}
+          <button type="submit" disabled={mSaving}
+            className="w-full py-2.5 rounded-lg text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors disabled:opacity-60">
+            {mSaved ? 'Saved!' : mSaving ? 'Saving…' : 'Save Measurement'}
+          </button>
+        </form>
+
+        {measurements.length > 0 && (
+          <div className="overflow-x-auto -mx-4 px-4">
+            <p className="text-xs font-semibold text-gray-600 mb-2">Recent</p>
+            <table className="w-full text-xs min-w-[280px]">
+              <thead>
+                <tr className="bg-gray-50 text-gray-500 text-[10px] uppercase tracking-wide">
+                  <th className="px-3 py-2 text-left font-semibold">Date</th>
+                  <th className="px-3 py-2 text-right font-semibold">Chest</th>
+                  <th className="px-3 py-2 text-right font-semibold">Waist</th>
+                  <th className="px-3 py-2 text-right font-semibold">Hips</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {measurements.slice(0, 5).map((m, i) => (
+                  <tr key={m.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}>
+                    <td className="px-3 py-2 text-gray-700 font-medium whitespace-nowrap">{String(m.measurement_date).slice(0, 10)}</td>
+                    <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.chest ? `${Number(m.chest).toFixed(1)}"` : '—'}</td>
+                    <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.waist ? `${Number(m.waist).toFixed(1)}"` : '—'}</td>
+                    <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.hips  ? `${Number(m.hips).toFixed(1)}"` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Connected Apps */}

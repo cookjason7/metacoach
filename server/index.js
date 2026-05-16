@@ -25,6 +25,7 @@ import messagesRouter from './routes/messages.js'
 import invitesRouter from './routes/invites.js'
 import weeklyCheckinsRouter from './routes/weeklyCheckins.js'
 import formsRouter from './routes/forms.js'
+import measurementsRouter from './routes/measurements.js'
 import { runInactivityAlert } from './jobs/inactivityAlert.js'
 import { processFormSchedules } from './jobs/formScheduler.js'
 
@@ -65,6 +66,7 @@ app.use('/api/messages',          clerkMiddleware(), messagesRouter)
 app.use('/api/client-invites',    clerkMiddleware(), invitesRouter)
 app.use('/api/weekly-checkins',  clerkMiddleware(), weeklyCheckinsRouter)
 app.use('/api/forms',            clerkMiddleware(), formsRouter)
+app.use('/api/measurements',     clerkMiddleware(), measurementsRouter)
 
 // Serve React client if dist exists — must come after all API routes
 const distPath = path.join(__dirname, '../client/dist')
