@@ -41,6 +41,17 @@ async function checkAdmin(req, res) {
   return dbUserId
 }
 
+async function getUserContext(userId) {
+  const dbUserId = await getOrCreateUser(userId)
+  const { rows } = await pool.query('SELECT role, coaching_type FROM users WHERE id = $1', [dbUserId])
+  const row = rows[0] ?? {}
+  const isStaff = row.role === 'admin' || row.role === 'coach'
+  const channel = row.coaching_type ?? 'vip'
+  return { dbUserId, isStaff, channel, role: row.role }
+}
+
+const CLIENT_CATEGORIES = new Set(['General Discussion', 'Non-Scale Victories'])
+
 async function createMentionNotifications(content, postId, fromUserId) {
   const names = [...new Set((content.match(/(?<!\w)@([A-Za-z]\w*)/g) ?? []).map(m => m.slice(1)))]
   for (const name of names) {
@@ -172,7 +183,7 @@ router.post('/notifications/read', requireAuth(), async (req, res, next) => {
 router.get('/posts', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
-    const dbUserId = await getOrCreateUser(userId)
+    const { dbUserId, isStaff, channel } = await getUserContext(userId)
 
     const { rows } = await pool.query(
       `SELECT
@@ -182,6 +193,7 @@ router.get('/posts', requireAuth(), async (req, res, next) => {
          cp.photo_url,
          cp.created_at,
          cp.category,
+         cp.channel,
          cp.pinned,
          u.first_name,
          COUNT(DISTINCT pl.id)::int AS like_count,
@@ -200,10 +212,11 @@ router.get('/posts', requireAuth(), async (req, res, next) => {
        JOIN users u ON u.id = cp.user_id
        LEFT JOIN post_likes    pl ON pl.post_id = cp.id
        LEFT JOIN post_comments pc ON pc.post_id = cp.id
+       WHERE ($2::boolean OR cp.channel = $3)
        GROUP BY cp.id, u.first_name
        ORDER BY cp.pinned DESC, cp.created_at DESC
        LIMIT 100`,
-      [dbUserId],
+      [dbUserId, isStaff, channel],
     )
     res.json(rows)
   } catch (err) { next(err) }
@@ -212,11 +225,16 @@ router.get('/posts', requireAuth(), async (req, res, next) => {
 router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
-    const dbUserId  = await getOrCreateUser(userId)
+    const { dbUserId, isStaff, channel } = await getUserContext(userId)
     const content   = req.body?.content
-    const category  = req.body?.category ?? 'General Discussion'
+    let   category  = req.body?.category ?? 'General Discussion'
 
     if (!content?.trim()) return res.status(400).json({ error: 'Content required' })
+
+    // Clients may only post in General Discussion or Non-Scale Victories
+    if (!isStaff && !CLIENT_CATEGORIES.has(category)) {
+      category = 'General Discussion'
+    }
 
     let photo_url = null
     if (req.file) {
@@ -225,10 +243,10 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO community_posts (user_id, content, photo_url, category)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, user_id, content, photo_url, created_at, category, pinned`,
-      [dbUserId, content.trim(), photo_url, category],
+      `INSERT INTO community_posts (user_id, content, photo_url, category, channel)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, user_id, content, photo_url, created_at, category, channel, pinned`,
+      [dbUserId, content.trim(), photo_url, category, channel],
     )
     const post = rows[0]
 

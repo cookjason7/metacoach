@@ -44,7 +44,8 @@ const REACTIONS = [
   { type: 'laugh', emoji: '😂', countKey: 'laugh_count', myKey: 'my_laugh' },
 ]
 
-const CATEGORIES = ['General Discussion', 'Announcements', 'Non-Scale Victories', 'Hurdles']
+const CATEGORIES        = ['General Discussion', 'Announcements', 'Non-Scale Victories', 'Hurdles']
+const CLIENT_CATEGORIES = ['General Discussion', 'Non-Scale Victories']
 
 const CATEGORY_STYLES = {
   'General Discussion':  'bg-gray-100 text-gray-600 border-gray-200',
@@ -356,7 +357,7 @@ function CommentItem({ comment, getToken, isAdmin, onDelete, members }) {
 
 // ── PostCard ──────────────────────────────────────────────────────────────────
 
-function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate, getToken, isAdmin, currentUserId, members }) {
+function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate, getToken, isAdmin, isStaff, currentUserId, members }) {
   const [expanded,       setExpanded]       = useState(false)
   const [comments,       setComments]       = useState(null)
   const [loadingComments,setLoadingComments]= useState(false)
@@ -551,7 +552,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
                 onChange={e => setEditCategory(e.target.value)}
                 className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
               >
-                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                {(isStaff ? CATEGORIES : CLIENT_CATEGORIES).map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div className="flex gap-2">
@@ -697,7 +698,7 @@ function Leaderboard({ getToken }) {
 
 // ── HybridTab ─────────────────────────────────────────────────────────────────
 
-function HybridTab({ getToken, isAdmin, currentUserId, members }) {
+function HybridTab({ getToken, isAdmin, isStaff, currentUserId, members }) {
   const photoInputRef = useRef(null)
   const [posts,          setPosts]         = useState([])
   const [loading,        setLoading]       = useState(true)
@@ -892,7 +893,7 @@ function HybridTab({ getToken, isAdmin, currentUserId, members }) {
               onChange={e => setCategory(e.target.value)}
               className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white flex-1"
             >
-              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              {(isStaff ? CATEGORIES : CLIENT_CATEGORIES).map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
 
@@ -966,6 +967,7 @@ function HybridTab({ getToken, isAdmin, currentUserId, members }) {
               onUpdate={updatePost}
               getToken={getToken}
               isAdmin={isAdmin}
+              isStaff={isStaff}
               currentUserId={currentUserId}
               members={members}
             />
@@ -1057,15 +1059,15 @@ function ClassroomTab() {
   )
 }
 
-// ── VIP tab ───────────────────────────────────────────────────────────────────
+// ── Resources tab ─────────────────────────────────────────────────────────────
 
-function VIPTab() {
+function ResourcesTab() {
   return (
     <div className="flex flex-col items-center justify-center py-24 text-center max-w-2xl">
-      <div className="text-5xl mb-4">🔒</div>
-      <h2 className="text-lg font-semibold text-gray-800 mb-2">VIP Members Only</h2>
+      <div className="text-5xl mb-4">📚</div>
+      <h2 className="text-lg font-semibold text-gray-800 mb-2">Resources</h2>
       <p className="text-sm text-gray-500 max-w-xs">
-        The VIP Community is available to Life Warrior VIP members. Upgrade your coaching to unlock this space.
+        Guides, templates, and reference materials from your coaching team. Coming soon.
       </p>
     </div>
   )
@@ -1073,22 +1075,16 @@ function VIPTab() {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-const TABS = [
-  { id: 'feed',      label: 'Community Feed' },
-  { id: 'members',   label: 'Members' },
-  { id: 'classroom', label: 'Classroom' },
-  { id: 'vip',       label: 'VIP' },
-]
-
 export default function Community() {
-  const { getToken }              = useAuth()
-  const [tab,           setTab]   = useState('feed')
-  const [isAdmin,    setIsAdmin]  = useState(false)
-  const [currentUserId, setCurrentUserId] = useState(null)
-  const [members,    setMembers]  = useState([])
-  const [membersLoading, setMembersLoading] = useState(true)
+  const { getToken }                       = useAuth()
+  const [tab,            setTab]           = useState('chat')
+  const [isAdmin,        setIsAdmin]       = useState(false)
+  const [isStaff,        setIsStaff]       = useState(false)
+  const [clientChannel,  setClientChannel] = useState('vip')
+  const [currentUserId,  setCurrentUserId] = useState(null)
+  const [members,        setMembers]       = useState([])
+  const [membersLoading, setMembersLoading]= useState(true)
 
-  // Fetch current user's id + role, mark notifications read
   useEffect(() => {
     async function init() {
       try {
@@ -1096,11 +1092,13 @@ export default function Community() {
         const res = await fetch(`${API_URL}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
         if (!res.ok) return
         const data = await res.json()
+        const staff = data.role === 'admin' || data.role === 'coach'
         setIsAdmin(data.role === 'admin')
+        setIsStaff(staff)
+        setClientChannel(data.coaching_type ?? 'vip')
         setCurrentUserId(data.id)
       } catch {}
 
-      // Mark all notifications as read when Community opens
       try {
         const token = await getToken()
         await fetch(`${API_URL}/api/community/notifications/read`, {
@@ -1112,7 +1110,6 @@ export default function Community() {
     init()
   }, [getToken])
 
-  // Fetch members (used for @mentions + Members tab)
   useEffect(() => {
     async function loadMembers() {
       try {
@@ -1127,6 +1124,18 @@ export default function Community() {
     loadMembers()
   }, [getToken])
 
+  // Tabs depend on role + coaching_type
+  const chatLabel = isStaff
+    ? 'All Chats'
+    : clientChannel === 'ai' ? 'AI/Hybrid Chat' : 'VIP Chat'
+
+  const TABS = [
+    { id: 'chat',      label: chatLabel },
+    { id: 'members',   label: 'Members' },
+    { id: 'mindset',   label: 'Brain Mapping/Mindset' },
+    { id: 'resources', label: 'Resources' },
+  ]
+
   return (
     <div className="max-w-5xl">
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Community</h1>
@@ -1137,7 +1146,7 @@ export default function Community() {
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+            className={`flex-1 py-2 px-3 rounded-lg text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
               tab === t.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
@@ -1146,10 +1155,10 @@ export default function Community() {
         ))}
       </div>
 
-      {tab === 'feed'      && <HybridTab getToken={getToken} isAdmin={isAdmin} currentUserId={currentUserId} members={members} />}
+      {tab === 'chat'      && <HybridTab getToken={getToken} isAdmin={isAdmin} isStaff={isStaff} currentUserId={currentUserId} members={members} />}
       {tab === 'members'   && <MembersTab members={members} loading={membersLoading} />}
-      {tab === 'classroom' && <ClassroomTab />}
-      {tab === 'vip'       && <VIPTab />}
+      {tab === 'mindset'   && <ClassroomTab />}
+      {tab === 'resources' && <ResourcesTab />}
     </div>
   )
 }
