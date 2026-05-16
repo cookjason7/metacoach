@@ -116,8 +116,15 @@ export default function Messages() {
 
       setThreads(list)
       setCoachName(coach)
-      // Auto-open first thread on first load only
-      setActive(prev => (!prev && list.length > 0 ? list[0].thread_type : prev))
+      // Auto-open the most recently active thread on first load only
+      // (ensures a newly-sent form message thread opens, not always admin_private)
+      setActive(prev => {
+        if (prev || list.length === 0) return prev
+        const byRecent = [...list].sort(
+          (a, b) => new Date(b.last_message_at ?? 0) - new Date(a.last_message_at ?? 0),
+        )
+        return byRecent[0].thread_type
+      })
     }
     setLoading(false)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -248,7 +255,7 @@ export default function Messages() {
           </div>
 
           {/* Conversation pane — full-width on mobile when active */}
-          <div className={`flex-1 flex flex-col bg-white border border-gray-200 rounded-xl overflow-hidden ${active ? 'flex' : 'hidden lg:flex'}`}>
+          <div className={`flex-1 flex-col bg-white border border-gray-200 rounded-xl overflow-hidden ${active ? 'flex' : 'hidden lg:flex'}`}>
             {active && activeMeta ? (
               <>
                 {/* Header */}
