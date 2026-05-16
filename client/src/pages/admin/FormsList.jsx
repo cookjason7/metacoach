@@ -549,6 +549,93 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+// ── AI Import modal ───────────────────────────────────────────────────────────
+
+function AiImportModal({ getToken, onClose, onCreated }) {
+  const [rawText, setRawText] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [err,     setErr]     = useState(null)
+
+  async function handleGenerate() {
+    if (!rawText.trim()) { setErr('Paste your form text above.'); return }
+    setLoading(true); setErr(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/forms/ai-import`, {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ raw_text: rawText }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Import failed')
+      onCreated(data.id)
+    } catch (e) { setErr(e.message) }
+    finally { setLoading(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">Import With AI</h2>
+            <p className="text-xs text-gray-500 mt-0.5">AI will create a draft. Review and edit before publishing.</p>
+          </div>
+          <button onClick={onClose} disabled={loading} className="text-gray-400 hover:text-gray-600 mt-0.5">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {err && (
+          <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+            {err}
+          </div>
+        )}
+
+        <textarea
+          value={rawText}
+          onChange={e => setRawText(e.target.value)}
+          disabled={loading}
+          placeholder="Paste your form text here — questions, answer choices, instructions, everything…"
+          rows={10}
+          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#E8670A] disabled:opacity-50 mb-4"
+        />
+
+        <p className="text-xs text-gray-400 mb-4">
+          AI will detect field types, answer choices, required fields, and character limits. Identity fields (name, email) are skipped automatically.
+        </p>
+
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="flex-1 border border-gray-200 text-gray-600 font-semibold py-2.5 rounded-xl text-sm hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleGenerate}
+            disabled={loading || !rawText.trim()}
+            className="flex-1 bg-[#E8670A] text-white font-bold py-2.5 rounded-xl text-sm hover:bg-[#c45e09] disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <>
+                <svg className="animate-spin w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+                AI is building your form…
+              </>
+            ) : 'Generate Draft'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Create Form modal ─────────────────────────────────────────────────────────
 
 function CreateModal({ onClose, onCreate }) {
@@ -618,6 +705,7 @@ export default function FormsList() {
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(null)
   const [creating,      setCreating]      = useState(false)
+  const [importing,     setImporting]     = useState(false)
   const [filter,        setFilter]        = useState('all')
   const [actionLoading, setActionLoading] = useState(null)
   const [sendingForm,   setSendingForm]   = useState(null)
@@ -703,15 +791,26 @@ export default function FormsList() {
           <h1 className="text-2xl font-bold text-gray-900">Forms</h1>
           <p className="text-sm text-gray-500 mt-0.5">Create and manage client forms</p>
         </div>
-        <button
-          onClick={() => setCreating(true)}
-          className="flex items-center gap-2 bg-[#E8670A] text-white font-bold px-4 py-2.5 rounded-xl text-sm hover:bg-[#c45e09] transition-colors"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          New Form
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setImporting(true)}
+            className="flex items-center gap-2 border border-gray-200 bg-white text-gray-700 font-semibold px-4 py-2.5 rounded-xl text-sm hover:bg-gray-50 transition-colors"
+          >
+            <svg className="w-4 h-4 text-[#E8670A]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+            </svg>
+            Import With AI
+          </button>
+          <button
+            onClick={() => setCreating(true)}
+            className="flex items-center gap-2 bg-[#E8670A] text-white font-bold px-4 py-2.5 rounded-xl text-sm hover:bg-[#c45e09] transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            New Form
+          </button>
+        </div>
       </div>
 
       {/* Filter tabs */}
@@ -863,6 +962,14 @@ export default function FormsList() {
 
       {/* Scheduled Sends section */}
       <ScheduledSends getToken={getToken} refreshKey={scheduleKey} />
+
+      {importing && (
+        <AiImportModal
+          getToken={getToken}
+          onClose={() => setImporting(false)}
+          onCreated={id => { setImporting(false); navigate(`/admin/forms/${id}/edit`) }}
+        />
+      )}
 
       {creating && (
         <CreateModal onClose={() => setCreating(false)} onCreate={handleCreate} />

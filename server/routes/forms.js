@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
+import { parseFormWithAI } from '../services/formParser.js'
 
 const router = Router()
 
@@ -56,6 +57,28 @@ router.post('/', requireAuth(), async (req, res, next) => {
     `, [title.trim(), description?.trim() ?? null, ctx.dbUserId])
 
     res.status(201).json(rows[0])
+  } catch (err) { next(err) }
+})
+
+// POST /api/forms/ai-import — admin only; paste raw form text, AI returns a new draft
+router.post('/ai-import', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await getCurrentUser(req)
+    if (!isAdmin(ctx.role)) return res.status(403).json({ error: 'Admin only' })
+
+    const { raw_text } = req.body
+    if (!raw_text?.trim()) return res.status(400).json({ error: 'raw_text is required.' })
+    if (raw_text.length > 20000) return res.status(400).json({ error: 'Input text is too long (max 20,000 characters).' })
+
+    const { title, description, fields } = await parseFormWithAI(raw_text.trim())
+
+    const { rows: [newForm] } = await pool.query(`
+      INSERT INTO form_templates (title, description, status, draft_schema, created_by)
+      VALUES ($1, $2, 'draft', $3::jsonb, $4)
+      RETURNING id, title
+    `, [title, description ?? null, JSON.stringify(fields), ctx.dbUserId])
+
+    res.status(201).json({ id: newForm.id, title: newForm.title, field_count: fields.length })
   } catch (err) { next(err) }
 })
 
