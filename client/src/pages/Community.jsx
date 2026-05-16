@@ -44,8 +44,7 @@ const REACTIONS = [
   { type: 'laugh', emoji: '😂', countKey: 'laugh_count', myKey: 'my_laugh' },
 ]
 
-const CATEGORIES        = ['General Discussion', 'Announcements', 'Non-Scale Victories', 'Hurdles']
-const CLIENT_CATEGORIES = ['General Discussion', 'Non-Scale Victories']
+const CATEGORIES = ['General Discussion', 'Non-Scale Victories']
 
 const CATEGORY_STYLES = {
   'General Discussion':  'bg-gray-100 text-gray-600 border-gray-200',
@@ -552,7 +551,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
                 onChange={e => setEditCategory(e.target.value)}
                 className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
               >
-                {(isStaff ? CATEGORIES : CLIENT_CATEGORIES).map(c => <option key={c} value={c}>{c}</option>)}
+                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div className="flex gap-2">
@@ -861,7 +860,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
 
         {/* Category filter tabs */}
         <div className="flex gap-1.5 flex-wrap mb-4">
-          {(isStaff ? ['All', ...CATEGORIES] : ['All', 'General Discussion']).map(cat => (
+          {['All', ...CATEGORIES].map(cat => (
             <button
               key={cat}
               onClick={() => setActiveCategory(cat)}
@@ -887,18 +886,16 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
             textareaClassName="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
           />
 
-          {/* Category dropdown — staff only; clients always post to General Discussion */}
-          {isStaff && (
-            <div className="flex items-center gap-3 mt-3">
-              <select
-                value={category}
-                onChange={e => setCategory(e.target.value)}
-                className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white flex-1"
-              >
-                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-          )}
+          {/* Category dropdown */}
+          <div className="flex items-center gap-3 mt-3">
+            <select
+              value={category}
+              onChange={e => setCategory(e.target.value)}
+              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white flex-1"
+            >
+              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
 
           {poll && <PollCreator poll={poll} onChange={setPoll} />}
 

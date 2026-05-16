@@ -70,12 +70,20 @@ async function createMentionNotifications(content, postId, fromUserId) {
   }
 }
 
-// ── Admin delete ──────────────────────────────────────────────────────────────
+// ── Delete ────────────────────────────────────────────────────────────────────
 
 router.delete('/posts/:id', requireAuth(), async (req, res, next) => {
   try {
-    if (await checkAdmin(req, res) === null) return
-    await pool.query('DELETE FROM community_posts WHERE id = $1', [parseInt(req.params.id, 10)])
+    const { userId } = getAuth(req)
+    const { dbUserId, isStaff } = await getUserContext(userId)
+    const postId = parseInt(req.params.id, 10)
+    if (!isStaff) {
+      // clients can only delete their own posts
+      const { rows } = await pool.query('SELECT user_id FROM community_posts WHERE id = $1', [postId])
+      if (!rows[0]) return res.status(404).json({ error: 'Not found' })
+      if (rows[0].user_id !== dbUserId) return res.status(403).json({ error: 'Forbidden' })
+    }
+    await pool.query('DELETE FROM community_posts WHERE id = $1', [postId])
     res.json({ ok: true })
   } catch (err) { next(err) }
 })
@@ -235,8 +243,8 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
 
     if (!content?.trim()) return res.status(400).json({ error: 'Content required' })
 
-    // Clients may only post in General Discussion; staff pick freely
-    if (!isStaff) category = 'General Discussion'
+    // Clients may only post in General Discussion or Non-Scale Victories
+    if (!isStaff && !CLIENT_CATEGORIES.has(category)) category = 'General Discussion'
 
     // Clients always post into their own channel; staff may specify a channel in body
     const postChannel = isStaff
