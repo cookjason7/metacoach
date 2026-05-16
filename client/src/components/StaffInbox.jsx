@@ -194,10 +194,8 @@ export default function StaffInbox({ getToken }) {
         )
         if (!res.ok) return
         const data = await res.json()
-        if (data.length !== msgCountRef.current) {
-          setMessages(data)
-          msgCountRef.current = data.length
-        }
+        setMessages(data)
+        msgCountRef.current = data.length
       } catch {}
     }
     const id = setInterval(poll, 20_000)
@@ -370,9 +368,9 @@ export default function StaffInbox({ getToken }) {
                           View Form (Preview)
                         </a>
                       )}
-                      {isStaff && m.read_at && (
+                      {isStaff && (
                         <p className="text-[9px] opacity-60 text-right mt-0.5">
-                          Read {fmtFull(m.read_at)}
+                          {m.read_at ? `Read ${fmtFull(m.read_at)}` : 'Not read'}
                         </p>
                       )}
                     </div>
