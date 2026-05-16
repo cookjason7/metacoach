@@ -887,6 +887,7 @@ export async function migrate() {
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_invites_email ON client_invites (LOWER(email))`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_invites_token ON client_invites (token)`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT`)
 
   // ── Remove old onboarding gate — mark all users as onboarding_complete ──────
   // The multi-step onboarding form (name/gender/age/height/weight) is removed.

@@ -30,7 +30,7 @@ router.get('/me', requireAuth(), async (req, res, next) => {
     const dbUserId = await getOrCreateUser(userId, email)
 
     const { rows } = await pool.query(
-      `SELECT id, first_name, email, age, height_inches, starting_weight_lbs, goal_weight_lbs,
+      `SELECT id, first_name, last_name, email, age, height_inches, starting_weight_lbs, goal_weight_lbs,
               activity_level, tried_before, why_joined, identity_anchors,
               onboarding_complete, assessment_complete,
               goal_calories, goal_protein, goal_carbs, goal_fat, goal_fiber, goal_water,
@@ -57,7 +57,7 @@ router.patch('/me', requireAuth(), async (req, res, next) => {
     const dbUserId = await getOrCreateUser(userId)
 
     const {
-      first_name, age, height_inches, starting_weight_lbs, goal_weight_lbs,
+      first_name, last_name, age, height_inches, starting_weight_lbs, goal_weight_lbs,
       activity_level, tried_before, why_joined,
       identity_anchors, onboarding_complete, gender, phone_number,
     } = req.body
@@ -65,21 +65,22 @@ router.patch('/me', requireAuth(), async (req, res, next) => {
     const { rows } = await pool.query(
       `UPDATE users SET
          first_name          = COALESCE($1,  first_name),
-         age                 = COALESCE($2,  age),
-         height_inches       = COALESCE($3,  height_inches),
-         starting_weight_lbs = COALESCE($4,  starting_weight_lbs),
-         goal_weight_lbs     = COALESCE($5,  goal_weight_lbs),
-         activity_level      = COALESCE($6,  activity_level),
-         tried_before        = COALESCE($7,  tried_before),
-         why_joined          = COALESCE($8,  why_joined),
-         identity_anchors    = COALESCE($9,  identity_anchors),
-         onboarding_complete = COALESCE($10, onboarding_complete),
-         gender              = COALESCE($11, gender),
-         phone_number        = COALESCE($12, phone_number)
-       WHERE id = $13
+         last_name           = COALESCE($2,  last_name),
+         age                 = COALESCE($3,  age),
+         height_inches       = COALESCE($4,  height_inches),
+         starting_weight_lbs = COALESCE($5,  starting_weight_lbs),
+         goal_weight_lbs     = COALESCE($6,  goal_weight_lbs),
+         activity_level      = COALESCE($7,  activity_level),
+         tried_before        = COALESCE($8,  tried_before),
+         why_joined          = COALESCE($9,  why_joined),
+         identity_anchors    = COALESCE($10, identity_anchors),
+         onboarding_complete = COALESCE($11, onboarding_complete),
+         gender              = COALESCE($12, gender),
+         phone_number        = COALESCE($13, phone_number)
+       WHERE id = $14
        RETURNING *`,
       [
-        first_name ?? null, age ?? null, height_inches ?? null,
+        first_name ?? null, last_name ?? null, age ?? null, height_inches ?? null,
         starting_weight_lbs ?? null, goal_weight_lbs ?? null,
         activity_level ?? null, tried_before ?? null, why_joined ?? null,
         identity_anchors ?? null, onboarding_complete ?? null,

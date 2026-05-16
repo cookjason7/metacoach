@@ -171,12 +171,15 @@ export default function Settings() {
   const { user }       = useUser()
   const [profile, setProfile] = useState(null)
   const [form, setForm]       = useState({
-    first_name: '', age: '', feet: '', inches: '', activity_level: '',
+    first_name: '', last_name: '', age: '', feet: '', inches: '', activity_level: '',
     gender: '', phone_number: '',
   })
   const [saving, setSaving]   = useState(false)
   const [saved,  setSaved]    = useState(false)
   const [error,  setError]    = useState(null)
+  const [nameSaving, setNameSaving] = useState(false)
+  const [nameSaved,  setNameSaved]  = useState(false)
+  const [nameError,  setNameError]  = useState(null)
 
   // Health assessment
   const [assessment,     setAssessment]     = useState(null)
@@ -204,6 +207,7 @@ export default function Settings() {
         setProfile(data)
         setForm({
           first_name:     data.first_name     ?? '',
+          last_name:      data.last_name      ?? '',
           age:            data.age            != null ? String(data.age) : '',
           feet:           data.height_inches  != null ? String(Math.floor(data.height_inches / 12)) : '',
           inches:         data.height_inches  != null ? String(data.height_inches % 12) : '',
@@ -261,6 +265,29 @@ export default function Settings() {
   function set(e) {
     const { name, value } = e.target
     setForm(f => ({ ...f, [name]: value }))
+  }
+
+  async function saveName(e) {
+    e.preventDefault()
+    setNameSaving(true); setNameError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/users/me`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          first_name: form.first_name.trim() || null,
+          last_name:  form.last_name.trim()  || null,
+        }),
+      })
+      if (!res.ok) throw new Error('Failed to save')
+      setNameSaved(true)
+      setTimeout(() => setNameSaved(false), 2500)
+    } catch (err) {
+      setNameError(err.message)
+    } finally {
+      setNameSaving(false)
+    }
   }
 
   async function save(e) {
@@ -363,21 +390,53 @@ export default function Settings() {
   const anglesWithComparison = ANGLES.filter(a => photos[a].length >= 2)
 
   return (
-    <div className="max-w-lg">
+    <div className="w-full max-w-lg">
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Settings</h1>
       <p className="text-sm text-gray-500 mb-8">Account and preferences</p>
 
       {/* Account */}
       <h2 className="text-sm font-semibold text-gray-700 mb-3">Account</h2>
       <div className="bg-white rounded-xl border border-gray-200 p-5 mb-8">
-        <Field label="Email">
-          <input
-            type="email"
-            value={user?.primaryEmailAddress?.emailAddress ?? ''}
-            readOnly
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500 cursor-not-allowed"
-          />
-        </Field>
+        <form onSubmit={saveName} className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="First name">
+              <input
+                type="text"
+                name="first_name"
+                value={form.first_name}
+                onChange={set}
+                placeholder="First name"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]"
+              />
+            </Field>
+            <Field label="Last name">
+              <input
+                type="text"
+                name="last_name"
+                value={form.last_name}
+                onChange={set}
+                placeholder="Last name"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]"
+              />
+            </Field>
+          </div>
+          <Field label="Email">
+            <input
+              type="email"
+              value={user?.primaryEmailAddress?.emailAddress ?? ''}
+              readOnly
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500 cursor-not-allowed"
+            />
+          </Field>
+          {nameError && <p className="text-xs text-red-500">{nameError}</p>}
+          <button
+            type="submit"
+            disabled={nameSaving}
+            className="w-full py-2.5 rounded-lg text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors disabled:opacity-60"
+          >
+            {nameSaved ? 'Saved!' : nameSaving ? 'Saving…' : 'Save Name'}
+          </button>
+        </form>
       </div>
 
       {/* Health Profile */}
@@ -394,9 +453,9 @@ export default function Settings() {
 
       {/* Progress Photos */}
       <h2 className="text-sm font-semibold text-gray-700 mb-3">Progress Photos</h2>
-      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-8">
+      <div className="bg-white rounded-xl border border-gray-200 p-4 mb-8">
         <p className="text-sm text-gray-500 mb-4">Upload front, back, and side photos to track your visual progress over time.</p>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-2">
           {ANGLES.map(angle => (
             <ProgressPhotoPanel
               key={angle}
@@ -417,12 +476,12 @@ export default function Settings() {
           { name: 'Google Fit',   icon: '🏃' },
           { name: 'Fitbit',       icon: '⌚' },
         ].map(app => (
-          <div key={app.name} className="flex items-center justify-between px-5 py-4">
-            <div className="flex items-center gap-3">
-              <span className="text-xl">{app.icon}</span>
-              <p className="text-sm font-medium text-gray-900">{app.name}</p>
+          <div key={app.name} className="flex items-center justify-between gap-3 px-4 py-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="text-xl shrink-0">{app.icon}</span>
+              <p className="text-sm font-medium text-gray-900 truncate">{app.name}</p>
             </div>
-            <span className="text-xs text-gray-400 bg-gray-100 px-2.5 py-1 rounded-full">Coming soon</span>
+            <span className="text-xs text-gray-400 bg-gray-100 px-2.5 py-1 rounded-full shrink-0 whitespace-nowrap">Coming soon</span>
           </div>
         ))}
       </div>
