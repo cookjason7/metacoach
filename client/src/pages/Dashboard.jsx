@@ -594,21 +594,6 @@ export default function Dashboard() {
 
       <KatieBanner message={katieBanner} onDismiss={() => setKatieBanner(null)} />
 
-      {/* Weekly Check-In CTA */}
-      <Link
-        to="/weekly-checkin"
-        className="flex items-center gap-3 bg-white border border-gray-200 rounded-2xl px-4 py-3 mb-5 hover:border-[#E8670A] active:bg-orange-50/50 transition-colors group"
-      >
-        <div className="w-10 h-10 bg-orange-50 rounded-xl flex items-center justify-center text-xl shrink-0">📋</div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-bold text-gray-900">Weekly Check-In</p>
-          <p className="text-xs text-gray-400 mt-0.5">Share your progress with your coach</p>
-        </div>
-        <svg className="w-4 h-4 text-gray-300 group-hover:text-[#E8670A] transition-colors shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
-      </Link>
-
       {error && (
         <div className="mb-6 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
           Could not load data: {error}

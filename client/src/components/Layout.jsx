@@ -6,13 +6,10 @@ import { API_URL } from '../config.js'
 // Client-facing sidebar nav
 const CLIENT_NAV_ITEMS = [
   { to: '/dashboard',    label: 'Dashboard' },
-  { to: '/ai-coach',     label: 'Coach Katie' },
-  { href: 'https://www.lwcvip.com/mindset', label: 'Brain Mapping' },
   { to: '/journal',      label: 'Food Log' },
   { to: '/calendar',     label: 'Calendar' },
   { to: '/messages',     label: 'Messages' },
   { to: '/food-list',    label: 'Food List' },
-  { to: '/workouts',     label: 'Workouts' },
   { to: '/badges',       label: 'Achievements' },
   { to: '/community',    label: 'Community' },
   { to: '/settings',     label: 'Settings' },
