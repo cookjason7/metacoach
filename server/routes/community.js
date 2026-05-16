@@ -185,6 +185,10 @@ router.get('/posts', requireAuth(), async (req, res, next) => {
     const { userId } = getAuth(req)
     const { dbUserId, isStaff, channel } = await getUserContext(userId)
 
+    // Clients always see their own channel; staff filter by ?channel= param when provided
+    const requested   = ['vip', 'ai'].includes(req.query.channel) ? req.query.channel : null
+    const filterChannel = isStaff ? requested : channel   // null = no filter (staff, all channels)
+
     const { rows } = await pool.query(
       `SELECT
          cp.id,
@@ -212,11 +216,11 @@ router.get('/posts', requireAuth(), async (req, res, next) => {
        JOIN users u ON u.id = cp.user_id
        LEFT JOIN post_likes    pl ON pl.post_id = cp.id
        LEFT JOIN post_comments pc ON pc.post_id = cp.id
-       WHERE ($2::boolean OR cp.channel = $3)
+       WHERE ($2::text IS NULL OR cp.channel = $2)
        GROUP BY cp.id, u.first_name
        ORDER BY cp.pinned DESC, cp.created_at DESC
        LIMIT 100`,
-      [dbUserId, isStaff, channel],
+      [dbUserId, filterChannel],
     )
     res.json(rows)
   } catch (err) { next(err) }
@@ -231,10 +235,13 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
 
     if (!content?.trim()) return res.status(400).json({ error: 'Content required' })
 
-    // Clients may only post in General Discussion or Non-Scale Victories
-    if (!isStaff && !CLIENT_CATEGORIES.has(category)) {
-      category = 'General Discussion'
-    }
+    // Clients may only post in General Discussion; staff pick freely
+    if (!isStaff) category = 'General Discussion'
+
+    // Clients always post into their own channel; staff may specify a channel in body
+    const postChannel = isStaff
+      ? (['vip', 'ai'].includes(req.body?.channel) ? req.body.channel : channel)
+      : channel
 
     let photo_url = null
     if (req.file) {
@@ -246,7 +253,7 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
       `INSERT INTO community_posts (user_id, content, photo_url, category, channel)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, user_id, content, photo_url, created_at, category, channel, pinned`,
-      [dbUserId, content.trim(), photo_url, category, channel],
+      [dbUserId, content.trim(), photo_url, category, postChannel],
     )
     const post = rows[0]
 

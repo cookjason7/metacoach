@@ -698,13 +698,13 @@ function Leaderboard({ getToken }) {
 
 // ── HybridTab ─────────────────────────────────────────────────────────────────
 
-function HybridTab({ getToken, isAdmin, isStaff, currentUserId, members }) {
+function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members }) {
   const photoInputRef = useRef(null)
   const [posts,          setPosts]         = useState([])
   const [loading,        setLoading]       = useState(true)
   const [error,          setError]         = useState(null)
   const [newPost,        setNewPost]       = useState('')
-  const [category,       setCategory]      = useState(CATEGORIES[0])
+  const [category,       setCategory]      = useState('General Discussion')
   const [poll,           setPoll]          = useState(null)
   const [photo,          setPhoto]         = useState(null)
   const [preview,        setPreview]       = useState(null)
@@ -716,14 +716,14 @@ function HybridTab({ getToken, isAdmin, isStaff, currentUserId, members }) {
     async function load() {
       try {
         const token = await getToken()
-        const res   = await fetch(`${API_URL}/api/community/posts`, { headers: { Authorization: `Bearer ${token}` } })
+        const res   = await fetch(`${API_URL}/api/community/posts?channel=${channel}`, { headers: { Authorization: `Bearer ${token}` } })
         if (!res.ok) throw new Error(`Server error ${res.status}`)
         setPosts(await res.json())
       } catch (err) { setError(err.message) }
       finally { setLoading(false) }
     }
     load()
-  }, [getToken])
+  }, [getToken, channel])
 
   const visiblePosts = posts.filter(p => {
     const matchSearch = !search.trim() || p.content.toLowerCase().includes(search.toLowerCase())
@@ -751,6 +751,7 @@ function HybridTab({ getToken, isAdmin, isStaff, currentUserId, members }) {
       const body  = new FormData()
       body.append('content', newPost.trim())
       body.append('category', category)
+      body.append('channel', channel)
       if (photo) body.append('photo', photo)
       if (poll?.question?.trim() && poll.options.filter(o => o.trim()).length >= 2) {
         body.append('poll_question', poll.question.trim())
@@ -769,7 +770,7 @@ function HybridTab({ getToken, isAdmin, isStaff, currentUserId, members }) {
         const unpinned = prev.filter(p => !p.pinned)
         return [...pinned, post, ...unpinned]
       })
-      setNewPost(''); setCategory(CATEGORIES[0]); setPoll(null); clearPhoto()
+      setNewPost(''); setCategory('General Discussion'); setPoll(null); clearPhoto()
     } catch (err) { setError(err.message) }
     finally { setPosting(false) }
   }
@@ -860,7 +861,7 @@ function HybridTab({ getToken, isAdmin, isStaff, currentUserId, members }) {
 
         {/* Category filter tabs */}
         <div className="flex gap-1.5 flex-wrap mb-4">
-          {['All', ...CATEGORIES].map(cat => (
+          {(isStaff ? ['All', ...CATEGORIES] : ['All', 'General Discussion']).map(cat => (
             <button
               key={cat}
               onClick={() => setActiveCategory(cat)}
@@ -886,16 +887,18 @@ function HybridTab({ getToken, isAdmin, isStaff, currentUserId, members }) {
             textareaClassName="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
           />
 
-          {/* Category dropdown */}
-          <div className="flex items-center gap-3 mt-3">
-            <select
-              value={category}
-              onChange={e => setCategory(e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white flex-1"
-            >
-              {(isStaff ? CATEGORIES : CLIENT_CATEGORIES).map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
+          {/* Category dropdown — staff only; clients always post to General Discussion */}
+          {isStaff && (
+            <div className="flex items-center gap-3 mt-3">
+              <select
+                value={category}
+                onChange={e => setCategory(e.target.value)}
+                className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white flex-1"
+              >
+                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          )}
 
           {poll && <PollCreator poll={poll} onChange={setPoll} />}
 
@@ -1077,13 +1080,12 @@ function ResourcesTab() {
 
 export default function Community() {
   const { getToken }                       = useAuth()
-  const [tab,            setTab]           = useState('chat')
   const [isAdmin,        setIsAdmin]       = useState(false)
   const [isStaff,        setIsStaff]       = useState(false)
   const [clientChannel,  setClientChannel] = useState('vip')
   const [currentUserId,  setCurrentUserId] = useState(null)
   const [members,        setMembers]       = useState([])
-  const [membersLoading, setMembersLoading]= useState(true)
+  const [tab,            setTab]           = useState(null) // set after user loads
 
   useEffect(() => {
     async function init() {
@@ -1093,11 +1095,14 @@ export default function Community() {
         if (!res.ok) return
         const data = await res.json()
         const staff = data.role === 'admin' || data.role === 'coach'
+        const ch    = data.coaching_type ?? 'vip'
         setIsAdmin(data.role === 'admin')
         setIsStaff(staff)
-        setClientChannel(data.coaching_type ?? 'vip')
+        setClientChannel(ch)
         setCurrentUserId(data.id)
-      } catch {}
+        // Default tab: staff → vip chat, clients → their channel
+        setTab(staff ? 'vip' : ch)
+      } catch { setTab('vip') }
 
       try {
         const token = await getToken()
@@ -1119,22 +1124,19 @@ export default function Community() {
         })
         if (res.ok) setMembers(await res.json())
       } catch {}
-      setMembersLoading(false)
     }
     loadMembers()
   }, [getToken])
 
-  // Tabs depend on role + coaching_type
-  const chatLabel = isStaff
-    ? 'All Chats'
-    : clientChannel === 'ai' ? 'AI/Hybrid Chat' : 'VIP Chat'
-
+  // Build tab list: staff see both chats; clients see only their own
   const TABS = [
-    { id: 'chat',      label: chatLabel },
-    { id: 'members',   label: 'Members' },
+    ...(isStaff || clientChannel === 'vip' ? [{ id: 'vip', label: 'VIP Chat' }] : []),
+    ...(isStaff || clientChannel === 'ai'  ? [{ id: 'ai',  label: 'AI/Hybrid Chat' }] : []),
     { id: 'mindset',   label: 'Brain Mapping/Mindset' },
     { id: 'resources', label: 'Resources' },
   ]
+
+  if (tab === null) return null // wait for user load
 
   return (
     <div className="max-w-5xl">
@@ -1155,8 +1157,17 @@ export default function Community() {
         ))}
       </div>
 
-      {tab === 'chat'      && <HybridTab getToken={getToken} isAdmin={isAdmin} isStaff={isStaff} currentUserId={currentUserId} members={members} />}
-      {tab === 'members'   && <MembersTab members={members} loading={membersLoading} />}
+      {(tab === 'vip' || tab === 'ai') && (
+        <HybridTab
+          key={tab}
+          channel={tab}
+          getToken={getToken}
+          isAdmin={isAdmin}
+          isStaff={isStaff}
+          currentUserId={currentUserId}
+          members={members}
+        />
+      )}
       {tab === 'mindset'   && <ClassroomTab />}
       {tab === 'resources' && <ResourcesTab />}
     </div>
