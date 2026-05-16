@@ -482,11 +482,13 @@ function MealEntry({ meal, onEdit, onDelete, onCopy, onMove }) {
 
 // ── Slot Section ───────────────────────────────────────────────────────────────
 
-function SlotSection({ name, meals, onAddClick, onEdit, onDelete, onCopy, onMove }) {
+function SlotSection({ name, meals, onAddClick, onEdit, onDelete, onCopy, onMove, onCopySlot }) {
   const lsKey = `journal_slot_${name.toLowerCase().replace(/\s+/g, '_')}`
-  const [open, setOpen] = useState(() => {
+  const [open,     setOpen]     = useState(() => {
     try { const v = localStorage.getItem(lsKey); return v === null ? true : v === 'true' } catch { return true }
   })
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef(null)
   const t     = sumMacros(meals)
   const count = meals.length
 
@@ -497,6 +499,15 @@ function SlotSection({ name, meals, onAddClick, onEdit, onDelete, onCopy, onMove
       return next
     })
   }
+
+  useEffect(() => {
+    if (!menuOpen) return
+    function handler(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [menuOpen])
 
   return (
     <div className="mb-3 rounded-2xl border border-gray-200 bg-white overflow-hidden" style={{ borderLeft: '4px solid #E8670A' }}>
@@ -532,8 +543,30 @@ function SlotSection({ name, meals, onAddClick, onEdit, onDelete, onCopy, onMove
           )}
         </div>
 
-        {/* Add button + chevron */}
+        {/* Three-dot menu + add button + chevron */}
         <div className="flex items-center gap-2 shrink-0">
+          {/* Three-dot slot menu */}
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }}
+              className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+              aria-label={`${name} options`}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <circle cx="3" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="13" cy="8" r="1.5"/>
+              </svg>
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-20 min-w-[130px] overflow-hidden">
+                <button
+                  onClick={e => { e.stopPropagation(); setMenuOpen(false); onCopySlot(name) }}
+                  className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Copy Meal
+                </button>
+              </div>
+            )}
+          </div>
           <button
             onClick={e => { e.stopPropagation(); onAddClick() }}
             className="w-8 h-8 bg-[#E8670A] text-white rounded-full text-xl font-light flex items-center justify-center hover:bg-[#c45e09] transition-colors shadow-sm"
@@ -915,37 +948,29 @@ const COPY_SLOT_OPTIONS = [
   { value: 'PM Snack',  label: 'Afternoon Snack' },
 ]
 
-function CopySlotModal({ selectedDate, getToken, onClose, onSuccess }) {
-  const curDate  = toDateStr(selectedDate)
+function CopySlotModal({ sourceDate, sourceSlot, getToken, onClose, onSuccess }) {
   const todayStr = toDateStr(new Date())
   const minStr   = toDateStr((() => { const d = new Date(); d.setDate(d.getDate() - 90); return d })())
   const maxStr   = toDateStr((() => { const d = new Date(); d.setDate(d.getDate() + 7); return d })())
 
-  const defaultOther = todayStr === curDate
+  const defaultToDate = todayStr === sourceDate
     ? toDateStr((() => { const d = new Date(); d.setDate(d.getDate() - 1); return d })())
     : todayStr
 
-  const [fromDate, setFromDate] = useState(curDate)
-  const [fromSlot, setFromSlot] = useState('Breakfast')
-  const [toDate,   setToDate]   = useState(defaultOther)
-  const [toSlot,   setToSlot]   = useState('Breakfast')
+  const [toDate,   setToDate]   = useState(defaultToDate)
+  const [toSlot,   setToSlot]   = useState(sourceSlot)
   const [step,     setStep]     = useState('pick')
   const [conflict, setConflict] = useState(null)
   const [saving,   setSaving]   = useState(false)
   const [error,    setError]    = useState(null)
 
-  const sameSlot = fromDate === toDate && fromSlot === toSlot
-
-  function syncToSlot(newFromSlot) {
-    setFromSlot(newFromSlot)
-    setToSlot(newFromSlot)
-  }
+  const sameSlot = sourceDate === toDate && sourceSlot === toSlot
 
   async function doCopy(mode) {
     setSaving(true); setError(null)
     try {
       const token = await getToken()
-      const body  = { from_date: fromDate, from_slot: fromSlot, to_date: toDate, to_slot: toSlot }
+      const body  = { from_date: sourceDate, from_slot: sourceSlot, to_date: toDate, to_slot: toSlot }
       if (mode) body.mode = mode
       const res = await fetch(`${API_URL}/api/meals/copy-meal`, {
         method: 'POST',
@@ -972,7 +997,10 @@ function CopySlotModal({ selectedDate, getToken, onClose, onSuccess }) {
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h3 className="text-base font-semibold text-gray-900">Copy Meal</h3>
+          <div>
+            <h3 className="text-base font-semibold text-gray-900">Copy Meal</h3>
+            <p className="text-xs text-gray-400 mt-0.5">{sourceSlot} · {sourceDate}</p>
+          </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
         <div className="p-5 space-y-4">
@@ -981,32 +1009,7 @@ function CopySlotModal({ selectedDate, getToken, onClose, onSuccess }) {
             <>
               <div className="space-y-3">
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">From</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Date</label>
-                      <input type="date" value={fromDate} min={minStr} max={maxStr}
-                        onChange={e => setFromDate(e.target.value)}
-                        className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]" />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Meal</label>
-                      <select value={fromSlot} onChange={e => syncToSlot(e.target.value)}
-                        className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]">
-                        {COPY_SLOT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 h-px bg-gray-200" />
-                  <span className="text-xs text-gray-400 font-medium">→</span>
-                  <div className="flex-1 h-px bg-gray-200" />
-                </div>
-
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">To</p>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Copy to</p>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">Date</label>
@@ -2889,11 +2892,9 @@ export default function Journal() {
   const [editingMeal,  setEditingMeal]  = useState(null)
   const [copyingMeal,  setCopyingMeal]  = useState(null)
   const [movingMeal,   setMovingMeal]   = useState(null)
-  const [copyDayOpen,  setCopyDayOpen]  = useState(false)
-  const [copyDayMsg,   setCopyDayMsg]   = useState(null)
-  const [copySlotOpen, setCopySlotOpen] = useState(false)
-  const [copyMenuOpen, setCopyMenuOpen] = useState(false)
-  const copyMenuRef = useRef(null)
+  const [copyDayOpen,   setCopyDayOpen]   = useState(false)
+  const [copyDayMsg,    setCopyDayMsg]    = useState(null)
+  const [copySlotSource, setCopySlotSource] = useState(null) // { date, slot } | null
 
   const weekDays = getWeekDays(weekStart)
   const todayStr = toDateStr(new Date())
@@ -3041,22 +3042,12 @@ export default function Journal() {
   }, [selectedDate, loadMeals])
 
   const handleCopySlotSuccess = useCallback((toDate, toSlot, count) => {
-    setCopySlotOpen(false)
+    setCopySlotSource(null)
     if (toDate === toDateStr(selectedDate)) loadMeals()
     setActiveDates(prev => new Set([...prev, toDate]))
     setCopyDayMsg(`Copied ${count} item${count !== 1 ? 's' : ''} to ${toSlot} on ${toDate}`)
     setTimeout(() => setCopyDayMsg(null), 4000)
   }, [selectedDate, loadMeals])
-
-  // Close copy menu on outside click
-  useEffect(() => {
-    if (!copyMenuOpen) return
-    function handler(e) {
-      if (copyMenuRef.current && !copyMenuRef.current.contains(e.target)) setCopyMenuOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [copyMenuOpen])
 
   const totals    = sumMacros(meals)
   const slotMeals = groupBySlot(meals)
@@ -3075,30 +3066,12 @@ export default function Journal() {
               Today
             </button>
           )}
-          <div className="relative" ref={copyMenuRef}>
-            <button
-              onClick={() => setCopyMenuOpen(v => !v)}
-              className="text-xs font-medium text-gray-500 hover:text-[#E8670A] border border-gray-200 rounded-lg px-2.5 py-1.5 transition-colors flex items-center gap-1"
-            >
-              Copy <span className="opacity-60">▾</span>
-            </button>
-            {copyMenuOpen && (
-              <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-20 min-w-[130px] overflow-hidden">
-                <button
-                  onClick={() => { setCopyMenuOpen(false); setCopyDayOpen(true) }}
-                  className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                >
-                  Copy Day
-                </button>
-                <button
-                  onClick={() => { setCopyMenuOpen(false); setCopySlotOpen(true) }}
-                  className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 border-t border-gray-100 transition-colors"
-                >
-                  Copy Meal
-                </button>
-              </div>
-            )}
-          </div>
+          <button
+            onClick={() => setCopyDayOpen(true)}
+            className="text-xs font-medium text-gray-500 hover:text-[#E8670A] border border-gray-200 rounded-lg px-2.5 py-1.5 transition-colors"
+          >
+            Copy Day
+          </button>
         </div>
       </div>
       {copyDayMsg && (
@@ -3133,6 +3106,7 @@ export default function Journal() {
             onDelete={handleMealDeleted}
             onCopy={setCopyingMeal}
             onMove={setMovingMeal}
+            onCopySlot={slotName => setCopySlotSource({ date: toDateStr(selectedDate), slot: slotName })}
           />
         ))
       )}
@@ -3189,11 +3163,12 @@ export default function Journal() {
       )}
 
       {/* Copy meal modal */}
-      {copySlotOpen && (
+      {copySlotSource && (
         <CopySlotModal
-          selectedDate={selectedDate}
+          sourceDate={copySlotSource.date}
+          sourceSlot={copySlotSource.slot}
           getToken={getToken}
-          onClose={() => setCopySlotOpen(false)}
+          onClose={() => setCopySlotSource(null)}
           onSuccess={handleCopySlotSuccess}
         />
       )}
