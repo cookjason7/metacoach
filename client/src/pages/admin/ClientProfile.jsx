@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Fragment } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { API_URL } from '../../config.js'
@@ -1376,13 +1376,18 @@ function ReviewedBadge({ sub }) {
   )
 }
 
+function isCheckInSubmission(sub) {
+  const t = (sub.form_title ?? '').toLowerCase()
+  return t.includes('check-in') || t.includes('check in')
+}
+
 function FormSubmissionsSection({ clientId, getToken }) {
   const [submissions, setSubmissions] = useState(undefined)
   const [loading,     setLoading]     = useState(true)
   const [openId,      setOpenId]      = useState(null)
-  const [reviewing,   setReviewing]   = useState(null)   // subId in-flight
-  const [savingNote,  setSavingNote]  = useState(null)   // subId in-flight
-  const [noteDrafts,  setNoteDrafts]  = useState({})     // { [subId]: string }
+  const [reviewing,   setReviewing]   = useState(null)
+  const [savingNote,  setSavingNote]  = useState(null)
+  const [noteDrafts,  setNoteDrafts]  = useState({})
 
   useEffect(() => {
     let cancelled = false
@@ -1403,7 +1408,6 @@ function FormSubmissionsSection({ clientId, getToken }) {
   function handleView(sub) {
     if (openId === sub.id) { setOpenId(null); return }
     setOpenId(sub.id)
-    // Seed draft note from saved value if not already editing
     if (noteDrafts[sub.id] === undefined) {
       setNoteDrafts(prev => ({ ...prev, [sub.id]: sub.coach_note ?? '' }))
     }
@@ -1453,14 +1457,15 @@ function FormSubmissionsSection({ clientId, getToken }) {
     finally { setSavingNote(null) }
   }
 
-  function ExpandedPanel({ sub }) {
-    const schema = Array.isArray(sub.version_schema) ? sub.version_schema : []
-    const draft  = noteDrafts[sub.id] ?? sub.coach_note ?? ''
+  // Inline render — avoids nested-component identity issues that cause React to
+  // remount on every parent render, breaking controlled inputs.
+  function renderExpanded(sub) {
+    const schema  = Array.isArray(sub.version_schema) ? sub.version_schema : []
+    const draft   = noteDrafts[sub.id] ?? sub.coach_note ?? ''
     const isDirty = draft !== (sub.coach_note ?? '')
 
     return (
       <div className="space-y-4">
-        {/* Answers */}
         {schema.length === 0 ? (
           <p className="text-xs text-gray-400">No schema available.</p>
         ) : (
@@ -1474,7 +1479,6 @@ function FormSubmissionsSection({ clientId, getToken }) {
           </div>
         )}
 
-        {/* Note */}
         <div className="pt-3 border-t border-gray-200">
           <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-1">Staff Note</p>
           <textarea
@@ -1495,7 +1499,6 @@ function FormSubmissionsSection({ clientId, getToken }) {
           )}
         </div>
 
-        {/* Review action */}
         <div className="flex items-center justify-between pt-2 border-t border-gray-200">
           {sub.reviewed_at ? (
             <p className="text-xs text-emerald-700 font-semibold">
@@ -1505,7 +1508,7 @@ function FormSubmissionsSection({ clientId, getToken }) {
             <button
               onClick={() => handleMarkReviewed(sub)}
               disabled={reviewing === sub.id}
-              className="text-xs bg-emerald-600 text-white font-bold px-3 py-1.5 rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+              className="text-xs bg-emerald-600 text-white font-bold px-4 py-2 rounded-lg hover:bg-emerald-700 disabled:opacity-50"
             >
               {reviewing === sub.id ? 'Marking…' : 'Mark Reviewed'}
             </button>
@@ -1515,252 +1518,132 @@ function FormSubmissionsSection({ clientId, getToken }) {
     )
   }
 
-  return (
-    <div>
-      <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider mb-3">Form Submissions</p>
-      {loading ? (
-        <p className="text-sm text-gray-400 py-2">Loading…</p>
-      ) : !submissions || submissions.length === 0 ? (
-        <div className="bg-gray-50 border border-gray-100 rounded-xl p-5 text-center">
-          <p className="text-sm text-gray-500">No form submissions yet.</p>
-        </div>
-      ) : (
-        <>
-          {/* Desktop table */}
-          <div className="hidden md:block bg-white border border-gray-200 rounded-2xl overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200 text-[10px] text-gray-500 uppercase tracking-wider">
-                <tr>
-                  <th className="text-left px-4 py-2.5 font-semibold">Form</th>
-                  <th className="text-left px-4 py-2.5 font-semibold">Submitted</th>
-                  <th className="text-left px-4 py-2.5 font-semibold">Reviewed</th>
-                  <th className="text-left px-4 py-2.5 font-semibold">Notes</th>
-                  <th className="text-right px-4 py-2.5 font-semibold">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {submissions.map(sub => {
-                  const isOpen = openId === sub.id
-                  return (
-                    <>
-                      <tr key={sub.id} className="border-t border-gray-100 hover:bg-gray-50/60 transition-colors">
-                        <td className="px-4 py-3">
-                          <p className="text-sm font-semibold text-gray-900 truncate max-w-[200px]">{sub.form_title}</p>
-                          {sub.version_num && <p className="text-[10px] text-gray-400 mt-0.5">v{sub.version_num}</p>}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">{fmtDateTime(sub.submitted_at)}</td>
-                        <td className="px-4 py-3"><ReviewedBadge sub={sub} /></td>
-                        <td className="px-4 py-3 text-xs text-gray-500 max-w-[140px]">
-                          <span className="truncate block">{sub.coach_note || '—'}</span>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            onClick={() => handleView(sub)}
-                            className="text-xs text-[#E8670A] hover:text-[#c45e09] font-semibold"
-                          >
-                            {isOpen ? 'Close' : 'View'}
-                          </button>
+  function renderList(subs, emptyMsg) {
+    if (loading) return <p className="text-sm text-gray-400 py-2">Loading…</p>
+    if (!subs || subs.length === 0) return (
+      <div className="bg-gray-50 border border-gray-100 rounded-xl p-5 text-center">
+        <p className="text-sm text-gray-500">{emptyMsg}</p>
+      </div>
+    )
+    return (
+      <>
+        {/* Desktop table */}
+        <div className="hidden md:block bg-white border border-gray-200 rounded-2xl overflow-hidden">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200 text-[10px] text-gray-500 uppercase tracking-wider">
+              <tr>
+                <th className="text-left px-4 py-2.5 font-semibold">Form</th>
+                <th className="text-left px-4 py-2.5 font-semibold">Submitted</th>
+                <th className="text-left px-4 py-2.5 font-semibold">Reviewed</th>
+                <th className="text-left px-4 py-2.5 font-semibold">Notes</th>
+                <th className="text-right px-4 py-2.5 font-semibold">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {subs.map(sub => {
+                const isOpen = openId === sub.id
+                return (
+                  <Fragment key={sub.id}>
+                    <tr className="border-t border-gray-100 hover:bg-gray-50/60 transition-colors">
+                      <td className="px-4 py-3">
+                        <p className="text-sm font-semibold text-gray-900 truncate max-w-[200px]">{sub.form_title}</p>
+                        {sub.version_num && <p className="text-[10px] text-gray-400 mt-0.5">v{sub.version_num}</p>}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">{fmtDateTime(sub.submitted_at)}</td>
+                      <td className="px-4 py-3"><ReviewedBadge sub={sub} /></td>
+                      <td className="px-4 py-3 text-xs text-gray-500 max-w-[140px]">
+                        <span className="truncate block">{sub.coach_note || '—'}</span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => handleView(sub)}
+                          className="text-xs text-[#E8670A] hover:text-[#c45e09] font-semibold"
+                        >
+                          {isOpen ? 'Close' : 'View'}
+                        </button>
+                      </td>
+                    </tr>
+                    {isOpen && (
+                      <tr>
+                        <td colSpan={5} className="px-4 pb-4 pt-2 bg-gray-50/60">
+                          {renderExpanded(sub)}
                         </td>
                       </tr>
-                      {isOpen && (
-                        <tr key={sub.id + '_detail'}>
-                          <td colSpan={5} className="px-4 pb-4 pt-2 bg-gray-50/60">
-                            <ExpandedPanel sub={sub} />
-                          </td>
-                        </tr>
-                      )}
-                    </>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Mobile cards */}
-          <div className="md:hidden space-y-3">
-            {submissions.map(sub => {
-              const isOpen = openId === sub.id
-              return (
-                <div key={sub.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                  <div className="px-4 py-3">
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-gray-900 truncate">{sub.form_title}</p>
-                        <p className="text-xs text-gray-400 mt-0.5">{fmtDateTime(sub.submitted_at)}</p>
-                      </div>
-                      <ReviewedBadge sub={sub} />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500 truncate max-w-[60%]">
-                        {sub.coach_note ? `Note: ${sub.coach_note}` : 'Notes: —'}
-                      </span>
-                      <button
-                        onClick={() => handleView(sub)}
-                        className="text-xs text-[#E8670A] hover:text-[#c45e09] font-semibold ml-2"
-                      >
-                        {isOpen ? 'Close' : 'View'}
-                      </button>
-                    </div>
-                  </div>
-                  {isOpen && (
-                    <div className="border-t border-gray-100 px-4 py-3 bg-gray-50/50">
-                      <ExpandedPanel sub={sub} />
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
-
-// ─── Weekly Check-Ins section (inside Forms tab) ──────────────────────────────
-
-function WeeklyCheckinsSection({ clientId, getToken }) {
-  const [checkins, setCheckins] = useState(undefined)
-  const [loading, setLoading]   = useState(true)
-  const [openId,  setOpenId]    = useState(null)
-
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
-      try {
-        const token = await getToken()
-        const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/checkins`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (!cancelled) setCheckins(res.ok ? await res.json() : [])
-      } catch { if (!cancelled) setCheckins([]) }
-      finally  { if (!cancelled) setLoading(false) }
-    }
-    load()
-    return () => { cancelled = true }
-  }, [clientId, getToken])
-
-  function fmtWR(ws) {
-    const [y, m, d] = ws.slice(0, 10).split('-').map(Number)
-    const mon = new Date(y, m - 1, d)
-    const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
-    const f = (dt) => dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    return `${f(mon)} – ${f(sun)}, ${y}`
-  }
-
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-3">
-        <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider">Weekly Check-Ins</p>
-        {!loading && checkins?.length > 0 && (
-          <span className="text-[10px] bg-orange-100 text-[#E8670A] font-bold px-1.5 py-0.5 rounded-full">
-            {checkins.length}
-          </span>
-        )}
-      </div>
-
-      {loading ? (
-        <p className="text-sm text-gray-400 py-3">Loading check-ins…</p>
-      ) : !checkins?.length ? (
-        <div className="bg-gray-50 border border-gray-100 rounded-xl p-6 text-center">
-          <p className="text-sm text-gray-500">No weekly check-ins submitted yet.</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {checkins.map(c => {
-            const isOpen = openId === c.id
-            return (
-              <div key={c.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                {/* Summary row */}
-                <button
-                  onClick={() => setOpenId(isOpen ? null : c.id)}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-900">{fmtWR(c.week_start)}</p>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 mt-0.5">
-                      {c.energy             != null && <span className="text-xs text-gray-500">⚡ {c.energy}/5</span>}
-                      {c.stress             != null && <span className="text-xs text-gray-500">😤 {c.stress}/5</span>}
-                      {c.workouts_completed != null && <span className="text-xs text-gray-500">💪 {c.workouts_completed} workouts</span>}
-                      {c.current_weight     != null && <span className="text-xs text-gray-500">⚖️ {c.current_weight} lbs</span>}
-                    </div>
-                  </div>
-                  <svg className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                    fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-
-                {/* Expanded detail */}
-                {isOpen && (
-                  <div className="px-4 pb-4 border-t border-gray-100 pt-3 space-y-4">
-                    {/* Ratings */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      {[
-                        { label: 'Sleep',    val: c.sleep_quality },
-                        { label: 'Energy',   val: c.energy },
-                        { label: 'Stress',   val: c.stress },
-                        { label: 'Cravings', val: c.cravings },
-                      ].map(({ label, val }) => (
-                        <div key={label}>
-                          <p className="text-[10px] text-gray-400 uppercase tracking-wider font-bold mb-1">{label}</p>
-                          {val != null ? (
-                            <span className="inline-flex gap-0.5">
-                              {[1,2,3,4,5].map(n => (
-                                <span key={n} className={`w-4 h-4 rounded text-[9px] font-bold flex items-center justify-center ${
-                                  n <= val ? 'bg-[#E8670A] text-white' : 'bg-gray-100 text-gray-300'
-                                }`}>{n}</span>
-                              ))}
-                            </span>
-                          ) : <span className="text-xs text-gray-400">—</span>}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Activity counts */}
-                    <div className="grid grid-cols-3 gap-3">
-                      {[
-                        { label: 'Workouts',    val: c.workouts_completed },
-                        { label: 'Days logged', val: c.days_food_logged },
-                        { label: 'Hit protein', val: c.days_hit_protein },
-                      ].map(({ label, val }) => (
-                        <div key={label} className="text-center bg-gray-50 rounded-lg p-2">
-                          <p className="text-xl font-bold text-gray-900 leading-tight">{val ?? '—'}</p>
-                          <p className="text-[10px] text-gray-400 mt-0.5">{label}</p>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Text answers */}
-                    {[
-                      { label: 'Biggest win',      val: c.biggest_win },
-                      { label: 'Biggest struggle', val: c.biggest_struggle },
-                      { label: 'Notes for coach',  val: c.coach_notes },
-                    ].filter(x => x.val).map(({ label, val }) => (
-                      <div key={label}>
-                        <p className="text-[10px] text-gray-400 uppercase tracking-wider font-bold mb-0.5">{label}</p>
-                        <p className="text-sm text-gray-800 whitespace-pre-wrap">{val}</p>
-                      </div>
-                    ))}
-
-                    {c.current_weight != null && (
-                      <div>
-                        <p className="text-[10px] text-gray-400 uppercase tracking-wider font-bold mb-0.5">Weight</p>
-                        <p className="text-sm text-gray-800">{c.current_weight} lbs</p>
-                      </div>
                     )}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
 
-                    <p className="text-[10px] text-gray-300">
-                      Submitted {new Date(c.submitted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      {c.updated_at && c.updated_at !== c.submitted_at
-                        ? ` · Updated ${new Date(c.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-                        : ''}
-                    </p>
+        {/* Mobile cards */}
+        <div className="md:hidden space-y-3">
+          {subs.map(sub => {
+            const isOpen = openId === sub.id
+            return (
+              <div key={sub.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                <div className="px-4 py-3">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{sub.form_title}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{fmtDateTime(sub.submitted_at)}</p>
+                    </div>
+                    <ReviewedBadge sub={sub} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-500 truncate max-w-[60%]">
+                      {sub.coach_note || '—'}
+                    </span>
+                    <button
+                      onClick={() => handleView(sub)}
+                      className="text-xs text-[#E8670A] hover:text-[#c45e09] font-semibold ml-2"
+                    >
+                      {isOpen ? 'Close' : 'View'}
+                    </button>
+                  </div>
+                </div>
+                {isOpen && (
+                  <div className="border-t border-gray-100 px-4 py-3 bg-gray-50/50">
+                    {renderExpanded(sub)}
                   </div>
                 )}
               </div>
             )
           })}
+        </div>
+      </>
+    )
+  }
+
+  const checkIns   = submissions?.filter(isCheckInSubmission) ?? []
+  const otherForms = submissions?.filter(s => !isCheckInSubmission(s)) ?? []
+
+  return (
+    <div className="space-y-6">
+      {/* Check-Ins section */}
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider">Check-Ins</p>
+          {!loading && checkIns.length > 0 && (
+            <span className="text-[10px] bg-orange-100 text-[#E8670A] font-bold px-1.5 py-0.5 rounded-full">
+              {checkIns.length}
+            </span>
+          )}
+        </div>
+        {renderList(checkIns, 'No check-ins submitted yet.')}
+      </div>
+
+      {/* Other Forms — only shown when there are non-check-in submissions */}
+      {!loading && otherForms.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider">Other Forms</p>
+            <span className="text-[10px] bg-orange-100 text-[#E8670A] font-bold px-1.5 py-0.5 rounded-full">
+              {otherForms.length}
+            </span>
+          </div>
+          {renderList(otherForms, 'No other form submissions.')}
         </div>
       )}
     </div>
@@ -1813,11 +1696,8 @@ function AssessmentTab({ clientId, getToken }) {
   return (
     <div className="space-y-6">
 
-      {/* ── Form Submissions (always shown) ── */}
+      {/* ── Form Submissions: Check-Ins + Other Forms ── */}
       <FormSubmissionsSection clientId={clientId} getToken={getToken} />
-
-      {/* ── Weekly Check-Ins (always shown) ── */}
-      <WeeklyCheckinsSection clientId={clientId} getToken={getToken} />
 
       {/* ── Health Assessment / Intake Form ── */}
       <div>
