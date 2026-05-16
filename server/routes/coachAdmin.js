@@ -1106,10 +1106,12 @@ router.get('/clients/:id/form-submissions', requireAuth(), async (req, res, next
         ft.title  AS form_title,
         ft.status AS form_status,
         fv.version_num,
-        fv.schema AS version_schema
+        fv.schema AS version_schema,
+        reviewer.first_name AS reviewed_by_name
       FROM form_submissions fs
       JOIN form_templates ft ON ft.id = fs.template_id
       JOIN form_versions  fv ON fv.id = fs.version_id
+      LEFT JOIN users reviewer ON reviewer.id = fs.reviewed_by
       WHERE fs.user_id = $1
       ORDER BY fs.submitted_at DESC
     `, [id])
@@ -1133,10 +1135,12 @@ router.get('/form-submissions/:submissionId', requireAuth(), async (req, res, ne
         ft.title  AS form_title,
         ft.status AS form_status,
         fv.version_num,
-        fv.schema AS version_schema
+        fv.schema AS version_schema,
+        reviewer.first_name AS reviewed_by_name
       FROM form_submissions fs
       JOIN form_templates ft ON ft.id = fs.template_id
       JOIN form_versions  fv ON fv.id = fs.version_id
+      LEFT JOIN users reviewer ON reviewer.id = fs.reviewed_by
       WHERE fs.id = $1
     `, [subId])
 
@@ -1144,6 +1148,33 @@ router.get('/form-submissions/:submissionId', requireAuth(), async (req, res, ne
     if (!await canAccessClient(ctx, sub.user_id)) return res.status(403).json({ error: 'Forbidden' })
 
     res.json(sub)
+  } catch (err) { next(err) }
+})
+
+// PATCH /api/coach-admin/form-submissions/:submissionId/mark-viewed
+// Stamps reviewed_at/reviewed_by (displayed as "Viewed") if not already set.
+// Client viewing their own submission never calls this endpoint.
+router.patch('/form-submissions/:submissionId/mark-viewed', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const subId = parseInt(req.params.submissionId, 10)
+
+    const { rows: [sub] } = await pool.query(
+      'SELECT id, user_id, reviewed_at FROM form_submissions WHERE id = $1',
+      [subId],
+    )
+    if (!sub) return res.status(404).json({ error: 'Submission not found' })
+    if (!await canAccessClient(ctx, sub.user_id)) return res.status(403).json({ error: 'Forbidden' })
+
+    // Idempotent: don't overwrite existing viewed timestamp
+    if (sub.reviewed_at) return res.json({ already_viewed: true, reviewed_at: sub.reviewed_at })
+
+    const { rows: [updated] } = await pool.query(
+      `UPDATE form_submissions SET reviewed_at = NOW(), reviewed_by = $1
+       WHERE id = $2 RETURNING reviewed_at, reviewed_by`,
+      [ctx.dbUserId, subId],
+    )
+    res.json({ ok: true, reviewed_at: updated.reviewed_at, reviewed_by: updated.reviewed_by })
   } catch (err) { next(err) }
 })
 
