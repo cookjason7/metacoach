@@ -765,6 +765,145 @@ function CopyMealModal({ meal, mode = 'copy', onConfirm, onClose }) {
   )
 }
 
+// ── Copy Day Modal ─────────────────────────────────────────────────────────────
+
+function CopyDayModal({ selectedDate, getToken, onClose, onSuccess }) {
+  const curDate  = toDateStr(selectedDate)
+  const todayStr = toDateStr(new Date())
+  const maxStr   = toDateStr((() => { const d = new Date(); d.setDate(d.getDate() + 7); return d })())
+
+  const [direction, setDirection] = useState('push') // push: cur→other | pull: other→cur
+  const [otherDate, setOtherDate] = useState(todayStr === curDate
+    ? toDateStr((() => { const d = new Date(); d.setDate(d.getDate() - 1); return d })())
+    : todayStr)
+  const [step,     setStep]     = useState('pick')   // 'pick' | 'conflict'
+  const [conflict, setConflict] = useState(null)
+  const [saving,   setSaving]   = useState(false)
+  const [error,    setError]    = useState(null)
+
+  const fromDate = direction === 'push' ? curDate   : otherDate
+  const toDate   = direction === 'push' ? otherDate : curDate
+  const sameDate = fromDate === toDate
+
+  async function doCopy(mode) {
+    setSaving(true); setError(null)
+    try {
+      const token = await getToken()
+      const body  = { from_date: fromDate, to_date: toDate }
+      if (mode) body.mode = mode
+      const res = await fetch(`${API_URL}/api/meals/copy-day`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (res.status === 409) {
+        const data = await res.json()
+        setConflict(data); setStep('conflict')
+        return
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setError(data.error ?? 'Failed to copy. Please try again.')
+        return
+      }
+      const data = await res.json()
+      onSuccess(toDate, data.copied)
+    } catch { setError('Failed to copy. Please try again.') }
+    finally  { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h3 className="text-base font-semibold text-gray-900">Copy Day</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="p-5 space-y-4">
+
+          {step === 'pick' && (
+            <>
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Direction</p>
+                {[
+                  { val: 'push', title: 'Copy this day to another date', sub: `${curDate} → another date` },
+                  { val: 'pull', title: 'Copy another date into this day', sub: `another date → ${curDate}` },
+                ].map(opt => (
+                  <label key={opt.val}
+                    className={`flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${
+                      direction === opt.val ? 'border-[#E8670A] bg-orange-50' : 'border-gray-200 hover:border-gray-300'
+                    }`}>
+                    <input type="radio" value={opt.val} checked={direction === opt.val}
+                      onChange={() => setDirection(opt.val)}
+                      className="mt-0.5 accent-[#E8670A] shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{opt.title}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{opt.sub}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  {direction === 'push' ? 'Copy to:' : 'Copy from:'}
+                </label>
+                <input type="date" value={otherDate} max={maxStr}
+                  onChange={e => setOtherDate(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]" />
+              </div>
+
+              {sameDate && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  Source and destination must be different dates.
+                </p>
+              )}
+              {error && <p className="text-xs text-red-500">{error}</p>}
+
+              <div className="flex gap-2">
+                <button onClick={() => doCopy(null)} disabled={saving || sameDate}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
+                  {saving ? 'Copying…' : 'Copy Day'}
+                </button>
+                <button onClick={onClose}
+                  className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-500 border border-gray-200 hover:bg-gray-50 transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
+
+          {step === 'conflict' && (
+            <>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                <p className="text-sm font-semibold text-amber-900">
+                  {toDate} already has {conflict?.target_count} meal{conflict?.target_count !== 1 ? 's' : ''}.
+                </p>
+                <p className="text-xs text-amber-700 mt-1">How would you like to proceed?</p>
+              </div>
+              {error && <p className="text-xs text-red-500">{error}</p>}
+              <div className="space-y-2">
+                <button onClick={() => doCopy('add')} disabled={saving}
+                  className="w-full py-2.5 rounded-xl text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
+                  {saving ? 'Copying…' : 'Add to existing'}
+                </button>
+                <button onClick={() => doCopy('replace')} disabled={saving}
+                  className="w-full py-2.5 rounded-xl text-sm font-semibold bg-red-500 text-white hover:bg-red-600 disabled:opacity-50 transition-colors">
+                  {saving ? 'Replacing…' : 'Replace existing'}
+                </button>
+                <button onClick={onClose} className="w-full py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
+
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Photo Logger (auto-save) ───────────────────────────────────────────────────
 
 function PhotoLogger({ slotName, onSaved, logDate, initialFile = null }) {
@@ -2575,9 +2714,11 @@ export default function Journal() {
   const [loading,     setLoading]     = useState(true)
   const [activeDates, setActiveDates] = useState(new Set())
   const [addSlot,     setAddSlot]     = useState(null)
-  const [editingMeal, setEditingMeal] = useState(null)
-  const [copyingMeal, setCopyingMeal] = useState(null)
-  const [movingMeal,  setMovingMeal]  = useState(null)
+  const [editingMeal,  setEditingMeal]  = useState(null)
+  const [copyingMeal,  setCopyingMeal]  = useState(null)
+  const [movingMeal,   setMovingMeal]   = useState(null)
+  const [copyDayOpen,  setCopyDayOpen]  = useState(false)
+  const [copyDayMsg,   setCopyDayMsg]   = useState(null)
 
   const weekDays = getWeekDays(weekStart)
   const todayStr = toDateStr(new Date())
@@ -2716,6 +2857,14 @@ export default function Journal() {
     setCopyingMeal(null)
   }, [getToken, selectedDate])
 
+  const handleCopyDaySuccess = useCallback((toDate, count) => {
+    setCopyDayOpen(false)
+    if (toDate === toDateStr(selectedDate)) loadMeals()
+    setActiveDates(prev => new Set([...prev, toDate]))
+    setCopyDayMsg(`Copied ${count} meal${count !== 1 ? 's' : ''} to ${toDate}`)
+    setTimeout(() => setCopyDayMsg(null), 4000)
+  }, [selectedDate, loadMeals])
+
   const totals    = sumMacros(meals)
   const slotMeals = groupBySlot(meals)
 
@@ -2724,15 +2873,28 @@ export default function Journal() {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Food Log</h1>
-        {!isToday && (
+        <div className="flex items-center gap-2">
+          {!isToday && (
+            <button
+              onClick={() => { setSelectedDate(new Date(new Date().setHours(0,0,0,0))); setWeekStart(getMonday(new Date())) }}
+              className="text-sm font-medium text-[#E8670A] hover:text-[#c45e09] transition-colors"
+            >
+              Today
+            </button>
+          )}
           <button
-            onClick={() => { setSelectedDate(new Date(new Date().setHours(0,0,0,0))); setWeekStart(getMonday(new Date())) }}
-            className="text-sm font-medium text-[#E8670A] hover:text-[#c45e09] transition-colors"
+            onClick={() => setCopyDayOpen(true)}
+            className="text-xs font-medium text-gray-500 hover:text-[#E8670A] border border-gray-200 rounded-lg px-2.5 py-1.5 transition-colors"
           >
-            Today
+            Copy Day
           </button>
-        )}
+        </div>
       </div>
+      {copyDayMsg && (
+        <div className="mb-4 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 text-sm text-emerald-800 font-medium">
+          ✓ {copyDayMsg}
+        </div>
+      )}
 
       {/* Week strip calendar */}
       <WeekStrip
@@ -2802,6 +2964,16 @@ export default function Journal() {
           meal={movingMeal}
           onConfirm={handleMealMoved}
           onClose={() => setMovingMeal(null)}
+        />
+      )}
+
+      {/* Copy day modal */}
+      {copyDayOpen && (
+        <CopyDayModal
+          selectedDate={selectedDate}
+          getToken={getToken}
+          onClose={() => setCopyDayOpen(false)}
+          onSuccess={handleCopyDaySuccess}
         />
       )}
 
