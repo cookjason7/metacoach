@@ -392,12 +392,30 @@ export default function Settings() {
         </a>
       </div>
 
+      {/* Progress Photos */}
+      <h2 className="text-sm font-semibold text-gray-700 mb-3">Progress Photos</h2>
+      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-8">
+        <p className="text-sm text-gray-500 mb-4">Upload front, back, and side photos to track your visual progress over time.</p>
+        <div className="grid grid-cols-3 gap-3">
+          {ANGLES.map(angle => (
+            <ProgressPhotoPanel
+              key={angle}
+              angle={angle}
+              photos={photos[angle]}
+              getToken={getToken}
+              onUploaded={handlePhotoUploaded}
+            />
+          ))}
+        </div>
+      </div>
+
       {/* Connected Apps */}
       <h2 className="text-sm font-semibold text-gray-700 mb-3">Connected Apps</h2>
       <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
         {[
           { name: 'Apple Health', icon: '🍎' },
           { name: 'Google Fit',   icon: '🏃' },
+          { name: 'Fitbit',       icon: '⌚' },
         ].map(app => (
           <div key={app.name} className="flex items-center justify-between px-5 py-4">
             <div className="flex items-center gap-3">
