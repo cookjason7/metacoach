@@ -205,11 +205,13 @@ export default function Settings() {
   const [team, setTeam] = useState([])
   const [teamLoading, setTeamLoading] = useState(false)
   const [teamError, setTeamError] = useState(null)
+  const [showArchivedStaff, setShowArchivedStaff] = useState(false)
   const [editMember, setEditMember] = useState(null)   // staff object being edited
   const [editForm, setEditForm] = useState({})
   const [editSaving, setEditSaving] = useState(false)
   const [editSaved, setEditSaved] = useState(false)
   const [editError, setEditError] = useState(null)
+  const [archiving, setArchiving] = useState(false)
 
   // Health assessment
   const [assessment,     setAssessment]     = useState(null)
@@ -255,19 +257,7 @@ export default function Settings() {
         })
       }
       if (loadedProfile?.role === 'admin' || loadedProfile?.role === 'coach') {
-        setTeamLoading(true)
-        setTeamError(null)
-        try {
-          const teamRes = await fetch(`${API_URL}/api/coach-admin/team`, {
-            headers: { Authorization: `Bearer ${token}` },
-          })
-          if (!teamRes.ok) throw new Error(`Server error ${teamRes.status}`)
-          setTeam(await teamRes.json())
-        } catch (err) {
-          setTeamError(err.message)
-        } finally {
-          setTeamLoading(false)
-        }
+        loadTeam(token, false)
         return
       }
 
@@ -477,6 +467,68 @@ export default function Settings() {
     }
   }
 
+  async function loadTeam(token, archived) {
+    setTeamLoading(true)
+    setTeamError(null)
+    try {
+      const status = archived ? 'archived' : 'active'
+      const res = await fetch(`${API_URL}/api/coach-admin/team?status=${status}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error(`Server error ${res.status}`)
+      setTeam(await res.json())
+    } catch (err) {
+      setTeamError(err.message)
+    } finally {
+      setTeamLoading(false)
+    }
+  }
+
+  async function toggleArchivedStaff() {
+    const next = !showArchivedStaff
+    setShowArchivedStaff(next)
+    const token = await getToken()
+    loadTeam(token, next)
+  }
+
+  async function archiveStaff() {
+    setArchiving(true); setEditError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/staff/${editMember.id}/archive`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error ?? 'Failed to archive')
+      setTeam(prev => prev.filter(m => m.id !== editMember.id))
+      setEditMember(null)
+    } catch (err) {
+      setEditError(err.message)
+    } finally {
+      setArchiving(false)
+    }
+  }
+
+  async function reactivateStaff() {
+    setArchiving(true); setEditError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/staff/${editMember.id}/reactivate`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error ?? 'Failed to reactivate')
+      setTeam(prev => prev.filter(m => m.id !== editMember.id))
+      setEditMember(null)
+    } catch (err) {
+      setEditError(err.message)
+    } finally {
+      setArchiving(false)
+    }
+  }
+
   async function openEdit(member) {
     setEditError(null)
     setEditSaved(false)
@@ -617,7 +669,20 @@ export default function Settings() {
 
       {isStaff ? (
         <>
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">Team / Coaches</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-gray-700">
+              Team / Coaches{showArchivedStaff ? ' — Archived' : ''}
+            </h2>
+            {profile?.role === 'admin' && (
+              <button
+                type="button"
+                onClick={toggleArchivedStaff}
+                className="text-xs font-semibold text-gray-500 hover:text-gray-700 px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                {showArchivedStaff ? 'Show active' : 'Show archived'}
+              </button>
+            )}
+          </div>
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             {teamLoading ? (
               <p className="text-sm text-gray-400 p-5">Loading team...</p>
@@ -763,6 +828,27 @@ export default function Settings() {
                   >
                     {editSaved ? 'Saved!' : editSaving ? 'Saving…' : 'Save Changes'}
                   </button>
+                  {profile?.role === 'admin' && editMember?.id !== profile?.id && (
+                    editMember?.staff_status === 'archived' ? (
+                      <button
+                        type="button"
+                        onClick={reactivateStaff}
+                        disabled={archiving}
+                        className="w-full py-2 rounded-lg text-sm font-semibold border border-emerald-300 text-emerald-700 hover:bg-emerald-50 transition-colors disabled:opacity-60"
+                      >
+                        {archiving ? 'Reactivating…' : 'Reactivate'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={archiveStaff}
+                        disabled={archiving}
+                        className="w-full py-2 rounded-lg text-sm font-semibold border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-red-600 hover:border-red-200 transition-colors disabled:opacity-60"
+                      >
+                        {archiving ? 'Archiving…' : 'Archive staff member'}
+                      </button>
+                    )
+                  )}
                 </form>
               </div>
             </div>

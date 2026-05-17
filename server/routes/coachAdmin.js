@@ -265,10 +265,11 @@ router.get('/dashboard-summary', requireAuth(), async (req, res, next) => {
 // ─── VIP Client Invite ────────────────────────────────────────────────────────
 
 // POST /api/coach-admin/clients/invite — admin only, creates invite record + sends email
-// GET /api/coach-admin/team — staff-visible coach/admin summary
+// GET /api/coach-admin/team?status=active|archived — staff-visible coach/admin summary
 router.get('/team', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireStaff(req, res); if (!ctx) return
+    const statusFilter = req.query.status === 'archived' ? 'archived' : 'active'
     const { rows } = await pool.query(`
       SELECT
         u.id,
@@ -281,6 +282,7 @@ router.get('/team', requireAuth(), async (req, res, next) => {
         u.email,
         u.role,
         u.last_login_at,
+        COALESCE(u.staff_status, 'active') AS staff_status,
         COUNT(c.id)::int AS assigned_client_count
       FROM users u
       LEFT JOIN users c
@@ -288,11 +290,12 @@ router.get('/team', requireAuth(), async (req, res, next) => {
        AND c.role = 'client'
        AND COALESCE(c.client_status, 'active') != 'deleted'
       WHERE u.role IN ('coach', 'admin')
+        AND COALESCE(u.staff_status, 'active') = $1
       GROUP BY u.id
       ORDER BY
         CASE WHEN u.role = 'admin' THEN 0 ELSE 1 END,
         name ASC
-    `)
+    `, [statusFilter])
     res.json(rows)
   } catch (err) { next(err) }
 })
@@ -312,6 +315,7 @@ router.get('/staff/:id', requireAuth(), async (req, res, next) => {
         u.role,
         u.phone_number,
         u.last_login_at,
+        COALESCE(u.staff_status, 'active') AS staff_status,
         ha.street_address,
         ha.city,
         ha.state,
@@ -365,7 +369,8 @@ router.patch('/staff/:id', requireAuth(), async (req, res, next) => {
         phone_number = COALESCE($3, phone_number),
         role         = COALESCE($4, role)
       WHERE id = $5
-      RETURNING id, first_name, last_name, email, role, phone_number, last_login_at
+      RETURNING id, first_name, last_name, email, role, phone_number, last_login_at,
+                COALESCE(staff_status, 'active') AS staff_status
     `, [
       first_name   ?? null,
       last_name    ?? null,
@@ -373,6 +378,57 @@ router.patch('/staff/:id', requireAuth(), async (req, res, next) => {
       role         ?? null,
       staffId,
     ])
+    res.json(rows[0])
+  } catch (err) { next(err) }
+})
+
+// PATCH /api/coach-admin/staff/:id/archive — admin only
+router.patch('/staff/:id/archive', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireAdmin(req, res); if (!ctx) return
+    const staffId = parseInt(req.params.id, 10)
+
+    if (staffId === ctx.dbUserId) {
+      return res.status(400).json({ error: 'You cannot archive yourself.' })
+    }
+
+    // Block if coach still has active assigned clients
+    const { rows: assigned } = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM users
+       WHERE assigned_coach_id = $1 AND role = 'client'
+         AND COALESCE(client_status, 'active') = 'active'`,
+      [staffId],
+    )
+    if (assigned[0].n > 0) {
+      return res.status(409).json({
+        error: `This coach has ${assigned[0].n} assigned client(s). Reassign them before archiving.`,
+      })
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE users SET staff_status = 'archived'
+       WHERE id = $1 AND role IN ('coach', 'admin')
+       RETURNING id, COALESCE(staff_status, 'active') AS staff_status`,
+      [staffId],
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Staff member not found' })
+    res.json(rows[0])
+  } catch (err) { next(err) }
+})
+
+// PATCH /api/coach-admin/staff/:id/reactivate — admin only
+router.patch('/staff/:id/reactivate', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireAdmin(req, res); if (!ctx) return
+    const staffId = parseInt(req.params.id, 10)
+
+    const { rows } = await pool.query(
+      `UPDATE users SET staff_status = 'active'
+       WHERE id = $1 AND role IN ('coach', 'admin')
+       RETURNING id, COALESCE(staff_status, 'active') AS staff_status`,
+      [staffId],
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Staff member not found' })
     res.json(rows[0])
   } catch (err) { next(err) }
 })
