@@ -101,20 +101,21 @@ router.post('/:token/accept', requireAuth(), async (req, res, next) => {
       })
     }
 
-    // Update user profile: set VIP coaching fields without overwriting existing data.
+    // Update user profile from invite data without overwriting existing values.
+    // coaching_type comes from the invite row (supports both 'vip' and 'ai').
     // client_status = 'invited' — stays invited until Health Assessment is completed,
     // at which point healthAssessment.js flips it to 'active'.
     await pool.query(
       `UPDATE users
        SET first_name          = COALESCE(NULLIF(first_name, ''), $1),
-           coaching_type       = 'vip',
-           assigned_coach_id   = COALESCE(assigned_coach_id, $2),
+           coaching_type       = COALESCE($2, 'vip'),
+           assigned_coach_id   = COALESCE(assigned_coach_id, $3),
            onboarding_complete = TRUE,
            assessment_complete = FALSE,
            client_status       = 'invited',
            paid                = TRUE
-       WHERE id = $3`,
-      [invite.first_name, invite.assigned_coach_id, dbUserId],
+       WHERE id = $4`,
+      [invite.first_name, invite.coaching_type, invite.assigned_coach_id, dbUserId],
     )
 
     // Mark invite accepted

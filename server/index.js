@@ -28,6 +28,7 @@ import formsRouter from './routes/forms.js'
 import measurementsRouter from './routes/measurements.js'
 import mindsetVideosRouter from './routes/mindsetVideos.js'
 import communityResourcesRouter from './routes/communityResources.js'
+import stripeRouter from './routes/stripe.js'
 import { runInactivityAlert } from './jobs/inactivityAlert.js'
 import { processFormSchedules } from './jobs/formScheduler.js'
 
@@ -45,6 +46,11 @@ app.use(cors({
   ],
   credentials: true,
 }))
+// Stripe webhook MUST be mounted before express.json() — it needs the raw body
+// for signature verification. express.raw() is applied only to this one route
+// inside the stripe router.
+app.use('/api/stripe', stripeRouter)
+
 app.use(express.json())
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }))

@@ -23,6 +23,7 @@ import Messages from './pages/Messages'
 import ClientList from './pages/admin/ClientList'
 import ClientProfile from './pages/admin/ClientProfile'
 import InviteAccept from './pages/InviteAccept'
+import AiWelcome from './pages/AiWelcome'
 import WeeklyCheckin from './pages/WeeklyCheckin'
 import FormsList from './pages/admin/FormsList'
 import FormBuilder from './pages/admin/FormBuilder'
@@ -149,6 +150,7 @@ export default function App() {
         <Route path="/payment"            element={<PaymentRoute />} />
         <Route path="/health-assessment"  element={<HealthAssessmentRoute />} />
         <Route path="/invite/:token"      element={<InviteAccept />} />
+        <Route path="/ai-welcome"         element={<AiWelcome />} />
         <Route element={<ProtectedLayout />}>
           <Route path="/"             element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard"    element={<Dashboard />} />
