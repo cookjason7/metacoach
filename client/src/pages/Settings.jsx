@@ -205,6 +205,11 @@ export default function Settings() {
   const [team, setTeam] = useState([])
   const [teamLoading, setTeamLoading] = useState(false)
   const [teamError, setTeamError] = useState(null)
+  const [editMember, setEditMember] = useState(null)   // staff object being edited
+  const [editForm, setEditForm] = useState({})
+  const [editSaving, setEditSaving] = useState(false)
+  const [editSaved, setEditSaved] = useState(false)
+  const [editError, setEditError] = useState(null)
 
   // Health assessment
   const [assessment,     setAssessment]     = useState(null)
@@ -472,6 +477,70 @@ export default function Settings() {
     }
   }
 
+  async function openEdit(member) {
+    setEditError(null)
+    setEditSaved(false)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/staff/${member.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error(`Server error ${res.status}`)
+      const data = await res.json()
+      setEditMember(data)
+      setEditForm({
+        first_name:   data.first_name   ?? '',
+        last_name:    data.last_name    ?? '',
+        phone_number: data.phone_number ?? '',
+        role:         data.role         ?? 'coach',
+      })
+    } catch (err) {
+      // Fall back to what we already have in the list
+      setEditMember(member)
+      setEditForm({
+        first_name:   member.first_name ?? (member.name?.split(' ')[0] ?? ''),
+        last_name:    member.last_name  ?? (member.name?.split(' ').slice(1).join(' ') ?? ''),
+        phone_number: member.phone_number ?? '',
+        role:         member.role ?? 'coach',
+      })
+    }
+  }
+
+  async function saveEdit(e) {
+    e.preventDefault()
+    setEditSaving(true); setEditError(null)
+    try {
+      const token = await getToken()
+      const payload = {
+        first_name:   editForm.first_name.trim()   || null,
+        last_name:    editForm.last_name.trim()     || null,
+        phone_number: editForm.phone_number.trim()  || null,
+        ...(profile?.role === 'admin' ? { role: editForm.role } : {}),
+      }
+      const res = await fetch(`${API_URL}/api/coach-admin/staff/${editMember.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) throw new Error('Failed to save')
+      const updated = await res.json()
+      setTeam(prev => prev.map(m => m.id === updated.id ? {
+        ...m,
+        name: [updated.first_name, updated.last_name].filter(Boolean).join(' ') || m.name,
+        first_name: updated.first_name,
+        last_name:  updated.last_name,
+        phone_number: updated.phone_number,
+        role: updated.role,
+      } : m))
+      setEditSaved(true)
+      setTimeout(() => { setEditMember(null); setEditSaved(false) }, 1000)
+    } catch (err) {
+      setEditError(err.message)
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
   const anglesWithComparison = ANGLES.filter(a => photos[a].length >= 2)
   const isStaff = profile?.role === 'admin' || profile?.role === 'coach'
 
@@ -567,9 +636,18 @@ export default function Settings() {
                           <p className="text-sm font-semibold text-gray-900 truncate">{member.name || member.email || 'Staff'}</p>
                           {member.email && <p className="text-xs text-gray-400 truncate mt-0.5">{member.email}</p>}
                         </div>
-                        <span className="shrink-0 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-bold text-gray-600">
-                          {roleLabel(member.role)}
-                        </span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-bold text-gray-600">
+                            {roleLabel(member.role)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openEdit(member)}
+                            className="text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] px-2 py-1 rounded-lg hover:bg-orange-50 transition-colors"
+                          >
+                            Edit
+                          </button>
+                        </div>
                       </div>
                       <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
                         <div>
@@ -596,6 +674,99 @@ export default function Settings() {
               </div>
             )}
           </div>
+
+          {/* Staff edit modal */}
+          {editMember && (
+            <div
+              className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-4 pb-4 sm:pb-0"
+              onClick={e => { if (e.target === e.currentTarget) { setEditMember(null); setEditSaved(false) } }}
+            >
+              <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                  <h3 className="text-sm font-semibold text-gray-900">Edit Staff Profile</h3>
+                  <button
+                    type="button"
+                    onClick={() => { setEditMember(null); setEditSaved(false) }}
+                    className="text-gray-400 hover:text-gray-600 text-lg leading-none px-1"
+                    aria-label="Close"
+                  >×</button>
+                </div>
+                <form onSubmit={saveEdit} className="p-5 space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">First name</label>
+                      <input
+                        type="text"
+                        value={editForm.first_name}
+                        onChange={e => setEditForm(f => ({ ...f, first_name: e.target.value }))}
+                        placeholder="First name"
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Last name</label>
+                      <input
+                        type="text"
+                        value={editForm.last_name}
+                        onChange={e => setEditForm(f => ({ ...f, last_name: e.target.value }))}
+                        placeholder="Last name"
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={editMember.email ?? ''}
+                      readOnly
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500 cursor-not-allowed"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Phone</label>
+                    <input
+                      type="tel"
+                      value={editForm.phone_number}
+                      onChange={e => setEditForm(f => ({ ...f, phone_number: e.target.value }))}
+                      placeholder="Phone number"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]"
+                    />
+                  </div>
+                  {profile?.role === 'admin' && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Role</label>
+                      <select
+                        value={editForm.role}
+                        onChange={e => setEditForm(f => ({ ...f, role: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A] bg-white"
+                      >
+                        <option value="coach">Coach</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    </div>
+                  )}
+                  {(editMember.street_address || editMember.city || editMember.state) && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Mailing address</label>
+                      <p className="text-sm text-gray-700 bg-gray-50 rounded-lg px-3 py-2 leading-relaxed">
+                        {[editMember.street_address, editMember.city, editMember.state, editMember.zip_code, editMember.country]
+                          .filter(Boolean).join(', ')}
+                      </p>
+                    </div>
+                  )}
+                  {editError && <p className="text-xs text-red-500">{editError}</p>}
+                  <button
+                    type="submit"
+                    disabled={editSaving || editSaved}
+                    className="w-full py-2.5 rounded-lg text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors disabled:opacity-60"
+                  >
+                    {editSaved ? 'Saved!' : editSaving ? 'Saving…' : 'Save Changes'}
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
         </>
       ) : profile ? (
         <>

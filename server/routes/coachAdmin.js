@@ -297,6 +297,86 @@ router.get('/team', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// GET /api/coach-admin/staff/:id — fetch one staff member's profile
+router.get('/staff/:id', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const staffId = parseInt(req.params.id, 10)
+
+    const { rows } = await pool.query(`
+      SELECT
+        u.id,
+        u.first_name,
+        u.last_name,
+        u.email,
+        u.role,
+        u.phone_number,
+        u.last_login_at,
+        ha.street_address,
+        ha.city,
+        ha.state,
+        ha.zip_code,
+        ha.country,
+        COUNT(c.id)::int AS assigned_client_count
+      FROM users u
+      LEFT JOIN health_assessments ha ON ha.user_id = u.id
+      LEFT JOIN users c
+        ON c.assigned_coach_id = u.id
+       AND c.role = 'client'
+       AND COALESCE(c.client_status, 'active') != 'deleted'
+      WHERE u.id = $1
+        AND u.role IN ('coach', 'admin')
+      GROUP BY u.id, ha.street_address, ha.city, ha.state, ha.zip_code, ha.country
+    `, [staffId])
+
+    if (!rows.length) return res.status(404).json({ error: 'Staff member not found' })
+    res.json(rows[0])
+  } catch (err) { next(err) }
+})
+
+// PATCH /api/coach-admin/staff/:id — update a staff member's profile
+router.patch('/staff/:id', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const staffId = parseInt(req.params.id, 10)
+
+    // Verify target is staff
+    const { rows: target } = await pool.query(
+      'SELECT id, role FROM users WHERE id = $1 AND role IN (\'coach\', \'admin\')',
+      [staffId],
+    )
+    if (!target.length) return res.status(404).json({ error: 'Staff member not found' })
+
+    const { first_name, last_name, phone_number, role } = req.body
+
+    // Only admin may change role
+    if (role !== undefined && ctx.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can change roles' })
+    }
+    // Only allow valid staff roles
+    if (role !== undefined && !['coach', 'admin'].includes(role)) {
+      return res.status(400).json({ error: 'Role must be coach or admin' })
+    }
+
+    const { rows } = await pool.query(`
+      UPDATE users SET
+        first_name   = COALESCE($1, first_name),
+        last_name    = COALESCE($2, last_name),
+        phone_number = COALESCE($3, phone_number),
+        role         = COALESCE($4, role)
+      WHERE id = $5
+      RETURNING id, first_name, last_name, email, role, phone_number, last_login_at
+    `, [
+      first_name   ?? null,
+      last_name    ?? null,
+      phone_number ?? null,
+      role         ?? null,
+      staffId,
+    ])
+    res.json(rows[0])
+  } catch (err) { next(err) }
+})
+
 router.post('/clients/invite', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireAdmin(req, res); if (!ctx) return
