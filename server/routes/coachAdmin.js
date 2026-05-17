@@ -149,6 +149,38 @@ router.get('/coaches', requireAuth(), async (req, res, next) => {
 // ─── VIP Client Invite ────────────────────────────────────────────────────────
 
 // POST /api/coach-admin/clients/invite — admin only, creates invite record + sends email
+// GET /api/coach-admin/team — staff-visible coach/admin summary
+router.get('/team', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const { rows } = await pool.query(`
+      SELECT
+        u.id,
+        COALESCE(
+          NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), ''),
+          NULLIF(u.name, ''),
+          u.email,
+          'Staff'
+        ) AS name,
+        u.email,
+        u.role,
+        u.last_login_at,
+        COUNT(c.id)::int AS assigned_client_count
+      FROM users u
+      LEFT JOIN users c
+        ON c.assigned_coach_id = u.id
+       AND c.role = 'client'
+       AND COALESCE(c.client_status, 'active') != 'deleted'
+      WHERE u.role IN ('coach', 'admin')
+      GROUP BY u.id
+      ORDER BY
+        CASE WHEN u.role = 'admin' THEN 0 ELSE 1 END,
+        name ASC
+    `)
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
 router.post('/clients/invite', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireAdmin(req, res); if (!ctx) return

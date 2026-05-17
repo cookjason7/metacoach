@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { useUser } from '@clerk/clerk-react'
+import { Link } from 'react-router-dom'
 import { API_URL } from '../config.js'
 
 const ACTIVITY_OPTIONS = [
@@ -84,6 +85,26 @@ function Field({ label, children }) {
       {children}
     </div>
   )
+}
+
+function formatLastActive(iso) {
+  if (!iso) return '—'
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return '—'
+  const diffDays = Math.floor((Date.now() - date.getTime()) / 86400_000)
+  if (diffDays <= 0) return 'Today'
+  if (diffDays === 1) return 'Yesterday'
+  if (diffDays < 30) return `${diffDays}d ago`
+  return date.toLocaleDateString([], {
+    month: 'short',
+    day: 'numeric',
+    year: date.getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
+  })
+}
+
+function roleLabel(role) {
+  if (!role) return 'Staff'
+  return role.charAt(0).toUpperCase() + role.slice(1)
 }
 
 function ProgressPhotoPanel({ angle, photos, getToken, onUploaded }) {
@@ -181,6 +202,9 @@ export default function Settings() {
   const [nameSaved,  setNameSaved]  = useState(false)
   const [nameError,  setNameError]  = useState(null)
   const [nameEditing, setNameEditing] = useState(false)
+  const [team, setTeam] = useState([])
+  const [teamLoading, setTeamLoading] = useState(false)
+  const [teamError, setTeamError] = useState(null)
 
   // Health assessment
   const [assessment,     setAssessment]     = useState(null)
@@ -225,7 +249,22 @@ export default function Settings() {
           phone_number:   data.phone_number   ?? '',
         })
       }
-      if (loadedProfile?.role === 'admin' || loadedProfile?.role === 'coach') return
+      if (loadedProfile?.role === 'admin' || loadedProfile?.role === 'coach') {
+        setTeamLoading(true)
+        setTeamError(null)
+        try {
+          const teamRes = await fetch(`${API_URL}/api/coach-admin/team`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          if (!teamRes.ok) throw new Error(`Server error ${teamRes.status}`)
+          setTeam(await teamRes.json())
+        } catch (err) {
+          setTeamError(err.message)
+        } finally {
+          setTeamLoading(false)
+        }
+        return
+      }
 
       const [photosRes, assessmentRes, measurementsRes] = await Promise.all([
         fetch(`${API_URL}/api/progress-photos`,       { headers: { Authorization: `Bearer ${token}` } }),
@@ -509,9 +548,53 @@ export default function Settings() {
 
       {isStaff ? (
         <>
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">Staff Settings</h2>
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <p className="text-sm text-gray-500">Staff preferences will live here in a future update.</p>
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">Team / Coaches</h2>
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            {teamLoading ? (
+              <p className="text-sm text-gray-400 p-5">Loading team...</p>
+            ) : teamError ? (
+              <p className="text-sm text-red-500 p-5">{teamError}</p>
+            ) : team.length === 0 ? (
+              <p className="text-sm text-gray-500 p-5">No staff found yet.</p>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {team.map(member => {
+                  const count = Number(member.assigned_client_count) || 0
+                  return (
+                    <div key={member.id} className="p-4 sm:p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-900 truncate">{member.name || member.email || 'Staff'}</p>
+                          {member.email && <p className="text-xs text-gray-400 truncate mt-0.5">{member.email}</p>}
+                        </div>
+                        <span className="shrink-0 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-bold text-gray-600">
+                          {roleLabel(member.role)}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+                        <div>
+                          <p className="text-gray-400">Last active</p>
+                          <p className="font-medium text-gray-700 mt-0.5">{formatLastActive(member.last_login_at)}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-400">Assigned clients</p>
+                          {count > 0 ? (
+                            <Link
+                              to={`/admin/clients?coach_id=${member.id}`}
+                              className="inline-flex mt-0.5 font-semibold text-[#E8670A] hover:text-[#c45e09]"
+                            >
+                              {count}
+                            </Link>
+                          ) : (
+                            <p className="font-medium text-gray-700 mt-0.5">0</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </>
       ) : profile ? (

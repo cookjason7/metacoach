@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@clerk/clerk-react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { API_URL } from '../../config.js'
 import FoodSourceBadge from '../../components/FoodSourceBadge.jsx'
 import StaffInbox from '../../components/StaffInbox.jsx'
@@ -906,6 +906,7 @@ function InviteModal({ getToken, onClose, onSuccess }) {
 export default function ClientList() {
   const { getToken } = useAuth()
   const navigate     = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(null)
@@ -916,6 +917,7 @@ export default function ClientList() {
   const [activeTab, setActiveTab] = useState('clients')
   const [isAdmin,      setIsAdmin]      = useState(false)
   const [inviteOpen,   setInviteOpen]   = useState(false)
+  const coachFilter = searchParams.get('coach_id') ?? 'all'
 
   // Detect admin role once on mount
   useEffect(() => {
@@ -983,6 +985,7 @@ export default function ClientList() {
   }
 
   const filtered = clients.filter(c => {
+    if (coachFilter !== 'all' && String(c.assigned_coach_id ?? '') !== coachFilter) return false
     if (filter === 'vip' && c.coaching_type !== 'vip') return false
     if (filter === 'ai'  && c.coaching_type !== 'ai')  return false
     if (statusFilter !== 'all' && c.status_tag !== statusFilter) return false
@@ -1084,7 +1087,22 @@ export default function ClientList() {
                 <option value="all">All (active + archived)</option>
               </select>
             </div>
-            <p className="text-xs text-gray-400 mt-2">{filtered.length} of {clients.length} clients</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <p className="text-xs text-gray-400">{filtered.length} of {clients.length} clients</p>
+              {coachFilter !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = new URLSearchParams(searchParams)
+                    next.delete('coach_id')
+                    setSearchParams(next)
+                  }}
+                  className="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-semibold text-[#E8670A] hover:bg-orange-100 transition-colors"
+                >
+                  Clear coach filter
+                </button>
+              )}
+            </div>
           </div>
 
           {loading && <p className="text-center text-gray-400 py-12 text-sm">Loading clients…</p>}
