@@ -376,18 +376,18 @@ export default function Messages() {
                         <button
                           onClick={send}
                           disabled={sending || uploading || (!body.trim() && !imgFile)}
-                          className="bg-[#E8670A] text-white px-4 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 min-w-[76px]"
+                          className="bg-[#E8670A] text-white px-3 sm:px-4 rounded-lg text-xs sm:text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 min-w-[64px] sm:min-w-[76px]"
                         >
                           {uploading ? '⬆' : sending ? '…' : 'Send'}
                         </button>
                       </div>
                       <div className="flex items-center gap-2">
                         {/* Camera button */}
-                        <button onClick={() => fileInputRef.current?.click()} title="Take photo" className="shrink-0 min-w-11 h-11 px-3 flex items-center justify-center rounded-lg border border-gray-300 text-gray-500 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors">
+                        <button onClick={() => fileInputRef.current?.click()} title="Take photo" className="shrink-0 min-w-10 h-10 sm:min-w-11 sm:h-11 px-2.5 sm:px-3 flex items-center justify-center rounded-lg border border-gray-300 text-gray-500 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                         </button>
                         {/* Gallery button */}
-                        <button onClick={() => galleryInputRef.current?.click()} title="Choose from gallery" className="shrink-0 min-w-11 h-11 px-3 flex items-center justify-center rounded-lg border border-gray-300 text-gray-500 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors">
+                        <button onClick={() => galleryInputRef.current?.click()} title="Choose from gallery" className="shrink-0 min-w-10 h-10 sm:min-w-11 sm:h-11 px-2.5 sm:px-3 flex items-center justify-center rounded-lg border border-gray-300 text-gray-500 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                         </button>
                       </div>

@@ -134,8 +134,12 @@ export default function Layout() {
         headers: { Authorization: `Bearer ${token}` },
         body,
       })
+      if (quickPhotoPreview) URL.revokeObjectURL(quickPhotoPreview)
+      setQuickPhotoFile(null)
+      setQuickPhotoPreview(null)
+      if (quickPhotoInputRef.current) quickPhotoInputRef.current.value = ''
       setQuickDone(true)
-      setTimeout(() => closeQuickMenu(), 1200)
+      setTimeout(() => setQuickDone(false), 1200)
     } catch {}
     finally { setQuickSaving(false) }
   }
@@ -446,7 +450,6 @@ export default function Layout() {
               <div className="px-4 pb-10 pt-1 grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {[
                   { id: 'food',     emoji: '🍽️', label: 'Log Food' },
-                  { id: 'photo',    emoji: '📸', label: 'Progress Photo' },
                   { id: 'water',    emoji: '💧', label: 'Water' },
                   { id: 'weight',   emoji: '⚖️', label: 'Weight' },
                   { id: 'steps',    emoji: '👟', label: 'Steps' },

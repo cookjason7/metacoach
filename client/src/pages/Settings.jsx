@@ -180,6 +180,7 @@ export default function Settings() {
   const [nameSaving, setNameSaving] = useState(false)
   const [nameSaved,  setNameSaved]  = useState(false)
   const [nameError,  setNameError]  = useState(null)
+  const [nameEditing, setNameEditing] = useState(false)
 
   // Health assessment
   const [assessment,     setAssessment]     = useState(null)
@@ -293,6 +294,7 @@ export default function Settings() {
         }),
       })
       if (!res.ok) throw new Error('Failed to save')
+      setNameEditing(false)
       setNameSaved(true)
       setTimeout(() => setNameSaved(false), 2500)
     } catch (err) {
@@ -435,7 +437,18 @@ export default function Settings() {
       <p className="text-sm text-gray-500 mb-8">Account and preferences</p>
 
       {/* Account */}
-      <h2 className="text-sm font-semibold text-gray-700 mb-3">Account</h2>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold text-gray-700">Account</h2>
+        {!nameEditing && (
+          <button
+            type="button"
+            onClick={() => { setNameEditing(true); setNameSaved(false); setNameError(null) }}
+            className="text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] px-2 py-1 rounded-lg hover:bg-orange-50 transition-colors"
+          >
+            Edit
+          </button>
+        )}
+      </div>
       <div className="bg-white rounded-xl border border-gray-200 p-5 mb-8">
         <form onSubmit={saveName} className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -446,7 +459,10 @@ export default function Settings() {
                 value={form.first_name}
                 onChange={set}
                 placeholder="First name"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]"
+                readOnly={!nameEditing}
+                className={`w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A] ${
+                  nameEditing ? 'bg-white' : 'bg-gray-50 text-gray-600 cursor-default'
+                }`}
               />
             </Field>
             <Field label="Last name">
@@ -456,7 +472,10 @@ export default function Settings() {
                 value={form.last_name}
                 onChange={set}
                 placeholder="Last name"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]"
+                readOnly={!nameEditing}
+                className={`w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A] ${
+                  nameEditing ? 'bg-white' : 'bg-gray-50 text-gray-600 cursor-default'
+                }`}
               />
             </Field>
           </div>
@@ -469,13 +488,17 @@ export default function Settings() {
             />
           </Field>
           {nameError && <p className="text-xs text-red-500">{nameError}</p>}
-          <button
-            type="submit"
-            disabled={nameSaving}
-            className="w-full py-2.5 rounded-lg text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors disabled:opacity-60"
-          >
-            {nameSaved ? 'Saved!' : nameSaving ? 'Saving…' : 'Save Name'}
-          </button>
+          {nameEditing ? (
+            <button
+              type="submit"
+              disabled={nameSaving}
+              className="w-full py-2.5 rounded-lg text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors disabled:opacity-60"
+            >
+              {nameSaving ? 'Saving…' : 'Save Name'}
+            </button>
+          ) : nameSaved ? (
+            <p className="text-xs font-medium text-emerald-600">Saved!</p>
+          ) : null}
         </form>
       </div>
 
