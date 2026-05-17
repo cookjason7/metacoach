@@ -26,11 +26,10 @@ export default function AiWelcome() {
         <div className="bg-[#fff7ed] rounded-xl p-4 text-left mb-6">
           <p className="text-xs font-semibold text-[#E8670A] mb-2">What you get:</p>
           <ul className="space-y-1.5 text-xs text-gray-600">
-            <li>✓ AI-powered coaching chat</li>
+            <li>✓ AI-powered coaching</li>
             <li>✓ Personalized food & nutrition tracking</li>
-            <li>✓ Habit & progress tools</li>
-            <li>✓ Brain Mapping & mindset resources</li>
-            <li>✓ Direct messaging with the team</li>
+            <li>✓ Brain Mapping & VIP resources</li>
+            <li>✓ Community chat for support, wins, and accountability</li>
           </ul>
         </div>
 
