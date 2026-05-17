@@ -208,14 +208,11 @@ export default function Settings() {
   useEffect(() => {
     async function load() {
       const token = await getToken()
-      const [profileRes, photosRes, assessmentRes, measurementsRes] = await Promise.all([
-        fetch(`${API_URL}/api/users/me`,              { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/progress-photos`,       { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/health-assessment/me`,  { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/measurements`,          { headers: { Authorization: `Bearer ${token}` } }),
-      ])
+      const profileRes = await fetch(`${API_URL}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
+      let loadedProfile = null
       if (profileRes.ok) {
         const data = await profileRes.json()
+        loadedProfile = data
         setProfile(data)
         setForm({
           first_name:     data.first_name     ?? '',
@@ -228,6 +225,13 @@ export default function Settings() {
           phone_number:   data.phone_number   ?? '',
         })
       }
+      if (loadedProfile?.role === 'admin' || loadedProfile?.role === 'coach') return
+
+      const [photosRes, assessmentRes, measurementsRes] = await Promise.all([
+        fetch(`${API_URL}/api/progress-photos`,       { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/health-assessment/me`,  { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/measurements`,          { headers: { Authorization: `Bearer ${token}` } }),
+      ])
       if (photosRes.ok) {
         const list = await photosRes.json()
         // Group by angle, newest first (API returns newest-first already)
@@ -430,6 +434,7 @@ export default function Settings() {
   }
 
   const anglesWithComparison = ANGLES.filter(a => photos[a].length >= 2)
+  const isStaff = profile?.role === 'admin' || profile?.role === 'coach'
 
   return (
     <div className="w-full max-w-lg mx-auto pb-6">
@@ -502,118 +507,129 @@ export default function Settings() {
         </form>
       </div>
 
-      {/* Health Profile */}
-      <h2 className="text-sm font-semibold text-gray-700 mb-3">Health Profile</h2>
-      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-8">
-        <p className="text-sm text-gray-500 mb-4">Your personal, health, and progress information is managed in your Health Profile.</p>
-        <a
-          href="/health-assessment"
-          className="flex items-center justify-center w-full py-2.5 rounded-lg text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors"
-        >
-          Edit Health Profile
-        </a>
-      </div>
-
-      {/* Progress Photos */}
-      <h2 className="text-sm font-semibold text-gray-700 mb-3">Progress Photos</h2>
-      <div className="bg-white rounded-xl border border-gray-200 p-4 mb-8">
-        <p className="text-sm text-gray-500 mb-4">Upload front, back, and side photos to track your visual progress over time.</p>
-        <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-3">
-          {ANGLES.map(angle => (
-            <ProgressPhotoPanel
-              key={angle}
-              angle={angle}
-              photos={photos[angle]}
-              getToken={getToken}
-              onUploaded={handlePhotoUploaded}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* Measurements */}
-      <h2 className="text-sm font-semibold text-gray-700 mb-3">Measurements</h2>
-      <div className="bg-white rounded-xl border border-gray-200 p-4 mb-8">
-        <p className="text-sm text-gray-500 mb-4">Track chest, waist, and hip measurements over time.</p>
-        <form onSubmit={saveMeasurement} className="space-y-3 mb-5">
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
-            <input type="date" value={mForm.measurement_date}
-              onChange={e => setMForm(f => ({ ...f, measurement_date: e.target.value }))}
-              className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full max-w-[180px] focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]" />
+      {isStaff ? (
+        <>
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">Staff Settings</h2>
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <p className="text-sm text-gray-500">Staff preferences will live here in a future update.</p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        </>
+      ) : profile ? (
+        <>
+          {/* Health Profile */}
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">Health Profile</h2>
+          <div className="bg-white rounded-xl border border-gray-200 p-5 mb-8">
+            <p className="text-sm text-gray-500 mb-4">Your personal, health, and progress information is managed in your Health Profile.</p>
+            <a
+              href="/health-assessment"
+              className="flex items-center justify-center w-full py-2.5 rounded-lg text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors"
+            >
+              Edit Health Profile
+            </a>
+          </div>
+
+          {/* Progress Photos */}
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">Progress Photos</h2>
+          <div className="bg-white rounded-xl border border-gray-200 p-4 mb-8">
+            <p className="text-sm text-gray-500 mb-4">Upload front, back, and side photos to track your visual progress over time.</p>
+            <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-3">
+              {ANGLES.map(angle => (
+                <ProgressPhotoPanel
+                  key={angle}
+                  angle={angle}
+                  photos={photos[angle]}
+                  getToken={getToken}
+                  onUploaded={handlePhotoUploaded}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Measurements */}
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">Measurements</h2>
+          <div className="bg-white rounded-xl border border-gray-200 p-4 mb-8">
+            <p className="text-sm text-gray-500 mb-4">Track chest, waist, and hip measurements over time.</p>
+            <form onSubmit={saveMeasurement} className="space-y-3 mb-5">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
+                <input type="date" value={mForm.measurement_date}
+                  onChange={e => setMForm(f => ({ ...f, measurement_date: e.target.value }))}
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full max-w-[180px] focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {[
+                  { key: 'chest', label: 'Chest/Bust', sub: 'nipple line' },
+                  { key: 'waist', label: 'Waist',      sub: 'belly button' },
+                  { key: 'hips',  label: 'Hips',       sub: 'widest point' },
+                ].map(({ key, label, sub }) => (
+                  <div key={key}>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      {label}
+                      <span className="block text-[10px] font-normal text-gray-400">{sub}</span>
+                    </label>
+                    <div className="relative">
+                      <input type="number" step="0.1" min="0" value={mForm[key]}
+                        onChange={e => setMForm(f => ({ ...f, [key]: e.target.value }))}
+                        placeholder="0.0"
+                        className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full pr-7 focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]" />
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">in</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {mError && <p className="text-xs text-red-500">{mError}</p>}
+              <button type="submit" disabled={mSaving}
+                className="w-full py-2.5 rounded-lg text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors disabled:opacity-60">
+                {mSaved ? 'Saved!' : mSaving ? 'Saving…' : 'Save Measurement'}
+              </button>
+            </form>
+
+            {measurements.length > 0 && (
+              <div className="overflow-x-auto -mx-4 px-4">
+                <p className="text-xs font-semibold text-gray-600 mb-2">Recent</p>
+                <table className="w-full text-xs min-w-[280px]">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500 text-[10px] uppercase tracking-wide">
+                      <th className="px-3 py-2 text-left font-semibold">Date</th>
+                      <th className="px-3 py-2 text-right font-semibold">Chest</th>
+                      <th className="px-3 py-2 text-right font-semibold">Waist</th>
+                      <th className="px-3 py-2 text-right font-semibold">Hips</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {measurements.slice(0, 5).map((m, i) => (
+                      <tr key={m.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}>
+                        <td className="px-3 py-2 text-gray-700 font-medium whitespace-nowrap">{String(m.measurement_date).slice(0, 10)}</td>
+                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.chest ? `${Number(m.chest).toFixed(1)}"` : '—'}</td>
+                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.waist ? `${Number(m.waist).toFixed(1)}"` : '—'}</td>
+                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.hips  ? `${Number(m.hips).toFixed(1)}"` : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Connected Apps */}
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">Connected Apps</h2>
+          <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
             {[
-              { key: 'chest', label: 'Chest/Bust', sub: 'nipple line' },
-              { key: 'waist', label: 'Waist',      sub: 'belly button' },
-              { key: 'hips',  label: 'Hips',       sub: 'widest point' },
-            ].map(({ key, label, sub }) => (
-              <div key={key}>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
-                  {label}
-                  <span className="block text-[10px] font-normal text-gray-400">{sub}</span>
-                </label>
-                <div className="relative">
-                  <input type="number" step="0.1" min="0" value={mForm[key]}
-                    onChange={e => setMForm(f => ({ ...f, [key]: e.target.value }))}
-                    placeholder="0.0"
-                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full pr-7 focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]" />
-                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">in</span>
+              { name: 'Apple Health', icon: '🍎' },
+              { name: 'Google Fit',   icon: '🏃' },
+              { name: 'Fitbit',       icon: '⌚' },
+            ].map(app => (
+              <div key={app.name} className="flex items-center justify-between gap-3 px-4 py-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-xl shrink-0">{app.icon}</span>
+                  <p className="text-sm font-medium text-gray-900 truncate">{app.name}</p>
                 </div>
+                <span className="text-xs text-gray-400 bg-gray-100 px-2.5 py-1 rounded-full shrink-0 whitespace-nowrap">Coming soon</span>
               </div>
             ))}
           </div>
-          {mError && <p className="text-xs text-red-500">{mError}</p>}
-          <button type="submit" disabled={mSaving}
-            className="w-full py-2.5 rounded-lg text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors disabled:opacity-60">
-            {mSaved ? 'Saved!' : mSaving ? 'Saving…' : 'Save Measurement'}
-          </button>
-        </form>
-
-        {measurements.length > 0 && (
-          <div className="overflow-x-auto -mx-4 px-4">
-            <p className="text-xs font-semibold text-gray-600 mb-2">Recent</p>
-            <table className="w-full text-xs min-w-[280px]">
-              <thead>
-                <tr className="bg-gray-50 text-gray-500 text-[10px] uppercase tracking-wide">
-                  <th className="px-3 py-2 text-left font-semibold">Date</th>
-                  <th className="px-3 py-2 text-right font-semibold">Chest</th>
-                  <th className="px-3 py-2 text-right font-semibold">Waist</th>
-                  <th className="px-3 py-2 text-right font-semibold">Hips</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {measurements.slice(0, 5).map((m, i) => (
-                  <tr key={m.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}>
-                    <td className="px-3 py-2 text-gray-700 font-medium whitespace-nowrap">{String(m.measurement_date).slice(0, 10)}</td>
-                    <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.chest ? `${Number(m.chest).toFixed(1)}"` : '—'}</td>
-                    <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.waist ? `${Number(m.waist).toFixed(1)}"` : '—'}</td>
-                    <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.hips  ? `${Number(m.hips).toFixed(1)}"` : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Connected Apps */}
-      <h2 className="text-sm font-semibold text-gray-700 mb-3">Connected Apps</h2>
-      <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-        {[
-          { name: 'Apple Health', icon: '🍎' },
-          { name: 'Google Fit',   icon: '🏃' },
-          { name: 'Fitbit',       icon: '⌚' },
-        ].map(app => (
-          <div key={app.name} className="flex items-center justify-between gap-3 px-4 py-4">
-            <div className="flex items-center gap-3 min-w-0">
-              <span className="text-xl shrink-0">{app.icon}</span>
-              <p className="text-sm font-medium text-gray-900 truncate">{app.name}</p>
-            </div>
-            <span className="text-xs text-gray-400 bg-gray-100 px-2.5 py-1 rounded-full shrink-0 whitespace-nowrap">Coming soon</span>
-          </div>
-        ))}
-      </div>
+        </>
+      ) : null}
     </div>
   )
 }
