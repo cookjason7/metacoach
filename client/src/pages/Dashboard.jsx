@@ -289,6 +289,8 @@ function CoachStatCard({ label, value, sub, accent = false, href }) {
 function CoachDashboard({ getToken }) {
   const [clients,      setClients]      = useState([])
   const [msgUnread,    setMsgUnread]    = useState(0)
+  const [checkins,     setCheckins]     = useState([])
+  const [activity,     setActivity]     = useState([])
   const [loading,      setLoading]      = useState(true)
 
   useEffect(() => {
@@ -297,13 +299,19 @@ function CoachDashboard({ getToken }) {
       try {
         const token   = await getToken()
         const headers = { Authorization: `Bearer ${token}` }
-        const [r1, r2] = await Promise.all([
+        const [r1, r2, r3] = await Promise.all([
           fetch(`${API_URL}/api/coach-admin/clients?status=active`, { headers }),
           fetch(`${API_URL}/api/messages/unread-count`,             { headers }),
+          fetch(`${API_URL}/api/coach-admin/dashboard-summary`,      { headers }),
         ])
         if (!cancelled) {
           if (r1.ok) setClients(await r1.json())
           if (r2.ok) { const d = await r2.json(); setMsgUnread(d.unread ?? 0) }
+          if (r3.ok) {
+            const d = await r3.json()
+            setCheckins(d.checkins ?? [])
+            setActivity(d.activity ?? [])
+          }
         }
       } catch {} finally {
         if (!cancelled) setLoading(false)
@@ -316,6 +324,21 @@ function CoachDashboard({ getToken }) {
   function daysSince(iso) {
     if (!iso) return null
     return Math.floor((Date.now() - new Date(iso)) / 86400_000)
+  }
+
+  function fmtShortDate(iso) {
+    if (!iso) return '—'
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+
+  function fmtDateTime(iso) {
+    if (!iso) return '—'
+    return new Date(iso).toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    })
   }
 
   const needsAttention = clients.filter(c => c.status_tag === 'Needs Attention')
@@ -395,7 +418,9 @@ function CoachDashboard({ getToken }) {
                       {[c.first_name, c.display_last_name].filter(Boolean).join(' ') || c.email || 'Unknown'}
                     </p>
                     <p className="text-xs text-gray-400">
-                      {inactive === null ? 'No meals logged' : inactive === 0 ? 'Active today' : `Last log: ${inactive}d ago`}
+                      {c.last_meal_at
+                        ? `Last log: ${fmtShortDate(c.last_meal_at)}`
+                        : inactive === 0 ? 'Active today' : inactive === null ? 'No meals logged' : `Last log: ${inactive}d ago`}
                     </p>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
@@ -419,15 +444,20 @@ function CoachDashboard({ getToken }) {
       </div>
 
       {/* Inactive clients */}
-      {!loading && noRecentLogs.length > 0 && (
-        <div>
+      <div>
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm font-semibold text-gray-700">No Recent Logs (3+ days)</p>
             <Link to="/admin/clients" className="text-xs text-[#E8670A] hover:text-[#c45e09] font-medium">View all →</Link>
           </div>
+          {loading ? (
+            <p className="text-sm text-gray-400 py-6 text-center">Loading...</p>
+          ) : noRecentLogs.length === 0 ? (
+            <div className="bg-white border border-gray-200 rounded-xl px-4 py-5 text-center">
+              <p className="text-sm text-gray-500">Everyone has logged recently.</p>
+            </div>
+          ) : (
           <div className="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100">
             {noRecentLogs.slice(0, 4).map(c => {
-              const inactive = daysSince(c.last_meal_at ?? c.last_login_at)
               return (
                 <Link key={c.id} to={`/admin/clients/${c.id}`}
                   className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-orange-50/50 transition-colors">
@@ -437,24 +467,82 @@ function CoachDashboard({ getToken }) {
                     </p>
                   </div>
                   <p className="text-xs text-gray-400 shrink-0">
-                    {inactive === null ? 'Never logged' : `${inactive}d ago`}
+                    {c.last_meal_at ? `Last logged ${fmtShortDate(c.last_meal_at)}` : 'Never logged'}
                   </p>
                 </Link>
               )
             })}
           </div>
-        </div>
-      )}
+          )}
+      </div>
 
-      {/* Placeholder cards for future features */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="bg-gray-50 border border-dashed border-gray-200 rounded-xl p-4">
-          <p className="text-sm font-semibold text-gray-500 mb-1">Check-ins Due</p>
-          <p className="text-xs text-gray-400">Check-ins will appear here once weekly forms are built.</p>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-semibold text-gray-700">Check-ins Needing Review</p>
+            <Link to="/admin/forms" className="text-xs text-[#E8670A] hover:text-[#c45e09] font-medium">Forms →</Link>
+          </div>
+          {loading ? (
+            <p className="text-sm text-gray-400 py-6 text-center">Loading...</p>
+          ) : checkins.length === 0 ? (
+            <div className="bg-white border border-gray-200 rounded-xl px-4 py-5 text-center">
+              <p className="text-sm text-gray-500">No check-ins need review right now.</p>
+            </div>
+          ) : (
+            <div className="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100 overflow-hidden">
+              {checkins.map(item => (
+                <Link
+                  key={item.submission_id}
+                  to={`/admin/clients/${item.client_id}?tab=assessment`}
+                  className="block px-4 py-3 hover:bg-orange-50/50 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{item.client_name}</p>
+                      <p className="text-xs text-gray-500 truncate">{item.form_title}</p>
+                      <p className="text-[11px] text-gray-400 mt-0.5">
+                        Submitted {fmtDateTime(item.submitted_at)}
+                        {item.due_at ? ` · Due ${fmtShortDate(item.due_at)}` : ''}
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                      {item.status}
+                    </span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
         </div>
-        <div className="bg-gray-50 border border-dashed border-gray-200 rounded-xl p-4">
-          <p className="text-sm font-semibold text-gray-500 mb-1">Recent Client Activity</p>
-          <p className="text-xs text-gray-400">Live activity feed coming soon.</p>
+
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-semibold text-gray-700">Recent Client Activity</p>
+            <Link to="/admin/clients" className="text-xs text-[#E8670A] hover:text-[#c45e09] font-medium">View all →</Link>
+          </div>
+          {loading ? (
+            <p className="text-sm text-gray-400 py-6 text-center">Loading...</p>
+          ) : activity.length === 0 ? (
+            <div className="bg-white border border-gray-200 rounded-xl px-4 py-5 text-center">
+              <p className="text-sm text-gray-500">No recent client activity to show yet.</p>
+            </div>
+          ) : (
+            <div className="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100 overflow-hidden">
+              {activity.map((event, idx) => (
+                <Link
+                  key={`${event.type}-${event.client_id}-${event.occurred_at}-${idx}`}
+                  to={`/admin/clients/${event.client_id}`}
+                  className="flex items-start justify-between gap-3 px-4 py-3 hover:bg-orange-50/50 transition-colors"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{event.client_name}</p>
+                    <p className="text-xs text-gray-500 truncate">{event.label}</p>
+                  </div>
+                  <p className="text-[11px] text-gray-400 shrink-0">{fmtShortDate(event.occurred_at)}</p>
+                </Link>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

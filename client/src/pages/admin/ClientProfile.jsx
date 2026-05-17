@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, Fragment } from 'react'
 import { useAuth } from '@clerk/clerk-react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { API_URL } from '../../config.js'
 
 const TABS = [
@@ -2474,11 +2474,17 @@ export default function ClientProfile() {
   const { getToken } = useAuth()
   const { id } = useParams()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [client, setClient] = useState(null)
   const [meRole, setMeRole] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [tab, setTab] = useState('overview')
+
+  useEffect(() => {
+    const requestedTab = searchParams.get('tab')
+    if (requestedTab && TABS.some(t => t.id === requestedTab)) setTab(requestedTab)
+  }, [searchParams])
 
   useEffect(() => {
     async function load() {
@@ -2523,7 +2529,13 @@ export default function ClientProfile() {
       <div className="border-b border-gray-200 mb-5 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
         <div className="flex gap-1 min-w-max">
           {TABS.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
+            <button key={t.id} onClick={() => {
+              setTab(t.id)
+              const next = new URLSearchParams(searchParams)
+              if (t.id === 'overview') next.delete('tab')
+              else next.set('tab', t.id)
+              setSearchParams(next, { replace: true })
+            }}
               className={`px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-semibold transition-colors border-b-2 whitespace-nowrap ${
                 tab === t.id
                   ? 'border-[#E8670A] text-[#E8670A]'

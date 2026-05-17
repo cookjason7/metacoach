@@ -146,6 +146,122 @@ router.get('/coaches', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// GET /api/coach-admin/dashboard-summary — staff dashboard review queues
+router.get('/dashboard-summary', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const params = []
+    let clientScope = `u.role = 'client' AND COALESCE(u.client_status, 'active') != 'deleted'`
+    if (ctx.role === 'coach') {
+      params.push(ctx.dbUserId)
+      clientScope += ` AND u.assigned_coach_id = $${params.length}`
+    }
+
+    const accessibleClients = `
+      SELECT
+        u.id,
+        COALESCE(
+          NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), ''),
+          NULLIF(u.name, ''),
+          u.email,
+          'Client'
+        ) AS client_name
+      FROM users u
+      WHERE ${clientScope}
+    `
+
+    const [checkins, activity] = await Promise.all([
+      pool.query(`
+        WITH accessible_clients AS (${accessibleClients})
+        SELECT
+          fs.id AS submission_id,
+          fs.user_id AS client_id,
+          ac.client_name,
+          ft.title AS form_title,
+          fs.submitted_at,
+          COALESCE(fa.send_at, fa.sent_at, fa.next_send_at) AS due_at,
+          CASE WHEN fs.reviewed_at IS NULL THEN 'Needs review' ELSE 'Reviewed' END AS status
+        FROM form_submissions fs
+        JOIN accessible_clients ac ON ac.id = fs.user_id
+        JOIN form_templates ft ON ft.id = fs.template_id
+        LEFT JOIN form_assignments fa ON fa.id = fs.assignment_id
+        WHERE fs.reviewed_at IS NULL
+          AND (LOWER(ft.title) LIKE '%check-in%' OR LOWER(ft.title) LIKE '%check in%')
+        ORDER BY fs.submitted_at DESC
+        LIMIT 8
+      `, params),
+      pool.query(`
+        WITH accessible_clients AS (${accessibleClients}),
+        events AS (
+          SELECT m.user_id AS client_id, ac.client_name, m.logged_at AS occurred_at,
+                 'meal' AS type, 'Logged meal: ' || m.meal_name AS label
+          FROM meals m
+          JOIN accessible_clients ac ON ac.id = m.user_id
+          WHERE m.logged_at >= NOW() - INTERVAL '14 days'
+
+          UNION ALL
+
+          SELECT dl.user_id AS client_id, ac.client_name, dl.logged_date::timestamptz AS occurred_at,
+                 'daily_log' AS type,
+                 'Updated ' || CONCAT_WS(', ',
+                   CASE WHEN dl.water_oz IS NOT NULL THEN 'water' END,
+                   CASE WHEN dl.steps IS NOT NULL THEN 'steps' END,
+                   CASE WHEN dl.weight_lbs IS NOT NULL THEN 'weight' END
+                 ) AS label
+          FROM daily_logs dl
+          JOIN accessible_clients ac ON ac.id = dl.user_id
+          WHERE dl.logged_date >= CURRENT_DATE - INTERVAL '14 days'
+            AND (dl.water_oz IS NOT NULL OR dl.steps IS NOT NULL OR dl.weight_lbs IS NOT NULL)
+
+          UNION ALL
+
+          SELECT fs.user_id AS client_id, ac.client_name, fs.submitted_at AS occurred_at,
+                 'form' AS type, 'Submitted form: ' || ft.title AS label
+          FROM form_submissions fs
+          JOIN accessible_clients ac ON ac.id = fs.user_id
+          JOIN form_templates ft ON ft.id = fs.template_id
+          WHERE fs.submitted_at >= NOW() - INTERVAL '30 days'
+
+          UNION ALL
+
+          SELECT m.client_id, ac.client_name, m.created_at AS occurred_at,
+                 'message' AS type,
+                 CASE WHEN m.image_url IS NOT NULL AND COALESCE(m.message_body, '') = '' THEN 'Sent photo message'
+                      ELSE 'Sent message'
+                 END AS label
+          FROM client_messages m
+          JOIN accessible_clients ac ON ac.id = m.client_id
+          WHERE m.sender_role = 'client'
+            AND m.created_at >= NOW() - INTERVAL '14 days'
+
+          UNION ALL
+
+          SELECT pp.user_id AS client_id, ac.client_name, pp.taken_at AS occurred_at,
+                 'photo' AS type, 'Uploaded progress photo' AS label
+          FROM progress_photos pp
+          JOIN accessible_clients ac ON ac.id = pp.user_id
+          WHERE pp.taken_at >= NOW() - INTERVAL '30 days'
+
+          UNION ALL
+
+          SELECT al.user_id AS client_id, ac.client_name, al.logged_at AS occurred_at,
+                 'activity' AS type, 'Logged activity: ' || al.activity_type AS label
+          FROM activity_logs al
+          JOIN accessible_clients ac ON ac.id = al.user_id
+          WHERE al.logged_at >= NOW() - INTERVAL '30 days'
+        )
+        SELECT client_id, client_name, occurred_at, type, label
+        FROM events
+        WHERE occurred_at IS NOT NULL
+        ORDER BY occurred_at DESC
+        LIMIT 12
+      `, params),
+    ])
+
+    res.json({ checkins: checkins.rows, activity: activity.rows })
+  } catch (err) { next(err) }
+})
+
 // ─── VIP Client Invite ────────────────────────────────────────────────────────
 
 // POST /api/coach-admin/clients/invite — admin only, creates invite record + sends email
