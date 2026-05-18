@@ -700,6 +700,9 @@ function Leaderboard({ getToken }) {
 function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members }) {
   const photoInputRef = useRef(null)
   const [posts,          setPosts]         = useState([])
+  const [hasMore,        setHasMore]       = useState(false)
+  const [nextBeforeId,   setNextBeforeId]  = useState(null)
+  const [loadingOlder,   setLoadingOlder]  = useState(false)
   const [loading,        setLoading]       = useState(true)
   const [error,          setError]         = useState(null)
   const [newPost,        setNewPost]       = useState('')
@@ -715,9 +718,12 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
     async function load() {
       try {
         const token = await getToken()
-        const res   = await fetch(`${API_URL}/api/community/posts?channel=${channel}`, { headers: { Authorization: `Bearer ${token}` } })
+        const res   = await fetch(`${API_URL}/api/community/posts?channel=${channel}&limit=30`, { headers: { Authorization: `Bearer ${token}` } })
         if (!res.ok) throw new Error(`Server error ${res.status}`)
-        setPosts(await res.json())
+        const data = await res.json()
+        setPosts(data.posts ?? [])
+        setHasMore(data.hasMore ?? false)
+        setNextBeforeId(data.nextBeforeId ?? null)
       } catch (err) { setError(err.message) }
       finally { setLoading(false) }
     }
@@ -842,6 +848,28 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
       return await res.json()
     } catch { return null }
   }, [getToken])
+
+  const loadOlderPosts = useCallback(async () => {
+    if (!nextBeforeId || loadingOlder) return
+    setLoadingOlder(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(
+        `${API_URL}/api/community/posts?channel=${channel}&limit=30&before_id=${nextBeforeId}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      if (res.ok) {
+        const data = await res.json()
+        setHasMore(data.hasMore ?? false)
+        setNextBeforeId(data.nextBeforeId ?? null)
+        setPosts(prev => {
+          const ids = new Set(prev.map(p => p.id))
+          return [...prev, ...(data.posts ?? []).filter(p => !ids.has(p.id))]
+        })
+      }
+    } catch {}
+    finally { setLoadingOlder(false) }
+  }, [channel, nextBeforeId, loadingOlder, getToken])
 
   return (
     <div className="flex flex-col lg:flex-row gap-6 items-start">
@@ -973,6 +1001,17 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
             />
           ))}
         </div>
+        {hasMore && (
+          <div className="text-center mt-4">
+            <button
+              onClick={loadOlderPosts}
+              disabled={loadingOlder}
+              className="text-sm text-gray-500 hover:text-[#E8670A] disabled:opacity-40 underline"
+            >
+              {loadingOlder ? 'Loading…' : 'Load more posts'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Leaderboard sidebar */}

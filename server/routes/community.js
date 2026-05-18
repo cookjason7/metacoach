@@ -197,6 +197,17 @@ router.get('/posts', requireAuth(), async (req, res, next) => {
     const requested   = ['vip', 'ai'].includes(req.query.channel) ? req.query.channel : null
     const filterChannel = isStaff ? requested : channel   // null = no filter (staff, all channels)
 
+    const limit = Math.min(parseInt(req.query.limit) || 30, 100)
+    const beforeId = req.query.before_id ? parseInt(req.query.before_id) : null
+
+    const qParams = [dbUserId, filterChannel]
+    let extraWhere = ''
+    if (beforeId) {
+      qParams.push(beforeId)
+      extraWhere = ` AND cp.id < $${qParams.length}`
+    }
+    qParams.push(limit + 1)
+
     const { rows } = await pool.query(
       `SELECT
          cp.id,
@@ -224,13 +235,21 @@ router.get('/posts', requireAuth(), async (req, res, next) => {
        JOIN users u ON u.id = cp.user_id
        LEFT JOIN post_likes    pl ON pl.post_id = cp.id
        LEFT JOIN post_comments pc ON pc.post_id = cp.id
-       WHERE ($2::text IS NULL OR cp.channel = $2)
+       WHERE ($2::text IS NULL OR cp.channel = $2)${extraWhere}
        GROUP BY cp.id, u.first_name
        ORDER BY cp.pinned DESC, cp.created_at DESC
-       LIMIT 100`,
-      [dbUserId, filterChannel],
+       LIMIT $${qParams.length}`,
+      qParams,
     )
-    res.json(rows)
+
+    const hasMore = rows.length > limit
+    if (hasMore) rows.pop()
+
+    res.json({
+      posts: rows,
+      hasMore,
+      nextBeforeId: hasMore ? rows[rows.length - 1].id : null,
+    })
   } catch (err) { next(err) }
 })
 
@@ -464,7 +483,8 @@ router.get('/posts/:id/comments', requireAuth(), async (req, res, next) => {
        LEFT JOIN comment_reactions cr ON cr.comment_id = pc.id
        WHERE pc.post_id = $1
        GROUP BY pc.id, pc.content, pc.created_at, u.first_name
-       ORDER BY pc.created_at ASC`,
+       ORDER BY pc.created_at ASC
+       LIMIT 200`,
       [postId, dbUserId],
     )
     res.json(rows)
