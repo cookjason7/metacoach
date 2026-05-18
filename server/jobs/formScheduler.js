@@ -1,4 +1,5 @@
 import { pool } from '../db.js'
+import { acquireJobLock, releaseJobLock } from './jobLock.js'
 
 // Returns the next Date when dayOfWeek/hour/minute fires, starting after `after`.
 export function computeNextSendAt(dayOfWeek, hour, minute = 0, after = new Date()) {
@@ -12,6 +13,11 @@ export function computeNextSendAt(dayOfWeek, hour, minute = 0, after = new Date(
 }
 
 export async function processFormSchedules() {
+  const locked = await acquireJobLock('form_scheduler', 3000000)
+  if (!locked) {
+    console.log('[formScheduler] Lock held by another instance — skipping')
+    return 0
+  }
   try {
     const { rows: due } = await pool.query(`
       SELECT fa.*,
@@ -50,6 +56,33 @@ export async function processFormSchedules() {
         continue
       }
 
+      // ── Atomic row-level claim (defense in depth against concurrent runs) ────
+      if (fa.assignment_type === 'scheduled') {
+        const { rows: claimed } = await pool.query(
+          `UPDATE form_assignments
+           SET status = 'sent', sent_at = NOW(), is_active = FALSE
+           WHERE id = $1 AND status = 'pending' AND is_active = TRUE
+           RETURNING id`,
+          [fa.id],
+        )
+        if (claimed.length === 0) {
+          console.log(`[formScheduler] Assignment ${fa.id} already claimed — skipping`)
+          continue
+        }
+      } else {
+        // recurring
+        const { rows: claimed } = await pool.query(
+          `UPDATE form_assignments SET last_sent_at = NOW()
+           WHERE id = $1 AND (last_sent_at IS NULL OR last_sent_at < NOW() - INTERVAL '6 days')
+           RETURNING id`,
+          [fa.id],
+        )
+        if (claimed.length === 0) {
+          console.log(`[formScheduler] Assignment ${fa.id} already claimed — skipping`)
+          continue
+        }
+      }
+
       const { rows: [client] } = await pool.query(
         'SELECT id, first_name, coaching_type FROM users WHERE id = $1',
         [fa.client_id],
@@ -86,19 +119,15 @@ export async function processFormSchedules() {
         VALUES ($1, $2, 'admin', $3, $4, $5, $6::jsonb)
       `, [fa.client_id, fa.assigned_by, messageBody, thread_type, visibility, JSON.stringify(metadata)])
 
-      if (fa.assignment_type === 'scheduled') {
-        await pool.query(
-          `UPDATE form_assignments SET status = 'sent', sent_at = NOW(), is_active = FALSE WHERE id = $1`,
-          [fa.id],
-        )
-      } else {
+      if (fa.assignment_type === 'recurring') {
         const rule     = fa.recurring_rule
         const nextSend = computeNextSendAt(rule.day_of_week, rule.hour, rule.minute ?? 0)
         await pool.query(
-          `UPDATE form_assignments SET last_sent_at = NOW(), next_send_at = $1 WHERE id = $2`,
+          `UPDATE form_assignments SET next_send_at = $1 WHERE id = $2`,
           [nextSend, fa.id],
         )
       }
+      // scheduled: status/sent_at/is_active already set in the atomic claim above
 
       sent++
       console.log(`[formScheduler] Sent form assignment ${fa.id} to client ${fa.client_id}`)
@@ -109,5 +138,7 @@ export async function processFormSchedules() {
   } catch (err) {
     console.error('[formScheduler] Job failed:', err.message)
     return 0
+  } finally {
+    await releaseJobLock('form_scheduler')
   }
 }

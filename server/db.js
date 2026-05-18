@@ -962,6 +962,15 @@ export async function migrate() {
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_measurements_user ON client_measurements (user_id, measurement_date DESC)`)
 
+  // ── Scheduled job locking ────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS job_locks (
+      job_name     TEXT PRIMARY KEY,
+      locked_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      locked_until TIMESTAMPTZ NOT NULL
+    )
+  `)
+
   // ── Remove old onboarding gate — mark all users as onboarding_complete ──────
   // The multi-step onboarding form (name/gender/age/height/weight) is removed.
   // New post-signup flow is: Health Assessment → Identity Traits → Enter app.

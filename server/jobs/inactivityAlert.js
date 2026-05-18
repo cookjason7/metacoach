@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer'
 import { pool } from '../db.js'
+import { acquireJobLock, releaseJobLock } from './jobLock.js'
 
 const ADMIN_EMAIL   = 'jason@lwcvip.com'
 const INACTIVE_DAYS = 3
@@ -21,6 +22,11 @@ You don't have to have a perfect day to log. You just have to log.
 What's been getting in the way?`
 
 export async function runInactivityAlert() {
+  const locked = await acquireJobLock('inactivity_alert', 82800000)
+  if (!locked) {
+    console.log('[inactivity] Lock held by another instance — skipping')
+    return
+  }
   try {
     const { rows: inactive } = await pool.query(`
       SELECT u.id, u.first_name, u.email, MAX(m.logged_at) AS last_meal_at
@@ -78,5 +84,7 @@ export async function runInactivityAlert() {
     console.log(`[inactivity] Check-in messages processed for ${inactive.length} client(s)`)
   } catch (err) {
     console.error('[inactivity] Job failed:', err.message)
+  } finally {
+    await releaseJobLock('inactivity_alert')
   }
 }
