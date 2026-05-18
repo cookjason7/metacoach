@@ -904,6 +904,21 @@ export async function migrate() {
       logged_at        TIMESTAMPTZ DEFAULT NOW()
     )
   `)
+  // High-growth read paths for 100+ active clients.
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_meals_user_log_date ON meals (user_id, (COALESCE(log_date, logged_at::date)))`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_meals_user_logged_at ON meals (user_id, logged_at DESC)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_users_assigned_coach ON users (assigned_coach_id)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_users_role_client_status ON users (role, client_status)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_messages_unread ON client_messages (client_id, read_at)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_messages_sender_unread ON client_messages (client_id, sender_role, read_at)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_community_posts_feed ON community_posts (channel, pinned, created_at DESC)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_post_comments_post_created ON post_comments (post_id, created_at)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_post_likes_post ON post_likes (post_id)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_post_reactions_post_created ON post_reactions (post_id, created_at)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications (user_id, read)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_progress_photos_user_taken ON progress_photos (user_id, taken_at DESC)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_activity_logs_user_logged_at ON activity_logs (user_id, logged_at DESC)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_form_submissions_review_queue ON form_submissions (reviewed_at, submitted_at DESC)`)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS community_resources (
       id            SERIAL PRIMARY KEY,
