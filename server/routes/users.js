@@ -34,17 +34,20 @@ router.get('/me', requireAuth(), async (req, res, next) => {
               activity_level, tried_before, why_joined, identity_anchors,
               onboarding_complete, assessment_complete,
               goal_calories, goal_protein, goal_carbs, goal_fat, goal_fiber, goal_water,
-              gender, phone_number, paid, role, coaching_type
+              gender, phone_number, paid, role, coaching_type, coaching_type_source
        FROM users WHERE id = $1`,
       [dbUserId],
     )
 
     const originalCoachingType = rows[0]?.coaching_type
     let robustAiSelfHealRan = false
+    const canAiSelfHeal = rows[0]
+      && !['vip', 'ai'].includes(rows[0].coaching_type)
+      && rows[0].coaching_type_source !== 'manual'
 
     // Self-heal: if the user accepted an AI invite but coaching_type wasn't updated
     // (e.g. invite accept failed silently on an older deploy), fix it now.
-    if (rows[0] && rows[0].coaching_type !== 'ai') {
+    if (canAiSelfHeal) {
       const { rows: aiInvite } = await pool.query(
         `SELECT 1 FROM client_invites
          WHERE accepted_by_user_id = $1 AND coaching_type = 'ai'
@@ -52,14 +55,18 @@ router.get('/me', requireAuth(), async (req, res, next) => {
         [dbUserId],
       )
       if (aiInvite.length > 0) {
-        await pool.query(`UPDATE users SET coaching_type = 'ai' WHERE id = $1`, [dbUserId])
+        await pool.query(
+          `UPDATE users SET coaching_type = 'ai', coaching_type_source = COALESCE(coaching_type_source, 'self_heal_ai') WHERE id = $1`,
+          [dbUserId],
+        )
         rows[0].coaching_type = 'ai'
+        rows[0].coaching_type_source = rows[0].coaching_type_source ?? 'self_heal_ai'
         console.log(`[users/me] self-healed coaching_type → 'ai' for user id=${dbUserId}`)
       }
     }
 
     // Debug logging — confirms admin status at runtime
-    if (rows[0] && rows[0].coaching_type !== 'ai') {
+    if (rows[0] && !['vip', 'ai'].includes(rows[0].coaching_type) && rows[0].coaching_type_source !== 'manual') {
       const normalizedEmail = (email ?? rows[0].email ?? '').trim().toLowerCase()
       const { rows: aiInviteByEmail } = await pool.query(
         `SELECT id FROM client_invites
@@ -71,14 +78,18 @@ router.get('/me', requireAuth(), async (req, res, next) => {
         [normalizedEmail],
       )
       if (aiInviteByEmail.length > 0) {
-        await pool.query(`UPDATE users SET coaching_type = 'ai' WHERE id = $1`, [dbUserId])
+        await pool.query(
+          `UPDATE users SET coaching_type = 'ai', coaching_type_source = COALESCE(coaching_type_source, 'self_heal_ai') WHERE id = $1`,
+          [dbUserId],
+        )
         rows[0].coaching_type = 'ai'
+        rows[0].coaching_type_source = rows[0].coaching_type_source ?? 'self_heal_ai'
         robustAiSelfHealRan = true
       }
     }
 
     console.log(
-      `[users/me] email=${email ?? rows[0]?.email ?? '?'} role=${rows[0]?.role} coaching_type=${rows[0]?.coaching_type} selfHealRan=${originalCoachingType !== rows[0]?.coaching_type || robustAiSelfHealRan} isAdmin=${rows[0]?.role === 'admin'} isAllowlistEmail=${isAdminEmail(email)}`,
+      `[users/me] email=${email ?? rows[0]?.email ?? '?'} role=${rows[0]?.role} coaching_type=${rows[0]?.coaching_type} coaching_type_source=${rows[0]?.coaching_type_source ?? 'none'} selfHealRan=${originalCoachingType !== rows[0]?.coaching_type || robustAiSelfHealRan} isAdmin=${rows[0]?.role === 'admin'} isAllowlistEmail=${isAdminEmail(email)}`,
     )
 
     res.json(rows[0])

@@ -624,6 +624,9 @@ router.patch('/clients/:id', requireAuth(), async (req, res, next) => {
         if (key === 'start_date' && value === '') value = null
         params.push(value)
         setClauses.push(`${key} = $${params.length}`)
+        if (key === 'coaching_type') {
+          setClauses.push(`coaching_type_source = 'manual'`)
+        }
       }
     }
 

@@ -558,6 +558,7 @@ export async function migrate() {
   // coaching_type: 'vip' (default — has human coach) | 'ai' (AI-only client)
   // assigned_coach_id: which coach owns this client (NULL = unassigned / Jason)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS coaching_type     TEXT DEFAULT 'vip'`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS coaching_type_source TEXT`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_coach_id INTEGER REFERENCES users(id) ON DELETE SET NULL`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS start_date        DATE`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at     TIMESTAMPTZ`)

@@ -109,6 +109,7 @@ router.post('/:token/accept', requireAuth(), async (req, res, next) => {
       `UPDATE users
        SET first_name          = COALESCE(NULLIF(first_name, ''), $1),
            coaching_type       = COALESCE($2, 'vip'),
+           coaching_type_source = 'invite',
            assigned_coach_id   = COALESCE(assigned_coach_id, $3),
            onboarding_complete = TRUE,
            assessment_complete = FALSE,

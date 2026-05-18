@@ -68,10 +68,12 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     await pool.query(
       `UPDATE users
        SET coaching_type = 'ai',
+           coaching_type_source = 'stripe_ai',
            paid = TRUE,
            paid_at = COALESCE(paid_at, NOW())
        WHERE LOWER(email) = $1
-         AND COALESCE(role, 'client') = 'client'`,
+         AND COALESCE(role, 'client') = 'client'
+         AND COALESCE(coaching_type_source, '') != 'manual'`,
       [email],
     )
 
@@ -152,10 +154,12 @@ router.get('/session-setup-link', async (req, res, next) => {
     await pool.query(
       `UPDATE users
        SET coaching_type = 'ai',
+           coaching_type_source = 'stripe_ai',
            paid = TRUE,
            paid_at = COALESCE(paid_at, NOW())
        WHERE LOWER(email) = $1
-         AND COALESCE(role, 'client') = 'client'`,
+         AND COALESCE(role, 'client') = 'client'
+         AND COALESCE(coaching_type_source, '') != 'manual'`,
       [email],
     )
 
