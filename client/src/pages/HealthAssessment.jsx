@@ -276,24 +276,39 @@ export default function HealthAssessment() {
   const { user }     = useUser()
   const navigate     = useNavigate()
 
-  const [step,    setStep]    = useState(0) // 0=welcome, 1=S1, 2=S2, 3=S3, 4=S4(identity), 5=complete
-  const [form,    setForm]    = useState(EMPTY_FORM)
-  const [saving,  setSaving]  = useState(false)
-  const [error,   setError]   = useState(null)
-  const [loaded,  setLoaded]  = useState(false)
+  const [step,         setStep]        = useState(0) // 0=welcome, 1=S1, 2=S2, 3=S3, 4=S4(identity), 5=complete
+  const [form,         setForm]        = useState(EMPTY_FORM)
+  const [saving,       setSaving]      = useState(false)
+  const [error,        setError]       = useState(null)
+  const [loaded,       setLoaded]      = useState(false)
+  const [coachingType, setCoachingType] = useState(null)
   // Per-section validation message (supportive language; null when valid)
   const [validation, setValidation] = useState(null)
 
   const email = user?.primaryEmailAddress?.emailAddress ?? ''
+
+  // Scroll to top whenever the step changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  }, [step])
 
   // Load any existing partial assessment on mount
   useEffect(() => {
     async function load() {
       try {
         const token = await getToken()
-        const res = await fetch(`${API_URL}/api/health-assessment/me`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
+        const [res, meRes] = await Promise.all([
+          fetch(`${API_URL}/api/health-assessment/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API_URL}/api/users/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ])
+        if (meRes.ok) {
+          const meData = await meRes.json()
+          setCoachingType(meData.coaching_type ?? null)
+        }
         if (res.ok) {
           const data = await res.json()
           if (data) {
@@ -864,17 +879,28 @@ export default function HealthAssessment() {
               <div className="text-6xl mb-4">🎉</div>
               <h1 className="text-2xl font-bold text-white mb-2">You're all set!</h1>
               <p className="text-white/80 text-sm">
-                {form.first_name ? `Great work, ${form.first_name}!` : 'Great work!'} Your assessment has been saved and sent to your coach.
+                {form.first_name ? `Great work, ${form.first_name}!` : 'Great work!'}{' '}
+                {coachingType === 'ai'
+                  ? 'Your assessment has been saved and your AI coaching setup is ready.'
+                  : 'Your assessment has been saved and sent to your coach.'}
               </p>
             </div>
             <div className="px-8 py-8 space-y-4">
               <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-left">
                 <p className="text-sm font-semibold text-[#E8670A] mb-1">What happens next?</p>
-                <ul className="space-y-1.5 text-xs text-gray-600">
-                  <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> Your coach will review your assessment.</li>
-                  <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> We'll schedule your launch conference so you know exactly how to get started.</li>
-                  <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> You can update your assessment anytime in Settings.</li>
-                </ul>
+                {coachingType === 'ai' ? (
+                  <ul className="space-y-1.5 text-xs text-gray-600">
+                    <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> Enter Meta Coach to start using your AI-powered coaching tools.</li>
+                    <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> You can access Katie, food tracking, Brain Mapping, resources, and community support.</li>
+                    <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> You can update your assessment anytime in Settings.</li>
+                  </ul>
+                ) : (
+                  <ul className="space-y-1.5 text-xs text-gray-600">
+                    <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> Your coach will review your assessment.</li>
+                    <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> We'll schedule your launch conference so you know exactly how to get started.</li>
+                    <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> You can update your assessment anytime in Settings.</li>
+                  </ul>
+                )}
               </div>
 
               <button
