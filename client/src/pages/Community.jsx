@@ -1187,11 +1187,12 @@ function VideoModal({ initial, onSave, onClose, saving }) {
 }
 
 function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded, onToggleExpand, getToken, progress }) {
-  const vid         = ytVideoId(video.youtube_url)
-  const playerRef   = useRef(null)
-  const intervalRef = useRef(null)
-  const sentRef     = useRef(new Set())
-  const containerId = `yt-player-${video.id}`
+  const vid          = ytVideoId(video.youtube_url)
+  const containerRef = useRef(null)   // React-managed wrapper — never touched by YT
+  const playerRef    = useRef(null)
+  const intervalRef  = useRef(null)
+  const sentRef      = useRef(new Set())
+  const [ytFailed, setYtFailed] = useState(false)
 
   async function reportPct(pct) {
     if (!getToken) return
@@ -1212,21 +1213,39 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
   function destroyPlayer() {
     stopTracking()
     if (playerRef.current) { try { playerRef.current.destroy() } catch {} ; playerRef.current = null }
+    if (containerRef.current) containerRef.current.innerHTML = ''
     sentRef.current = new Set()
   }
 
   useEffect(() => {
     if (!expanded || !vid || isStaff) return
     let live = true
+
     loadYTApi().then(() => {
-      if (!live || !document.getElementById(containerId)) return
-      playerRef.current = new window.YT.Player(containerId, {
+      if (!live || !containerRef.current) return
+
+      // Create a fresh child div for YT to own — outside React's virtual DOM.
+      // YT replaces this div with an iframe; React never sees or reconciles it.
+      const playerDiv = document.createElement('div')
+      playerDiv.style.cssText = 'width:100%;height:100%'
+      containerRef.current.innerHTML = ''
+      containerRef.current.appendChild(playerDiv)
+
+      playerRef.current = new window.YT.Player(playerDiv, {
         videoId: vid,
-        playerVars: { autoplay: 1 },
+        playerVars: { autoplay: 1, rel: 0, modestbranding: 1 },
         events: {
-          onReady: () => { if (!sentRef.current.has(1)) { sentRef.current.add(1); reportPct(1) } },
+          onReady: (e) => {
+            // Force the generated iframe to fill its container
+            try {
+              const iframe = e.target.getIframe()
+              if (iframe) { iframe.style.width = '100%'; iframe.style.height = '100%' }
+            } catch {}
+            if (!sentRef.current.has(1)) { sentRef.current.add(1); reportPct(1) }
+          },
           onStateChange: (e) => {
             if (e.data === window.YT.PlayerState.PLAYING) {
+              stopTracking()
               intervalRef.current = setInterval(() => {
                 const p = playerRef.current
                 if (!p) return
@@ -1248,11 +1267,16 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
               reportPct(100)
             }
           },
+          onError: () => { if (live) { destroyPlayer(); setYtFailed(true) } },
         },
       })
-    })
+    }).catch(() => { if (live) { destroyPlayer(); setYtFailed(true) } })
+
     return () => { live = false; destroyPlayer() }
   }, [expanded, vid])
+
+  // Reset fallback flag when video collapses
+  useEffect(() => { if (!expanded) setYtFailed(false) }, [expanded])
 
   const statusLabel = !isStaff && progress
     ? progress.completed
@@ -1269,7 +1293,19 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
       {/* Thumbnail / player area */}
       <div className="relative bg-black" style={{ aspectRatio: '16/9' }}>
         {expanded && vid ? (
-          <div id={containerId} className="w-full h-full" />
+          ytFailed ? (
+            /* Fallback: plain iframe if YT API fails */
+            <iframe
+              src={`https://www.youtube.com/embed/${vid}?autoplay=1&rel=0`}
+              title={video.title}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              className="w-full h-full"
+            />
+          ) : (
+            /* Stable React-managed wrapper; YT owns the child div it creates inside */
+            <div ref={containerRef} className="w-full h-full" />
+          )
         ) : vid ? (
           <button
             onClick={onToggleExpand}
