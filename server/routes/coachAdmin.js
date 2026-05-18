@@ -186,7 +186,6 @@ router.get('/dashboard-summary', requireAuth(), async (req, res, next) => {
         JOIN form_templates ft ON ft.id = fs.template_id
         LEFT JOIN form_assignments fa ON fa.id = fs.assignment_id
         WHERE fs.reviewed_at IS NULL
-          AND (LOWER(ft.title) LIKE '%check-in%' OR LOWER(ft.title) LIKE '%check in%')
         ORDER BY fs.submitted_at DESC
         LIMIT 8
       `, params),
