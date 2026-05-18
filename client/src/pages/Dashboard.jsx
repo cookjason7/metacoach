@@ -4,82 +4,42 @@ import { Link } from 'react-router-dom'
 import { API_URL } from '../config.js'
 import MicronutrientTotals, { calculateMicronutrientTotals } from '../components/MicronutrientTotals.jsx'
 
-// ── Gamification Banner (compact, tappable) ───────────────────────────────────
+// ── Identity Momentum Card ────────────────────────────────────────────────────
 
-const STREAK_ITEMS = [
-  { icon: '🔥', key: 'food_log' },
-  { icon: '💧', key: 'water_goal' },
-  { icon: '💪', key: 'protein_goal' },
-  { icon: '🏋️', key: 'workout' },
-]
-
-function GamificationCard({ data, loading }) {
+function MomentumCard({ data, loading }) {
   if (loading) {
     return (
       <div className="bg-white rounded-2xl border border-gray-200 px-4 py-3 mb-5 animate-pulse">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="w-6 h-6 bg-gray-100 rounded" />
-          <div className="h-3.5 bg-gray-100 rounded w-20" />
-          <div className="ml-auto flex gap-3">
-            {[...Array(4)].map((_, i) => <div key={i} className="w-8 h-3.5 bg-gray-100 rounded" />)}
-          </div>
+        <div className="flex gap-2 mb-2">
+          {[...Array(5)].map((_, i) => <div key={i} className="h-7 w-24 bg-gray-100 rounded-full" />)}
         </div>
-        <div className="h-1.5 bg-gray-100 rounded-full" />
+        <div className="h-3 bg-gray-100 rounded w-32" />
       </div>
     )
   }
   if (!data) return null
 
   return (
-    <Link
-      to="/badges"
-      className="block bg-white rounded-2xl border border-gray-200 px-4 py-3 mb-5 hover:border-gray-300 active:bg-gray-50 transition-colors group"
-    >
-      {/* Row 1 — rank icon · rank name · XP · streaks · chevron */}
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-lg leading-none shrink-0">{data.rank_icon}</span>
-        <span className="text-sm font-bold leading-none shrink-0" style={{ color: data.rank_color }}>
-          {data.rank}
-        </span>
-        <span className="text-xs text-gray-400 leading-none shrink-0">
-          {data.total_xp.toLocaleString()} XP
-        </span>
-
-        {/* Streaks pushed to the right */}
-        <div className="ml-auto flex items-center gap-3">
-          {STREAK_ITEMS.map(s => {
-            const count = data.streaks[s.key] ?? 0
-            const hot   = count >= 3
-            return (
-              <span key={s.key}
-                className={`text-xs font-bold leading-none tabular-nums ${hot ? 'text-[#E8670A]' : 'text-gray-400'}`}>
-                {s.icon} {count}
-              </span>
-            )
-          })}
-          <svg className="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-500 transition-colors shrink-0"
-            fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-        </div>
+    <div className="bg-white rounded-2xl border border-gray-200 px-4 py-3 mb-5">
+      <div className="flex flex-wrap gap-2 mb-2">
+        {data.categories.map(c => (
+          <span
+            key={c.key}
+            className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+              c.active
+                ? 'bg-[#fde8c8] text-[#c45e09]'
+                : 'bg-gray-100 text-gray-400'
+            }`}
+          >
+            {c.icon} {c.label}
+          </span>
+        ))}
       </div>
-
-      {/* Row 2 — XP progress bar */}
-      <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
-        <div
-          className="h-full rounded-full transition-all duration-700"
-          style={{
-            width: `${data.next_rank ? data.progress_pct : 100}%`,
-            backgroundColor: data.rank_color,
-          }}
-        />
-      </div>
-      {data.next_rank && (
-        <p className="text-[10px] text-gray-400 mt-0.5 text-right leading-none">
-          {data.xp_to_next_rank} XP to {data.next_rank}
-        </p>
-      )}
-    </Link>
+      <p className="text-xs font-bold text-gray-700">
+        {data.identity_label}
+        <span className="font-normal text-gray-500 ml-1">— {data.message}</span>
+      </p>
+    </div>
   )
 }
 
@@ -597,7 +557,7 @@ export default function Dashboard() {
           fetch(`${API_URL}/api/users/me`,         { headers }),
           fetch(`${API_URL}/api/meals?date=${today}`, { headers }),
           fetch(`${API_URL}/api/coach/latest-proactive`, { headers }),
-          fetch(`${API_URL}/api/gamification/me`,  { headers }),
+          fetch(`${API_URL}/api/gamification/momentum`, { headers }),
         ])
 
         if (!r1.ok || !r2.ok || !r3.ok || !r4.ok || !r5.ok || !r6.ok) throw new Error('Failed to load dashboard data')
@@ -679,8 +639,8 @@ export default function Dashboard() {
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Dashboard</h1>
       <p className="text-sm text-gray-500 mb-4">Today's overview</p>
 
-      {/* Gamification — compact rank/XP/streak bar */}
-      <GamificationCard data={gamData} loading={gamLoading} />
+      {/* Identity Momentum */}
+      <MomentumCard data={gamData} loading={gamLoading} />
 
       <KatieBanner message={katieBanner} onDismiss={() => setKatieBanner(null)} />
 

@@ -96,4 +96,78 @@ router.get('/badges', requireAuth(), async (req, res, next) => {
   }
 })
 
+// GET /api/gamification/momentum — weekly identity momentum (5 pillars)
+router.get('/momentum', requireAuth(), async (req, res, next) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId   = await getOrCreateUser(userId)
+
+    // Monday midnight UTC as week start
+    const now       = new Date()
+    const weekStart = new Date(now)
+    weekStart.setUTCHours(0, 0, 0, 0)
+    const daysFromMon = (weekStart.getUTCDay() + 6) % 7
+    weekStart.setUTCDate(weekStart.getUTCDate() - daysFromMon)
+
+    const { rows: [row] } = await pool.query(`
+      SELECT
+        (
+          SELECT COUNT(DISTINCT COALESCE(log_date, logged_at::date))
+          FROM meals WHERE user_id=$1 AND COALESCE(log_date, logged_at::date) >= $2::date
+        ) >= 3 AS nourishment,
+        (
+          (SELECT COUNT(*) FROM workout_logs WHERE user_id=$1 AND completed_at >= $2) > 0
+          OR
+          (SELECT COUNT(*) FROM daily_logs WHERE user_id=$1 AND steps IS NOT NULL AND logged_date >= $2::date) >= 3
+        ) AS movement,
+        (
+          (SELECT COUNT(*) FROM form_submissions WHERE user_id=$1 AND submitted_at >= $2) > 0
+          OR
+          (SELECT COUNT(*) FROM habit_completions WHERE user_id=$1 AND completion_date >= $2::date) > 0
+        ) AS reflection,
+        (
+          (SELECT COUNT(*) FROM client_messages WHERE sender_id=$1 AND sender_role='client' AND created_at >= $2) > 0
+          OR
+          (SELECT COUNT(*) FROM community_posts WHERE user_id=$1 AND created_at >= $2) > 0
+          OR
+          (SELECT COUNT(*) FROM post_comments WHERE user_id=$1 AND created_at >= $2) > 0
+        ) AS connection,
+        (
+          (SELECT COUNT(*) FROM daily_logs WHERE user_id=$1 AND weight_lbs IS NOT NULL AND logged_date >= $2::date) > 0
+          OR
+          (SELECT COUNT(*) FROM progress_photos WHERE user_id=$1 AND taken_at >= $2) > 0
+        ) AS progress
+    `, [dbUserId, weekStart.toISOString()])
+
+    const categories = [
+      { key: 'nourishment', label: 'Nourishment', icon: '🥦', active: row.nourishment },
+      { key: 'movement',    label: 'Movement',    icon: '🏃', active: row.movement    },
+      { key: 'reflection',  label: 'Reflection',  icon: '📓', active: row.reflection  },
+      { key: 'connection',  label: 'Connection',  icon: '💬', active: row.connection  },
+      { key: 'progress',    label: 'Progress',    icon: '📊', active: row.progress    },
+    ]
+
+    const activeCount = categories.filter(c => c.active).length
+
+    const LABELS = ['Fresh Start', 'Showing Up', 'Showing Up', 'Building Rhythm', 'Steady Momentum', 'Anchored Week']
+    const MESSAGES = [
+      'Every week is a new beginning. One small step counts.',
+      "You're here. That's what matters most.",
+      "You're here. That's what matters most.",
+      'Three pillars this week. You\'re finding your flow.',
+      'Four strong pillars. You\'re building something real.',
+      'All five pillars. This is your identity in action.',
+    ]
+
+    res.json({
+      categories,
+      active_count:   activeCount,
+      identity_label: LABELS[activeCount],
+      message:        MESSAGES[activeCount],
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
 export default router

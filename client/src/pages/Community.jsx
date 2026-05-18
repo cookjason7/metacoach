@@ -1014,10 +1014,12 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
         )}
       </div>
 
-      {/* Leaderboard sidebar */}
-      <div className="w-full lg:w-52 shrink-0">
-        <Leaderboard getToken={getToken} />
-      </div>
+      {/* Leaderboard sidebar — staff only */}
+      {isStaff && (
+        <div className="w-full lg:w-52 shrink-0">
+          <Leaderboard getToken={getToken} />
+        </div>
+      )}
     </div>
   )
 }
@@ -1039,7 +1041,6 @@ function MembersTab({ members, loading }) {
               <p className="text-sm font-semibold text-gray-900">{m.first_name ?? 'Member'}</p>
               <p className="text-xs text-gray-400 mt-0.5">
                 Joined {new Date(m.created_at).toLocaleDateString([], { month: 'short', year: 'numeric' })}
-                {m.streak > 0 && ` · 🔥 ${m.streak}d streak`}
               </p>
               {m.identity_anchors?.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-2">

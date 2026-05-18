@@ -11,7 +11,6 @@ const CLIENT_NAV_ITEMS = [
   { to: '/calendar',     label: 'Calendar' },
   { to: '/messages',     label: 'Messages' },
   { to: '/food-list',    label: 'Food List' },
-  { to: '/badges',       label: 'Achievements' },
   { to: '/community',    label: 'Community' },
   { to: '/settings',     label: 'Settings' },
 ]
