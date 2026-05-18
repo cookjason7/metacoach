@@ -125,13 +125,29 @@ router.get('/thread/:threadType', requireAuth(), async (req, res, next) => {
       return res.status(403).json({ error: 'Not available for AI coaching clients' })
     }
 
+    const limit = Math.min(parseInt(req.query.limit) || 50, 200)
+    const beforeId = req.query.before_id ? parseInt(req.query.before_id) : null
+
+    const qParams = [ctx.dbUserId, thread]
+    let extraWhere = ''
+    if (beforeId) {
+      qParams.push(beforeId)
+      extraWhere = ` AND m.id < $${qParams.length}`
+    }
+    qParams.push(limit + 1)
+
     const { rows } = await pool.query(`
       SELECT m.*, u.first_name AS sender_name
       FROM client_messages m
       LEFT JOIN users u ON u.id = m.sender_id
-      WHERE m.client_id = $1 AND m.thread_type = $2
-      ORDER BY m.created_at ASC
-    `, [ctx.dbUserId, thread])
+      WHERE m.client_id = $1 AND m.thread_type = $2${extraWhere}
+      ORDER BY m.id DESC
+      LIMIT $${qParams.length}
+    `, qParams)
+
+    const hasMore = rows.length > limit
+    if (hasMore) rows.pop()
+    rows.reverse()
 
     // Mark staff-sent messages as read
     await pool.query(`
@@ -141,7 +157,11 @@ router.get('/thread/:threadType', requireAuth(), async (req, res, next) => {
         AND read_at IS NULL AND sender_id != $1
     `, [ctx.dbUserId, thread])
 
-    res.json(rows)
+    res.json({
+      messages: rows,
+      hasMore,
+      nextBeforeId: hasMore ? rows[0].id : null,
+    })
   } catch (err) { next(err) }
 })
 

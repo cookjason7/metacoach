@@ -50,12 +50,16 @@ export default function Messages() {
   const [threads,     setThreads]     = useState([])
   const [coachName,   setCoachName]   = useState(null)
   const [active,      setActive]      = useState(null)  // thread_type string
-  const [messages,    setMessages]    = useState([])
+  const [messages,      setMessages]      = useState([])
+  const [hasMore,       setHasMore]       = useState(false)
+  const [nextBeforeId,  setNextBeforeId]  = useState(null)
+  const [loadingOlder,  setLoadingOlder]  = useState(false)
   const [body,        setBody]        = useState('')
   const [loading,     setLoading]     = useState(true)
   const [loadingMsgs, setLoadingMsgs] = useState(false)
   const [sending,     setSending]     = useState(false)
   const scrollRef      = useRef(null)
+  const didPrependRef  = useRef(false)
   const fileInputRef   = useRef(null)  // camera
   const galleryInputRef = useRef(null) // gallery/files
   const [imgPreview, setImgPreview] = useState(null) // object URL for preview
@@ -159,16 +163,41 @@ export default function Messages() {
     if (!active) return
     setLoadingMsgs(true)
     const token = await getToken()
-    const res = await fetch(`${API_URL}/api/messages/thread/${active}`, {
+    const res = await fetch(`${API_URL}/api/messages/thread/${active}?limit=50`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-    if (res.ok) setMessages(await res.json())
+    if (res.ok) {
+      const data = await res.json()
+      setMessages(data.messages ?? [])
+      setHasMore(data.hasMore ?? false)
+      setNextBeforeId(data.nextBeforeId ?? null)
+    }
     setLoadingMsgs(false)
   }, [active, getToken])
+
+  const loadOlder = useCallback(async () => {
+    if (!active || !nextBeforeId || loadingOlder) return
+    setLoadingOlder(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(
+        `${API_URL}/api/messages/thread/${active}?limit=50&before_id=${nextBeforeId}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      if (res.ok) {
+        const data = await res.json()
+        didPrependRef.current = true
+        setMessages(prev => [...(data.messages ?? []), ...prev])
+        setHasMore(data.hasMore ?? false)
+        setNextBeforeId(data.nextBeforeId ?? null)
+      }
+    } finally { setLoadingOlder(false) }
+  }, [active, nextBeforeId, loadingOlder, getToken])
 
   useEffect(() => { loadMessages() }, [loadMessages])
 
   useEffect(() => {
+    if (didPrependRef.current) { didPrependRef.current = false; return }
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
   }, [messages])
 
@@ -314,6 +343,17 @@ export default function Messages() {
 
                 {/* Messages */}
                 <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 sm:p-4 bg-gray-50 space-y-3 max-h-[calc(100vh-23rem)] lg:max-h-[500px]">
+                  {hasMore && !loadingMsgs && (
+                    <div className="text-center pb-1">
+                      <button
+                        onClick={loadOlder}
+                        disabled={loadingOlder}
+                        className="text-xs text-gray-500 hover:text-[#E8670A] disabled:opacity-40 underline"
+                      >
+                        {loadingOlder ? 'Loading…' : 'Load older messages'}
+                      </button>
+                    </div>
+                  )}
                   {loadingMsgs && <p className="text-center text-xs text-gray-400">Loading…</p>}
                   {!loadingMsgs && messages.length === 0 && (
                     <p className="text-center text-xs text-gray-400 py-8">No messages yet in this thread.</p>

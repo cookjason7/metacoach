@@ -2220,7 +2220,10 @@ function MessagingTab({ client, role, getToken }) {
   const isAI = client.coaching_type === 'ai'
   const initialThread = isAI ? 'ai_admin' : 'coach_thread'
   const [thread, setThread] = useState(initialThread)
-  const [messages, setMessages] = useState([])
+  const [messages,     setMessages]     = useState([])
+  const [hasMore,      setHasMore]      = useState(false)
+  const [nextBeforeId, setNextBeforeId] = useState(null)
+  const [loadingOlder, setLoadingOlder] = useState(false)
   const [loading, setLoading] = useState(true)
   const [body, setBody] = useState('')
   const [sending, setSending] = useState(false)
@@ -2235,13 +2238,39 @@ function MessagingTab({ client, role, getToken }) {
 
   const load = useCallback(async () => {
     setLoading(true)
+    setHasMore(false)
+    setNextBeforeId(null)
     const token = await getToken()
-    const res = await fetch(`${API_URL}/api/coach-admin/clients/${client.id}/messages?thread=${thread}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    if (res.ok) setMessages(await res.json())
+    const res = await fetch(
+      `${API_URL}/api/coach-admin/clients/${client.id}/messages?thread=${thread}&limit=50`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    )
+    if (res.ok) {
+      const data = await res.json()
+      setMessages(data.messages ?? [])
+      setHasMore(data.hasMore ?? false)
+      setNextBeforeId(data.nextBeforeId ?? null)
+    }
     setLoading(false)
   }, [client.id, thread, getToken])
+
+  const loadOlder = useCallback(async () => {
+    if (!nextBeforeId || loadingOlder) return
+    setLoadingOlder(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(
+        `${API_URL}/api/coach-admin/clients/${client.id}/messages?thread=${thread}&limit=50&before_id=${nextBeforeId}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      if (res.ok) {
+        const data = await res.json()
+        setMessages(prev => [...(data.messages ?? []), ...prev])
+        setHasMore(data.hasMore ?? false)
+        setNextBeforeId(data.nextBeforeId ?? null)
+      }
+    } finally { setLoadingOlder(false) }
+  }, [client.id, thread, nextBeforeId, loadingOlder, getToken])
 
   useEffect(() => { load() }, [load])
 
@@ -2288,6 +2317,17 @@ function MessagingTab({ client, role, getToken }) {
 
       {/* Message list */}
       <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 min-h-[300px] max-h-[500px] overflow-y-auto">
+        {hasMore && !loading && (
+          <div className="text-center pb-2">
+            <button
+              onClick={loadOlder}
+              disabled={loadingOlder}
+              className="text-xs text-gray-500 hover:text-[#E8670A] disabled:opacity-40 underline"
+            >
+              {loadingOlder ? 'Loading…' : 'Load older messages'}
+            </button>
+          </div>
+        )}
         {loading && <p className="text-center text-sm text-gray-400 py-8">Loading…</p>}
         {!loading && messages.length === 0 && (
           <p className="text-center text-sm text-gray-400 py-8">

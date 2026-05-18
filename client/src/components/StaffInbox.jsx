@@ -48,8 +48,11 @@ export default function StaffInbox({ getToken }) {
   const [inbox,       setInbox]       = useState([])
   const [loading,     setLoading]     = useState(true)
   const [selected,    setSelected]    = useState(null) // { clientId, clientName, threadType }
-  const [messages,    setMessages]    = useState([])
-  const [loadingMsgs, setLoadingMsgs] = useState(false)
+  const [messages,     setMessages]     = useState([])
+  const [hasMore,      setHasMore]      = useState(false)
+  const [nextBeforeId, setNextBeforeId] = useState(null)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const [loadingMsgs,  setLoadingMsgs]  = useState(false)
   const [body,        setBody]        = useState('')
   const [sending,     setSending]     = useState(false)
   const scrollRef    = useRef(null)
@@ -163,15 +166,20 @@ export default function StaffInbox({ getToken }) {
   const loadConversation = useCallback(async (sel) => {
     if (!sel) return
     setLoadingMsgs(true)
+    setHasMore(false)
+    setNextBeforeId(null)
     const token = await getToken()
     const res = await fetch(
-      `${API_URL}/api/coach-admin/clients/${sel.clientId}/messages?thread=${sel.threadType}`,
+      `${API_URL}/api/coach-admin/clients/${sel.clientId}/messages?thread=${sel.threadType}&limit=50`,
       { headers: { Authorization: `Bearer ${token}` } },
     )
     if (res.ok) {
       const data = await res.json()
-      setMessages(data)
-      msgCountRef.current = data.length
+      const msgs = data.messages ?? []
+      setMessages(msgs)
+      setHasMore(data.hasMore ?? false)
+      setNextBeforeId(data.nextBeforeId ?? null)
+      msgCountRef.current = msgs.length
       setInbox(prev => prev.map(r =>
         r.client_id === sel.clientId && r.thread_type === sel.threadType
           ? { ...r, unread: 0 } : r,
@@ -180,22 +188,46 @@ export default function StaffInbox({ getToken }) {
     setLoadingMsgs(false)
   }, [getToken])
 
+  const loadOlder = useCallback(async () => {
+    if (!selected || !nextBeforeId || loadingOlder) return
+    setLoadingOlder(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(
+        `${API_URL}/api/coach-admin/clients/${selected.clientId}/messages?thread=${selected.threadType}&limit=50&before_id=${nextBeforeId}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      if (res.ok) {
+        const data = await res.json()
+        setMessages(prev => [...(data.messages ?? []), ...prev])
+        setHasMore(data.hasMore ?? false)
+        setNextBeforeId(data.nextBeforeId ?? null)
+      }
+    } finally { setLoadingOlder(false) }
+  }, [selected, nextBeforeId, loadingOlder, getToken])
+
   useEffect(() => { loadConversation(selected) }, [selected, loadConversation])
 
-  // Poll conversation every 20 s
+  // Poll conversation every 20 s — merge/dedupe so older loaded messages are not dropped
   useEffect(() => {
     if (!selected) return
     const poll = async () => {
       try {
         const token = await getToken()
         const res = await fetch(
-          `${API_URL}/api/coach-admin/clients/${selected.clientId}/messages?thread=${selected.threadType}`,
+          `${API_URL}/api/coach-admin/clients/${selected.clientId}/messages?thread=${selected.threadType}&limit=50`,
           { headers: { Authorization: `Bearer ${token}` } },
         )
         if (!res.ok) return
         const data = await res.json()
-        setMessages(data)
-        msgCountRef.current = data.length
+        const fresh = data.messages ?? []
+        setMessages(prev => {
+          const ids = new Set(prev.map(m => m.id))
+          const merged = [...prev, ...fresh.filter(m => !ids.has(m.id))]
+          merged.sort((a, b) => a.id - b.id)
+          msgCountRef.current = merged.length
+          return merged
+        })
       } catch {}
     }
     const id = setInterval(poll, 20_000)
@@ -339,6 +371,17 @@ export default function StaffInbox({ getToken }) {
               )}
             </div>
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 bg-gray-50 space-y-3 max-h-[500px]">
+              {hasMore && !loadingMsgs && (
+                <div className="text-center pb-1">
+                  <button
+                    onClick={loadOlder}
+                    disabled={loadingOlder}
+                    className="text-xs text-gray-500 hover:text-[#E8670A] disabled:opacity-40 underline"
+                  >
+                    {loadingOlder ? 'Loading…' : 'Load older messages'}
+                  </button>
+                </div>
+              )}
               {loadingMsgs && <p className="text-center text-xs text-gray-400">Loading…</p>}
               {!loadingMsgs && messages.length === 0 && (
                 <p className="text-center text-xs text-gray-400 py-8">No messages in this thread yet.</p>

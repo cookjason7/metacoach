@@ -1381,13 +1381,27 @@ router.get('/clients/:id/messages', requireAuth(), async (req, res, next) => {
       where += ` AND m.thread_type = 'coach_thread'`
     }
 
+    const limit = Math.min(parseInt(req.query.limit) || 50, 200)
+    const beforeId = req.query.before_id ? parseInt(req.query.before_id) : null
+
+    if (beforeId) {
+      params.push(beforeId)
+      where += ` AND m.id < $${params.length}`
+    }
+    params.push(limit + 1)
+
     const { rows } = await pool.query(`
       SELECT m.*, u.first_name AS sender_name
       FROM client_messages m
       LEFT JOIN users u ON u.id = m.sender_id
       ${where}
-      ORDER BY m.created_at ASC
+      ORDER BY m.id DESC
+      LIMIT $${params.length}
     `, params)
+
+    const hasMore = rows.length > limit
+    if (hasMore) rows.pop()
+    rows.reverse()
 
     // Mark client messages as read now that staff has viewed the thread
     const readParams = [id]
@@ -1398,7 +1412,11 @@ router.get('/clients/:id/messages', requireAuth(), async (req, res, next) => {
     }
     await pool.query(`UPDATE client_messages SET read_at = NOW() ${readWhere}`, readParams)
 
-    res.json(rows)
+    res.json({
+      messages: rows,
+      hasMore,
+      nextBeforeId: hasMore ? rows[0].id : null,
+    })
   } catch (err) { next(err) }
 })
 
