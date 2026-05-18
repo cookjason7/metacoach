@@ -231,7 +231,11 @@ export default function Layout() {
 
   const navItems = isStaff ? STAFF_NAV_ITEMS : CLIENT_NAV_ITEMS
 
-  const sidebarContent = (
+  // Mobile drawer hides items that already live in the client bottom nav
+  const MOBILE_BOTTOM_NAV = new Set(['Coach Katie', 'Messages', 'Community'])
+  const mobileNavItems = isStaff ? navItems : navItems.filter(i => !MOBILE_BOTTOM_NAV.has(i.label))
+
+  function buildSidebarContent(items) { return (
     <>
       {/* Logo */}
       <div className="mx-4 mt-5 mb-4">
@@ -246,7 +250,7 @@ export default function Layout() {
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto px-3 space-y-0.5">
-        {navItems.map(({ to, href, label }) =>
+        {items.map(({ to, href, label }) =>
           href ? (
             <a
               key={href}
@@ -290,16 +294,6 @@ export default function Layout() {
         )}
       </nav>
 
-      {/* Support */}
-      <div className="px-4 pt-2 pb-1" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-        <a
-          href="mailto:info@lwcvip.com"
-          className="flex items-center px-3 py-2 rounded-lg text-xs text-white/50 hover:bg-white/10 hover:text-white/80 transition-colors"
-        >
-          Support — info@lwcvip.com
-        </a>
-      </div>
-
       {/* User */}
       <div className="px-4 pt-3 pb-2 flex items-center gap-3" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
         <UserButton afterSignOutUrl="/sign-in" />
@@ -326,14 +320,14 @@ export default function Layout() {
         </button>
       </div>
     </>
-  )
+  ) }
 
   return (
     <div className="flex h-screen bg-gray-50">
 
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex w-60 flex-shrink-0 flex-col" style={{ backgroundColor: SIDEBAR_BG }}>
-        {sidebarContent}
+        {buildSidebarContent(navItems)}
       </aside>
 
       {/* Mobile sidebar overlay */}
@@ -344,7 +338,7 @@ export default function Layout() {
             onClick={() => setSidebarOpen(false)}
           />
           <aside className="relative z-50 w-60 flex flex-col flex-shrink-0" style={{ backgroundColor: SIDEBAR_BG }}>
-            {sidebarContent}
+            {buildSidebarContent(mobileNavItems)}
           </aside>
         </div>
       )}
@@ -379,7 +373,7 @@ export default function Layout() {
           { to: '/community', label: 'Community', badge: notifCount > 0,  icon: <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /> },
         ]).reduce((acc, { to, label, icon, badge }, i) => {
           // Inject the plus button in the middle (after Home)
-          if (i === 1) acc.push(
+          if (i === 1 && !isStaff) acc.push(
             <button
               key="quick-log"
               onClick={openQuickMenu}
