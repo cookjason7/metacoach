@@ -39,6 +39,22 @@ router.get('/me', requireAuth(), async (req, res, next) => {
       [dbUserId],
     )
 
+    // Self-heal: if the user accepted an AI invite but coaching_type wasn't updated
+    // (e.g. invite accept failed silently on an older deploy), fix it now.
+    if (rows[0] && rows[0].coaching_type !== 'ai') {
+      const { rows: aiInvite } = await pool.query(
+        `SELECT 1 FROM client_invites
+         WHERE accepted_by_user_id = $1 AND coaching_type = 'ai'
+         LIMIT 1`,
+        [dbUserId],
+      )
+      if (aiInvite.length > 0) {
+        await pool.query(`UPDATE users SET coaching_type = 'ai' WHERE id = $1`, [dbUserId])
+        rows[0].coaching_type = 'ai'
+        console.log(`[users/me] self-healed coaching_type → 'ai' for user id=${dbUserId}`)
+      }
+    }
+
     // Debug logging — confirms admin status at runtime
     console.log(
       `[users/me] email=${email ?? '?'} role=${rows[0]?.role} isAdmin=${rows[0]?.role === 'admin'} isAllowlistEmail=${isAdminEmail(email)}`,

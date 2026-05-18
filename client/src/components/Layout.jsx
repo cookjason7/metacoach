@@ -6,6 +6,7 @@ import { API_URL } from '../config.js'
 // Client-facing sidebar nav
 const CLIENT_NAV_ITEMS = [
   { to: '/dashboard',    label: 'Dashboard' },
+  { to: '/ai-coach',     label: 'Coach Katie' },
   { to: '/journal',      label: 'Food Log' },
   { to: '/calendar',     label: 'Calendar' },
   { to: '/messages',     label: 'Messages' },
