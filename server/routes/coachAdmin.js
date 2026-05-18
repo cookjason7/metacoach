@@ -1085,17 +1085,21 @@ router.post('/clients/:id/habits', requireAuth(), async (req, res, next) => {
 
     const {
       habit_name, habit_type = 'boolean', target_value, unit,
-      frequency = 'daily', start_date, end_date, days_of_week, notes,
+      frequency = 'daily', start_date, end_date, days_of_week, notes, identity_category,
     } = req.body
     if (!habit_name?.trim() || !start_date) {
       return res.status(400).json({ error: 'habit_name and start_date required' })
+    }
+    const VALID_IC = ['food_tracking', 'movement', 'mindset', 'check_ins', 'progress']
+    if (identity_category && !VALID_IC.includes(identity_category)) {
+      return res.status(400).json({ error: 'Invalid identity_category' })
     }
 
     const { rows } = await pool.query(`
       INSERT INTO coach_assigned_habits
         (user_id, assigned_by_user_id, habit_name, habit_type, target_value, unit,
-         frequency, start_date, end_date, days_of_week, notes)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         frequency, start_date, end_date, days_of_week, notes, identity_category)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *
     `, [
       id, ctx.dbUserId,
@@ -1105,6 +1109,7 @@ router.post('/clients/:id/habits', requireAuth(), async (req, res, next) => {
       frequency, start_date, end_date ?? null,
       days_of_week ?? null,
       notes?.trim() || null,
+      identity_category ?? null,
     ])
     res.status(201).json(rows[0])
   } catch (err) { next(err) }
@@ -1123,29 +1128,35 @@ router.patch('/habits/:habitId', requireAuth(), async (req, res, next) => {
 
     const {
       habit_name, habit_type, target_value, unit,
-      frequency, start_date, end_date, days_of_week, notes, active,
+      frequency, start_date, end_date, days_of_week, notes, active, identity_category,
     } = req.body
+    const VALID_IC = ['food_tracking', 'movement', 'mindset', 'check_ins', 'progress']
+    if (identity_category && !VALID_IC.includes(identity_category)) {
+      return res.status(400).json({ error: 'Invalid identity_category' })
+    }
 
     const { rows } = await pool.query(`
       UPDATE coach_assigned_habits SET
-        habit_name   = COALESCE($1, habit_name),
-        habit_type   = COALESCE($2, habit_type),
-        target_value = COALESCE($3, target_value),
-        unit         = COALESCE($4, unit),
-        frequency    = COALESCE($5, frequency),
-        start_date   = COALESCE($6, start_date),
-        end_date     = COALESCE($7, end_date),
-        days_of_week = COALESCE($8, days_of_week),
-        notes        = COALESCE($9, notes),
-        active       = COALESCE($10, active),
-        updated_at   = NOW()
-      WHERE id = $11 RETURNING *
+        habit_name        = COALESCE($1, habit_name),
+        habit_type        = COALESCE($2, habit_type),
+        target_value      = COALESCE($3, target_value),
+        unit              = COALESCE($4, unit),
+        frequency         = COALESCE($5, frequency),
+        start_date        = COALESCE($6, start_date),
+        end_date          = COALESCE($7, end_date),
+        days_of_week      = COALESCE($8, days_of_week),
+        notes             = COALESCE($9, notes),
+        active            = COALESCE($10, active),
+        identity_category = COALESCE($11, identity_category),
+        updated_at        = NOW()
+      WHERE id = $12 RETURNING *
     `, [
       habit_name ?? null, habit_type ?? null,
       target_value != null ? Number(target_value) : null,
       unit ?? null, frequency ?? null,
       start_date ?? null, end_date ?? null, days_of_week ?? null,
       notes ?? null, active ?? null,
+      identity_category ?? null,
       habitId,
     ])
     res.json(rows[0])

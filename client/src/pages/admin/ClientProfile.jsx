@@ -866,17 +866,18 @@ function NutritionTab({ client, clientId, getToken, onUpdate }) {
 // Quick-assign buttons — clean labels only, no goal amounts.
 // Coach sets target value + dates in the form.
 const QUICK_PRESETS = [
-  { label: 'Drink water',     habit_name: 'Drink water',     habit_type: 'numeric',    unit: 'oz' },
-  { label: 'Step goal',       habit_name: 'Step goal',       habit_type: 'numeric',    unit: 'steps' },
-  { label: 'Complete workout',habit_name: 'Complete workout',habit_type: 'completion' },
-  { label: 'Journal',         habit_name: 'Journal',         habit_type: 'boolean' },
-  { label: 'Log food ahead',  habit_name: 'Log food ahead',  habit_type: 'boolean' },
+  { label: 'Drink water',     habit_name: 'Drink water',     habit_type: 'numeric',    unit: 'oz',    identity_category: 'food_tracking' },
+  { label: 'Step goal',       habit_name: 'Step goal',       habit_type: 'numeric',    unit: 'steps', identity_category: 'movement' },
+  { label: 'Complete workout',habit_name: 'Complete workout',habit_type: 'completion',                identity_category: 'movement' },
+  { label: 'Journal',         habit_name: 'Journal',         habit_type: 'boolean',                  identity_category: 'mindset' },
+  { label: 'Log food ahead',  habit_name: 'Log food ahead',  habit_type: 'boolean',                  identity_category: 'food_tracking' },
 ]
 
 // Full habit library grouped by category
 const HABIT_LIBRARY = [
   {
     category: 'Nutrition',
+    identity_category: 'food_tracking',
     items: [
       { habit_name: 'Hit protein goal',         habit_type: 'numeric', unit: 'g' },
       { habit_name: 'Log food',                 habit_type: 'boolean' },
@@ -891,6 +892,7 @@ const HABIT_LIBRARY = [
   },
   {
     category: 'Hydration',
+    identity_category: 'food_tracking',
     items: [
       { habit_name: 'Drink water',    habit_type: 'numeric', unit: 'oz' },
       { habit_name: 'Hit water goal', habit_type: 'numeric', unit: 'oz' },
@@ -898,6 +900,7 @@ const HABIT_LIBRARY = [
   },
   {
     category: 'Movement',
+    identity_category: 'movement',
     items: [
       { habit_name: 'Step goal',          habit_type: 'numeric',    unit: 'steps' },
       { habit_name: 'Complete workout',   habit_type: 'completion' },
@@ -909,6 +912,7 @@ const HABIT_LIBRARY = [
   },
   {
     category: 'Mindset',
+    identity_category: 'mindset',
     items: [
       { habit_name: 'Journal',                     habit_type: 'boolean' },
       { habit_name: 'Watch brain mapping training',habit_type: 'boolean' },
@@ -919,6 +923,7 @@ const HABIT_LIBRARY = [
   },
   {
     category: 'Sleep',
+    identity_category: 'check_ins',
     items: [
       { habit_name: 'Bedtime routine',         habit_type: 'boolean' },
       { habit_name: 'Digital detox before bed',habit_type: 'boolean' },
@@ -927,6 +932,7 @@ const HABIT_LIBRARY = [
   },
   {
     category: 'Progress',
+    identity_category: 'progress',
     items: [
       { habit_name: 'Daily weight',          habit_type: 'boolean' },
       { habit_name: 'Progress photos',       habit_type: 'boolean' },
@@ -973,7 +979,7 @@ function HabitsTab({ clientId, getToken }) {
   const [form, setForm] = useState({
     habit_name: '', habit_type: 'boolean', target_value: '', unit: '',
     frequency: 'daily', start_date: new Date().toISOString().slice(0, 10),
-    end_date: '', days_of_week: '', notes: '',
+    end_date: '', days_of_week: '', notes: '', identity_category: '',
   })
 
   const load = useCallback(async () => {
@@ -990,15 +996,16 @@ function HabitsTab({ clientId, getToken }) {
   function applyPreset(p) {
     setForm(f => ({
       ...f,
-      habit_name:   p.habit_name,
-      habit_type:   p.habit_type,
-      target_value: '',  // coach sets the goal
-      unit:         p.unit ?? '',
-      frequency:    'daily',
-      start_date:   new Date().toISOString().slice(0, 10),
-      end_date:     '',
-      days_of_week: '',
-      notes:        '',
+      habit_name:        p.habit_name,
+      habit_type:        p.habit_type,
+      target_value:      '',  // coach sets the goal
+      unit:              p.unit ?? '',
+      frequency:         'daily',
+      start_date:        new Date().toISOString().slice(0, 10),
+      end_date:          '',
+      days_of_week:      '',
+      notes:             '',
+      identity_category: p.identity_category ?? '',
     }))
     setShowForm(true)
     setShowLibrary(false)
@@ -1018,16 +1025,17 @@ function HabitsTab({ clientId, getToken }) {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...form,
-        target_value: form.target_value !== '' ? Number(form.target_value) : null,
-        end_date:     form.end_date || null,
-        days_of_week: form.frequency === 'specific_days' ? (form.days_of_week || null) : null,
+        target_value:      form.target_value !== '' ? Number(form.target_value) : null,
+        end_date:          form.end_date || null,
+        days_of_week:      form.frequency === 'specific_days' ? (form.days_of_week || null) : null,
+        identity_category: form.identity_category || null,
       }),
     })
     if (res.ok) {
       setForm({
         habit_name: '', habit_type: 'boolean', target_value: '', unit: '',
         frequency: 'daily', start_date: new Date().toISOString().slice(0, 10),
-        end_date: '', days_of_week: '', notes: '',
+        end_date: '', days_of_week: '', notes: '', identity_category: '',
       })
       setShowForm(false)
       load()
@@ -1081,7 +1089,7 @@ function HabitsTab({ clientId, getToken }) {
                 <p className="text-[10px] font-bold text-[#E8670A] uppercase tracking-wider mb-1.5">{group.category}</p>
                 <div className="flex flex-wrap gap-1.5">
                   {group.items.map(item => (
-                    <button key={item.habit_name} onClick={() => applyPreset(item)}
+                    <button key={item.habit_name} onClick={() => applyPreset({ ...item, identity_category: group.identity_category })}
                       className="px-2.5 py-1 rounded-lg text-xs font-medium border border-gray-200 text-gray-700 hover:border-[#E8670A] hover:text-[#E8670A] hover:bg-orange-50 transition-colors">
                       + {item.habit_name}{item.unit ? ` (${item.unit})` : ''}
                     </button>
@@ -1163,6 +1171,18 @@ function HabitsTab({ clientId, getToken }) {
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
           </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Identity category</label>
+            <select value={form.identity_category} onChange={e => setForm(f => ({ ...f, identity_category: e.target.value }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+              <option value="">— None —</option>
+              <option value="food_tracking">Food Tracking</option>
+              <option value="movement">Movement</option>
+              <option value="mindset">Mindset</option>
+              <option value="check_ins">Check-Ins</option>
+              <option value="progress">Progress</option>
+            </select>
+          </div>
           {/* Coach note field hidden — notes column preserved in DB; existing
               notes still display on assigned habit cards below. */}
           <div className="flex gap-2">
@@ -1196,6 +1216,11 @@ function HabitsTab({ clientId, getToken }) {
                     {h.end_date ? ` → ${String(h.end_date).slice(0, 10)}` : ' → ongoing'}
                     {h.assigned_by_name && ` · by ${h.assigned_by_name}`}
                   </p>
+                  {h.identity_category && (
+                    <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-orange-50 text-[#E8670A] border border-orange-200">
+                      {{food_tracking:'Food Tracking',movement:'Movement',mindset:'Mindset',check_ins:'Check-Ins',progress:'Progress'}[h.identity_category] ?? h.identity_category}
+                    </span>
+                  )}
                   {h.notes && <p className="text-xs text-[#E8670A] italic mt-1">"{h.notes}"</p>}
                 </div>
                 <button onClick={() => deleteHabit(h.id)}

@@ -601,6 +601,7 @@ export async function migrate() {
     )
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_habits_user_date ON coach_assigned_habits (user_id, start_date)`)
+  await pool.query(`ALTER TABLE coach_assigned_habits ADD COLUMN IF NOT EXISTS identity_category TEXT`)
 
   // Daily habit completion records — one row per (habit, date)
   // status: 'not_started' (0-49%) | 'partial' (50-79%) | 'complete' (80%+)

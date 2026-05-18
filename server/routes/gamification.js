@@ -112,18 +112,29 @@ router.get('/momentum', requireAuth(), async (req, res, next) => {
     const { rows: [row] } = await pool.query(`
       SELECT
         -- Food Tracking: meals logged on 3+ distinct days this week
+        -- OR a food_tracking habit completed this week
         (
-          SELECT COUNT(DISTINCT COALESCE(log_date, logged_at::date))
-          FROM meals WHERE user_id=$1 AND COALESCE(log_date, logged_at::date) >= $2::date
-        ) >= 3 AS food_tracking,
+          (SELECT COUNT(DISTINCT COALESCE(log_date, logged_at::date))
+           FROM meals WHERE user_id=$1 AND COALESCE(log_date, logged_at::date) >= $2::date) >= 3
+          OR EXISTS (
+            SELECT 1 FROM habit_completions hc
+            JOIN coach_assigned_habits cah ON cah.id = hc.habit_id
+            WHERE hc.user_id=$1 AND hc.completion_date >= $2::date AND cah.identity_category = 'food_tracking'
+          )
+        ) AS food_tracking,
         -- Movement: 1+ workout OR steps logged on 3+ days this week
+        -- OR a movement habit completed this week
         (
           (SELECT COUNT(*) FROM workout_logs WHERE user_id=$1 AND completed_at >= $2) > 0
-          OR
-          (SELECT COUNT(*) FROM daily_logs WHERE user_id=$1 AND steps IS NOT NULL AND logged_date >= $2::date) >= 3
+          OR (SELECT COUNT(*) FROM daily_logs WHERE user_id=$1 AND steps IS NOT NULL AND logged_date >= $2::date) >= 3
+          OR EXISTS (
+            SELECT 1 FROM habit_completions hc
+            JOIN coach_assigned_habits cah ON cah.id = hc.habit_id
+            WHERE hc.user_id=$1 AND hc.completion_date >= $2::date AND cah.identity_category = 'movement'
+          )
         ) AS movement,
         -- Mindset: watched 50%+ of a published mindset video this week
-        -- OR completed a coach-assigned habit with "mindset" in the name this week
+        -- OR a mindset habit completed this week
         (
           EXISTS (
             SELECT 1 FROM video_watch_progress vwp
@@ -133,26 +144,30 @@ router.get('/momentum', requireAuth(), async (req, res, next) => {
               AND vwp.last_watched_at >= $2
               AND mv.published = TRUE
           )
-          OR
-          EXISTS (
+          OR EXISTS (
             SELECT 1 FROM habit_completions hc
             JOIN coach_assigned_habits cah ON cah.id = hc.habit_id
             WHERE hc.user_id=$1
               AND hc.completion_date >= $2::date
-              AND LOWER(cah.habit_name) LIKE '%mindset%'
+              AND cah.identity_category = 'mindset'
           )
         ) AS mindset,
         -- Check-Ins: form submitted OR any habit completed this week
+        -- (check_ins category habits are included via the "any habit" condition)
         (
           (SELECT COUNT(*) FROM form_submissions WHERE user_id=$1 AND submitted_at >= $2) > 0
-          OR
-          (SELECT COUNT(*) FROM habit_completions WHERE user_id=$1 AND completion_date >= $2::date) > 0
+          OR (SELECT COUNT(*) FROM habit_completions WHERE user_id=$1 AND completion_date >= $2::date) > 0
         ) AS check_ins,
         -- Progress: weight logged OR progress photo this week
+        -- OR a progress habit completed this week
         (
           (SELECT COUNT(*) FROM daily_logs WHERE user_id=$1 AND weight_lbs IS NOT NULL AND logged_date >= $2::date) > 0
-          OR
-          (SELECT COUNT(*) FROM progress_photos WHERE user_id=$1 AND taken_at >= $2) > 0
+          OR (SELECT COUNT(*) FROM progress_photos WHERE user_id=$1 AND taken_at >= $2) > 0
+          OR EXISTS (
+            SELECT 1 FROM habit_completions hc
+            JOIN coach_assigned_habits cah ON cah.id = hc.habit_id
+            WHERE hc.user_id=$1 AND hc.completion_date >= $2::date AND cah.identity_category = 'progress'
+          )
         ) AS progress
     `, [dbUserId, weekStart.toISOString()])
 
