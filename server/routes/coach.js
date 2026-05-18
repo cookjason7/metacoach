@@ -2,6 +2,7 @@ import { Router } from 'express'
 import Anthropic from '@anthropic-ai/sdk'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
+import { chatLimit } from '../middleware/rateLimits.js'
 
 const router = Router()
 const anthropic = new Anthropic()
@@ -299,7 +300,7 @@ router.get('/history', requireAuth(), async (req, res, next) => {
 // POST /api/coach/chat
 // body: { message?: string }
 // omit message to request Katie's opening greeting
-router.post('/chat', requireAuth(), async (req, res, next) => {
+router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const dbUserId = await getOrCreateUser(userId)

@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 import { awardAction } from '../gamification.js'
+import { workoutGenLimit } from '../middleware/rateLimits.js'
 
 const router = Router()
 const anthropic = new Anthropic()
@@ -46,7 +47,7 @@ Make it realistic, progressive, and achievable for a ${answers.fitness_level} tr
 }
 
 // POST /api/workouts/generate — AI generates a plan, not saved yet
-router.post('/generate', requireAuth(), async (req, res, next) => {
+router.post('/generate', requireAuth(), workoutGenLimit, async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const dbUserId = await getOrCreateUser(userId)

@@ -6,6 +6,7 @@ import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 import { awardAction, checkFullDay, checkProteinGoal } from '../gamification.js'
 import { normalizeMealPayload } from '../mealValidation.js'
+import { mealAnalyzeLimit, mealTextLimit } from '../middleware/rateLimits.js'
 
 // Fire gamification hooks non-blocking so they never fail the main request
 function fireGamification(pool, dbUserId, dateStr) {
@@ -93,7 +94,7 @@ Return only valid JSON, no markdown fences, no other text.`
 }
 
 // POST /api/meals/analyze
-router.post('/analyze', requireAuth(), upload.single('photo'), async (req, res, next) => {
+router.post('/analyze', requireAuth(), mealAnalyzeLimit, upload.single('photo'), async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No photo provided' })
 
@@ -162,7 +163,7 @@ router.post('/manual', requireAuth(), async (req, res, next) => {
 })
 
 // POST /api/meals/text-log — parse natural-language food description and save
-router.post('/text-log', requireAuth(), async (req, res, next) => {
+router.post('/text-log', requireAuth(), mealTextLimit, async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const dbUserId = await getOrCreateUser(userId)

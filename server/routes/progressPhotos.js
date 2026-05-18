@@ -3,6 +3,7 @@ import multer from 'multer'
 import { v2 as cloudinary } from 'cloudinary'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
+import { photoUploadLimit } from '../middleware/rateLimits.js'
 
 const router = Router()
 
@@ -48,7 +49,7 @@ router.get('/', requireAuth(), async (req, res, next) => {
 })
 
 // POST /api/progress-photos
-router.post('/', requireAuth(), upload.single('photo'), async (req, res, next) => {
+router.post('/', requireAuth(), photoUploadLimit, upload.single('photo'), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const dbUserId   = await getOrCreateUser(userId)
