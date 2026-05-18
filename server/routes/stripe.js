@@ -65,6 +65,16 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
       [email, firstName, lastName],
     )
 
+    await pool.query(
+      `UPDATE users
+       SET coaching_type = 'ai',
+           paid = TRUE,
+           paid_at = COALESCE(paid_at, NOW())
+       WHERE LOWER(email) = $1
+         AND COALESCE(role, 'client') = 'client'`,
+      [email],
+    )
+
     const appUrl  = process.env.APP_BASE_URL ?? 'https://app.lwcvip.com'
     const setupUrl = `${appUrl}/invite/${invite.token}`
 
@@ -138,6 +148,16 @@ router.get('/session-setup-link', async (req, res, next) => {
       )
       token = invite.token
     }
+
+    await pool.query(
+      `UPDATE users
+       SET coaching_type = 'ai',
+           paid = TRUE,
+           paid_at = COALESCE(paid_at, NOW())
+       WHERE LOWER(email) = $1
+         AND COALESCE(role, 'client') = 'client'`,
+      [email],
+    )
 
     const appUrl = process.env.APP_BASE_URL ?? 'https://app.lwcvip.com'
     res.json({ setupUrl: `${appUrl}/invite/${token}` })

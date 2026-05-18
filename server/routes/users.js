@@ -39,6 +39,9 @@ router.get('/me', requireAuth(), async (req, res, next) => {
       [dbUserId],
     )
 
+    const originalCoachingType = rows[0]?.coaching_type
+    let robustAiSelfHealRan = false
+
     // Self-heal: if the user accepted an AI invite but coaching_type wasn't updated
     // (e.g. invite accept failed silently on an older deploy), fix it now.
     if (rows[0] && rows[0].coaching_type !== 'ai') {
@@ -56,8 +59,26 @@ router.get('/me', requireAuth(), async (req, res, next) => {
     }
 
     // Debug logging — confirms admin status at runtime
+    if (rows[0] && rows[0].coaching_type !== 'ai') {
+      const normalizedEmail = (email ?? rows[0].email ?? '').trim().toLowerCase()
+      const { rows: aiInviteByEmail } = await pool.query(
+        `SELECT id FROM client_invites
+         WHERE coaching_type = 'ai'
+           AND $1 != ''
+           AND LOWER(email) = $1
+         ORDER BY accepted_at DESC NULLS LAST, created_at DESC
+         LIMIT 1`,
+        [normalizedEmail],
+      )
+      if (aiInviteByEmail.length > 0) {
+        await pool.query(`UPDATE users SET coaching_type = 'ai' WHERE id = $1`, [dbUserId])
+        rows[0].coaching_type = 'ai'
+        robustAiSelfHealRan = true
+      }
+    }
+
     console.log(
-      `[users/me] email=${email ?? '?'} role=${rows[0]?.role} isAdmin=${rows[0]?.role === 'admin'} isAllowlistEmail=${isAdminEmail(email)}`,
+      `[users/me] email=${email ?? rows[0]?.email ?? '?'} role=${rows[0]?.role} coaching_type=${rows[0]?.coaching_type} selfHealRan=${originalCoachingType !== rows[0]?.coaching_type || robustAiSelfHealRan} isAdmin=${rows[0]?.role === 'admin'} isAllowlistEmail=${isAdminEmail(email)}`,
     )
 
     res.json(rows[0])
