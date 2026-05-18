@@ -1057,6 +1057,89 @@ router.get('/clients/:id/meals', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// ─── Mindset watch progress ───────────────────────────────────────────────────
+
+// GET /api/coach-admin/clients/:id/mindset-progress
+router.get('/clients/:id/mindset-progress', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, clientId)) return res.status(403).json({ error: 'Forbidden' })
+
+    // Monday midnight UTC as week start
+    const now = new Date()
+    const weekStart = new Date(now)
+    weekStart.setUTCHours(0, 0, 0, 0)
+    const daysFromMon = (weekStart.getUTCDay() + 6) % 7
+    weekStart.setUTCDate(weekStart.getUTCDate() - daysFromMon)
+    const weekStartISO = weekStart.toISOString()
+
+    // All-time totals
+    const { rows: totalsRows } = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE vwp.highest_pct >= 50)::int AS watched50_count,
+        COUNT(*) FILTER (WHERE vwp.completed = TRUE)::int  AS completed_count
+      FROM video_watch_progress vwp
+      JOIN mindset_videos mv ON mv.id = vwp.video_id
+      WHERE vwp.user_id = $1
+    `, [clientId])
+
+    // This-week totals
+    const { rows: weekRows } = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE vwp.highest_pct >= 50)::int   AS watched50_count,
+        COUNT(*) FILTER (WHERE vwp.completed = TRUE)::int    AS completed_count,
+        MAX(vwp.highest_pct)                                 AS best_progress,
+        MAX(vwp.last_watched_at)                             AS last_watched_at
+      FROM video_watch_progress vwp
+      JOIN mindset_videos mv ON mv.id = vwp.video_id
+      WHERE vwp.user_id = $1
+        AND vwp.last_watched_at >= $2
+    `, [clientId, weekStartISO])
+
+    // 3 most recent published in-app videos with progress if it exists
+    const { rows: videoRows } = await pool.query(`
+      SELECT
+        mv.id, mv.title, mv.module_name,
+        COALESCE(vwp.highest_pct, 0)    AS highest_pct,
+        COALESCE(vwp.completed, FALSE)  AS completed,
+        COALESCE(vwp.started, FALSE)    AS started,
+        vwp.last_watched_at
+      FROM mindset_videos mv
+      LEFT JOIN video_watch_progress vwp
+        ON vwp.video_id = mv.id AND vwp.user_id = $1
+      WHERE mv.published = TRUE
+      ORDER BY mv.display_order ASC, mv.created_at DESC
+      LIMIT 3
+    `, [clientId])
+
+    const week = weekRows[0]
+    const totals = totalsRows[0]
+
+    res.json({
+      thisWeek: {
+        watched50Count: week.watched50_count ?? 0,
+        completedCount: week.completed_count ?? 0,
+        bestProgress:   week.best_progress != null ? parseFloat(week.best_progress) : null,
+        lastWatchedAt:  week.last_watched_at ?? null,
+      },
+      totals: {
+        watched50Count: totals.watched50_count ?? 0,
+        completedCount: totals.completed_count ?? 0,
+      },
+      recentVideos: videoRows.map(r => ({
+        id:             r.id,
+        title:          r.title,
+        module_name:    r.module_name,
+        highest_pct:    parseFloat(r.highest_pct),
+        completed:      r.completed,
+        started:        r.started,
+        last_watched_at: r.last_watched_at ?? null,
+      })),
+    })
+  } catch (err) { next(err) }
+})
+
 // ─── Habit assignment ─────────────────────────────────────────────────────────
 
 // GET /api/coach-admin/clients/:id/habits — list assigned habits

@@ -2409,6 +2409,122 @@ function MessagingTab({ client, role, getToken }) {
   )
 }
 
+// ─── Mindset Watch Section ────────────────────────────────────────────────────
+
+function MindsetWatchSection({ clientId, getToken }) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/mindset-progress`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!cancelled && res.ok) setData(await res.json())
+      } catch {} finally { if (!cancelled) setLoading(false) }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [clientId, getToken])
+
+  function videoStatus(v) {
+    if (v.completed)         return { label: 'Completed',   cls: 'bg-emerald-100 text-emerald-700' }
+    if (v.highest_pct >= 50) return { label: '50% watched', cls: 'bg-blue-100 text-blue-700' }
+    if (v.started)           return { label: 'Started',     cls: 'bg-amber-100 text-amber-700' }
+    return                          { label: 'Not started',  cls: 'bg-gray-100 text-gray-500' }
+  }
+
+  if (loading) return (
+    <div className="bg-white border border-gray-200 rounded-xl p-4">
+      <p className="text-xs text-gray-400">Loading mindset watch data…</p>
+    </div>
+  )
+  if (!data) return null
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-gray-900">🧠 Mindset Watch</p>
+        <span className="text-[10px] text-gray-400">Only in-app Mindset videos are tracked.</span>
+      </div>
+
+      {/* This week */}
+      <div>
+        <p className="text-[10px] font-bold text-[#E8670A] uppercase tracking-wider mb-2">This Week</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {[
+            { label: 'Watched 50%+', value: data.thisWeek.watched50Count },
+            { label: 'Completed',    value: data.thisWeek.completedCount },
+            { label: 'Best progress', value: data.thisWeek.bestProgress != null ? `${Math.round(data.thisWeek.bestProgress)}%` : '—' },
+            { label: 'Last watched', value: data.thisWeek.lastWatchedAt ? fmtDate(data.thisWeek.lastWatchedAt) : '—' },
+          ].map(({ label, value }) => (
+            <div key={label} className="bg-gray-50 rounded-lg p-3">
+              <p className="text-[11px] text-gray-400 mb-0.5">{label}</p>
+              <p className="text-sm font-bold text-gray-900">{value}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* All-time totals */}
+      <div>
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">All-time (in-app)</p>
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { label: 'Watched 50%+', value: data.totals.watched50Count },
+            { label: 'Completed',    value: data.totals.completedCount },
+          ].map(({ label, value }) => (
+            <div key={label} className="bg-gray-50 rounded-lg p-3">
+              <p className="text-[11px] text-gray-400 mb-0.5">{label}</p>
+              <p className="text-sm font-bold text-gray-900">{value}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Recent videos */}
+      {data.recentVideos.length > 0 && (
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Recent videos</p>
+          <div className="space-y-2">
+            {data.recentVideos.map(v => {
+              const status = videoStatus(v)
+              return (
+                <div key={v.id} className="flex items-center justify-between gap-3 bg-gray-50 rounded-lg px-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{v.title}</p>
+                    {v.module_name && <p className="text-[11px] text-gray-400">{v.module_name}</p>}
+                  </div>
+                  <div className="shrink-0 text-right space-y-1">
+                    <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${status.cls}`}>
+                      {status.label}
+                    </span>
+                    {v.highest_pct > 0 && (
+                      <p className="text-[10px] text-gray-400">{Math.round(v.highest_pct)}%</p>
+                    )}
+                    {v.last_watched_at && (
+                      <p className="text-[10px] text-gray-400">{fmtDate(v.last_watched_at)}</p>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {data.recentVideos.length === 0 && (
+        <p className="text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg px-3 py-2">
+          No published in-app Mindset videos yet.
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ─── Engagement Tab ───────────────────────────────────────────────────────────
 
 function EngagementTab({ clientId, getToken }) {
@@ -2569,6 +2685,8 @@ function EngagementTab({ clientId, getToken }) {
           </div>
         </>
       )}
+
+      <MindsetWatchSection clientId={clientId} getToken={getToken} />
     </div>
   )
 }
