@@ -396,15 +396,17 @@ function CoachDashboard({ getToken }) {
       {/* Clients needing attention */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-semibold text-gray-700">Clients Needing Attention</p>
+          <p className="text-sm font-semibold text-gray-700">Status-Flagged Clients</p>
           <Link to="/admin/clients" className="text-xs text-[#E8670A] hover:text-[#c45e09] font-medium">View all →</Link>
         </div>
         {loading ? (
           <p className="text-sm text-gray-400 py-6 text-center">Loading…</p>
         ) : needsAttention.length === 0 ? (
-          <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-4 text-center">
-            <p className="text-sm text-green-700 font-medium">No clients need review right now.</p>
-            <p className="text-xs text-green-600 mt-0.5">All clients are on track.</p>
+          <div className="bg-white border border-gray-200 rounded-xl px-4 py-4 text-center">
+            <p className="text-sm text-gray-500">No status flags right now.</p>
+            {noRecentLogs.length === 0 && msgUnread === 0 && checkins.length === 0 && (
+              <p className="text-xs text-gray-400 mt-0.5">All clients are on track.</p>
+            )}
           </div>
         ) : (
           <div className="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100">
