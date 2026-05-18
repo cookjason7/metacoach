@@ -42,7 +42,7 @@ router.get('/me', requireAuth(), async (req, res, next) => {
     const originalCoachingType = rows[0]?.coaching_type
     let robustAiSelfHealRan = false
     const canAiSelfHeal = rows[0]
-      && !['vip', 'ai'].includes(rows[0].coaching_type)
+      && rows[0].coaching_type !== 'ai'
       && rows[0].coaching_type_source !== 'manual'
 
     // Self-heal: if the user accepted an AI invite but coaching_type wasn't updated
@@ -66,7 +66,7 @@ router.get('/me', requireAuth(), async (req, res, next) => {
     }
 
     // Debug logging — confirms admin status at runtime
-    if (rows[0] && !['vip', 'ai'].includes(rows[0].coaching_type) && rows[0].coaching_type_source !== 'manual') {
+    if (rows[0] && rows[0].coaching_type !== 'ai' && rows[0].coaching_type_source !== 'manual') {
       const normalizedEmail = (email ?? rows[0].email ?? '').trim().toLowerCase()
       const { rows: aiInviteByEmail } = await pool.query(
         `SELECT id FROM client_invites
