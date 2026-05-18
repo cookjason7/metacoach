@@ -111,27 +111,44 @@ router.get('/momentum', requireAuth(), async (req, res, next) => {
 
     const { rows: [row] } = await pool.query(`
       SELECT
+        -- Food Tracking: meals logged on 3+ distinct days this week
         (
           SELECT COUNT(DISTINCT COALESCE(log_date, logged_at::date))
           FROM meals WHERE user_id=$1 AND COALESCE(log_date, logged_at::date) >= $2::date
-        ) >= 3 AS nourishment,
+        ) >= 3 AS food_tracking,
+        -- Movement: 1+ workout OR steps logged on 3+ days this week
         (
           (SELECT COUNT(*) FROM workout_logs WHERE user_id=$1 AND completed_at >= $2) > 0
           OR
           (SELECT COUNT(*) FROM daily_logs WHERE user_id=$1 AND steps IS NOT NULL AND logged_date >= $2::date) >= 3
         ) AS movement,
+        -- Mindset: watched 50%+ of a published mindset video this week
+        -- OR completed a coach-assigned habit with "mindset" in the name this week
+        (
+          EXISTS (
+            SELECT 1 FROM video_watch_progress vwp
+            JOIN mindset_videos mv ON mv.id = vwp.video_id
+            WHERE vwp.user_id=$1
+              AND vwp.highest_pct >= 50
+              AND vwp.last_watched_at >= $2
+              AND mv.published = TRUE
+          )
+          OR
+          EXISTS (
+            SELECT 1 FROM habit_completions hc
+            JOIN coach_assigned_habits cah ON cah.id = hc.habit_id
+            WHERE hc.user_id=$1
+              AND hc.completion_date >= $2::date
+              AND LOWER(cah.habit_name) LIKE '%mindset%'
+          )
+        ) AS mindset,
+        -- Check-Ins: form submitted OR any habit completed this week
         (
           (SELECT COUNT(*) FROM form_submissions WHERE user_id=$1 AND submitted_at >= $2) > 0
           OR
           (SELECT COUNT(*) FROM habit_completions WHERE user_id=$1 AND completion_date >= $2::date) > 0
-        ) AS reflection,
-        (
-          (SELECT COUNT(*) FROM client_messages WHERE sender_id=$1 AND sender_role='client' AND created_at >= $2) > 0
-          OR
-          (SELECT COUNT(*) FROM community_posts WHERE user_id=$1 AND created_at >= $2) > 0
-          OR
-          (SELECT COUNT(*) FROM post_comments WHERE user_id=$1 AND created_at >= $2) > 0
-        ) AS connection,
+        ) AS check_ins,
+        -- Progress: weight logged OR progress photo this week
         (
           (SELECT COUNT(*) FROM daily_logs WHERE user_id=$1 AND weight_lbs IS NOT NULL AND logged_date >= $2::date) > 0
           OR
@@ -140,11 +157,11 @@ router.get('/momentum', requireAuth(), async (req, res, next) => {
     `, [dbUserId, weekStart.toISOString()])
 
     const categories = [
-      { key: 'nourishment', label: 'Nourishment', icon: '🥦', active: row.nourishment },
-      { key: 'movement',    label: 'Movement',    icon: '🏃', active: row.movement    },
-      { key: 'reflection',  label: 'Reflection',  icon: '📓', active: row.reflection  },
-      { key: 'connection',  label: 'Connection',  icon: '💬', active: row.connection  },
-      { key: 'progress',    label: 'Progress',    icon: '📊', active: row.progress    },
+      { key: 'food_tracking', label: 'Food Tracking', icon: '🍽️', active: row.food_tracking },
+      { key: 'movement',      label: 'Movement',      icon: '🏃',  active: row.movement      },
+      { key: 'mindset',       label: 'Mindset',       icon: '🧠',  active: row.mindset       },
+      { key: 'check_ins',     label: 'Check-Ins',     icon: '📋',  active: row.check_ins     },
+      { key: 'progress',      label: 'Progress',      icon: '📊',  active: row.progress      },
     ]
 
     const activeCount = categories.filter(c => c.active).length
