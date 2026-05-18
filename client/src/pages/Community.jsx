@@ -1061,18 +1061,22 @@ function MembersTab({ members, loading }) {
 
 // ── Mindset Videos helpers ────────────────────────────────────────────────────
 
-// Load YouTube IFrame API once (idempotent)
+// Load YouTube IFrame API once. Guards: no duplicate script tag, onerror, 10s timeout.
 let ytApiPromise = null
 function loadYTApi() {
-  if (window.YT && window.YT.Player) return Promise.resolve()
+  if (window.YT?.Player) return Promise.resolve()
   if (ytApiPromise) return ytApiPromise
-  ytApiPromise = new Promise(resolve => {
+  ytApiPromise = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('YT API load timeout')), 10000)
     const prev = window.onYouTubeIframeAPIReady
-    window.onYouTubeIframeAPIReady = () => { if (prev) prev(); resolve() }
-    const tag = document.createElement('script')
-    tag.src = 'https://www.youtube.com/iframe_api'
-    document.head.appendChild(tag)
-  })
+    window.onYouTubeIframeAPIReady = () => { clearTimeout(timer); if (prev) prev(); resolve() }
+    if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+      const tag = document.createElement('script')
+      tag.src = 'https://www.youtube.com/iframe_api'
+      tag.onerror = () => { clearTimeout(timer); reject(new Error('YT script load failed')) }
+      document.head.appendChild(tag)
+    }
+  }).catch(err => { ytApiPromise = null; throw err })  // allow retry on failure
   return ytApiPromise
 }
 
@@ -1186,19 +1190,31 @@ function VideoModal({ initial, onSave, onClose, saving }) {
   )
 }
 
-function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded, onToggleExpand, getToken, progress }) {
-  const vid          = ytVideoId(video.youtube_url)
-  const containerRef = useRef(null)   // React-managed wrapper — never touched by YT
+// ── YoutubePlayer ─────────────────────────────────────────────────────────────
+// Standalone component: mount = player starts, unmount = player destroyed.
+// React never reconciles inside containerRef — YT owns that subtree entirely.
+
+function YoutubePlayer({ vid, videoId, getToken, onFallback }) {
+  const containerRef = useRef(null)
   const playerRef    = useRef(null)
   const intervalRef  = useRef(null)
   const sentRef      = useRef(new Set())
-  const [ytFailed, setYtFailed] = useState(false)
+  // Stable ref wrappers so the effect closure never captures stale values
+  const getTokenRef  = useRef(getToken)
+  const onFallbackRef = useRef(onFallback)
+  useEffect(() => { getTokenRef.current = getToken }, [getToken])
+  useEffect(() => { onFallbackRef.current = onFallback }, [onFallback])
+
+  function stopTracking() {
+    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
+  }
 
   async function reportPct(pct) {
-    if (!getToken) return
+    const gt = getTokenRef.current
+    if (!gt) return
     try {
-      const token = await getToken()
-      await fetch(`${API_URL}/api/mindset-videos/${video.id}/progress`, {
+      const token = await gt()
+      await fetch(`${API_URL}/api/mindset-videos/${videoId}/progress`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ pct }),
@@ -1206,40 +1222,37 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
     } catch {}
   }
 
-  function stopTracking() {
-    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
-  }
-
-  function destroyPlayer() {
-    stopTracking()
-    if (playerRef.current) { try { playerRef.current.destroy() } catch {} ; playerRef.current = null }
-    if (containerRef.current) containerRef.current.innerHTML = ''
-    sentRef.current = new Set()
-  }
-
   useEffect(() => {
-    if (!expanded || !vid || isStaff) return
-    let live = true
+    // Effect runs once on mount; cleanup runs on unmount.
+    // No dependency array juggling — lifecycle IS the player lifecycle.
+    let cancelled = false
 
     loadYTApi().then(() => {
-      if (!live || !containerRef.current) return
+      if (cancelled || !containerRef.current) return
 
-      // Create a fresh child div for YT to own — outside React's virtual DOM.
-      // YT replaces this div with an iframe; React never sees or reconciles it.
+      // Create a child div for YT to replace with its iframe.
+      // React never touches this div — it has no JSX counterpart.
       const playerDiv = document.createElement('div')
-      playerDiv.style.cssText = 'width:100%;height:100%'
+      playerDiv.style.cssText = 'position:absolute;inset:0;width:100%;height:100%'
       containerRef.current.innerHTML = ''
       containerRef.current.appendChild(playerDiv)
 
       playerRef.current = new window.YT.Player(playerDiv, {
         videoId: vid,
-        playerVars: { autoplay: 1, rel: 0, modestbranding: 1 },
+        playerVars: {
+          autoplay:       1,
+          rel:            0,
+          modestbranding: 1,
+          playsinline:    1,
+          enablejsapi:    1,
+          origin:         window.location.origin,
+        },
         events: {
           onReady: (e) => {
-            // Force the generated iframe to fill its container
+            // Stretch YT's generated iframe to fill the container
             try {
               const iframe = e.target.getIframe()
-              if (iframe) { iframe.style.width = '100%'; iframe.style.height = '100%' }
+              if (iframe) iframe.style.cssText = 'position:absolute;inset:0;width:100%;height:100%'
             } catch {}
             if (!sentRef.current.has(1)) { sentRef.current.add(1); reportPct(1) }
           },
@@ -1247,35 +1260,56 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
             if (e.data === window.YT.PlayerState.PLAYING) {
               stopTracking()
               intervalRef.current = setInterval(() => {
-                const p = playerRef.current
-                if (!p) return
-                const dur = p.getDuration()
-                if (!dur) return
-                const pct = Math.floor(p.getCurrentTime() / dur * 100)
-                for (const m of [10, 20, 30, 40, 50, 60, 70, 80, 90]) {
-                  if (pct >= m && !sentRef.current.has(m)) {
-                    sentRef.current.add(m)
-                    reportPct(m)
+                try {
+                  const p = playerRef.current
+                  if (!p) return
+                  const dur = p.getDuration()
+                  if (!dur) return
+                  const pct = Math.floor(p.getCurrentTime() / dur * 100)
+                  for (const m of [10, 20, 30, 40, 50, 60, 70, 80, 90]) {
+                    if (pct >= m && !sentRef.current.has(m)) {
+                      sentRef.current.add(m); reportPct(m)
+                    }
                   }
-                }
+                } catch {}
               }, 5000)
             } else {
               stopTracking()
             }
             if (e.data === window.YT.PlayerState.ENDED && !sentRef.current.has(100)) {
-              sentRef.current.add(100)
-              reportPct(100)
+              sentRef.current.add(100); reportPct(100)
             }
           },
-          onError: () => { if (live) { destroyPlayer(); setYtFailed(true) } },
+          onError: (e) => {
+            console.warn('[YoutubePlayer] player error code:', e.data)
+          },
         },
       })
-    }).catch(() => { if (live) { destroyPlayer(); setYtFailed(true) } })
+    }).catch(err => {
+      if (!cancelled) {
+        console.warn('[YoutubePlayer] API failed to load:', err.message)
+        if (onFallbackRef.current) onFallbackRef.current()
+      }
+    })
 
-    return () => { live = false; destroyPlayer() }
-  }, [expanded, vid])
+    return () => {
+      cancelled = true
+      stopTracking()
+      if (playerRef.current) { try { playerRef.current.destroy() } catch {} ; playerRef.current = null }
+      if (containerRef.current) containerRef.current.innerHTML = ''
+    }
+  }, []) // empty deps: runs once on mount, cleaned up on unmount
 
-  // Reset fallback flag when video collapses
+  return <div ref={containerRef} className="absolute inset-0 w-full h-full" />
+}
+
+// ── VideoCard ─────────────────────────────────────────────────────────────────
+
+function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded, onToggleExpand, getToken, progress }) {
+  const vid = ytVideoId(video.youtube_url)
+  const [ytFailed, setYtFailed] = useState(false)
+
+  // Reset fallback when video collapses so next expansion tries the API again
   useEffect(() => { if (!expanded) setYtFailed(false) }, [expanded])
 
   const statusLabel = !isStaff && progress
@@ -1294,17 +1328,23 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
       <div className="relative bg-black" style={{ aspectRatio: '16/9' }}>
         {expanded && vid ? (
           ytFailed ? (
-            /* Fallback: plain iframe if YT API fails */
+            /* Fallback: plain embed iframe if YT API fails to load */
             <iframe
-              src={`https://www.youtube.com/embed/${vid}?autoplay=1&rel=0`}
+              src={`https://www.youtube.com/embed/${vid}?autoplay=1&rel=0&playsinline=1`}
               title={video.title}
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
-              className="w-full h-full"
+              className="absolute inset-0 w-full h-full"
             />
           ) : (
-            /* Stable React-managed wrapper; YT owns the child div it creates inside */
-            <div ref={containerRef} className="w-full h-full" />
+            /* YoutubePlayer mounts here; key=vid forces full remount on video change */
+            <YoutubePlayer
+              key={vid}
+              vid={vid}
+              videoId={video.id}
+              getToken={isStaff ? null : getToken}
+              onFallback={() => setYtFailed(true)}
+            />
           )
         ) : vid ? (
           <button
