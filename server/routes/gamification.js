@@ -152,11 +152,16 @@ router.get('/momentum', requireAuth(), async (req, res, next) => {
               AND cah.identity_category = 'mindset'
           )
         ) AS mindset,
-        -- Check-Ins: form submitted OR any habit completed this week
-        -- (check_ins category habits are included via the "any habit" condition)
+        -- Check-Ins: form submitted this week OR a check_ins-category habit completed this week
         (
           (SELECT COUNT(*) FROM form_submissions WHERE user_id=$1 AND submitted_at >= $2) > 0
-          OR (SELECT COUNT(*) FROM habit_completions WHERE user_id=$1 AND completion_date >= $2::date) > 0
+          OR EXISTS (
+            SELECT 1 FROM habit_completions hc
+            JOIN coach_assigned_habits cah ON cah.id = hc.habit_id
+            WHERE hc.user_id=$1
+              AND hc.completion_date >= $2::date
+              AND cah.identity_category = 'check_ins'
+          )
         ) AS check_ins,
         -- Progress: weight logged OR progress photo this week
         -- OR a progress habit completed this week
