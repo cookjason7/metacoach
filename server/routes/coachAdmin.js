@@ -614,6 +614,9 @@ router.patch('/clients/:id', requireAuth(), async (req, res, next) => {
     for (const key of allowed) {
       if (key in req.body) {
         let value = req.body[key]
+        if (key === 'coaching_type' && !['vip', 'ai'].includes(value)) {
+          return res.status(400).json({ error: 'coaching_type must be vip or ai' })
+        }
         // Normalize empty string → NULL for these fields
         if (key === 'assigned_coach_id') {
           value = (value === '' || value === null) ? null : Number(value)

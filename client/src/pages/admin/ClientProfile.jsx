@@ -45,6 +45,9 @@ function fmtDob(iso) {
 function OverviewTab({ client, role, getToken, onUpdate }) {
   const [coaches, setCoaches] = useState([])
   const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState(null)
   const startDateInitial =
     client.start_date ? String(client.start_date).slice(0, 10) :
     client.effective_start_date ? String(client.effective_start_date).slice(0, 10) : ''
@@ -72,22 +75,29 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
   }, [role, getToken])
 
   async function save() {
-    const token = await getToken()
-    const res = await fetch(`${API_URL}/api/coach-admin/clients/${client.id}`, {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        first_name:        form.first_name.trim()  || null,
-        last_name:         form.last_name.trim()   || null,
-        coaching_type:     form.coaching_type,
-        assigned_coach_id: form.assigned_coach_id === '' ? null : Number(form.assigned_coach_id),
-        role:              form.role,
-        start_date:        form.start_date || null,
-        phone_number:      form.phone_number || null,
-        paid:              form.paid,
-      }),
-    })
-    if (res.ok) {
+    setSaving(true)
+    setSaved(false)
+    setSaveError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/${client.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          first_name:        form.first_name.trim()  || null,
+          last_name:         form.last_name.trim()   || null,
+          coaching_type:     form.coaching_type,
+          assigned_coach_id: form.assigned_coach_id === '' ? null : Number(form.assigned_coach_id),
+          role:              form.role,
+          start_date:        form.start_date || null,
+          phone_number:      form.phone_number || null,
+          paid:              form.paid,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error ?? `Server ${res.status}`)
+      }
       const updated = await res.json()
       onUpdate({
         ...updated,
@@ -95,6 +105,12 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
         display_last_name:  updated.last_name  ?? null,
       })
       setEditing(false)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (err) {
+      setSaveError(err.message)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -182,7 +198,7 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                     <p className="text-sm font-medium text-amber-600">No Health Assessment on File</p>
                   </div>
                 )}
-                <InfoRow label="Coaching type"   value={client.coaching_type === 'ai' ? 'AI Coaching' : 'VIP Coaching'} />
+                <InfoRow label="Coaching type"   value={client.coaching_type === 'ai' ? 'AI / Hybrid Coaching' : 'VIP / Human Coaching'} />
                 <InfoRow label="Assigned coach"  value={client.assigned_coach_name} emptyText="Not assigned yet" />
                 <InfoRow label="Start date"      value={displayStartDate} />
                 <InfoRow label="Payment"         value={client.paid ? `✓ Active${client.paid_at ? ` (since ${String(client.paid_at).slice(0,10)})` : ''}` : '○ Not activated'} />
@@ -222,8 +238,8 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 <label className="block text-xs font-medium text-gray-600 mb-1">Coaching type</label>
                 <select value={form.coaching_type} onChange={e => setForm(f => ({ ...f, coaching_type: e.target.value }))}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
-                  <option value="vip">VIP Coaching</option>
-                  <option value="ai">AI Coaching</option>
+                  <option value="vip">VIP / Human Coaching</option>
+                  <option value="ai">AI / Hybrid Coaching</option>
                 </select>
               </div>
               <div>
@@ -267,11 +283,25 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
               <label htmlFor="paid-check" className="text-sm text-gray-800">Account activated / paid</label>
             </div>
             <div className="flex gap-2 pt-1">
-              <button onClick={save} className="bg-[#E8670A] text-white px-5 py-2 rounded-lg text-xs font-semibold hover:bg-[#c45e09]">Save changes</button>
-              <button onClick={() => setEditing(false)} className="text-xs text-gray-500 px-3 py-2">Cancel</button>
+              <button
+                onClick={save}
+                disabled={saving}
+                className="bg-[#E8670A] text-white px-5 py-2 rounded-lg text-xs font-semibold hover:bg-[#c45e09] disabled:opacity-60"
+              >
+                {saving ? 'Saving...' : 'Save changes'}
+              </button>
+              <button
+                onClick={() => { setEditing(false); setSaveError(null) }}
+                disabled={saving}
+                className="text-xs text-gray-500 px-3 py-2 disabled:opacity-60"
+              >
+                Cancel
+              </button>
             </div>
+            {saveError && <p className="text-xs text-red-500">{saveError}</p>}
           </div>
         )}
+        {saved && !editing && <p className="text-xs font-medium text-emerald-600 mt-3">Saved.</p>}
       </div>
 
       {/* Nutrition Targets — visible to admin and coaches (coaches only reach assigned clients) */}
