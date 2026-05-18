@@ -16,6 +16,26 @@ async function requireStaff(req, res) {
   return dbUserId
 }
 
+// GET /api/mindset-videos/my-progress — progress map keyed by video_id for current user
+router.get('/my-progress', requireAuth(), async (req, res) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId = await getOrCreateUser(userId)
+    const { rows } = await pool.query(
+      'SELECT video_id, started, highest_pct, completed FROM video_watch_progress WHERE user_id=$1',
+      [dbUserId],
+    )
+    const map = {}
+    for (const r of rows) {
+      map[r.video_id] = { started: r.started, highest_pct: parseFloat(r.highest_pct), completed: r.completed }
+    }
+    res.json(map)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
 // GET /api/mindset-videos — staff gets all, clients get published only
 router.get('/', requireAuth(), async (req, res) => {
   try {
@@ -80,6 +100,35 @@ router.put('/:id', requireAuth(), async (req, res) => {
     )
     if (!rows.length) return res.status(404).json({ error: 'Not found' })
     res.json(rows[0])
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
+// POST /api/mindset-videos/:id/progress — upsert watch progress for current user
+router.post('/:id/progress', requireAuth(), async (req, res) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId = await getOrCreateUser(userId)
+    const videoId = parseInt(req.params.id, 10)
+    const pct = parseFloat(req.body.pct)
+    if (isNaN(pct) || pct < 0 || pct > 100) {
+      return res.status(400).json({ error: 'pct must be 0–100' })
+    }
+    const { rows } = await pool.query(`
+      INSERT INTO video_watch_progress
+        (user_id, video_id, started, highest_pct, completed, first_watched_at, last_watched_at)
+      VALUES ($1, $2, TRUE, $3, $3 >= 90, NOW(), NOW())
+      ON CONFLICT (user_id, video_id) DO UPDATE SET
+        started          = TRUE,
+        highest_pct      = GREATEST(video_watch_progress.highest_pct, EXCLUDED.highest_pct),
+        completed        = video_watch_progress.completed OR (GREATEST(video_watch_progress.highest_pct, EXCLUDED.highest_pct) >= 90),
+        last_watched_at  = NOW()
+      RETURNING started, highest_pct, completed
+    `, [dbUserId, videoId, pct])
+    const r = rows[0]
+    res.json({ success: true, highest_pct: parseFloat(r.highest_pct), completed: r.completed })
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Server error' })

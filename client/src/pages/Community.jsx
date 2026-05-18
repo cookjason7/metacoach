@@ -1061,6 +1061,21 @@ function MembersTab({ members, loading }) {
 
 // ── Mindset Videos helpers ────────────────────────────────────────────────────
 
+// Load YouTube IFrame API once (idempotent)
+let ytApiPromise = null
+function loadYTApi() {
+  if (window.YT && window.YT.Player) return Promise.resolve()
+  if (ytApiPromise) return ytApiPromise
+  ytApiPromise = new Promise(resolve => {
+    const prev = window.onYouTubeIframeAPIReady
+    window.onYouTubeIframeAPIReady = () => { if (prev) prev(); resolve() }
+    const tag = document.createElement('script')
+    tag.src = 'https://www.youtube.com/iframe_api'
+    document.head.appendChild(tag)
+  })
+  return ytApiPromise
+}
+
 function ytVideoId(url) {
   if (!url) return null
   const short = url.match(/youtu\.be\/([A-Za-z0-9_-]{11})/)
@@ -1171,20 +1186,90 @@ function VideoModal({ initial, onSave, onClose, saving }) {
   )
 }
 
-function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded, onToggleExpand }) {
-  const vid = ytVideoId(video.youtube_url)
+function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded, onToggleExpand, getToken, progress }) {
+  const vid         = ytVideoId(video.youtube_url)
+  const playerRef   = useRef(null)
+  const intervalRef = useRef(null)
+  const sentRef     = useRef(new Set())
+  const containerId = `yt-player-${video.id}`
+
+  async function reportPct(pct) {
+    if (!getToken) return
+    try {
+      const token = await getToken()
+      await fetch(`${API_URL}/api/mindset-videos/${video.id}/progress`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pct }),
+      })
+    } catch {}
+  }
+
+  function stopTracking() {
+    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
+  }
+
+  function destroyPlayer() {
+    stopTracking()
+    if (playerRef.current) { try { playerRef.current.destroy() } catch {} ; playerRef.current = null }
+    sentRef.current = new Set()
+  }
+
+  useEffect(() => {
+    if (!expanded || !vid || isStaff) return
+    let live = true
+    loadYTApi().then(() => {
+      if (!live || !document.getElementById(containerId)) return
+      playerRef.current = new window.YT.Player(containerId, {
+        videoId: vid,
+        playerVars: { autoplay: 1 },
+        events: {
+          onReady: () => { if (!sentRef.current.has(1)) { sentRef.current.add(1); reportPct(1) } },
+          onStateChange: (e) => {
+            if (e.data === window.YT.PlayerState.PLAYING) {
+              intervalRef.current = setInterval(() => {
+                const p = playerRef.current
+                if (!p) return
+                const dur = p.getDuration()
+                if (!dur) return
+                const pct = Math.floor(p.getCurrentTime() / dur * 100)
+                for (const m of [10, 20, 30, 40, 50, 60, 70, 80, 90]) {
+                  if (pct >= m && !sentRef.current.has(m)) {
+                    sentRef.current.add(m)
+                    reportPct(m)
+                  }
+                }
+              }, 5000)
+            } else {
+              stopTracking()
+            }
+            if (e.data === window.YT.PlayerState.ENDED && !sentRef.current.has(100)) {
+              sentRef.current.add(100)
+              reportPct(100)
+            }
+          },
+        },
+      })
+    })
+    return () => { live = false; destroyPlayer() }
+  }, [expanded, vid])
+
+  const statusLabel = !isStaff && progress
+    ? progress.completed
+      ? { text: '✓ Completed', cls: 'bg-emerald-100 text-emerald-700' }
+      : progress.highest_pct >= 50
+        ? { text: '50% watched', cls: 'bg-[#fde8c8] text-[#c45e09]' }
+        : progress.started
+          ? { text: 'Started', cls: 'bg-gray-100 text-gray-500' }
+          : null
+    : null
+
   return (
     <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-      {/* Thumbnail / embed area */}
+      {/* Thumbnail / player area */}
       <div className="relative bg-black" style={{ aspectRatio: '16/9' }}>
         {expanded && vid ? (
-          <iframe
-            src={`https://www.youtube.com/embed/${vid}?autoplay=1`}
-            title={video.title}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-            className="w-full h-full"
-          />
+          <div id={containerId} className="w-full h-full" />
         ) : vid ? (
           <button
             onClick={onToggleExpand}
@@ -1224,6 +1309,11 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
                   video.published ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
                 }`}>
                   {video.published ? 'Published' : 'Draft'}
+                </span>
+              )}
+              {statusLabel && (
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusLabel.cls}`}>
+                  {statusLabel.text}
                 </span>
               )}
             </div>
@@ -1293,23 +1383,26 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
 // ── Mindset tab ───────────────────────────────────────────────────────────────
 
 function MindsetTab({ getToken, isStaff }) {
-  const [videos,      setVideos]      = useState([])
-  const [loading,     setLoading]     = useState(true)
-  const [error,       setError]       = useState(null)
-  const [modal,       setModal]       = useState(null)  // null | 'add' | videoObj (edit)
-  const [saving,      setSaving]      = useState(false)
-  const [expandedId,  setExpandedId]  = useState(null)
+  const [videos,       setVideos]      = useState([])
+  const [myProgress,   setMyProgress]  = useState({})
+  const [loading,      setLoading]     = useState(true)
+  const [error,        setError]       = useState(null)
+  const [modal,        setModal]       = useState(null)  // null | 'add' | videoObj (edit)
+  const [saving,       setSaving]      = useState(false)
+  const [expandedId,   setExpandedId]  = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
-  const [deleting,    setDeleting]    = useState(false)
+  const [deleting,     setDeleting]    = useState(false)
 
   async function load() {
     try {
       const token = await getToken()
-      const res = await fetch(`${API_URL}/api/mindset-videos`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
+      const headers = { Authorization: `Bearer ${token}` }
+      const reqs = [fetch(`${API_URL}/api/mindset-videos`, { headers })]
+      if (!isStaff) reqs.push(fetch(`${API_URL}/api/mindset-videos/my-progress`, { headers }))
+      const [res, progressRes] = await Promise.all(reqs)
       if (!res.ok) throw new Error(`Server error ${res.status}`)
       setVideos(await res.json())
+      if (progressRes?.ok) setMyProgress(await progressRes.json())
     } catch (e) { setError(e.message) }
     finally { setLoading(false) }
   }
@@ -1446,6 +1539,8 @@ function MindsetTab({ getToken, isStaff }) {
                       onTogglePublish={() => {}}
                       expanded={expandedId === v.id}
                       onToggleExpand={() => setExpandedId(expandedId === v.id ? null : v.id)}
+                      getToken={getToken}
+                      progress={myProgress[v.id] ?? null}
                     />
                   ))}
                 </div>

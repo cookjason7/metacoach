@@ -947,6 +947,22 @@ export async function migrate() {
     )
   `)
 
+  // ── Video watch progress ─────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS video_watch_progress (
+      id               SERIAL PRIMARY KEY,
+      user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      video_id         INTEGER NOT NULL REFERENCES mindset_videos(id) ON DELETE CASCADE,
+      started          BOOLEAN NOT NULL DEFAULT FALSE,
+      highest_pct      NUMERIC(5,1) NOT NULL DEFAULT 0,
+      completed        BOOLEAN NOT NULL DEFAULT FALSE,
+      first_watched_at TIMESTAMPTZ,
+      last_watched_at  TIMESTAMPTZ,
+      UNIQUE (user_id, video_id)
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_video_watch_user ON video_watch_progress (user_id)`)
+
   // ── Client Measurements ───────────────────────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS client_measurements (
