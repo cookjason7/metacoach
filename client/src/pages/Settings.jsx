@@ -76,7 +76,7 @@ function AssOptions({ value, onChange, options }) {
   )
 }
 
-const ANGLES = ['front', 'back', 'side']
+const ANGLES = ['front', 'side', 'back']
 
 function Field({ label, children }) {
   return (
@@ -134,32 +134,32 @@ function ProgressPhotoPanel({ angle, photos, getToken, onUploaded }) {
 
   return (
     <div className="text-center">
-      <p className="text-xs font-medium text-gray-600 mb-2 capitalize">{angle}</p>
+      <p className="text-[11px] sm:text-xs font-medium text-gray-600 mb-1.5 capitalize">{angle}</p>
       <div
         onClick={() => !uploading && inputRef.current?.click()}
-        className={`w-full aspect-[3/4] rounded-xl border-2 overflow-hidden cursor-pointer transition-colors flex items-center justify-center ${
+        className={`w-full aspect-[4/5] rounded-lg sm:rounded-xl border-2 overflow-hidden cursor-pointer transition-colors flex items-center justify-center ${
           latest ? 'border-gray-200' : 'border-dashed border-gray-300 bg-gray-50 hover:border-[#E8670A] hover:bg-[#fff7ed]'
         }`}
       >
         {latest ? (
           <img src={latest.photo_url} alt={angle} className="w-full h-full object-cover" />
         ) : uploading ? (
-          <span className="text-xs text-gray-400">Uploading…</span>
+          <span className="text-[10px] sm:text-xs text-gray-400">Uploading…</span>
         ) : (
-          <span className="text-xs text-gray-400 px-2 text-center leading-tight">Tap to upload</span>
+          <span className="text-[10px] sm:text-xs text-gray-400 px-1.5 text-center leading-tight">Tap to upload</span>
         )}
       </div>
       {latest && (
-        <p className="text-xs text-gray-400 mt-1">{new Date(latest.taken_at).toLocaleDateString()}</p>
+        <p className="text-[10px] sm:text-xs text-gray-400 mt-1">{new Date(latest.taken_at).toLocaleDateString()}</p>
       )}
       {photos.length > 1 && (
-        <p className="text-xs text-gray-400">{photos.length} photos</p>
+        <p className="text-[10px] sm:text-xs text-gray-400">{photos.length} photos</p>
       )}
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={uploading}
-        className="text-xs text-[#E8670A] hover:text-[#c45e09] mt-1 transition-colors disabled:opacity-50"
+        className="text-[11px] sm:text-xs text-[#E8670A] hover:text-[#c45e09] mt-1 transition-colors disabled:opacity-50"
       >
         {uploading ? 'Uploading…' : latest ? 'Add Photo' : 'Upload'}
       </button>
@@ -870,9 +870,9 @@ export default function Settings() {
 
           {/* Progress Photos */}
           <h2 className="text-sm font-semibold text-gray-700 mb-3">Progress Photos</h2>
-          <div className="bg-white rounded-xl border border-gray-200 p-4 mb-8">
-            <p className="text-sm text-gray-500 mb-4">Upload front, back, and side photos to track your visual progress over time.</p>
-            <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-3">
+          <div className="bg-white rounded-xl border border-gray-200 p-3 sm:p-4 mb-8">
+            <p className="text-xs sm:text-sm text-gray-500 mb-3 sm:mb-4">Upload front, side, and back photos to track your visual progress over time.</p>
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
               {ANGLES.map(angle => (
                 <ProgressPhotoPanel
                   key={angle}
