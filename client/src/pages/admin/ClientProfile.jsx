@@ -58,6 +58,7 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
     assigned_coach_id: client.assigned_coach_id ?? '',
     role:              client.role ?? 'client',
     start_date:        startDateInitial,
+    program_end_date:  client.program_end_date ? String(client.program_end_date).slice(0, 10) : '',
     phone_number:      client.phone_number ?? '',
     paid:              client.paid ?? false,
   })
@@ -90,6 +91,7 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
           assigned_coach_id: form.assigned_coach_id === '' ? null : Number(form.assigned_coach_id),
           role:              form.role,
           start_date:        form.start_date || null,
+          program_end_date:  form.program_end_date || null,
           phone_number:      form.phone_number || null,
           paid:              form.paid,
         }),
@@ -199,8 +201,9 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                   </div>
                 )}
                 <InfoRow label="Coaching type"   value={client.coaching_type === 'ai' ? 'AI / Hybrid Coaching' : 'VIP / Human Coaching'} />
-                <InfoRow label="Assigned coach"  value={client.assigned_coach_name} emptyText="Not assigned yet" />
-                <InfoRow label="Start date"      value={displayStartDate} />
+                <InfoRow label="Assigned coach"      value={client.assigned_coach_name} emptyText="Not assigned yet" />
+                <InfoRow label="Program start date" value={displayStartDate} />
+                <InfoRow label="Program end date"   value={client.program_end_date ? String(client.program_end_date).slice(0, 10) : null} emptyText="Not set" />
                 <InfoRow label="Payment"         value={client.paid ? `✓ Active${client.paid_at ? ` (since ${String(client.paid_at).slice(0,10)})` : ''}` : '○ Not activated'} />
                 <InfoRow label="Last login"      value={fmtDate(client.last_login_at)} />
                 <InfoRow label="Last meal log"   value={client.last_meal_at ? `${daysSince(client.last_meal_at)}d ago` : null} emptyText="Not logged yet" />
@@ -271,8 +274,15 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Start date</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Program start date</label>
                 <input type="date" value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Program end date</label>
+                <input type="date" value={form.program_end_date} onChange={e => setForm(f => ({ ...f, program_end_date: e.target.value }))}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
               </div>
             </div>

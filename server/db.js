@@ -561,6 +561,7 @@ export async function migrate() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS coaching_type_source TEXT`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_coach_id INTEGER REFERENCES users(id) ON DELETE SET NULL`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS start_date        DATE`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS program_end_date  DATE`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at     TIMESTAMPTZ`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS paid_at           TIMESTAMPTZ`)
 

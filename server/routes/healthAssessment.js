@@ -126,6 +126,7 @@ router.post('/', requireAuth(), async (req, res, next) => {
       await pool.query(
         `UPDATE users
          SET assessment_complete = TRUE,
+             start_date = COALESCE(start_date, CURRENT_DATE),
              client_status = CASE
                WHEN client_status = 'invited' THEN 'active'
                ELSE client_status
