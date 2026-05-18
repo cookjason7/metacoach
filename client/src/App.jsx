@@ -24,7 +24,6 @@ import ClientList from './pages/admin/ClientList'
 import ClientProfile from './pages/admin/ClientProfile'
 import InviteAccept from './pages/InviteAccept'
 import AiWelcome from './pages/AiWelcome'
-import WeeklyCheckin from './pages/WeeklyCheckin'
 import FormsList from './pages/admin/FormsList'
 import FormBuilder from './pages/admin/FormBuilder'
 import FormFill from './pages/FormFill'
@@ -165,7 +164,7 @@ export default function App() {
           <Route path="/settings"     element={<Settings />} />
           <Route path="/calendar"     element={<Calendar />} />
           <Route path="/messages"     element={<Messages />} />
-          <Route path="/weekly-checkin"      element={<WeeklyCheckin />} />
+          <Route path="/weekly-checkin"      element={<Navigate to="/dashboard" replace />} />
           <Route path="/forms/:id/fill"        element={<FormFill />} />
           <Route path="/admin"               element={<Admin />} />
           <Route path="/admin/clients"       element={<ClientList />} />
