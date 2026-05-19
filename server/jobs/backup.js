@@ -101,24 +101,47 @@ async function uploadToDrive(localPath, filename) {
   if (folderResp.data?.mimeType !== 'application/vnd.google-apps.folder') {
     throw new Error(`Google Drive backup parent is not a folder: ${cfg.folder}`)
   }
-
-  const resp  = await drive.files.create({
-    supportsAllDrives: true,
-    requestBody: {
-      name:    filename,
-      parents: [cfg.folder],
-    },
-    media: {
-      mimeType: 'application/gzip',
-      body:     createReadStream(localPath),
-    },
-    fields: 'id,name,webViewLink',
-  })
-  return {
-    ...resp.data,
+  const folderInfo = {
     target_folder_id:   cfg.folder,
     target_folder_name: folderResp.data?.name ?? null,
     target_drive_id:    folderResp.data?.driveId ?? null,
+    supportsAllDrives:  true,
+  }
+  if (!folderInfo.target_drive_id) {
+    console.warn(
+      `[backup:drive] target folder has no driveId; it may not be inside a Shared Drive. ` +
+      `target_folder_id=${folderInfo.target_folder_id} folder_name=${folderInfo.target_folder_name ?? 'unknown'}`,
+    )
+  }
+  console.log(
+    `[backup:drive] Preparing upload: local=${localPath} filename=${filename} ` +
+    `target_folder_id=${folderInfo.target_folder_id} ` +
+    `target_drive_id=${folderInfo.target_drive_id ?? 'none'} ` +
+    `folder_name=${folderInfo.target_folder_name ?? 'unknown'} supportsAllDrives=true`,
+  )
+
+  let resp
+  try {
+    resp = await drive.files.create({
+      requestBody: {
+        name:    filename,
+        parents: [cfg.folder],
+      },
+      media: {
+        mimeType: 'application/gzip',
+        body:     createReadStream(localPath),
+      },
+      supportsAllDrives: true,
+      fields: 'id,name,webViewLink,parents,driveId',
+    })
+  } catch (err) {
+    err.target_folder_id = folderInfo.target_folder_id
+    err.target_drive_id = folderInfo.target_drive_id
+    throw err
+  }
+  return {
+    ...resp.data,
+    ...folderInfo,
   }
 }
 
@@ -126,13 +149,22 @@ async function uploadToDrive(localPath, filename) {
 // Call after the local .json.gz file has been written successfully.
 // Never throws — a Drive failure must not undo a successful local backup.
 async function driveUpload(localPath, logPrefix, statusKey) {
-  if (!getDriveConfig()) {
+  const cfg = getDriveConfig()
+  if (!cfg) {
     console.log(`${logPrefix} Drive not configured — local backup only`)
     return
+  }
+  let targetInfo = {
+    target_folder_id: cfg.folder,
+    target_drive_id:  null,
   }
   try {
     const filename  = path.basename(localPath)
     const driveFile = await uploadToDrive(localPath, filename)
+    targetInfo = {
+      target_folder_id: driveFile.target_folder_id,
+      target_drive_id:  driveFile.target_drive_id,
+    }
     const now = new Date().toISOString()
     driveStatus[statusKey] = {
       file:        filename,
@@ -148,8 +180,21 @@ async function driveUpload(localPath, logPrefix, statusKey) {
       `target_drive_id=${driveFile.target_drive_id ?? 'my-drive'} at ${now}`,
     )
   } catch (err) {
-    driveStatus.last_error = { message: err.message, at: new Date().toISOString() }
-    console.error(`${logPrefix} Drive upload failed (local backup preserved):`, err.message)
+    targetInfo = {
+      target_folder_id: err.target_folder_id ?? targetInfo.target_folder_id,
+      target_drive_id:  err.target_drive_id  ?? targetInfo.target_drive_id,
+    }
+    driveStatus.last_error = {
+      message: err.message,
+      target_folder_id: targetInfo.target_folder_id,
+      target_drive_id:  targetInfo.target_drive_id,
+      at: new Date().toISOString(),
+    }
+    console.error(
+      `${logPrefix} Drive upload failed (local backup preserved): ${err.message} ` +
+      `target_folder_id=${targetInfo.target_folder_id} ` +
+      `target_drive_id=${targetInfo.target_drive_id ?? 'unknown'}`,
+    )
   }
 }
 
