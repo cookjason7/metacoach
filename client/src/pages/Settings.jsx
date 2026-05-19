@@ -102,6 +102,18 @@ function formatLastActive(iso) {
   })
 }
 
+function formatConnectedAt(iso) {
+  if (!iso) return null
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
 function roleLabel(role) {
   if (!role) return 'Staff'
   return role.charAt(0).toUpperCase() + role.slice(1)
@@ -233,6 +245,11 @@ export default function Settings() {
   const [mSaving, setMSaving] = useState(false)
   const [mSaved,  setMSaved]  = useState(false)
   const [mError,  setMError]  = useState(null)
+  const [fitbitStatus, setFitbitStatus] = useState({ connected: false, last_synced_at: null, fitbit_user_id: null })
+  const [fitbitLoading, setFitbitLoading] = useState(false)
+  const [fitbitSyncing, setFitbitSyncing] = useState(false)
+  const [fitbitMessage, setFitbitMessage] = useState('')
+  const [fitbitError, setFitbitError] = useState('')
 
   const email = user?.primaryEmailAddress?.emailAddress ?? ''
 
@@ -261,10 +278,11 @@ export default function Settings() {
         return
       }
 
-      const [photosRes, assessmentRes, measurementsRes] = await Promise.all([
+      const [photosRes, assessmentRes, measurementsRes, fitbitRes] = await Promise.all([
         fetch(`${API_URL}/api/progress-photos`,       { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API_URL}/api/health-assessment/me`,  { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API_URL}/api/measurements`,          { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/fitbit/status`,         { headers: { Authorization: `Bearer ${token}` } }),
       ])
       if (photosRes.ok) {
         const list = await photosRes.json()
@@ -276,6 +294,7 @@ export default function Settings() {
         setPhotos(byAngle)
       }
       if (measurementsRes.ok) setMeasurements(await measurementsRes.json())
+      if (fitbitRes.ok) setFitbitStatus(await fitbitRes.json())
       if (assessmentRes.ok) {
         const data = await assessmentRes.json()
         if (data) {
@@ -464,6 +483,78 @@ export default function Settings() {
       setMError('Failed to save. Please try again.')
     } finally {
       setMSaving(false)
+    }
+  }
+
+  function connectFitbit() {
+    setFitbitError('')
+    setFitbitMessage('')
+    window.location.href = `${API_URL}/api/fitbit/connect`
+  }
+
+  async function refreshFitbitStatus() {
+    setFitbitLoading(true)
+    setFitbitError('')
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/fitbit/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error('Unable to load Fitbit status')
+      setFitbitStatus(await res.json())
+    } catch (err) {
+      setFitbitError(err.message)
+    } finally {
+      setFitbitLoading(false)
+    }
+  }
+
+  async function syncFitbit() {
+    setFitbitSyncing(true)
+    setFitbitError('')
+    setFitbitMessage('')
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/fitbit/sync`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error ?? 'Fitbit sync failed')
+      setFitbitStatus(status => ({
+        ...status,
+        connected: true,
+        last_synced_at: data.synced_at,
+      }))
+      const parts = []
+      if (data.steps != null) parts.push(`${data.steps.toLocaleString()} steps`)
+      if (data.sleep_minutes != null) parts.push(`${Math.floor(data.sleep_minutes / 60)}h ${data.sleep_minutes % 60}m sleep`)
+      setFitbitMessage(parts.length ? `Synced ${parts.join(' and ')}.` : 'Fitbit synced.')
+    } catch (err) {
+      setFitbitError(err.message)
+    } finally {
+      setFitbitSyncing(false)
+    }
+  }
+
+  async function disconnectFitbit() {
+    setFitbitLoading(true)
+    setFitbitError('')
+    setFitbitMessage('')
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/fitbit/disconnect`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error ?? 'Fitbit disconnect failed')
+      setFitbitStatus({ connected: false, last_synced_at: null, fitbit_user_id: null })
+      setFitbitMessage('Fitbit disconnected.')
+    } catch (err) {
+      setFitbitError(err.message)
+    } finally {
+      setFitbitLoading(false)
     }
   }
 
@@ -959,13 +1050,86 @@ export default function Settings() {
               { name: 'Google Fit',   icon: '🏃' },
               { name: 'Fitbit',       icon: '⌚' },
             ].map(app => (
-              <div key={app.name} className="flex items-center justify-between gap-3 px-4 py-4">
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className="text-xl shrink-0">{app.icon}</span>
-                  <p className="text-sm font-medium text-gray-900 truncate">{app.name}</p>
+              app.name === 'Fitbit' ? (
+                <div key={app.name} className="px-4 py-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <span className="text-xl shrink-0">{app.icon}</span>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-medium text-gray-900">Fitbit</p>
+                          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                            fitbitStatus.connected
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                              : 'bg-gray-100 text-gray-400'
+                          }`}>
+                            {fitbitStatus.connected ? 'Connected' : 'Not connected'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Sync steps and sleep while keeping manual logging available.
+                        </p>
+                        {fitbitStatus.connected && (
+                          <p className="text-xs text-gray-400 mt-1">
+                            {formatConnectedAt(fitbitStatus.last_synced_at)
+                              ? `Last synced ${formatConnectedAt(fitbitStatus.last_synced_at)}`
+                              : 'Not synced yet'}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 sm:justify-end">
+                      {fitbitStatus.connected ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={syncFitbit}
+                            disabled={fitbitSyncing || fitbitLoading}
+                            className="px-3 py-2 rounded-lg bg-[#E8670A] text-white text-xs font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors"
+                          >
+                            {fitbitSyncing ? 'Syncing...' : 'Sync Now'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={disconnectFitbit}
+                            disabled={fitbitSyncing || fitbitLoading}
+                            className="px-3 py-2 rounded-lg border border-gray-200 text-gray-600 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 transition-colors"
+                          >
+                            Disconnect
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={connectFitbit}
+                          disabled={fitbitLoading}
+                          className="px-3 py-2 rounded-lg bg-[#1e2a3a] text-white text-xs font-semibold hover:bg-[#111827] disabled:opacity-60 transition-colors"
+                        >
+                          Connect Fitbit
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={refreshFitbitStatus}
+                        disabled={fitbitLoading || fitbitSyncing}
+                        className="px-3 py-2 rounded-lg border border-gray-200 text-gray-500 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 transition-colors"
+                      >
+                        Refresh
+                      </button>
+                    </div>
+                  </div>
+                  {fitbitMessage && <p className="text-xs text-emerald-600 mt-3">{fitbitMessage}</p>}
+                  {fitbitError && <p className="text-xs text-red-500 mt-3">{fitbitError}</p>}
                 </div>
-                <span className="text-xs text-gray-400 bg-gray-100 px-2.5 py-1 rounded-full shrink-0 whitespace-nowrap">Coming soon</span>
-              </div>
+              ) : (
+                <div key={app.name} className="flex items-center justify-between gap-3 px-4 py-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-xl shrink-0">{app.icon}</span>
+                    <p className="text-sm font-medium text-gray-900 truncate">{app.name}</p>
+                  </div>
+                  <span className="text-xs text-gray-400 bg-gray-100 px-2.5 py-1 rounded-full shrink-0 whitespace-nowrap">Coming soon</span>
+                </div>
+              )
             ))}
           </div>
         </>

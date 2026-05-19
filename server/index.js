@@ -29,6 +29,7 @@ import measurementsRouter from './routes/measurements.js'
 import mindsetVideosRouter from './routes/mindsetVideos.js'
 import communityResourcesRouter from './routes/communityResources.js'
 import stripeRouter from './routes/stripe.js'
+import fitbitRouter from './routes/fitbit.js'
 import { runInactivityAlert } from './jobs/inactivityAlert.js'
 import { processFormSchedules } from './jobs/formScheduler.js'
 
@@ -77,6 +78,7 @@ app.use('/api/forms',            clerkMiddleware(), formsRouter)
 app.use('/api/measurements',     clerkMiddleware(), measurementsRouter)
 app.use('/api/mindset-videos',        clerkMiddleware(), mindsetVideosRouter)
 app.use('/api/community-resources',   clerkMiddleware(), communityResourcesRouter)
+app.use('/api/fitbit',                fitbitRouter)
 
 // Serve React client if dist exists — must come after all API routes
 const distPath = path.join(__dirname, '../client/dist')

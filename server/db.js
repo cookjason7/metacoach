@@ -51,6 +51,32 @@ export async function migrate() {
       UNIQUE (user_id, logged_date)
     )
   `)
+  await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS sleep_minutes INTEGER`)
+  await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS steps_source TEXT DEFAULT 'manual'`)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS fitbit_tokens (
+      id               SERIAL PRIMARY KEY,
+      user_id          INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      fitbit_user_id   TEXT,
+      access_token     TEXT NOT NULL,
+      refresh_token    TEXT NOT NULL,
+      scope            TEXT,
+      expires_at       TIMESTAMPTZ NOT NULL,
+      last_synced_at   TIMESTAMPTZ,
+      created_at       TIMESTAMPTZ DEFAULT NOW(),
+      updated_at       TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_fitbit_tokens_user ON fitbit_tokens (user_id)`)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS fitbit_oauth_state (
+      state       TEXT PRIMARY KEY,
+      user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at  TIMESTAMPTZ NOT NULL,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_fitbit_oauth_state_expires ON fitbit_oauth_state (expires_at)`)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS coaching_conversations (
       id         SERIAL PRIMARY KEY,
