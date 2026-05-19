@@ -89,9 +89,19 @@ async function uploadToDrive(localPath, filename) {
   const auth = new google.auth.JWT({
     email:  cfg.email,
     key:    cfg.key,
-    scopes: ['https://www.googleapis.com/auth/drive.file'],
+    scopes: ['https://www.googleapis.com/auth/drive'],
   })
   const drive = google.drive({ version: 'v3', auth })
+
+  const folderResp = await drive.files.get({
+    fileId: cfg.folder,
+    supportsAllDrives: true,
+    fields: 'id,name,driveId,mimeType',
+  })
+  if (folderResp.data?.mimeType !== 'application/vnd.google-apps.folder') {
+    throw new Error(`Google Drive backup parent is not a folder: ${cfg.folder}`)
+  }
+
   const resp  = await drive.files.create({
     supportsAllDrives: true,
     requestBody: {
@@ -104,7 +114,12 @@ async function uploadToDrive(localPath, filename) {
     },
     fields: 'id,name,webViewLink',
   })
-  return resp.data   // { id, name, webViewLink }
+  return {
+    ...resp.data,
+    target_folder_id:   cfg.folder,
+    target_folder_name: folderResp.data?.name ?? null,
+    target_drive_id:    folderResp.data?.driveId ?? null,
+  }
 }
 
 // ── Shared upload-to-Drive step ───────────────────────────────────────────────
@@ -122,10 +137,16 @@ async function driveUpload(localPath, logPrefix, statusKey) {
     driveStatus[statusKey] = {
       file:        filename,
       drive_id:    driveFile.id,
+      target_folder_id: driveFile.target_folder_id,
+      target_drive_id:  driveFile.target_drive_id,
       uploaded_at: now,
     }
     driveStatus.last_error = null
-    console.log(`${logPrefix} ✓ Drive upload OK: ${driveFile.name} (id=${driveFile.id}) at ${now}`)
+    console.log(
+      `${logPrefix} ✓ Drive upload OK: local=${localPath} ` +
+      `drive_file_id=${driveFile.id} target_folder_id=${driveFile.target_folder_id} ` +
+      `target_drive_id=${driveFile.target_drive_id ?? 'my-drive'} at ${now}`,
+    )
   } catch (err) {
     driveStatus.last_error = { message: err.message, at: new Date().toISOString() }
     console.error(`${logPrefix} Drive upload failed (local backup preserved):`, err.message)
