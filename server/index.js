@@ -4,8 +4,8 @@ import cors from 'cors'
 import path from 'path'
 import { existsSync } from 'fs'
 import { fileURLToPath } from 'url'
-import { clerkMiddleware } from '@clerk/express'
-import { migrate } from './db.js'
+import { clerkMiddleware, getAuth } from '@clerk/express'
+import { migrate, pool } from './db.js'
 import mealsRouter from './routes/meals.js'
 import dailyLogsRouter from './routes/dailyLogs.js'
 import usersRouter from './routes/users.js'
@@ -32,6 +32,7 @@ import stripeRouter from './routes/stripe.js'
 import fitbitRouter from './routes/fitbit.js'
 import { runInactivityAlert } from './jobs/inactivityAlert.js'
 import { processFormSchedules } from './jobs/formScheduler.js'
+import { runPostgresBackup, runCloudinaryBackup, getBackupStatus } from './jobs/backup.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname  = path.dirname(__filename)
@@ -80,6 +81,19 @@ app.use('/api/mindset-videos',        clerkMiddleware(), mindsetVideosRouter)
 app.use('/api/community-resources',   clerkMiddleware(), communityResourcesRouter)
 app.use('/api/fitbit',                fitbitRouter)
 
+// Admin backup status — admin-only, no sensitive data exposed
+app.get('/api/admin/backup/status', clerkMiddleware(), async (req, res) => {
+  try {
+    const { userId } = getAuth(req)
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' })
+    const { rows } = await pool.query('SELECT role FROM users WHERE clerk_user_id = $1', [userId])
+    if (!rows[0] || rows[0].role !== 'admin') return res.status(403).json({ error: 'Forbidden' })
+    res.json(getBackupStatus())
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // Serve React client if dist exists — must come after all API routes
 const distPath = path.join(__dirname, '../client/dist')
 if (existsSync(distPath)) {
@@ -109,5 +123,11 @@ migrate()
       // Run form schedule processor at startup, then every hour
       processFormSchedules()
       setInterval(processFormSchedules, 60 * 60 * 1000)
+      // Postgres backup: daily (job_lock prevents duplicate runs across instances)
+      runPostgresBackup()
+      setInterval(runPostgresBackup, 24 * 60 * 60 * 1000)
+      // Cloudinary metadata backup: weekly
+      runCloudinaryBackup()
+      setInterval(runCloudinaryBackup, 7 * 24 * 60 * 60 * 1000)
     })
   })
