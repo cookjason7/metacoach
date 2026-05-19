@@ -6,6 +6,9 @@ Automatic backups run on a schedule using the same job-lock mechanism as other
 background jobs. Multiple Railway instances will never run duplicate backups
 because each job acquires a PostgreSQL row-level lock before executing.
 
+After each backup file is written locally, it is automatically uploaded to a
+Google Drive folder via a service account.
+
 Two backup types:
 
 | Type | What | Schedule | File prefix |
@@ -23,29 +26,70 @@ Two backup types:
 | `CLOUDINARY_CLOUD_NAME` | Cloudinary backup | Already set on Railway |
 | `CLOUDINARY_API_KEY` | Cloudinary backup | Already set on Railway |
 | `CLOUDINARY_API_SECRET` | Cloudinary backup | Already set on Railway |
-| `BACKUP_DIR` | Both (optional) | Defaults to `backups/` in project root |
+| `BACKUP_DIR` | Both (optional) | Defaults to `backups/` in project root; set to `/data/backups` on Railway Volume |
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | Drive upload | Service account email from GCP |
+| `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` | Drive upload | Full PEM private key (Railway escapes newlines automatically) |
+| `GOOGLE_DRIVE_BACKUP_FOLDER_ID` | Drive upload | Google Drive folder ID from the folder URL |
 
-If any required variable is missing the job logs `backup skipped` and exits cleanly — it will not crash the server.
+If Drive env vars are missing, local backups still run and a clean skip is logged.
+If Drive upload fails, the local backup is preserved and the error is logged — the
+server does not crash.
+
+---
+
+## Google Drive Setup
+
+### 1. Create a service account
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) → IAM & Admin → Service Accounts.
+2. Create a new service account (e.g. `metacoach-backups@your-project.iam.gserviceaccount.com`).
+3. On the Keys tab, add a JSON key. Download the file.
+4. From the JSON key file, copy:
+   - `client_email` → `GOOGLE_SERVICE_ACCOUNT_EMAIL`
+   - `private_key` → `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`
+
+### 2. Enable the Drive API
+
+In GCP, search for "Google Drive API" and enable it for your project.
+
+### 3. Create the backup folder in Drive
+
+1. Create a folder in Google Drive named e.g. `MetaCoach Backups`.
+2. Share it with the service account email (Editor access).
+3. Copy the folder ID from the URL:
+   `https://drive.google.com/drive/folders/THIS_IS_THE_ID`
+4. Set this as `GOOGLE_DRIVE_BACKUP_FOLDER_ID`.
+
+### 4. Set Railway env vars
+
+In Railway → your service → Variables:
+
+```
+GOOGLE_SERVICE_ACCOUNT_EMAIL   = metacoach-backups@your-project.iam.gserviceaccount.com
+GOOGLE_DRIVE_BACKUP_FOLDER_ID  = 1AbCdEf...yourFolderId
+GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY = -----BEGIN RSA PRIVATE KEY-----\nMIIEo...
+```
+
+Railway stores multi-line strings with `\n` literals. The backup code automatically
+converts `\n` → real newlines when reading the key, so paste the full key as-is.
 
 ---
 
 ## Where Backups Are Stored
 
-Backups are written to `backups/` at the project root (or `$BACKUP_DIR` if set).
+### Local (Railway Volume)
 
-**Important — Railway filesystem is ephemeral:** files written to disk are lost
-on redeploy. Two practical options:
+Backups are written to `BACKUP_DIR` (set to `/data/backups` on the Railway Volume).
+Files persist across deploys because the Volume is mounted at that path.
 
-1. **Download before redeploying** — use the admin status endpoint to confirm
-   the backup ran, then `railway run cat backups/pg_<timestamp>.json.gz > local.json.gz`
-   to pull it down.
+### Google Drive
 
-2. **Set `BACKUP_DIR` to a mounted volume** — if you add a Railway Volume to the
-   service, set `BACKUP_DIR=/data/backups`. Files then persist across deploys.
+After each successful local write, the `.json.gz` file is uploaded to the
+configured Drive folder. Each backup run creates a new file in Drive — old
+files are not overwritten or deleted automatically.
 
-The Cloudinary backup is metadata only (public_ids + URLs). The actual image
-binaries live permanently in Cloudinary's storage and do not need to be
-downloaded separately.
+The Cloudinary backup is metadata only (public_ids + URLs). Actual image
+binaries live permanently in Cloudinary and are not uploaded to Drive.
 
 ---
 
@@ -66,13 +110,13 @@ GET /api/admin/backup/status
 Authorization: Clerk session (admin role required)
 ```
 
-Returns JSON with last backup file for each type, file sizes, and full file list.
+Returns local file info plus Drive upload status.
 
 Example response:
 
 ```json
 {
-  "backup_dir": "/app/backups",
+  "backup_dir": "/data/backups",
   "last_postgres": {
     "file": "pg_2026-05-19-02-00-00.json.gz",
     "size_bytes": 184320,
@@ -84,41 +128,66 @@ Example response:
     "modified": "2026-05-18T02:00:05.000Z"
   },
   "total_backup_files": 9,
+  "drive_configured": true,
+  "drive_last_pg_upload": {
+    "file": "pg_2026-05-19-02-00-00.json.gz",
+    "drive_id": "1XyZ...",
+    "uploaded_at": "2026-05-19T02:00:15.000Z"
+  },
+  "drive_last_cdn_upload": {
+    "file": "cloudinary_2026-05-18-02-00-00.json.gz",
+    "drive_id": "1AbC...",
+    "uploaded_at": "2026-05-18T02:00:08.000Z"
+  },
+  "drive_last_error": null,
   "all_files": [...]
 }
 ```
+
+`drive_configured: false` means Drive env vars are not set — local-only mode.
+`drive_last_error` is non-null if the most recent Drive upload failed.
 
 ---
 
 ## How to Manually Trigger a Backup
 
-**Option 1 — Restart the server.** Both jobs run at startup. The job_lock
-prevents duplicates if a backup ran recently. To force a fresh backup, delete
-the lock rows first:
+**Option 1 — Clear locks and restart.** Both jobs run at startup. To force a
+fresh run before the lock expires, clear the lock rows:
 
 ```sql
 DELETE FROM job_locks WHERE job_name IN ('backup_postgres', 'backup_cloudinary');
 ```
 
-Then restart (or redeploy) the server.
+Then redeploy (or restart the server via Railway dashboard).
 
-**Option 2 — Run the script directly:**
+**Option 2 — Railway CLI:**
 
 ```bash
-node -e "
-import('./server/jobs/backup.js').then(async m => {
-  await m.runPostgresBackup()
-  await m.runCloudinaryBackup()
-  process.exit(0)
-})
+railway run node -e "
+  import('./server/jobs/backup.js').then(async m => {
+    await m.runPostgresBackup()
+    await m.runCloudinaryBackup()
+    process.exit(0)
+  })
 "
 ```
 
-Or from Railway CLI:
+---
 
-```bash
-railway run node -e "import('./server/jobs/backup.js').then(m => m.runPostgresBackup().then(() => process.exit(0)))"
-```
+## What to Check After a Backup Run
+
+1. **Server logs** — look for:
+   ```
+   [backup:pg] ✓ /data/backups/pg_<ts>.json.gz | X.X MB | 40 tables | 0 skipped
+   [backup:pg] ✓ Drive upload: pg_<ts>.json.gz (id=1AbC...)
+   [backup:cloudinary] ✓ /data/backups/cloudinary_<ts>.json.gz | N assets catalogued
+   [backup:cloudinary] ✓ Drive upload: cloudinary_<ts>.json.gz (id=1XyZ...)
+   ```
+
+2. **Status endpoint** — `GET /api/admin/backup/status` — confirm `drive_configured: true`
+   and both `drive_last_pg_upload` / `drive_last_cdn_upload` are non-null.
+
+3. **Google Drive folder** — the backup files should appear directly in the shared folder.
 
 ---
 
@@ -134,13 +203,11 @@ All user-data tables exported as raw row arrays. Tables excluded:
 
 ## Restore Notes
 
-The Postgres backup is a JSON dump of row data, not a pg_dump binary. To
-restore:
+The Postgres backup is a JSON dump of row data, not a pg_dump binary. To restore:
 
 1. Spin up a fresh Postgres instance with `DATABASE_URL` pointing to it.
 2. Run the app once to let `migrate()` recreate all tables and indexes.
-3. Write a restore script that reads the JSON and INSERTs rows in dependency
-   order (users first, then everything that FK-references users, etc.).
+3. Write a restore script that reads the JSON and INSERTs rows in dependency order.
 
 **Restore order (safe sequence):**
 
@@ -159,15 +226,14 @@ users → meals, daily_logs, fitbit_tokens, coaching_conversations,
         community_resources, mindset_videos, video_watch_progress
 ```
 
-For a full disaster recovery, Railway's Postgres service also has its own
-point-in-time recovery (PITR) available on paid plans — check Railway dashboard
-under the database service settings.
+For full disaster recovery, Railway's Postgres service also has point-in-time
+recovery (PITR) on paid plans — check Railway dashboard under the database service.
 
 ---
 
 ## Future Enhancements
 
-- [ ] Auto-upload backup files to Google Drive or S3 after writing
+- [x] Auto-upload backup files to Google Drive
+- [ ] Prune old Drive files (keep last N)
 - [ ] Email admin a backup success/failure summary each run
-- [ ] Add a `/api/admin/backup/download` endpoint to stream the latest file
-- [ ] Prune old backup files (keep last N)
+- [ ] Add a `/api/admin/backup/download` endpoint to stream the latest local file
