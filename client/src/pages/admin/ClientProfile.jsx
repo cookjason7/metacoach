@@ -976,6 +976,8 @@ function HabitsTab({ clientId, getToken }) {
   const [showForm, setShowForm] = useState(false)
   const [showLibrary, setShowLibrary] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState({})
   const [form, setForm] = useState({
     habit_name: '', habit_type: 'boolean', target_value: '', unit: '',
     frequency: 'daily', start_date: new Date().toISOString().slice(0, 10),
@@ -1049,6 +1051,49 @@ function HabitsTab({ clientId, getToken }) {
       headers: { Authorization: `Bearer ${token}` },
     })
     if (res.ok) setHabits(h => h.filter(x => x.id !== habitId))
+  }
+
+  function startEdit(h) {
+    setEditingId(h.id)
+    setEditForm({
+      habit_name:   h.habit_name,
+      target_value: h.target_value != null ? String(h.target_value) : '',
+      unit:         h.unit ?? '',
+      frequency:    h.frequency ?? 'daily',
+      start_date:   String(h.start_date).slice(0, 10),
+      end_date:     h.end_date ? String(h.end_date).slice(0, 10) : '',
+      notes:        h.notes ?? '',
+      days_of_week: h.days_of_week ?? '',
+    })
+  }
+
+  async function saveEdit(habitId) {
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/coach-admin/habits/${habitId}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        habit_name:   editForm.habit_name.trim() || undefined,
+        target_value: editForm.target_value !== '' ? Number(editForm.target_value) : null,
+        unit:         editForm.unit || undefined,
+        frequency:    editForm.frequency || undefined,
+        start_date:   editForm.start_date || undefined,
+        end_date:     editForm.end_date || null,
+        notes:        editForm.notes.trim() || null,
+        days_of_week: editForm.frequency === 'specific_days' ? (editForm.days_of_week || null) : null,
+      }),
+    })
+    if (res.ok) {
+      const updated = await res.json()
+      setHabits(prev => prev.map(h => h.id === habitId ? updated : h))
+      setEditingId(null)
+    }
+  }
+
+  function toggleEditDay(idx) {
+    const current = editForm.days_of_week ? editForm.days_of_week.split(',').map(Number) : []
+    const next = current.includes(idx) ? current.filter(d => d !== idx) : [...current, idx].sort()
+    setEditForm(f => ({ ...f, days_of_week: next.join(',') }))
   }
 
   const previewDays = buildHabitPreview(habits, 14)
@@ -1204,28 +1249,104 @@ function HabitsTab({ clientId, getToken }) {
         <div className="space-y-2">
           {habits.map(h => (
             <div key={h.id} className="bg-white border border-gray-200 rounded-xl p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="font-semibold text-gray-900 text-sm">{h.habit_name}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    {h.target_value ? `${h.target_value} ${h.unit ?? ''} · ` : ''}{h.frequency}
-                    {h.days_of_week && ` (${h.days_of_week.split(',').map(d => DAYS[d]).join(', ')})`}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {String(h.start_date).slice(0, 10)}
-                    {h.end_date ? ` → ${String(h.end_date).slice(0, 10)}` : ' → ongoing'}
-                    {h.assigned_by_name && ` · by ${h.assigned_by_name}`}
-                  </p>
-                  {h.identity_category && (
-                    <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-orange-50 text-[#E8670A] border border-orange-200">
-                      {{food_tracking:'Food Tracking',movement:'Movement',mindset:'Mindset',check_ins:'Check-Ins',progress:'Progress'}[h.identity_category] ?? h.identity_category}
-                    </span>
+              {editingId === h.id ? (
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold text-gray-900">Edit habit</p>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Habit name</label>
+                    <input value={editForm.habit_name} onChange={e => setEditForm(f => ({ ...f, habit_name: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Target</label>
+                      <input type="number" value={editForm.target_value} onChange={e => setEditForm(f => ({ ...f, target_value: e.target.value }))}
+                        placeholder="—" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Unit</label>
+                      <input value={editForm.unit} onChange={e => setEditForm(f => ({ ...f, unit: e.target.value }))}
+                        placeholder="oz / steps" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Frequency</label>
+                      <select value={editForm.frequency} onChange={e => setEditForm(f => ({ ...f, frequency: e.target.value }))}
+                        className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white">
+                        <option value="daily">Daily</option>
+                        <option value="specific_days">Specific days</option>
+                        <option value="weekly">Weekly</option>
+                      </select>
+                    </div>
+                  </div>
+                  {editForm.frequency === 'specific_days' && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Days</label>
+                      <div className="flex gap-1.5 flex-wrap">
+                        {DAYS.map((d, i) => {
+                          const sel = (editForm.days_of_week || '').split(',').map(Number).includes(i)
+                          return (
+                            <button key={d} type="button" onClick={() => toggleEditDay(i)}
+                              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border-2 ${
+                                sel ? 'bg-[#E8670A] border-[#E8670A] text-white' : 'border-gray-200 text-gray-600 hover:border-[#E8670A]'
+                              }`}>{d}</button>
+                          )
+                        })}
+                      </div>
+                    </div>
                   )}
-                  {h.notes && <p className="text-xs text-[#E8670A] italic mt-1">"{h.notes}"</p>}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Start date</label>
+                      <input type="date" value={editForm.start_date} onChange={e => setEditForm(f => ({ ...f, start_date: e.target.value }))}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">End date (clear = ongoing)</label>
+                      <input type="date" value={editForm.end_date} onChange={e => setEditForm(f => ({ ...f, end_date: e.target.value }))}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Coach note (optional)</label>
+                    <input value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))}
+                      placeholder="Optional message shown to client"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => saveEdit(h.id)}
+                      className="bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09]">Save</button>
+                    <button onClick={() => setEditingId(null)}
+                      className="text-sm text-gray-500 px-3 py-2 hover:text-gray-700">Cancel</button>
+                  </div>
                 </div>
-                <button onClick={() => deleteHabit(h.id)}
-                  className="text-xs text-red-400 hover:text-red-600 font-medium shrink-0">Remove</button>
-              </div>
+              ) : (
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-gray-900 text-sm">{h.habit_name}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {h.target_value ? `${h.target_value} ${h.unit ?? ''} · ` : ''}{h.frequency}
+                      {h.days_of_week && ` (${h.days_of_week.split(',').map(d => DAYS[d]).join(', ')})`}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {String(h.start_date).slice(0, 10)}
+                      {h.end_date ? ` → ${String(h.end_date).slice(0, 10)}` : ' → ongoing'}
+                      {h.assigned_by_name && ` · by ${h.assigned_by_name}`}
+                    </p>
+                    {h.identity_category && (
+                      <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-orange-50 text-[#E8670A] border border-orange-200">
+                        {{food_tracking:'Food Tracking',movement:'Movement',mindset:'Mindset',check_ins:'Check-Ins',progress:'Progress'}[h.identity_category] ?? h.identity_category}
+                      </span>
+                    )}
+                    {h.notes && <p className="text-xs text-[#E8670A] italic mt-1">"{h.notes}"</p>}
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button onClick={() => startEdit(h)}
+                      className="text-xs text-[#E8670A] hover:text-[#c45e09] font-medium">Edit</button>
+                    <button onClick={() => deleteHabit(h.id)}
+                      className="text-xs text-red-400 hover:text-red-600 font-medium">Remove</button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -1235,8 +1356,8 @@ function HabitsTab({ clientId, getToken }) {
       {habits.length > 0 && (
         <div>
           <button onClick={() => setShowPreview(s => !s)}
-            className="text-xs text-[#E8670A] hover:text-[#c45e09] font-semibold mb-2 flex items-center gap-1">
-            {showPreview ? '▼' : '▶'} Preview client calendar (next 14 days)
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 border-[#1e2a3a] text-[#1e2a3a] text-sm font-semibold hover:bg-[#1e2a3a] hover:text-white transition-colors mb-3">
+            📅 {showPreview ? 'Hide Client Habit Calendar' : 'View Client Habit Calendar (14 days)'}
           </button>
           {showPreview && (
             <div className="bg-white border border-gray-200 rounded-xl p-3">

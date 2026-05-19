@@ -1047,7 +1047,6 @@ export default function Settings() {
           <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
             {[
               { name: 'Apple Health',  icon: '🍎' },
-              { name: 'Google Fit',    icon: '🏃' },
               { name: 'Google Health', icon: '❤️' },
             ].map(app => (
               app.name === 'Google Health' ? (

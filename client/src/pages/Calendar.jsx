@@ -175,7 +175,7 @@ export default function Calendar() {
   today.setHours(0, 0, 0, 0)
 
   // View modes: '7d', '14d', 'month'
-  const [viewMode, setViewMode] = useState('month')
+  const [viewMode, setViewMode] = useState('7d')
   // Anchor date — for month mode this is set to month-1st; for strip views,
   // it represents the start of the visible window.
   const [anchor, setAnchor]   = useState(new Date(today.getFullYear(), today.getMonth(), 1))
@@ -344,9 +344,8 @@ export default function Calendar() {
         {/* View mode switcher */}
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
           {[
-            { id: '7d',    label: 'Week' },
-            { id: '14d',   label: '2 Weeks' },
-            { id: 'month', label: 'Month' },
+            { id: '7d',  label: 'Week' },
+            { id: '14d', label: '2 Weeks' },
           ].map(v => (
             <button key={v.id} onClick={() => switchView(v.id)}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
