@@ -1194,7 +1194,7 @@ function VideoModal({ initial, onSave, onClose, saving }) {
 // Standalone component: mount = player starts, unmount = player destroyed.
 // React never reconciles inside containerRef — YT owns that subtree entirely.
 
-function YoutubePlayer({ vid, videoId, getToken, onFallback }) {
+function YoutubePlayer({ vid, videoId, getToken, onFallback, onProgressSaved }) {
   const containerRef = useRef(null)
   const playerRef    = useRef(null)
   const intervalRef  = useRef(null)
@@ -1202,8 +1202,10 @@ function YoutubePlayer({ vid, videoId, getToken, onFallback }) {
   // Stable ref wrappers so the effect closure never captures stale values
   const getTokenRef  = useRef(getToken)
   const onFallbackRef = useRef(onFallback)
+  const onProgressSavedRef = useRef(onProgressSaved)
   useEffect(() => { getTokenRef.current = getToken }, [getToken])
   useEffect(() => { onFallbackRef.current = onFallback }, [onFallback])
+  useEffect(() => { onProgressSavedRef.current = onProgressSaved }, [onProgressSaved])
 
   function stopTracking() {
     if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
@@ -1211,15 +1213,33 @@ function YoutubePlayer({ vid, videoId, getToken, onFallback }) {
 
   async function reportPct(pct) {
     const gt = getTokenRef.current
-    if (!gt) return
+    if (!gt) {
+      console.warn('[MindsetVideo] progress skipped: no auth token getter')
+      return
+    }
     try {
       const token = await gt()
-      await fetch(`${API_URL}/api/mindset-videos/${videoId}/progress`, {
+      if (!token) {
+        console.warn('[MindsetVideo] progress skipped: missing auth token')
+        return
+      }
+      const res = await fetch(`${API_URL}/api/mindset-videos/${videoId}/progress`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ pct }),
       })
-    } catch {}
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        console.warn('[MindsetVideo] progress save failed:', res.status, detail.error ?? res.statusText)
+        return
+      }
+      const data = await res.json().catch(() => ({}))
+      if (onProgressSavedRef.current) {
+        onProgressSavedRef.current(videoId, data.highest_pct ?? pct, Boolean(data.completed))
+      }
+    } catch (err) {
+      console.warn('[MindsetVideo] progress save failed:', err)
+    }
   }
 
   useEffect(() => {
@@ -1305,7 +1325,7 @@ function YoutubePlayer({ vid, videoId, getToken, onFallback }) {
 
 // ── VideoCard ─────────────────────────────────────────────────────────────────
 
-function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded, onToggleExpand, getToken, progress }) {
+function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded, onToggleExpand, getToken, progress, onProgressSaved }) {
   const vid = ytVideoId(video.youtube_url)
   const [ytFailed, setYtFailed] = useState(false)
 
@@ -1344,6 +1364,7 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
               videoId={video.id}
               getToken={isStaff ? null : getToken}
               onFallback={() => setYtFailed(true)}
+              onProgressSaved={onProgressSaved}
             />
           )
         ) : vid ? (
@@ -1478,12 +1499,33 @@ function MindsetTab({ getToken, isStaff }) {
       const [res, progressRes] = await Promise.all(reqs)
       if (!res.ok) throw new Error(`Server error ${res.status}`)
       setVideos(await res.json())
-      if (progressRes?.ok) setMyProgress(await progressRes.json())
+      if (progressRes) {
+        if (progressRes.ok) {
+          setMyProgress(await progressRes.json())
+        } else {
+          console.warn('[MindsetVideo] progress fetch failed:', progressRes.status, progressRes.statusText)
+        }
+      }
     } catch (e) { setError(e.message) }
     finally { setLoading(false) }
   }
 
   useEffect(() => { load() }, [getToken])
+
+  const handleProgressSaved = useCallback((videoId, highestPct, completed) => {
+    setMyProgress(prev => {
+      const current = prev[videoId] ?? {}
+      const nextPct = Math.max(Number(current.highest_pct) || 0, Number(highestPct) || 0)
+      return {
+        ...prev,
+        [videoId]: {
+          started: true,
+          highest_pct: nextPct,
+          completed: Boolean(current.completed || completed || nextPct >= 90),
+        },
+      }
+    })
+  }, [])
 
   async function handleSave(form) {
     setSaving(true)
@@ -1617,6 +1659,7 @@ function MindsetTab({ getToken, isStaff }) {
                       onToggleExpand={() => setExpandedId(expandedId === v.id ? null : v.id)}
                       getToken={getToken}
                       progress={myProgress[v.id] ?? null}
+                      onProgressSaved={handleProgressSaved}
                     />
                   ))}
                 </div>
