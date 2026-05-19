@@ -262,13 +262,28 @@ router.post('/sync', requireAuth(), async (req, res, next) => {
   try {
     const dbUserId = await currentDbUserId(req)
     const { rows } = await pool.query('SELECT * FROM fitbit_tokens WHERE user_id=$1', [dbUserId])
-    if (!rows.length) return res.status(404).json({ error: 'Fitbit is not connected' })
+    if (!rows.length) return res.status(404).json({ error: 'Fitbit is not connected.' })
 
-    const token = await refreshTokenIfNeeded(rows[0])
-    const [steps, sleepMinutes] = await Promise.all([
-      fetchTodaySteps(token.access_token),
-      fetchTodaySleepMinutes(token.access_token),
-    ])
+    let token
+    try {
+      token = await refreshTokenIfNeeded(rows[0])
+    } catch (refreshErr) {
+      console.error('[fitbit sync] token refresh failed:', refreshErr.message)
+      return res.status(502).json({
+        error: 'Google Health authentication failed. Please disconnect and reconnect Google Health.',
+      })
+    }
+
+    let steps, sleepMinutes
+    try {
+      ;[steps, sleepMinutes] = await Promise.all([
+        fetchTodaySteps(token.access_token),
+        fetchTodaySleepMinutes(token.access_token),
+      ])
+    } catch (apiErr) {
+      console.error('[fitbit sync] Google Health API error:', apiErr.message)
+      return res.status(502).json({ error: `Google Health sync failed: ${apiErr.message}` })
+    }
 
     const { rows: logRows } = await pool.query(
       `INSERT INTO daily_logs (user_id, logged_date, steps, sleep_minutes, steps_source)
