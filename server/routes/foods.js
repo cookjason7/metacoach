@@ -5,8 +5,6 @@ import { searchUSDA, lookupFdcId, isBarcode } from '../services/usdaApi.js'
 
 const router = Router()
 
-// Minimum local results before we call out to the USDA API for supplements
-const LOCAL_THRESHOLD = 5
 const USDA_DATA_TYPES = new Set(['SR Legacy', 'Foundation', 'Branded'])
 
 function isVerifiedFood(food) {
@@ -194,31 +192,31 @@ router.get('/search', requireAuth(), async (req, res, next) => {
     // ── Local search ─────────────────────────────────────────────────────────
     const localResults = await localSearch(q, limit, offset)
 
-    // Custom foods always appear first; together they count toward threshold.
-    // Only exact/prefix local matches count — fuzzy-only hits (full-text, trigram)
-    // must not block the USDA Branded fallback for packaged terms like "protein bar".
-    const combined   = [...customResults, ...localResults]
-    const ql         = q.toLowerCase()
-    const strongLocal = localResults.filter(f => f.name.toLowerCase().startsWith(ql)).length
-    if (customResults.length + strongLocal >= LOCAL_THRESHOLD) {
-      return res.json(combined.slice(0, limit))
+    // Local results always come first: custom foods, then DB whole foods.
+    const combined = [...customResults, ...localResults]
+
+    // ── USDA supplement ──────────────────────────────────────────────────────
+    // Always append live USDA results for queries ≥ 2 chars so branded and
+    // packaged foods surface even when the local SR Legacy DB has many hits.
+    // Local FDC IDs are deduped so the same food never appears twice.
+    if (q.length >= 2) {
+      const localFdcIds = new Set(localResults.map(f => f.fdc_id).filter(Boolean))
+      const needed      = Math.max(limit - combined.length, 10)
+
+      let usdaResults = []
+      try {
+        const raw = await searchUSDA(q, { pageSize: needed + 10 })
+        usdaResults = raw
+          .filter(f => !localFdcIds.has(f.fdc_id))
+          .slice(0, needed)
+      } catch (err) {
+        console.warn('[foods] USDA supplement failed:', err.message)
+      }
+
+      return res.json([...combined, ...usdaResults].slice(0, limit))
     }
 
-    // ── USDA fallback ────────────────────────────────────────────────────────
-    const localFdcIds = new Set(localResults.map(f => f.fdc_id).filter(Boolean))
-    const needed      = limit - combined.length
-
-    let usdaResults = []
-    try {
-      const raw = await searchUSDA(q, { pageSize: needed + 5 })
-      usdaResults = raw
-        .filter(f => !localFdcIds.has(f.fdc_id))
-        .slice(0, needed)
-    } catch (err) {
-      console.warn('[foods] USDA fallback failed:', err.message)
-    }
-
-    res.json([...combined, ...usdaResults])
+    res.json(combined.slice(0, limit))
   } catch (err) {
     next(err)
   }

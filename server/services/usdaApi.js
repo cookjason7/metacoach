@@ -153,7 +153,7 @@ function formatFood(raw) {
  * @param {string} options.dataType  - e.g. 'Branded', 'SR Legacy' (omit for all)
  * @returns {Array} Array of food objects in our local schema shape
  */
-export async function searchUSDA(query, { pageSize = 10, dataType } = {}) {
+export async function searchUSDA(query, { pageSize = 20, dataType } = {}) {
   const params = new URLSearchParams({
     query,
     api_key:  API_KEY,

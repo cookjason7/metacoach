@@ -432,7 +432,7 @@ function SearchMode({ slot, logDate }) {
     setSearching(true)
     try {
       const token = await getToken()
-      const res   = await fetch(`${API_URL}/api/foods/search?q=${encodeURIComponent(q)}&limit=20`, {
+      const res   = await fetch(`${API_URL}/api/foods/search?q=${encodeURIComponent(q)}&limit=40`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok) throw new Error()
