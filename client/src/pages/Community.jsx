@@ -1199,10 +1199,12 @@ function YoutubePlayer({ vid, videoId, getToken, onFallback, onProgressSaved }) 
   const playerRef    = useRef(null)
   const intervalRef  = useRef(null)
   const sentRef      = useRef(new Set())
-  // Stable ref wrappers so the effect closure never captures stale values
-  const getTokenRef  = useRef(getToken)
-  const onFallbackRef = useRef(onFallback)
+  // Stable ref wrappers — the useEffect closure captures these refs, not the values,
+  // so YT event handlers always read the latest getToken / callbacks / reportPct.
+  const getTokenRef        = useRef(getToken)
+  const onFallbackRef      = useRef(onFallback)
   const onProgressSavedRef = useRef(onProgressSaved)
+  const reportPctRef       = useRef(null) // set below on every render
   useEffect(() => { getTokenRef.current = getToken }, [getToken])
   useEffect(() => { onFallbackRef.current = onFallback }, [onFallback])
   useEffect(() => { onProgressSavedRef.current = onProgressSaved }, [onProgressSaved])
@@ -1212,6 +1214,7 @@ function YoutubePlayer({ vid, videoId, getToken, onFallback, onProgressSaved }) 
   }
 
   async function reportPct(pct) {
+    console.log('[MindsetVideo] reportPct fired — videoId:', videoId, 'pct:', pct)
     const gt = getTokenRef.current
     if (!gt) {
       console.warn('[MindsetVideo] progress skipped: no auth token getter')
@@ -1223,7 +1226,9 @@ function YoutubePlayer({ vid, videoId, getToken, onFallback, onProgressSaved }) 
         console.warn('[MindsetVideo] progress skipped: missing auth token')
         return
       }
-      const res = await fetch(`${API_URL}/api/mindset-videos/${videoId}/progress`, {
+      const url = `${API_URL}/api/mindset-videos/${videoId}/progress`
+      console.log('[MindsetVideo] POST', url, { pct })
+      const res = await fetch(url, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ pct }),
@@ -1234,13 +1239,17 @@ function YoutubePlayer({ vid, videoId, getToken, onFallback, onProgressSaved }) 
         return
       }
       const data = await res.json().catch(() => ({}))
+      console.log('[MindsetVideo] progress saved OK:', data)
       if (onProgressSavedRef.current) {
         onProgressSavedRef.current(videoId, data.highest_pct ?? pct, Boolean(data.completed))
       }
     } catch (err) {
-      console.warn('[MindsetVideo] progress save failed:', err)
+      console.warn('[MindsetVideo] progress save error:', err)
     }
   }
+  // Always keep reportPctRef pointing at the latest reportPct closure,
+  // so YT event handlers set up on mount always call the current version.
+  reportPctRef.current = reportPct
 
   useEffect(() => {
     // Effect runs once on mount; cleanup runs on unmount.
@@ -1274,7 +1283,7 @@ function YoutubePlayer({ vid, videoId, getToken, onFallback, onProgressSaved }) 
               const iframe = e.target.getIframe()
               if (iframe) iframe.style.cssText = 'position:absolute;inset:0;width:100%;height:100%'
             } catch {}
-            if (!sentRef.current.has(1)) { sentRef.current.add(1); reportPct(1) }
+            if (!sentRef.current.has(1)) { sentRef.current.add(1); reportPctRef.current(1) }
           },
           onStateChange: (e) => {
             if (e.data === window.YT.PlayerState.PLAYING) {
@@ -1288,7 +1297,7 @@ function YoutubePlayer({ vid, videoId, getToken, onFallback, onProgressSaved }) 
                   const pct = Math.floor(p.getCurrentTime() / dur * 100)
                   for (const m of [10, 20, 30, 40, 50, 60, 70, 80, 90]) {
                     if (pct >= m && !sentRef.current.has(m)) {
-                      sentRef.current.add(m); reportPct(m)
+                      sentRef.current.add(m); reportPctRef.current(m)
                     }
                   }
                 } catch {}
@@ -1297,7 +1306,7 @@ function YoutubePlayer({ vid, videoId, getToken, onFallback, onProgressSaved }) 
               stopTracking()
             }
             if (e.data === window.YT.PlayerState.ENDED && !sentRef.current.has(100)) {
-              sentRef.current.add(100); reportPct(100)
+              sentRef.current.add(100); reportPctRef.current(100)
             }
           },
           onError: (e) => {
@@ -1512,7 +1521,23 @@ function MindsetTab({ getToken, isStaff }) {
 
   useEffect(() => { load() }, [getToken])
 
+  // Re-fetch my-progress from the server to sync DB-confirmed state.
+  // Called after any progress save so the badge is guaranteed to update.
+  const refreshProgressRef = useRef(null)
+  refreshProgressRef.current = async () => {
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/mindset-videos/my-progress`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) setMyProgress(await res.json())
+    } catch (e) {
+      console.warn('[MindsetVideo] progress refresh failed:', e)
+    }
+  }
+
   const handleProgressSaved = useCallback((videoId, highestPct, completed) => {
+    // Optimistic local update for immediate badge feedback
     setMyProgress(prev => {
       const current = prev[videoId] ?? {}
       const nextPct = Math.max(Number(current.highest_pct) || 0, Number(highestPct) || 0)
@@ -1525,6 +1550,8 @@ function MindsetTab({ getToken, isStaff }) {
         },
       }
     })
+    // Also re-fetch from server so badge reflects DB-confirmed state
+    refreshProgressRef.current?.()
   }, [])
 
   async function handleSave(form) {
