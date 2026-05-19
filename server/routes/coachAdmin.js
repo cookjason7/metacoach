@@ -95,7 +95,7 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
         COALESCE(u.first_name, ha.first_name,
           CASE WHEN u.name IS NOT NULL THEN SPLIT_PART(u.name, ' ', 1) END
         ) AS first_name,
-        COALESCE(ha.last_name,
+        COALESCE(u.last_name, ha.last_name,
           CASE WHEN u.name LIKE '% %'
             THEN LTRIM(SUBSTRING(u.name FROM POSITION(' ' IN u.name)))
           END
@@ -574,7 +574,7 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
       // Build display name from first_name + assessment data
       display_first_name: c.first_name || c.assessment_first_name
         || (c.name ? c.name.split(' ')[0] : null) || null,
-      display_last_name: c.assessment_last_name
+      display_last_name: c.last_name || c.assessment_last_name
         || (c.name && c.name.includes(' ') ? c.name.split(' ').slice(1).join(' ') : null)
         || null,
       display_phone:      c.phone_number || c.assessment_phone || null,
