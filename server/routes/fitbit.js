@@ -24,6 +24,19 @@ function googleHealthConfig() {
   return { GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_CLIENT_SECRET, GOOGLE_HEALTH_REDIRECT_URI }
 }
 
+function frontendUrl(path, params = {}) {
+  const base = (process.env.APP_BASE_URL || 'https://app.lwcvip.com').replace(/\/+$/, '')
+  const url = new URL(path, `${base}/`)
+  for (const [key, value] of Object.entries(params)) {
+    if (value != null && value !== '') url.searchParams.set(key, String(value))
+  }
+  return url.toString()
+}
+
+function redirectToSettingsError(res, message) {
+  return res.redirect(frontendUrl('/settings', { fitbit_error: message || 'connection_failed' }))
+}
+
 function addSeconds(seconds) {
   return new Date(Date.now() + Number(seconds) * 1000)
 }
@@ -182,8 +195,9 @@ router.get('/connect', requireAuth(), async (req, res, next) => {
 router.get('/callback', async (req, res, next) => {
   try {
     const { GOOGLE_HEALTH_REDIRECT_URI } = googleHealthConfig()
-    const { code, state } = req.query
-    if (!code || !state) return res.status(400).json({ error: 'Missing Google Health authorization code or state' })
+    const { code, state, error, error_description } = req.query
+    if (error) return redirectToSettingsError(res, error_description || error)
+    if (!code || !state) return redirectToSettingsError(res, 'missing_authorization_code_or_state')
 
     const { rows } = await pool.query(
       `DELETE FROM fitbit_oauth_state
@@ -192,7 +206,7 @@ router.get('/callback', async (req, res, next) => {
       [state],
     )
     const dbUserId = rows[0]?.user_id
-    if (!dbUserId) return res.status(400).json({ error: 'Invalid or expired Fitbit state' })
+    if (!dbUserId) return redirectToSettingsError(res, 'invalid_or_expired_state')
 
     const data = await exchangeToken({
       grant_type: 'authorization_code',
@@ -200,7 +214,7 @@ router.get('/callback', async (req, res, next) => {
       code: String(code),
     })
     if (!data.refresh_token) {
-      return res.status(400).json({ error: 'Google Health did not return a refresh token. Please try connecting again.' })
+      return redirectToSettingsError(res, 'missing_refresh_token')
     }
 
     await pool.query(
@@ -217,9 +231,10 @@ router.get('/callback', async (req, res, next) => {
       [dbUserId, null, data.access_token, data.refresh_token, data.scope || SCOPES, addSeconds(data.expires_in)],
     )
 
-    res.redirect('/settings?connected=fitbit')
+    res.redirect(frontendUrl('/settings', { connected: 'fitbit' }))
   } catch (err) {
-    next(err)
+    console.error('[fitbit callback]', err.message)
+    return redirectToSettingsError(res, 'connection_failed')
   }
 })
 
