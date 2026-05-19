@@ -1,7 +1,7 @@
-import { rateLimit } from 'express-rate-limit'
+import { rateLimit, ipKeyGenerator } from 'express-rate-limit'
 import { getAuth } from '@clerk/express'
 
-const keyGenerator = (req) => getAuth(req).userId ?? req.ip
+const keyGenerator = (req) => getAuth(req).userId ?? ipKeyGenerator(req)
 
 export const chatLimit = rateLimit({
   windowMs: 60 * 60 * 1000,
