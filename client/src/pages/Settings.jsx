@@ -529,7 +529,7 @@ export default function Settings() {
       const parts = []
       if (data.steps != null) parts.push(`${data.steps.toLocaleString()} steps`)
       if (data.sleep_minutes != null) parts.push(`${Math.floor(data.sleep_minutes / 60)}h ${data.sleep_minutes % 60}m sleep`)
-      setFitbitMessage(parts.length ? `Synced ${parts.join(' and ')}.` : 'Fitbit synced.')
+      setFitbitMessage(parts.length ? `Synced ${parts.join(' and ')}.` : 'Google Health synced.')
     } catch (err) {
       setFitbitError(err.message)
     } finally {
@@ -550,7 +550,7 @@ export default function Settings() {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error ?? 'Fitbit disconnect failed')
       setFitbitStatus({ connected: false, last_synced_at: null, fitbit_user_id: null })
-      setFitbitMessage('Fitbit disconnected.')
+      setFitbitMessage('Google Health disconnected.')
     } catch (err) {
       setFitbitError(err.message)
     } finally {
@@ -1046,28 +1046,28 @@ export default function Settings() {
           <h2 className="text-sm font-semibold text-gray-700 mb-3">Connected Apps</h2>
           <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
             {[
-              { name: 'Apple Health', icon: '🍎' },
-              { name: 'Google Fit',   icon: '🏃' },
-              { name: 'Fitbit',       icon: '⌚' },
+              { name: 'Apple Health',  icon: '🍎' },
+              { name: 'Google Fit',    icon: '🏃' },
+              { name: 'Google Health', icon: '❤️' },
             ].map(app => (
-              app.name === 'Fitbit' ? (
+              app.name === 'Google Health' ? (
                 <div key={app.name} className="px-4 py-4">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div className="flex items-start gap-3 min-w-0">
                       <span className="text-xl shrink-0">{app.icon}</span>
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-medium text-gray-900">Fitbit</p>
+                          <p className="text-sm font-medium text-gray-900">Google Health</p>
                           <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
                             fitbitStatus.connected
                               ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
                               : 'bg-gray-100 text-gray-400'
                           }`}>
-                            {fitbitStatus.connected ? 'Connected' : 'Not connected'}
+                            {fitbitStatus.connected ? 'Google Health Connected' : 'Not connected'}
                           </span>
                         </div>
                         <p className="text-xs text-gray-500 mt-1">
-                          Sync steps and sleep while keeping manual logging available.
+                          Sync steps and sleep from Fitbit and other connected health apps.
                         </p>
                         {fitbitStatus.connected && (
                           <p className="text-xs text-gray-400 mt-1">
@@ -1105,7 +1105,7 @@ export default function Settings() {
                           disabled={fitbitLoading}
                           className="px-3 py-2 rounded-lg bg-[#1e2a3a] text-white text-xs font-semibold hover:bg-[#111827] disabled:opacity-60 transition-colors"
                         >
-                          Connect Fitbit
+                          Connect Google Health
                         </button>
                       )}
                       <button

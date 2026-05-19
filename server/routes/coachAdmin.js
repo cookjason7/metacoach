@@ -102,6 +102,7 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
         ) AS display_last_name,
         COALESCE(u.phone_number, ha.phone)            AS phone_number,
         u.email,
+        u.goal_calories, u.goal_protein, u.goal_carbs, u.goal_fat,
         u.coaching_type, u.assigned_coach_id, u.role,
         u.onboarding_complete, u.assessment_complete,
         u.last_login_at, u.start_date, u.paid, u.paid_at, u.created_at,

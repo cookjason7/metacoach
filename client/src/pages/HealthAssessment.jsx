@@ -38,7 +38,7 @@ const IDENTITY_TRAITS = [
   'Keeps small promises daily.',
   'Acts on imperfect plans.',
   "Learns from mistakes — doesn't hide from them.",
-  'Invests in self, fully.',
+  'Invests in self fully.',
   'Leads by example.',
   'Takes responsibility, not excuses.',
   'Gets comfortable being uncomfortable.',

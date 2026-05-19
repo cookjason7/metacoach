@@ -289,7 +289,7 @@ function FoodMacrosTab({ getToken }) {
     async function load() {
       try {
         const token = await getToken()
-        const res = await fetch(`${API_URL}/api/admin/users`, { headers: { Authorization: `Bearer ${token}` } })
+        const res = await fetch(`${API_URL}/api/coach-admin/clients`, { headers: { Authorization: `Bearer ${token}` } })
         if (!res.ok) throw new Error(`Server error ${res.status}`)
         setClients(await res.json())
       } catch (err) { setError(err.message) } finally { setLoading(false) }

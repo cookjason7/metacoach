@@ -18,7 +18,6 @@ const CLIENT_NAV_ITEMS = [
 // Coach / admin sidebar nav — no personal food/fitness items
 const STAFF_NAV_ITEMS = [
   { to: '/dashboard',     label: 'Coaching Dashboard' },
-  { to: '/admin/clients', label: 'Clients' },
   { to: '/admin/forms',   label: 'Forms' },
   { to: '/messages',      label: 'Messages' },
   { to: '/community',     label: 'Community' },
