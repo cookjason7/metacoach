@@ -5,28 +5,32 @@ import { pool, getOrCreateUser } from '../db.js'
 
 const router = Router()
 
-const FITBIT_AUTHORIZE_URL = 'https://www.fitbit.com/oauth2/authorize'
-const FITBIT_TOKEN_URL = 'https://api.fitbit.com/oauth2/token'
-const FITBIT_API_URL = 'https://api.fitbit.com'
-const SCOPES = 'activity sleep'
+const GOOGLE_AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
+const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
+const GOOGLE_HEALTH_API_URL = 'https://health.googleapis.com'
+const SCOPES = [
+  'https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly',
+  'https://www.googleapis.com/auth/googlehealth.sleep.readonly',
+].join(' ')
 const TOKEN_REFRESH_WINDOW_MS = 5 * 60 * 1000
 
-function fitbitConfig() {
-  const { FITBIT_CLIENT_ID, FITBIT_CLIENT_SECRET, FITBIT_REDIRECT_URI } = process.env
-  if (!FITBIT_CLIENT_ID || !FITBIT_CLIENT_SECRET || !FITBIT_REDIRECT_URI) {
-    const err = new Error('Fitbit OAuth is not configured')
+function googleHealthConfig() {
+  const { GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_CLIENT_SECRET, GOOGLE_HEALTH_REDIRECT_URI } = process.env
+  if (!GOOGLE_HEALTH_CLIENT_ID || !GOOGLE_HEALTH_CLIENT_SECRET || !GOOGLE_HEALTH_REDIRECT_URI) {
+    const err = new Error('Google Health OAuth is not configured')
     err.status = 503
     throw err
   }
-  return { FITBIT_CLIENT_ID, FITBIT_CLIENT_SECRET, FITBIT_REDIRECT_URI }
-}
-
-function basicAuth(clientId, clientSecret) {
-  return Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
+  return { GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_CLIENT_SECRET, GOOGLE_HEALTH_REDIRECT_URI }
 }
 
 function addSeconds(seconds) {
   return new Date(Date.now() + Number(seconds) * 1000)
+}
+
+function parseNumber(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
 }
 
 async function currentDbUserId(req) {
@@ -35,18 +39,19 @@ async function currentDbUserId(req) {
 }
 
 async function exchangeToken(params) {
-  const { FITBIT_CLIENT_ID, FITBIT_CLIENT_SECRET } = fitbitConfig()
-  const res = await fetch(FITBIT_TOKEN_URL, {
+  const { GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_CLIENT_SECRET } = googleHealthConfig()
+  const res = await fetch(GOOGLE_TOKEN_URL, {
     method: 'POST',
-    headers: {
-      Authorization: `Basic ${basicAuth(FITBIT_CLIENT_ID, FITBIT_CLIENT_SECRET)}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams(params),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: GOOGLE_HEALTH_CLIENT_ID,
+      client_secret: GOOGLE_HEALTH_CLIENT_SECRET,
+      ...params,
+    }),
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    const err = new Error(data.errors?.[0]?.message || data.error_description || 'Fitbit token exchange failed')
+    const err = new Error(data.error_description || data.error || 'Google Health token exchange failed')
     err.status = 502
     throw err
   }
@@ -69,46 +74,86 @@ async function refreshTokenIfNeeded(tokenRow) {
          refresh_token=$2,
          expires_at=$3,
          scope=$4,
-         fitbit_user_id=COALESCE($5, fitbit_user_id),
          updated_at=NOW()
-     WHERE user_id=$6
+     WHERE user_id=$5
      RETURNING *`,
     [
       data.access_token,
       data.refresh_token || tokenRow.refresh_token,
       addSeconds(data.expires_in),
       data.scope || tokenRow.scope,
-      data.user_id || null,
       tokenRow.user_id,
     ],
   )
   return rows[0]
 }
 
-async function fitbitGet(path, accessToken) {
-  const res = await fetch(`${FITBIT_API_URL}${path}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
+async function googleHealthRequest(path, accessToken, options = {}) {
+  const res = await fetch(`${GOOGLE_HEALTH_API_URL}${path}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(options.headers ?? {}),
+    },
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    const err = new Error(data.errors?.[0]?.message || 'Fitbit API request failed')
+    const err = new Error(data.error?.message || 'Google Health API request failed')
     err.status = 502
     throw err
   }
   return data
 }
 
-function sleepMinutesFromResponse(data) {
-  const summary = data?.summary
-  if (!summary) return null
-  const minutes = summary.totalMinutesAsleep ?? summary.totalSleepRecordsMinutes
-  return Number.isFinite(Number(minutes)) ? Number(minutes) : null
+function todayCivilRange() {
+  const today = new Date().toISOString().slice(0, 10)
+  const tomorrowDate = new Date(`${today}T00:00:00Z`)
+  tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1)
+  return { today, tomorrow: tomorrowDate.toISOString().slice(0, 10) }
+}
+
+function civilDateTime(date) {
+  const [year, month, day] = date.split('-').map(Number)
+  return { date: { year, month, day }, time: { hours: 0, minutes: 0, seconds: 0 } }
+}
+
+async function fetchTodaySteps(accessToken) {
+  const { today, tomorrow } = todayCivilRange()
+  const data = await googleHealthRequest(
+    '/v4/users/me/dataTypes/steps/dataPoints:dailyRollUp',
+    accessToken,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        range: {
+          start: civilDateTime(today),
+          end: civilDateTime(tomorrow),
+        },
+        windowSizeDays: 1,
+        dataSourceFamily: 'users/me/dataSourceFamilies/all-sources',
+      }),
+    },
+  )
+  return parseNumber(data.rollupDataPoints?.[0]?.steps?.countSum)
+}
+
+async function fetchTodaySleepMinutes(accessToken) {
+  const { today, tomorrow } = todayCivilRange()
+  const filter = `sleep.interval.civil_end_time >= "${today}" AND sleep.interval.civil_end_time < "${tomorrow}"`
+  const params = new URLSearchParams({ filter, pageSize: '25' })
+  const data = await googleHealthRequest(`/v4/users/me/dataTypes/sleep/dataPoints?${params}`, accessToken)
+  const minutes = (data.dataPoints ?? []).reduce((total, point) => {
+    const value = parseNumber(point.sleep?.summary?.minutesAsleep)
+    return total + (value ?? 0)
+  }, 0)
+  return minutes || null
 }
 
 // GET /api/fitbit/connect
 router.get('/connect', requireAuth(), async (req, res, next) => {
   try {
-    const { FITBIT_CLIENT_ID, FITBIT_REDIRECT_URI } = fitbitConfig()
+    const { GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_REDIRECT_URI } = googleHealthConfig()
     const dbUserId = await currentDbUserId(req)
     const state = crypto.randomBytes(32).toString('hex')
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
@@ -119,12 +164,14 @@ router.get('/connect', requireAuth(), async (req, res, next) => {
       [state, dbUserId, expiresAt],
     )
 
-    const url = new URL(FITBIT_AUTHORIZE_URL)
+    const url = new URL(GOOGLE_AUTHORIZE_URL)
     url.searchParams.set('response_type', 'code')
-    url.searchParams.set('client_id', FITBIT_CLIENT_ID)
-    url.searchParams.set('redirect_uri', FITBIT_REDIRECT_URI)
+    url.searchParams.set('client_id', GOOGLE_HEALTH_CLIENT_ID)
+    url.searchParams.set('redirect_uri', GOOGLE_HEALTH_REDIRECT_URI)
     url.searchParams.set('scope', SCOPES)
     url.searchParams.set('state', state)
+    url.searchParams.set('access_type', 'offline')
+    url.searchParams.set('prompt', 'consent')
     res.redirect(url.toString())
   } catch (err) {
     next(err)
@@ -134,9 +181,9 @@ router.get('/connect', requireAuth(), async (req, res, next) => {
 // GET /api/fitbit/callback
 router.get('/callback', async (req, res, next) => {
   try {
-    const { FITBIT_REDIRECT_URI } = fitbitConfig()
+    const { GOOGLE_HEALTH_REDIRECT_URI } = googleHealthConfig()
     const { code, state } = req.query
-    if (!code || !state) return res.status(400).json({ error: 'Missing Fitbit authorization code or state' })
+    if (!code || !state) return res.status(400).json({ error: 'Missing Google Health authorization code or state' })
 
     const { rows } = await pool.query(
       `DELETE FROM fitbit_oauth_state
@@ -148,11 +195,13 @@ router.get('/callback', async (req, res, next) => {
     if (!dbUserId) return res.status(400).json({ error: 'Invalid or expired Fitbit state' })
 
     const data = await exchangeToken({
-      client_id: process.env.FITBIT_CLIENT_ID,
       grant_type: 'authorization_code',
-      redirect_uri: FITBIT_REDIRECT_URI,
+      redirect_uri: GOOGLE_HEALTH_REDIRECT_URI,
       code: String(code),
     })
+    if (!data.refresh_token) {
+      return res.status(400).json({ error: 'Google Health did not return a refresh token. Please try connecting again.' })
+    }
 
     await pool.query(
       `INSERT INTO fitbit_tokens
@@ -165,7 +214,7 @@ router.get('/callback', async (req, res, next) => {
          scope=EXCLUDED.scope,
          expires_at=EXCLUDED.expires_at,
          updated_at=NOW()`,
-      [dbUserId, data.user_id || null, data.access_token, data.refresh_token, data.scope || SCOPES, addSeconds(data.expires_in)],
+      [dbUserId, null, data.access_token, data.refresh_token, data.scope || SCOPES, addSeconds(data.expires_in)],
     )
 
     res.redirect('/settings?connected=fitbit')
@@ -201,14 +250,10 @@ router.post('/sync', requireAuth(), async (req, res, next) => {
     if (!rows.length) return res.status(404).json({ error: 'Fitbit is not connected' })
 
     const token = await refreshTokenIfNeeded(rows[0])
-    const [activity, sleep] = await Promise.all([
-      fitbitGet('/1/user/-/activities/date/today.json', token.access_token),
-      fitbitGet('/1.2/user/-/sleep/date/today.json', token.access_token),
+    const [steps, sleepMinutes] = await Promise.all([
+      fetchTodaySteps(token.access_token),
+      fetchTodaySleepMinutes(token.access_token),
     ])
-
-    const steps = Number(activity?.summary?.steps)
-    const safeSteps = Number.isFinite(steps) ? steps : null
-    const sleepMinutes = sleepMinutesFromResponse(sleep)
 
     const { rows: logRows } = await pool.query(
       `INSERT INTO daily_logs (user_id, logged_date, steps, sleep_minutes, steps_source)
@@ -226,7 +271,7 @@ router.post('/sync', requireAuth(), async (req, res, next) => {
          END,
          sleep_minutes = COALESCE(EXCLUDED.sleep_minutes, daily_logs.sleep_minutes)
        RETURNING steps, sleep_minutes, steps_source`,
-      [dbUserId, safeSteps, sleepMinutes],
+      [dbUserId, steps, sleepMinutes],
     )
 
     const { rows: syncRows } = await pool.query(
