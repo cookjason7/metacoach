@@ -1155,31 +1155,31 @@ function HabitsTab({ clientId, getToken }) {
 
       {/* Month habit calendar */}
       {showPreview && habits.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl p-3">
-          <p className="text-xs font-semibold text-gray-700 mb-2">📅 {monthCal.monthName} — Client habit view</p>
-          <div className="grid grid-cols-7 gap-px mb-1">
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-sm font-semibold text-gray-700 mb-3">📅 {monthCal.monthName} — Client habit view</p>
+          <div className="grid grid-cols-7 gap-1 mb-1">
             {DAYS.map(d => (
-              <p key={d} className="text-[9px] font-bold text-gray-400 text-center py-0.5">{d}</p>
+              <p key={d} className="text-[10px] font-bold text-gray-400 text-center py-1">{d}</p>
             ))}
           </div>
           {monthCal.weeks.map((week, wi) => (
-            <div key={wi} className="grid grid-cols-7 gap-px mb-px">
+            <div key={wi} className="grid grid-cols-7 gap-1 mb-1">
               {week.map(({ date, dateKey, habits: dayHabits, inMonth, isToday }) => (
-                <div key={dateKey} className={`border rounded p-0.5 min-h-[48px] ${
+                <div key={dateKey} className={`border rounded-lg p-1 min-h-[68px] ${
                   !inMonth ? 'border-transparent bg-gray-50/40 opacity-40' :
-                  isToday  ? 'border-[#E8670A] bg-orange-50' : 'border-gray-100 bg-white'
+                  isToday  ? 'border-[#E8670A] bg-orange-50' : 'border-gray-200 bg-white'
                 }`}>
-                  <p className={`text-[9px] font-bold leading-tight ${isToday ? 'text-[#E8670A]' : inMonth ? 'text-gray-500' : 'text-gray-300'}`}>
+                  <p className={`text-[10px] font-bold leading-tight mb-0.5 ${isToday ? 'text-[#E8670A]' : inMonth ? 'text-gray-600' : 'text-gray-300'}`}>
                     {date.getDate()}
                   </p>
-                  <div className="space-y-px mt-0.5">
+                  <div className="space-y-0.5">
                     {dayHabits.slice(0, 3).map(h => (
-                      <div key={h.id} className="text-[7px] bg-emerald-50 text-emerald-700 px-0.5 rounded truncate leading-tight" title={h.habit_name}>
+                      <div key={h.id} className="text-[8px] bg-emerald-50 text-emerald-700 px-1 py-px rounded truncate leading-tight" title={h.habit_name}>
                         {h.habit_name}
                       </div>
                     ))}
                     {dayHabits.length > 3 && (
-                      <p className="text-[7px] text-gray-400">+{dayHabits.length - 3}</p>
+                      <p className="text-[8px] text-gray-400">+{dayHabits.length - 3}</p>
                     )}
                   </div>
                 </div>
@@ -1818,11 +1818,19 @@ function ProgressTab({ clientId, getToken }) {
             {photos.length === 0 ? (
               <p className="text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg px-3 py-2">No progress photos yet.</p>
             ) : (
-              <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {photos.map((p, i) => (
                   <a key={i} href={p.photo_url} target="_blank" rel="noopener noreferrer"
-                    className="aspect-[3/4] rounded-lg overflow-hidden bg-gray-100 block hover:opacity-90 transition-opacity">
-                    <img src={p.photo_url} alt={p.angle ?? 'Progress photo'} className="w-full h-full object-cover" />
+                    className="rounded-xl overflow-hidden bg-gray-100 block hover:opacity-90 transition-opacity group">
+                    <div className="aspect-[3/4] overflow-hidden">
+                      <img src={p.photo_url} alt={p.angle ?? 'Progress photo'} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" />
+                    </div>
+                    <div className="px-2 py-1.5">
+                      {p.angle && <p className="text-[10px] font-semibold text-gray-700 capitalize">{p.angle}</p>}
+                      <p className="text-[10px] text-gray-400">
+                        {p.taken_at ? new Date(p.taken_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                      </p>
+                    </div>
                   </a>
                 ))}
               </div>

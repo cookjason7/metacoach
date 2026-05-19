@@ -481,7 +481,7 @@ export default function Layout() {
                   <>
                     <p className="text-sm text-gray-500 mb-3">How many oz to add today?</p>
                     <div className="flex gap-2 mb-3">
-                      {['8', '16', '24'].map(oz => (
+                      {['48', '64', '80'].map(oz => (
                         <button
                           key={oz}
                           onClick={() => setQuickValue(oz)}
