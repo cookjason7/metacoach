@@ -2409,6 +2409,92 @@ function MessagingTab({ client, role, getToken }) {
   )
 }
 
+// ─── Identity Momentum Snapshot (admin) ──────────────────────────────────────
+
+function IdentityMomentumSnapshot({ clientId, getToken }) {
+  const [data, setData]       = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const token = await getToken()
+        const res = await fetch(
+          `${API_URL}/api/coach-admin/clients/${clientId}/identity-momentum`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        )
+        if (res.ok) setData(await res.json())
+      } catch {}
+      setLoading(false)
+    }
+    load()
+  }, [clientId, getToken])
+
+  if (loading) return (
+    <div className="animate-pulse space-y-2 mb-6">
+      <div className="h-3 bg-gray-100 rounded w-32" />
+      <div className="h-16 bg-gray-100 rounded-xl" />
+    </div>
+  )
+  if (!data) return null
+
+  const STAGE_COLORS = {
+    'Starting Strong':     'bg-sky-50 text-sky-700 border-sky-100',
+    'Momentum Builder':    'bg-violet-50 text-violet-700 border-violet-100',
+    'Self-Trust Builder':  'bg-blue-50 text-blue-700 border-blue-100',
+    'Consistency Warrior': 'bg-emerald-50 text-emerald-700 border-emerald-100',
+    'Resilient Warrior':   'bg-amber-50 text-amber-700 border-amber-100',
+    'Life Warrior':        'bg-orange-50 text-orange-700 border-orange-100',
+  }
+  const stageColor = STAGE_COLORS[data.identity_stage] ?? 'bg-gray-50 text-gray-700 border-gray-100'
+
+  return (
+    <div className="mb-6">
+      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Identity Momentum</h3>
+      <div className={`border rounded-xl p-4 ${stageColor}`}>
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <p className="text-sm font-bold">{data.identity_stage}</p>
+            <p className="text-xs opacity-75 mt-0.5">{data.stage_description}</p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-xs font-semibold">{data.active_count}/5 pillars</p>
+            <p className="text-[10px] opacity-60">{data.active_weeks} active weeks</p>
+          </div>
+        </div>
+
+        {/* This week's pillars */}
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {data.categories.map(c => (
+            <span
+              key={c.key}
+              className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${
+                c.active ? 'bg-white/60 border-current' : 'bg-black/5 border-transparent opacity-40'
+              }`}
+            >
+              {c.label}
+            </span>
+          ))}
+        </div>
+
+        {/* Weakest category */}
+        {data.weakest_category && (
+          <p className="text-[10px] opacity-60">
+            Opportunity area: <span className="font-semibold">{data.weakest_category}</span>
+          </p>
+        )}
+
+        {/* Comeback note */}
+        {data.is_comeback && data.comeback_message && (
+          <div className="mt-2 pt-2 border-t border-current/20">
+            <p className="text-xs font-semibold">{data.comeback_message}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Mindset Watch Section ────────────────────────────────────────────────────
 
 function MindsetWatchSection({ clientId, getToken }) {
@@ -2692,6 +2778,7 @@ function EngagementTab({ clientId, getToken }) {
         </>
       )}
 
+      <IdentityMomentumSnapshot clientId={clientId} getToken={getToken} />
       <MindsetWatchSection clientId={clientId} getToken={getToken} />
     </div>
   )

@@ -1140,6 +1140,117 @@ router.get('/clients/:id/mindset-progress', requireAuth(), async (req, res, next
   } catch (err) { next(err) }
 })
 
+// ─── Identity Momentum snapshot (admin) ──────────────────────────────────────
+
+// GET /api/coach-admin/clients/:id/identity-momentum
+// Returns the same identity stage + pillar data computed for the client, so staff
+// can see where each client is in their Identity Momentum journey.
+router.get('/clients/:id/identity-momentum', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, clientId)) return res.status(403).json({ error: 'Forbidden' })
+
+    const now      = new Date()
+    const weekStart = new Date(now)
+    weekStart.setUTCHours(0, 0, 0, 0)
+    const daysFromMon = (weekStart.getUTCDay() + 6) % 7
+    weekStart.setUTCDate(weekStart.getUTCDate() - daysFromMon)
+
+    const lastWeekStart  = new Date(weekStart); lastWeekStart.setUTCDate(lastWeekStart.getUTCDate() - 7)
+    const twelveWeeksAgo = new Date(weekStart); twelveWeeksAgo.setUTCDate(twelveWeeksAgo.getUTCDate() - 84)
+
+    // Pillar check (mirrors gamification momentum query)
+    const { rows: [row] } = await pool.query(`
+      SELECT
+        (
+          (SELECT COUNT(DISTINCT COALESCE(log_date, logged_at::date))
+           FROM meals WHERE user_id=$1 AND COALESCE(log_date, logged_at::date) >= $2::date) >= 3
+          OR EXISTS (SELECT 1 FROM habit_completions hc JOIN coach_assigned_habits cah ON cah.id = hc.habit_id
+            WHERE hc.user_id=$1 AND hc.completion_date >= $2::date AND cah.identity_category = 'food_tracking')
+        ) AS food_tracking,
+        (
+          (SELECT COUNT(*) FROM workout_logs WHERE user_id=$1 AND completed_at >= $2) > 0
+          OR (SELECT COUNT(*) FROM daily_logs WHERE user_id=$1 AND steps IS NOT NULL AND logged_date >= $2::date) >= 3
+          OR EXISTS (SELECT 1 FROM habit_completions hc JOIN coach_assigned_habits cah ON cah.id = hc.habit_id
+            WHERE hc.user_id=$1 AND hc.completion_date >= $2::date AND cah.identity_category = 'movement')
+        ) AS movement,
+        (
+          EXISTS (SELECT 1 FROM video_watch_progress vwp JOIN mindset_videos mv ON mv.id = vwp.video_id
+            WHERE vwp.user_id=$1 AND vwp.highest_pct >= 50 AND vwp.last_watched_at >= $2 AND mv.published = TRUE)
+          OR EXISTS (SELECT 1 FROM habit_completions hc JOIN coach_assigned_habits cah ON cah.id = hc.habit_id
+            WHERE hc.user_id=$1 AND hc.completion_date >= $2::date AND cah.identity_category = 'mindset')
+        ) AS mindset,
+        (
+          (SELECT COUNT(*) FROM form_submissions WHERE user_id=$1 AND submitted_at >= $2) > 0
+          OR EXISTS (SELECT 1 FROM habit_completions hc JOIN coach_assigned_habits cah ON cah.id = hc.habit_id
+            WHERE hc.user_id=$1 AND hc.completion_date >= $2::date AND cah.identity_category = 'check_ins')
+        ) AS check_ins,
+        (
+          (SELECT COUNT(*) FROM daily_logs WHERE user_id=$1 AND weight_lbs IS NOT NULL AND logged_date >= $2::date) > 0
+          OR (SELECT COUNT(*) FROM progress_photos WHERE user_id=$1 AND taken_at >= $2) > 0
+          OR EXISTS (SELECT 1 FROM habit_completions hc JOIN coach_assigned_habits cah ON cah.id = hc.habit_id
+            WHERE hc.user_id=$1 AND hc.completion_date >= $2::date AND cah.identity_category = 'progress')
+        ) AS progress
+    `, [clientId, weekStart.toISOString()])
+
+    const categories = [
+      { key: 'food_tracking', label: 'Food Tracking', active: row.food_tracking },
+      { key: 'movement',      label: 'Movement',      active: row.movement      },
+      { key: 'mindset',       label: 'Mindset',       active: row.mindset       },
+      { key: 'check_ins',     label: 'Check-Ins',     active: row.check_ins     },
+      { key: 'progress',      label: 'Progress',      active: row.progress      },
+    ]
+    const activeCount = categories.filter(c => c.active).length
+    const inactiveCategories = categories.filter(c => !c.active).map(c => c.label)
+
+    // Active weeks (same formula as client endpoint)
+    const { rows: [wkRow] } = await pool.query(`
+      SELECT COUNT(DISTINCT
+        COALESCE(log_date, logged_at::date)
+        - ((EXTRACT(DOW FROM COALESCE(log_date, logged_at::date))::int + 6) % 7)
+      ) AS active_weeks
+      FROM meals
+      WHERE user_id=$1
+        AND COALESCE(log_date, logged_at::date) >= $2::date
+        AND COALESCE(log_date, logged_at::date) <  $3::date
+    `, [clientId, twelveWeeksAgo.toISOString(), weekStart.toISOString()])
+    const activeWeeks = parseInt(wkRow.active_weeks, 10) || 0
+
+    // Last week meals
+    const { rows: [lwRow] } = await pool.query(`
+      SELECT COUNT(*) AS meal_count FROM meals
+      WHERE user_id=$1
+        AND COALESCE(log_date, logged_at::date) >= $2::date
+        AND COALESCE(log_date, logged_at::date) <  $3::date
+    `, [clientId, lastWeekStart.toISOString(), weekStart.toISOString()])
+    const isComeback = (parseInt(lwRow.meal_count, 10) || 0) === 0 && activeWeeks >= 1 && activeCount >= 2
+
+    // Reuse same stage helper logic inline
+    let stage, stageDesc
+    if (isComeback)          { stage = 'Resilient Warrior';    stageDesc = "Coming back is a choice — and they made it." }
+    else if (activeWeeks >= 10) { stage = 'Life Warrior';       stageDesc = "Consistency is their identity now." }
+    else if (activeWeeks >= 7)  { stage = 'Consistency Warrior'; stageDesc = "They show up even when it's hard." }
+    else if (activeWeeks >= 4)  { stage = 'Self-Trust Builder'; stageDesc = "Building self-trust week by week." }
+    else if (activeWeeks >= 2)  { stage = 'Momentum Builder';   stageDesc = "Building momentum, week by week." }
+    else                        { stage = 'Starting Strong';    stageDesc = "Early in the journey." }
+
+    res.json({
+      identity_stage:      stage,
+      stage_description:   stageDesc,
+      active_count:        activeCount,
+      active_weeks:        activeWeeks,
+      categories,
+      inactive_categories: inactiveCategories,
+      weakest_category:    inactiveCategories[0] ?? null,
+      is_comeback:         isComeback,
+      comeback_message:    isComeback
+        ? "This client returned after a quiet week — acknowledge the comeback."
+        : null,
+    })
+  } catch (err) { next(err) }
+})
+
 // ─── Habit assignment ─────────────────────────────────────────────────────────
 
 // GET /api/coach-admin/clients/:id/habits — list assigned habits

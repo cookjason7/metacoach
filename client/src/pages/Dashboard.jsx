@@ -6,39 +6,117 @@ import MicronutrientTotals, { calculateMicronutrientTotals } from '../components
 
 // ── Identity Momentum Card ────────────────────────────────────────────────────
 
+const REFLECTION_PROMPTS = [
+  'What win are you proud of this week?',
+  'Where did you rebuild self-trust?',
+  'What is one small promise for next week?',
+]
+
+// Stage → subtle accent color pair [bg, text]
+const STAGE_COLORS = {
+  'Starting Strong':     ['bg-sky-50',     'text-sky-700'],
+  'Momentum Builder':    ['bg-violet-50',  'text-violet-700'],
+  'Self-Trust Builder':  ['bg-blue-50',    'text-blue-700'],
+  'Consistency Warrior': ['bg-emerald-50', 'text-emerald-700'],
+  'Resilient Warrior':   ['bg-amber-50',   'text-amber-700'],
+  'Life Warrior':        ['bg-orange-50',  'text-[#c45e09]'],
+}
+
 function MomentumCard({ data, loading }) {
+  const [reflOpen, setReflOpen] = useState(false)
+
   if (loading) {
     return (
-      <div className="bg-white rounded-2xl border border-gray-200 px-4 py-3 mb-5 animate-pulse">
-        <div className="flex gap-2 mb-2">
-          {[...Array(5)].map((_, i) => <div key={i} className="h-7 w-24 bg-gray-100 rounded-full" />)}
+      <div className="bg-white rounded-2xl border border-gray-200 mb-5 overflow-hidden animate-pulse">
+        <div className="px-4 pt-3 pb-2 border-b border-gray-100">
+          <div className="h-3 bg-gray-100 rounded w-28 mb-1.5" />
+          <div className="h-4 bg-gray-100 rounded w-40" />
         </div>
-        <div className="h-3 bg-gray-100 rounded w-32" />
+        <div className="px-4 py-3">
+          <div className="flex gap-2 mb-2.5">
+            {[...Array(5)].map((_, i) => <div key={i} className="h-7 w-20 bg-gray-100 rounded-full" />)}
+          </div>
+          <div className="h-3 bg-gray-100 rounded w-56" />
+        </div>
       </div>
     )
   }
   if (!data) return null
 
+  const stage = data.identity_stage ?? 'Starting Strong'
+  const [stageBg, stageText] = STAGE_COLORS[stage] ?? ['bg-gray-50', 'text-gray-700']
+
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 px-4 py-3 mb-5">
-      <div className="flex flex-wrap gap-2 mb-2">
-        {data.categories.map(c => (
-          <span
-            key={c.key}
-            className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-              c.active
-                ? 'bg-[#fde8c8] text-[#c45e09]'
-                : 'bg-gray-100 text-gray-400'
-            }`}
-          >
-            {c.icon} {c.label}
+    <div className="bg-white rounded-2xl border border-gray-200 mb-5 overflow-hidden">
+
+      {/* Stage header */}
+      <div className="px-4 pt-3 pb-2.5 border-b border-gray-100">
+        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-0.5">
+          Identity Stage
+        </p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-bold text-gray-900">{stage}</p>
+          <span className={`shrink-0 text-[10px] font-semibold px-2.5 py-1 rounded-full ${stageBg} ${stageText}`}>
+            Week {data.active_weeks ?? 0} of consistency
           </span>
-        ))}
+        </div>
       </div>
-      <p className="text-xs font-bold text-gray-700">
-        {data.identity_label}
-        <span className="font-normal text-gray-500 ml-1">— {data.message}</span>
-      </p>
+
+      {/* Pillars + message */}
+      <div className="px-4 py-3">
+        <div className="flex flex-wrap gap-1.5 mb-2.5">
+          {data.categories.map(c => (
+            <span
+              key={c.key}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                c.active ? 'bg-[#fde8c8] text-[#c45e09]' : 'bg-gray-100 text-gray-400'
+              }`}
+            >
+              {c.icon} {c.label}
+            </span>
+          ))}
+        </div>
+
+        {/* Stage description — mature, identity-framing language */}
+        <p className="text-xs text-gray-600 leading-relaxed">
+          {data.stage_description ?? data.message}
+        </p>
+
+        {/* Comeback banner */}
+        {data.is_comeback && data.comeback_message && (
+          <div className="mt-2.5 rounded-lg px-3 py-2 bg-emerald-50 border border-emerald-100">
+            <p className="text-xs font-semibold text-emerald-700">{data.comeback_message}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Weekly reflection prompt — collapsible, display-only */}
+      <div className="px-4 pb-3 border-t border-gray-100 pt-2.5">
+        <button
+          onClick={() => setReflOpen(v => !v)}
+          className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 hover:text-gray-600 transition-colors"
+        >
+          <svg
+            className={`w-3 h-3 transition-transform ${reflOpen ? 'rotate-90' : ''}`}
+            fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+          Weekly Reflection
+        </button>
+        {reflOpen && (
+          <div className="mt-2 space-y-2">
+            {REFLECTION_PROMPTS.map((prompt, i) => (
+              <p key={i} className="text-xs text-gray-500 pl-3 border-l-2 border-[#fde8c8] leading-relaxed">
+                {prompt}
+              </p>
+            ))}
+            <p className="text-[10px] text-gray-400 pl-3">
+              Share your answers in your weekly check-in with your coach.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

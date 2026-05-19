@@ -96,6 +96,35 @@ router.get('/badges', requireAuth(), async (req, res, next) => {
   }
 })
 
+// ─── Identity stage helper ────────────────────────────────────────────────────
+
+function getIdentityStage(activeWeeks, isComeback) {
+  if (isComeback) return {
+    stage: 'Resilient Warrior',
+    desc:  'Coming back is a choice — and you made it. That\'s self-trust in action.',
+  }
+  if (activeWeeks >= 10) return {
+    stage: 'Life Warrior',
+    desc:  'Consistency is no longer a goal. It\'s who you are.',
+  }
+  if (activeWeeks >= 7) return {
+    stage: 'Consistency Warrior',
+    desc:  'You show up even when it\'s hard. That\'s your identity now.',
+  }
+  if (activeWeeks >= 4) return {
+    stage: 'Self-Trust Builder',
+    desc:  'Every week you follow through, you trust yourself a little more.',
+  }
+  if (activeWeeks >= 2) return {
+    stage: 'Momentum Builder',
+    desc:  'You\'re building something real, one week at a time.',
+  }
+  return {
+    stage: 'Starting Strong',
+    desc:  'Every Life Warrior starts with a single consistent week. This is yours.',
+  }
+}
+
 // GET /api/gamification/momentum — weekly identity momentum (5 pillars)
 router.get('/momentum', requireAuth(), async (req, res, next) => {
   try {
@@ -108,6 +137,14 @@ router.get('/momentum', requireAuth(), async (req, res, next) => {
     weekStart.setUTCHours(0, 0, 0, 0)
     const daysFromMon = (weekStart.getUTCDay() + 6) % 7
     weekStart.setUTCDate(weekStart.getUTCDate() - daysFromMon)
+
+    // Last week start (7 days prior) — used for comeback detection
+    const lastWeekStart = new Date(weekStart)
+    lastWeekStart.setUTCDate(lastWeekStart.getUTCDate() - 7)
+
+    // 12 weeks ago — used for identity stage
+    const twelveWeeksAgo = new Date(weekStart)
+    twelveWeeksAgo.setUTCDate(twelveWeeksAgo.getUTCDate() - 84)
 
     const { rows: [row] } = await pool.query(`
       SELECT
@@ -186,21 +223,57 @@ router.get('/momentum', requireAuth(), async (req, res, next) => {
 
     const activeCount = categories.filter(c => c.active).length
 
+    // How many weeks in the past 12 (before this week) had any meal activity?
+    // Uses day-of-week floor to Monday (avoids TIMESTAMPTZ expression index issues).
+    const { rows: [wkRow] } = await pool.query(`
+      SELECT COUNT(DISTINCT
+        COALESCE(log_date, logged_at::date)
+        - ((EXTRACT(DOW FROM COALESCE(log_date, logged_at::date))::int + 6) % 7)
+      ) AS active_weeks
+      FROM meals
+      WHERE user_id = $1
+        AND COALESCE(log_date, logged_at::date) >= $2::date
+        AND COALESCE(log_date, logged_at::date) <  $3::date
+    `, [dbUserId, twelveWeeksAgo.toISOString(), weekStart.toISOString()])
+    const activeWeeks = parseInt(wkRow.active_weeks, 10) || 0
+
+    // Did the user have any meals last week? (comeback check)
+    const { rows: [lwRow] } = await pool.query(`
+      SELECT COUNT(*) AS meal_count
+      FROM meals
+      WHERE user_id = $1
+        AND COALESCE(log_date, logged_at::date) >= $2::date
+        AND COALESCE(log_date, logged_at::date) <  $3::date
+    `, [dbUserId, lastWeekStart.toISOString(), weekStart.toISOString()])
+    const lastWeekMeals = parseInt(lwRow.meal_count, 10) || 0
+
+    // Comeback: had history (≥1 active week), went quiet last week, back this week
+    const isComeback = activeWeeks >= 1 && lastWeekMeals === 0 && activeCount >= 2
+
+    const stageInfo = getIdentityStage(activeWeeks, isComeback)
+
     const LABELS = ['Fresh Start', 'Showing Up', 'Showing Up', 'Building Rhythm', 'Steady Momentum', 'Anchored Week']
     const MESSAGES = [
       'Every week is a new beginning. One small step counts.',
       "You're here. That's what matters most.",
       "You're here. That's what matters most.",
-      'Three pillars this week. You\'re finding your flow.',
-      'Four strong pillars. You\'re building something real.',
+      "Three pillars this week. You're finding your flow.",
+      "Four strong pillars. You're building something real.",
       'All five pillars. This is your identity in action.',
     ]
 
     res.json({
       categories,
-      active_count:   activeCount,
-      identity_label: LABELS[activeCount],
-      message:        MESSAGES[activeCount],
+      active_count:      activeCount,
+      identity_label:    LABELS[activeCount],
+      message:           MESSAGES[activeCount],
+      identity_stage:    stageInfo.stage,
+      stage_description: stageInfo.desc,
+      active_weeks:      activeWeeks,
+      is_comeback:       isComeback,
+      comeback_message:  isComeback
+        ? "You're rebuilding momentum. This is exactly how self-trust comes back."
+        : null,
     })
   } catch (err) {
     next(err)
