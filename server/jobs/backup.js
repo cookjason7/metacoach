@@ -1,10 +1,10 @@
 import { createGzip } from 'zlib'
-import { createReadStream, createWriteStream, mkdirSync, existsSync, readdirSync, statSync } from 'fs'
+import { createWriteStream, mkdirSync, existsSync, readdirSync, statSync } from 'fs'
 import { pipeline } from 'stream/promises'
 import { Readable } from 'stream'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { google } from 'googleapis'
+import { Storage } from '@google-cloud/storage'
 import { v2 as cloudinary } from 'cloudinary'
 import { pool } from '../db.js'
 import { acquireJobLock, releaseJobLock } from './jobLock.js'
@@ -59,165 +59,103 @@ const PG_TABLES = [
   'video_watch_progress',
 ]
 
-// ── Google Drive helpers ──────────────────────────────────────────────────────
+// ── Google Cloud Storage helpers ──────────────────────────────────────────────
 
-// In-memory record of Drive upload outcomes for the status endpoint.
+// Kept for backward-compatible /api/admin/backup/status shape. Drive is no
+// longer the off-platform backup target.
 const driveStatus = {
   configured:             false,
-  last_pg_upload:         null,   // { file, drive_id, uploaded_at }
+  last_pg_upload:         null,
   last_cloudinary_upload: null,
-  last_error:             null,   // { message, at }
+  last_error:             null,
 }
 
-function getDriveConfig() {
-  const folder = process.env.GOOGLE_DRIVE_BACKUP_FOLDER_ID
-  if (!folder) return null
+// In-memory record of GCS upload outcomes for the status endpoint.
+const gcsStatus = {
+  configured:             false,
+  last_pg_upload:         null,   // { file, bucket, object, uploaded_at }
+  last_cloudinary_upload: null,
+  last_error:             null,   // { message, bucket, object, at }
+}
 
-  // OAuth takes priority — lets uploads land in the owner's My Drive quota.
-  const clientId     = process.env.GOOGLE_DRIVE_CLIENT_ID
-  const clientSecret = process.env.GOOGLE_DRIVE_CLIENT_SECRET
-  const refreshToken = process.env.GOOGLE_DRIVE_REFRESH_TOKEN
-  if (clientId && clientSecret && refreshToken) {
-    return { auth_mode: 'oauth', clientId, clientSecret, refreshToken, folder }
-  }
-
-  // Service account fallback (works for Shared Drives, not My Drive).
+function getGcsConfig() {
+  const bucket = process.env.GOOGLE_CLOUD_STORAGE_BUCKET
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
-  // Railway stores multi-line env vars with literal \n — unescape them.
   const key   = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n')
-  if (email && key) {
-    return { auth_mode: 'service_account', email, key, folder }
-  }
-
-  return null
+  if (!bucket || !email || !key) return null
+  return { bucket, email, key }
 }
 
-// Initialise driveStatus.configured once at module load so getBackupStatus()
+// Initialise configured once at module load so getBackupStatus()
 // can report it without needing a live upload attempt first.
-driveStatus.configured = getDriveConfig() !== null
+gcsStatus.configured = getGcsConfig() !== null
 
-async function uploadToDrive(localPath, filename) {
-  const cfg = getDriveConfig()
-  if (!cfg) return null   // Drive not configured — caller logs the skip
-
-  let auth
-  if (cfg.auth_mode === 'oauth') {
-    const oauth2 = new google.auth.OAuth2(cfg.clientId, cfg.clientSecret)
-    oauth2.setCredentials({ refresh_token: cfg.refreshToken })
-    auth = oauth2
-  } else {
-    auth = new google.auth.JWT({
-      email:  cfg.email,
-      key:    cfg.key,
-      scopes: ['https://www.googleapis.com/auth/drive'],
-    })
-  }
-  const drive = google.drive({ version: 'v3', auth })
-
-  const folderResp = await drive.files.get({
-    fileId: cfg.folder,
-    supportsAllDrives: true,
-    fields: 'id,name,driveId,mimeType',
+function createGcsClient(cfg) {
+  return new Storage({
+    credentials: {
+      client_email: cfg.email,
+      private_key:  cfg.key,
+    },
   })
-  if (folderResp.data?.mimeType !== 'application/vnd.google-apps.folder') {
-    throw new Error(`Google Drive backup parent is not a folder: ${cfg.folder}`)
-  }
-  const folderInfo = {
-    target_folder_id:   cfg.folder,
-    target_folder_name: folderResp.data?.name ?? null,
-    target_drive_id:    folderResp.data?.driveId ?? null,
-    supportsAllDrives:  true,
-  }
-  if (!folderInfo.target_drive_id) {
-    console.warn(
-      `[backup:drive] target folder has no driveId; it may not be inside a Shared Drive. ` +
-      `target_folder_id=${folderInfo.target_folder_id} folder_name=${folderInfo.target_folder_name ?? 'unknown'}`,
-    )
-  }
-  console.log(
-    `[backup:drive] Preparing upload: local=${localPath} filename=${filename} ` +
-    `target_folder_id=${folderInfo.target_folder_id} ` +
-    `target_drive_id=${folderInfo.target_drive_id ?? 'none'} ` +
-    `folder_name=${folderInfo.target_folder_name ?? 'unknown'} supportsAllDrives=true`,
-  )
-
-  let resp
-  try {
-    resp = await drive.files.create({
-      requestBody: {
-        name:    filename,
-        parents: [cfg.folder],
-      },
-      media: {
-        mimeType: 'application/gzip',
-        body:     createReadStream(localPath),
-      },
-      supportsAllDrives: true,
-      fields: 'id,name,webViewLink,parents,driveId',
-    })
-  } catch (err) {
-    err.target_folder_id = folderInfo.target_folder_id
-    err.target_drive_id = folderInfo.target_drive_id
-    throw err
-  }
-  return {
-    ...resp.data,
-    ...folderInfo,
-  }
 }
 
-// ── Shared upload-to-Drive step ───────────────────────────────────────────────
+async function uploadToGcs(localPath, objectPath) {
+  const cfg = getGcsConfig()
+  if (!cfg) return null   // GCS not configured — caller logs the skip
+
+  const storage = createGcsClient(cfg)
+  console.log(
+    `[backup:gcs] Preparing upload: local=${localPath} ` +
+    `bucket=${cfg.bucket} object=${objectPath}`,
+  )
+  await storage.bucket(cfg.bucket).upload(localPath, {
+    destination: objectPath,
+    gzip: false,
+    metadata: {
+      contentType: 'application/gzip',
+      metadata: {
+        source: 'metacoach-backup',
+      },
+    },
+  })
+  return { bucket: cfg.bucket, object: objectPath }
+}
+
+// ── Shared upload-to-GCS step ─────────────────────────────────────────────────
 // Call after the local .json.gz file has been written successfully.
-// Never throws — a Drive failure must not undo a successful local backup.
-async function driveUpload(localPath, logPrefix, statusKey) {
-  const cfg = getDriveConfig()
+// Never throws — a GCS failure must not undo a successful local backup.
+async function gcsUpload(localPath, objectPrefix, logPrefix, statusKey) {
+  const cfg = getGcsConfig()
   if (!cfg) {
-    console.log(`${logPrefix} Drive not configured — local backup only`)
+    console.log(`${logPrefix} GCS not configured — local backup only`)
     return
   }
-  const authMode   = cfg.auth_mode
-  let targetInfo = {
-    target_folder_id: cfg.folder,
-    target_drive_id:  null,
-  }
+  const filename = path.basename(localPath)
+  const objectPath = `${objectPrefix.replace(/\/+$/, '')}/${filename}`
   try {
-    const filename  = path.basename(localPath)
-    const driveFile = await uploadToDrive(localPath, filename)
-    targetInfo = {
-      target_folder_id: driveFile.target_folder_id,
-      target_drive_id:  driveFile.target_drive_id,
-    }
+    const uploaded = await uploadToGcs(localPath, objectPath)
     const now = new Date().toISOString()
-    driveStatus[statusKey] = {
-      file:             filename,
-      drive_id:         driveFile.id,
-      auth_mode:        authMode,
-      target_folder_id: driveFile.target_folder_id,
-      target_drive_id:  driveFile.target_drive_id,
-      uploaded_at:      now,
+    gcsStatus[statusKey] = {
+      file:        filename,
+      bucket:      uploaded.bucket,
+      object:      uploaded.object,
+      uploaded_at: now,
     }
-    driveStatus.last_error = null
+    gcsStatus.last_error = null
     console.log(
-      `${logPrefix} ✓ Drive upload OK (auth=${authMode}): local=${localPath} ` +
-      `drive_file_id=${driveFile.id} target_folder_id=${driveFile.target_folder_id} ` +
-      `target_drive_id=${driveFile.target_drive_id ?? 'my-drive'} at ${now}`,
+      `[backup:gcs] Upload OK: local=${localPath} ` +
+      `bucket=${uploaded.bucket} object=${uploaded.object} at=${now}`,
     )
   } catch (err) {
-    targetInfo = {
-      target_folder_id: err.target_folder_id ?? targetInfo.target_folder_id,
-      target_drive_id:  err.target_drive_id  ?? targetInfo.target_drive_id,
-    }
-    driveStatus.last_error = {
-      message:          err.message,
-      auth_mode:        authMode,
-      target_folder_id: targetInfo.target_folder_id,
-      target_drive_id:  targetInfo.target_drive_id,
-      at:               new Date().toISOString(),
+    gcsStatus.last_error = {
+      message: err.message,
+      bucket:  cfg.bucket,
+      object:  objectPath,
+      at:      new Date().toISOString(),
     }
     console.error(
-      `${logPrefix} Drive upload failed (local backup preserved, auth=${authMode}): ${err.message} ` +
-      `target_folder_id=${targetInfo.target_folder_id} ` +
-      `target_drive_id=${targetInfo.target_drive_id ?? 'unknown'}`,
+      `[backup:gcs] Upload failed (local backup preserved): ${err.message} ` +
+      `bucket=${cfg.bucket} object=${objectPath} local=${localPath}`,
     )
   }
 }
@@ -232,7 +170,7 @@ function timestamp() {
 }
 
 // ── Postgres JSON backup ──────────────────────────────────────────────────────
-// Exports all user-data tables to a gzipped JSON file, then uploads to Drive.
+// Exports all user-data tables to a gzipped JSON file, then uploads to GCS.
 // Schema is NOT included — migrate() in db.js handles schema recreation.
 export async function runPostgresBackup() {
   const locked = await acquireJobLock('backup_postgres', 23 * 60 * 60 * 1000)
@@ -272,7 +210,7 @@ export async function runPostgresBackup() {
       console.warn('[backup:pg] Skipped tables:', backup.skipped.map(s => s.table).join(', '))
     }
 
-    await driveUpload(filename, '[backup:pg]', 'last_pg_upload')
+    await gcsUpload(filename, 'backups/postgres', '[backup:pg]', 'last_pg_upload')
   } catch (err) {
     console.error('[backup:pg] Failed:', err.message)
   } finally {
@@ -282,7 +220,7 @@ export async function runPostgresBackup() {
 
 // ── Cloudinary metadata backup ────────────────────────────────────────────────
 // Exports asset metadata (public_id, URL, format, size, created_at) for all
-// uploaded images, then uploads to Drive. Binary files stay in Cloudinary.
+// uploaded images, then uploads to GCS. Binary files stay in Cloudinary.
 export async function runCloudinaryBackup() {
   const locked = await acquireJobLock('backup_cloudinary', Math.floor(6.5 * 24 * 60 * 60 * 1000))
   if (!locked) {
@@ -329,7 +267,7 @@ export async function runCloudinaryBackup() {
     await pipeline(Readable.from([json]), createGzip(), createWriteStream(filename))
     console.log(`[backup:cloudinary] ✓ ${filename} | ${allResources.length} assets catalogued`)
 
-    await driveUpload(filename, '[backup:cloudinary]', 'last_cloudinary_upload')
+    await gcsUpload(filename, 'backups/cloudinary', '[backup:cloudinary]', 'last_cloudinary_upload')
   } catch (err) {
     console.error('[backup:cloudinary] Failed:', err.message)
   } finally {
@@ -357,6 +295,10 @@ export function getBackupStatus() {
       last_postgres:          lastPg  ?? null,
       last_cloudinary:        lastCdn ?? null,
       total_backup_files:     files.length,
+      gcs_configured:         gcsStatus.configured,
+      gcs_last_pg_upload:     gcsStatus.last_pg_upload,
+      gcs_last_cdn_upload:    gcsStatus.last_cloudinary_upload,
+      gcs_last_error:         gcsStatus.last_error,
       drive_configured:       driveStatus.configured,
       drive_last_pg_upload:   driveStatus.last_pg_upload,
       drive_last_cdn_upload:  driveStatus.last_cloudinary_upload,
