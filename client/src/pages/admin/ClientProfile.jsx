@@ -2442,7 +2442,6 @@ function MindsetWatchSection({ clientId, getToken }) {
       <p className="text-xs text-gray-400">Loading mindset watch data…</p>
     </div>
   )
-  if (!data) return null
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
@@ -2451,75 +2450,81 @@ function MindsetWatchSection({ clientId, getToken }) {
         <span className="text-[10px] text-gray-400">Only in-app Mindset videos are tracked.</span>
       </div>
 
-      {/* This week */}
-      <div>
-        <p className="text-[10px] font-bold text-[#E8670A] uppercase tracking-wider mb-2">This Week</p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {[
-            { label: 'Watched 50%+', value: data.thisWeek.watched50Count },
-            { label: 'Completed',    value: data.thisWeek.completedCount },
-            { label: 'Best progress', value: data.thisWeek.bestProgress != null ? `${Math.round(data.thisWeek.bestProgress)}%` : '—' },
-            { label: 'Last watched', value: data.thisWeek.lastWatchedAt ? fmtDate(data.thisWeek.lastWatchedAt) : '—' },
-          ].map(({ label, value }) => (
-            <div key={label} className="bg-gray-50 rounded-lg p-3">
-              <p className="text-[11px] text-gray-400 mb-0.5">{label}</p>
-              <p className="text-sm font-bold text-gray-900">{value}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* All-time totals */}
-      <div>
-        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">All-time (in-app)</p>
-        <div className="grid grid-cols-2 gap-2">
-          {[
-            { label: 'Watched 50%+', value: data.totals.watched50Count },
-            { label: 'Completed',    value: data.totals.completedCount },
-          ].map(({ label, value }) => (
-            <div key={label} className="bg-gray-50 rounded-lg p-3">
-              <p className="text-[11px] text-gray-400 mb-0.5">{label}</p>
-              <p className="text-sm font-bold text-gray-900">{value}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Recent videos */}
-      {data.recentVideos.length > 0 && (
-        <div>
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Recent videos</p>
-          <div className="space-y-2">
-            {data.recentVideos.map(v => {
-              const status = videoStatus(v)
-              return (
-                <div key={v.id} className="flex items-center justify-between gap-3 bg-gray-50 rounded-lg px-3 py-2.5">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{v.title}</p>
-                    {v.module_name && <p className="text-[11px] text-gray-400">{v.module_name}</p>}
-                  </div>
-                  <div className="shrink-0 text-right space-y-1">
-                    <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${status.cls}`}>
-                      {status.label}
-                    </span>
-                    {v.highest_pct > 0 && (
-                      <p className="text-[10px] text-gray-400">{Math.round(v.highest_pct)}%</p>
-                    )}
-                    {v.last_watched_at && (
-                      <p className="text-[10px] text-gray-400">{fmtDate(v.last_watched_at)}</p>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {data.recentVideos.length === 0 && (
+      {!data ? (
         <p className="text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg px-3 py-2">
-          No published in-app Mindset videos yet.
+          No in-app Mindset video progress yet.
         </p>
+      ) : (
+        <>
+          {/* This week */}
+          <div>
+            <p className="text-[10px] font-bold text-[#E8670A] uppercase tracking-wider mb-2">This Week</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {[
+                { label: 'Watched 50%+',  value: data.thisWeek.watched50Count },
+                { label: 'Completed',     value: data.thisWeek.completedCount },
+                { label: 'Best progress', value: data.thisWeek.bestProgress != null ? `${Math.round(data.thisWeek.bestProgress)}%` : '—' },
+                { label: 'Last watched',  value: data.thisWeek.lastWatchedAt ? fmtDate(data.thisWeek.lastWatchedAt) : '—' },
+              ].map(({ label, value }) => (
+                <div key={label} className="bg-gray-50 rounded-lg p-3">
+                  <p className="text-[11px] text-gray-400 mb-0.5">{label}</p>
+                  <p className="text-sm font-bold text-gray-900">{value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* All-time totals */}
+          <div>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">All-time (in-app)</p>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { label: 'Watched 50%+', value: data.totals.watched50Count },
+                { label: 'Completed',    value: data.totals.completedCount },
+              ].map(({ label, value }) => (
+                <div key={label} className="bg-gray-50 rounded-lg p-3">
+                  <p className="text-[11px] text-gray-400 mb-0.5">{label}</p>
+                  <p className="text-sm font-bold text-gray-900">{value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Recent videos */}
+          <div>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Recent videos</p>
+            {data.recentVideos.length === 0 ? (
+              <p className="text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg px-3 py-2">
+                No published in-app Mindset videos yet.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {data.recentVideos.map(v => {
+                  const status = videoStatus(v)
+                  return (
+                    <div key={v.id} className="flex items-center justify-between gap-3 bg-gray-50 rounded-lg px-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{v.title}</p>
+                        {v.module_name && <p className="text-[11px] text-gray-400">{v.module_name}</p>}
+                      </div>
+                      <div className="shrink-0 text-right space-y-1">
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${status.cls}`}>
+                          {status.label}
+                        </span>
+                        {v.highest_pct > 0 && (
+                          <p className="text-[10px] text-gray-400">{Math.round(v.highest_pct)}%</p>
+                        )}
+                        {v.last_watched_at && (
+                          <p className="text-[10px] text-gray-400">{fmtDate(v.last_watched_at)}</p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   )
@@ -2543,18 +2548,15 @@ function EngagementTab({ clientId, getToken }) {
     load()
   }, [clientId, getToken])
 
-  if (loading) return <p className="text-sm text-gray-400 text-center py-8">Loading engagement…</p>
-  if (!stats)   return <p className="text-sm text-red-500 text-center py-8">Failed to load.</p>
-
-  const foodLogs = Number(stats.food_logs_week) || 0
-  const workouts = Number(stats.workouts_week) || 0
-  const waterLogs = Number(stats.water_logs_week) || 0
-  const stepLogs = Number(stats.step_logs_week) || 0
-  const habitsComplete = Number(stats.habits_complete_week) || 0
-  const habitsMissed = Number(stats.habits_missed_week) || 0
-  const comebackCount = Number(stats.comeback_count) || 0
-  const lastMealDays = stats.last_meal_at ? daysSince(stats.last_meal_at) : null
-  const lastDailyLogDays = stats.last_daily_log ? daysSince(stats.last_daily_log) : null
+  const foodLogs = Number(stats?.food_logs_week) || 0
+  const workouts = Number(stats?.workouts_week) || 0
+  const waterLogs = Number(stats?.water_logs_week) || 0
+  const stepLogs = Number(stats?.step_logs_week) || 0
+  const habitsComplete = Number(stats?.habits_complete_week) || 0
+  const habitsMissed = Number(stats?.habits_missed_week) || 0
+  const comebackCount = Number(stats?.comeback_count) || 0
+  const lastMealDays = stats?.last_meal_at ? daysSince(stats.last_meal_at) : null
+  const lastDailyLogDays = stats?.last_daily_log ? daysSince(stats.last_daily_log) : null
   const lastActivityDays =
     [lastMealDays, lastDailyLogDays].filter(v => v !== null).sort((a, b) => a - b)[0] ?? null
   const hasActivity =
@@ -2611,7 +2613,11 @@ function EngagementTab({ clientId, getToken }) {
         </p>
       </div>
 
-      {!hasActivity ? (
+      {loading ? (
+        <p className="text-sm text-gray-400 text-center py-4">Loading engagement…</p>
+      ) : !stats ? (
+        <p className="text-sm text-red-500 text-center py-4">Failed to load engagement data.</p>
+      ) : !hasActivity ? (
         <div className="bg-white border border-gray-200 rounded-xl p-6 sm:p-8 text-center">
           <p className="text-2xl mb-2">⚡</p>
           <p className="text-sm text-gray-500 max-w-xl mx-auto">
