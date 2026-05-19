@@ -70,12 +70,26 @@ const driveStatus = {
 }
 
 function getDriveConfig() {
-  const email  = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
   const folder = process.env.GOOGLE_DRIVE_BACKUP_FOLDER_ID
+  if (!folder) return null
+
+  // OAuth takes priority — lets uploads land in the owner's My Drive quota.
+  const clientId     = process.env.GOOGLE_DRIVE_CLIENT_ID
+  const clientSecret = process.env.GOOGLE_DRIVE_CLIENT_SECRET
+  const refreshToken = process.env.GOOGLE_DRIVE_REFRESH_TOKEN
+  if (clientId && clientSecret && refreshToken) {
+    return { auth_mode: 'oauth', clientId, clientSecret, refreshToken, folder }
+  }
+
+  // Service account fallback (works for Shared Drives, not My Drive).
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
   // Railway stores multi-line env vars with literal \n — unescape them.
-  const key    = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n')
-  if (!email || !key || !folder) return null
-  return { email, key, folder }
+  const key   = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n')
+  if (email && key) {
+    return { auth_mode: 'service_account', email, key, folder }
+  }
+
+  return null
 }
 
 // Initialise driveStatus.configured once at module load so getBackupStatus()
@@ -86,11 +100,18 @@ async function uploadToDrive(localPath, filename) {
   const cfg = getDriveConfig()
   if (!cfg) return null   // Drive not configured — caller logs the skip
 
-  const auth = new google.auth.JWT({
-    email:  cfg.email,
-    key:    cfg.key,
-    scopes: ['https://www.googleapis.com/auth/drive'],
-  })
+  let auth
+  if (cfg.auth_mode === 'oauth') {
+    const oauth2 = new google.auth.OAuth2(cfg.clientId, cfg.clientSecret)
+    oauth2.setCredentials({ refresh_token: cfg.refreshToken })
+    auth = oauth2
+  } else {
+    auth = new google.auth.JWT({
+      email:  cfg.email,
+      key:    cfg.key,
+      scopes: ['https://www.googleapis.com/auth/drive'],
+    })
+  }
   const drive = google.drive({ version: 'v3', auth })
 
   const folderResp = await drive.files.get({
@@ -154,6 +175,7 @@ async function driveUpload(localPath, logPrefix, statusKey) {
     console.log(`${logPrefix} Drive not configured — local backup only`)
     return
   }
+  const authMode   = cfg.auth_mode
   let targetInfo = {
     target_folder_id: cfg.folder,
     target_drive_id:  null,
@@ -167,15 +189,16 @@ async function driveUpload(localPath, logPrefix, statusKey) {
     }
     const now = new Date().toISOString()
     driveStatus[statusKey] = {
-      file:        filename,
-      drive_id:    driveFile.id,
+      file:             filename,
+      drive_id:         driveFile.id,
+      auth_mode:        authMode,
       target_folder_id: driveFile.target_folder_id,
       target_drive_id:  driveFile.target_drive_id,
-      uploaded_at: now,
+      uploaded_at:      now,
     }
     driveStatus.last_error = null
     console.log(
-      `${logPrefix} ✓ Drive upload OK: local=${localPath} ` +
+      `${logPrefix} ✓ Drive upload OK (auth=${authMode}): local=${localPath} ` +
       `drive_file_id=${driveFile.id} target_folder_id=${driveFile.target_folder_id} ` +
       `target_drive_id=${driveFile.target_drive_id ?? 'my-drive'} at ${now}`,
     )
@@ -185,13 +208,14 @@ async function driveUpload(localPath, logPrefix, statusKey) {
       target_drive_id:  err.target_drive_id  ?? targetInfo.target_drive_id,
     }
     driveStatus.last_error = {
-      message: err.message,
+      message:          err.message,
+      auth_mode:        authMode,
       target_folder_id: targetInfo.target_folder_id,
       target_drive_id:  targetInfo.target_drive_id,
-      at: new Date().toISOString(),
+      at:               new Date().toISOString(),
     }
     console.error(
-      `${logPrefix} Drive upload failed (local backup preserved): ${err.message} ` +
+      `${logPrefix} Drive upload failed (local backup preserved, auth=${authMode}): ${err.message} ` +
       `target_folder_id=${targetInfo.target_folder_id} ` +
       `target_drive_id=${targetInfo.target_drive_id ?? 'unknown'}`,
     )
