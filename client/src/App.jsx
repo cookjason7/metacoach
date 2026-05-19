@@ -94,9 +94,10 @@ function ProtectedLayout() {
           onboardingComplete:  !!data.onboarding_complete,
           assessmentComplete:  !!data.assessment_complete,
           paid: !!data.paid,
+          role: data.role ?? null,
         }
       } catch {
-        userStateCache = { onboardingComplete: true, paid: true }
+        userStateCache = { onboardingComplete: true, assessmentComplete: true, paid: true, role: null }
       } finally {
         if (!cancelled) {
           setUserState(userStateCache)
@@ -111,7 +112,8 @@ function ProtectedLayout() {
   if (!isLoaded) return <LoadingScreen />
   if (!isSignedIn) return <Navigate to="/sign-in" replace />
   if (checking) return <LoadingScreen />
-  if (!userState?.assessmentComplete) return <Navigate to="/health-assessment" replace />
+  const isPrivileged = ['admin', 'staff', 'coach'].includes(userState?.role)
+  if (!isPrivileged && !userState?.assessmentComplete) return <Navigate to="/health-assessment" replace />
   // Payment gate disabled — open access
   // if (!userState?.paid) return <Navigate to="/payment" replace />
   return <Layout />
