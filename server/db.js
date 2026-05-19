@@ -963,6 +963,12 @@ export async function migrate() {
     )
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_video_watch_user ON video_watch_progress (user_id)`)
+  // Defensive column additions — guard against tables created before full schema was in place
+  await pool.query(`ALTER TABLE video_watch_progress ADD COLUMN IF NOT EXISTS started          BOOLEAN      NOT NULL DEFAULT FALSE`)
+  await pool.query(`ALTER TABLE video_watch_progress ADD COLUMN IF NOT EXISTS highest_pct      NUMERIC(5,1) NOT NULL DEFAULT 0`)
+  await pool.query(`ALTER TABLE video_watch_progress ADD COLUMN IF NOT EXISTS completed        BOOLEAN      NOT NULL DEFAULT FALSE`)
+  await pool.query(`ALTER TABLE video_watch_progress ADD COLUMN IF NOT EXISTS first_watched_at TIMESTAMPTZ`)
+  await pool.query(`ALTER TABLE video_watch_progress ADD COLUMN IF NOT EXISTS last_watched_at  TIMESTAMPTZ`)
 
   // ── Client Measurements ───────────────────────────────────────────────────────
   await pool.query(`

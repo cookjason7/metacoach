@@ -31,8 +31,8 @@ router.get('/my-progress', requireAuth(), async (req, res) => {
     }
     res.json(map)
   } catch (e) {
-    console.error(e)
-    res.status(500).json({ error: 'Server error' })
+    console.error('[mindset-videos:my-progress]', e.message, e.stack)
+    res.status(500).json({ error: e.message ?? 'Server error' })
   }
 })
 
@@ -112,26 +112,39 @@ router.post('/:id/progress', requireAuth(), async (req, res) => {
     const { userId } = getAuth(req)
     const dbUserId = await getOrCreateUser(userId)
     const videoId = parseInt(req.params.id, 10)
+    if (isNaN(videoId)) return res.status(400).json({ error: 'Invalid video id' })
     const pct = parseFloat(req.body.pct)
     if (isNaN(pct) || pct < 0 || pct > 100) {
       return res.status(400).json({ error: 'pct must be 0–100' })
     }
+
+    // Verify the video exists before upserting (avoids FK violation 500)
+    const { rows: vidRows } = await pool.query(
+      'SELECT id FROM mindset_videos WHERE id = $1',
+      [videoId],
+    )
+    if (!vidRows.length) return res.status(404).json({ error: 'Video not found' })
+
+    // Pass completed as a separate boolean parameter to avoid type-inference
+    // issues with $3 >= 90 appearing in both a NUMERIC slot and a comparison.
+    const completedNew = pct >= 90
     const { rows } = await pool.query(`
       INSERT INTO video_watch_progress
         (user_id, video_id, started, highest_pct, completed, first_watched_at, last_watched_at)
-      VALUES ($1, $2, TRUE, $3, $3 >= 90, NOW(), NOW())
+      VALUES ($1, $2, TRUE, $3, $4, NOW(), NOW())
       ON CONFLICT (user_id, video_id) DO UPDATE SET
-        started          = TRUE,
-        highest_pct      = GREATEST(video_watch_progress.highest_pct, EXCLUDED.highest_pct),
-        completed        = video_watch_progress.completed OR (GREATEST(video_watch_progress.highest_pct, EXCLUDED.highest_pct) >= 90),
-        last_watched_at  = NOW()
+        started         = TRUE,
+        highest_pct     = GREATEST(video_watch_progress.highest_pct, EXCLUDED.highest_pct),
+        completed       = video_watch_progress.completed
+                          OR (GREATEST(video_watch_progress.highest_pct, EXCLUDED.highest_pct) >= 90),
+        last_watched_at = NOW()
       RETURNING started, highest_pct, completed
-    `, [dbUserId, videoId, pct])
+    `, [dbUserId, videoId, pct, completedNew])
     const r = rows[0]
     res.json({ success: true, highest_pct: parseFloat(r.highest_pct), completed: r.completed })
   } catch (e) {
-    console.error(e)
-    res.status(500).json({ error: 'Server error' })
+    console.error('[mindset-videos:progress]', e.message, e.stack)
+    res.status(500).json({ error: e.message ?? 'Server error' })
   }
 })
 
