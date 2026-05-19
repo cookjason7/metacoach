@@ -412,6 +412,7 @@ router.get('/posts/:id/reactions', requireAuth(), async (req, res, next) => {
          COUNT(CASE WHEN reaction_type = 'like'  THEN 1 END)::int AS "like",
          COUNT(CASE WHEN reaction_type = 'love'  THEN 1 END)::int AS love,
          COUNT(CASE WHEN reaction_type = 'laugh' THEN 1 END)::int AS laugh,
+         COUNT(CASE WHEN reaction_type = 'care'  THEN 1 END)::int AS care,
          ARRAY_REMOVE(ARRAY_AGG(CASE WHEN user_id = $2 THEN reaction_type END), NULL) AS "userReactions"
        FROM post_reactions WHERE post_id = $1`,
       [postId, dbUserId],
@@ -427,7 +428,7 @@ router.post('/posts/:id/reactions', requireAuth(), async (req, res, next) => {
     const postId   = parseInt(req.params.id, 10)
     const { reaction_type } = req.body
 
-    if (!['like', 'love', 'laugh'].includes(reaction_type)) {
+    if (!['like', 'love', 'laugh', 'care'].includes(reaction_type)) {
       return res.status(400).json({ error: 'Invalid reaction_type' })
     }
 
@@ -455,7 +456,8 @@ router.post('/posts/:id/reactions', requireAuth(), async (req, res, next) => {
       `SELECT
          COUNT(CASE WHEN reaction_type = 'like'  THEN 1 END)::int AS like_count,
          COUNT(CASE WHEN reaction_type = 'love'  THEN 1 END)::int AS love_count,
-         COUNT(CASE WHEN reaction_type = 'laugh' THEN 1 END)::int AS laugh_count
+         COUNT(CASE WHEN reaction_type = 'laugh' THEN 1 END)::int AS laugh_count,
+         COUNT(CASE WHEN reaction_type = 'care'  THEN 1 END)::int AS care_count
        FROM post_reactions WHERE post_id = $1`,
       [postId],
     )
@@ -612,6 +614,7 @@ router.get('/comments/:id/reactions', requireAuth(), async (req, res, next) => {
          COUNT(CASE WHEN reaction_type = 'like'  THEN 1 END)::int AS "like",
          COUNT(CASE WHEN reaction_type = 'love'  THEN 1 END)::int AS love,
          COUNT(CASE WHEN reaction_type = 'laugh' THEN 1 END)::int AS laugh,
+         COUNT(CASE WHEN reaction_type = 'care'  THEN 1 END)::int AS care,
          ARRAY_REMOVE(ARRAY_AGG(CASE WHEN user_id = $2 THEN reaction_type END), NULL) AS "userReactions"
        FROM comment_reactions WHERE comment_id = $1`,
       [commentId, dbUserId],
@@ -627,7 +630,7 @@ router.post('/comments/:id/reactions', requireAuth(), async (req, res, next) => 
     const commentId = parseInt(req.params.id, 10)
     const { reaction_type } = req.body
 
-    if (!['like', 'love', 'laugh'].includes(reaction_type)) {
+    if (!['like', 'love', 'laugh', 'care'].includes(reaction_type)) {
       return res.status(400).json({ error: 'Invalid reaction_type' })
     }
 
@@ -655,7 +658,8 @@ router.post('/comments/:id/reactions', requireAuth(), async (req, res, next) => 
       `SELECT
          COUNT(CASE WHEN reaction_type = 'like'  THEN 1 END)::int AS like_count,
          COUNT(CASE WHEN reaction_type = 'love'  THEN 1 END)::int AS love_count,
-         COUNT(CASE WHEN reaction_type = 'laugh' THEN 1 END)::int AS laugh_count
+         COUNT(CASE WHEN reaction_type = 'laugh' THEN 1 END)::int AS laugh_count,
+         COUNT(CASE WHEN reaction_type = 'care'  THEN 1 END)::int AS care_count
        FROM comment_reactions WHERE comment_id = $1`,
       [commentId],
     )

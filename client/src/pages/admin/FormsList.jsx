@@ -706,7 +706,7 @@ export default function FormsList() {
   const [error,   setError]   = useState(null)
   const [creating,      setCreating]      = useState(false)
   const [importing,     setImporting]     = useState(false)
-  const [filter,        setFilter]        = useState('all')
+  const [filter,        setFilter]        = useState('published')
   const [actionLoading, setActionLoading] = useState(null)
   const [sendingForm,   setSendingForm]   = useState(null)
   const [scheduleKey,   setScheduleKey]   = useState(0)   // bump to refresh ScheduledSends

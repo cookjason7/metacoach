@@ -42,6 +42,7 @@ const REACTIONS = [
   { type: 'like',  emoji: '👍', countKey: 'like_count',  myKey: 'my_like'  },
   { type: 'love',  emoji: '❤️', countKey: 'love_count',  myKey: 'my_love'  },
   { type: 'laugh', emoji: '😂', countKey: 'laugh_count', myKey: 'my_laugh' },
+  { type: 'care',  emoji: '🤗', countKey: 'care_count',  myKey: 'my_care'  },
 ]
 
 const CATEGORIES = ['General Discussion', 'Non-Scale Victories']
@@ -267,9 +268,11 @@ function CommentItem({ comment, getToken, isAdmin, onDelete, members }) {
     like_count:  comment.like_count  ?? 0,
     love_count:  comment.love_count  ?? 0,
     laugh_count: comment.laugh_count ?? 0,
+    care_count:  comment.care_count  ?? 0,
     my_like:     comment.my_like     ?? false,
     my_love:     comment.my_love     ?? false,
     my_laugh:    comment.my_laugh    ?? false,
+    my_care:     comment.my_care     ?? false,
   })
 
   useEffect(() => {
@@ -286,9 +289,11 @@ function CommentItem({ comment, getToken, isAdmin, onDelete, members }) {
           like_count:  data.like  ?? r.like_count,
           love_count:  data.love  ?? r.love_count,
           laugh_count: data.laugh ?? r.laugh_count,
+          care_count:  data.care  ?? r.care_count,
           my_like:     data.userReactions?.includes('like')  ?? r.my_like,
           my_love:     data.userReactions?.includes('love')  ?? r.my_love,
           my_laugh:    data.userReactions?.includes('laugh') ?? r.my_laugh,
+          my_care:     data.userReactions?.includes('care')  ?? r.my_care,
         }))
       } catch {}
     }
@@ -314,6 +319,7 @@ function CommentItem({ comment, getToken, isAdmin, onDelete, members }) {
           like_count:  data.like_count,
           love_count:  data.love_count,
           laugh_count: data.laugh_count,
+          care_count:  data.care_count,
           [myKey]: data.active,
         }))
       }
@@ -364,8 +370,8 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
   const [submitting,     setSubmitting]     = useState(false)
   const [localCount,     setLocalCount]     = useState(post.comment_count)
   const [postReactions,  setPostReactions]  = useState({
-    like_count: 0, love_count: 0, laugh_count: 0,
-    my_like: false, my_love: false, my_laugh: false,
+    like_count: 0, love_count: 0, laugh_count: 0, care_count: 0,
+    my_like: false, my_love: false, my_laugh: false, my_care: false,
   })
   const [isEditing,      setIsEditing]      = useState(false)
   const [editContent,    setEditContent]    = useState(post.content)
@@ -387,9 +393,11 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
           like_count:  data.like  ?? 0,
           love_count:  data.love  ?? 0,
           laugh_count: data.laugh ?? 0,
+          care_count:  data.care  ?? 0,
           my_like:     data.userReactions?.includes('like')  ?? false,
           my_love:     data.userReactions?.includes('love')  ?? false,
           my_laugh:    data.userReactions?.includes('laugh') ?? false,
+          my_care:     data.userReactions?.includes('care')  ?? false,
         })
       } catch {}
     }
@@ -415,6 +423,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
           like_count:  data.like_count,
           love_count:  data.love_count,
           laugh_count: data.laugh_count,
+          care_count:  data.care_count,
           [myKey]: data.active,
         }))
       }
@@ -498,7 +507,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
         </div>
       )}
 
-      <div className="p-5">
+      <div className="p-4">
         {/* Header */}
         <div className="flex items-start gap-3 mb-3">
           <Avatar name={post.first_name} />
@@ -983,7 +992,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
           </div>
         )}
 
-        <div className="space-y-4">
+        <div className="space-y-3">
           {visiblePosts.map(post => (
             <PostCard
               key={post.id}
@@ -1014,12 +1023,6 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
         )}
       </div>
 
-      {/* Leaderboard sidebar — staff only */}
-      {isStaff && (
-        <div className="w-full lg:w-52 shrink-0">
-          <Leaderboard getToken={getToken} />
-        </div>
-      )}
     </div>
   )
 }
@@ -1615,7 +1618,7 @@ function MindsetTab({ getToken, isStaff }) {
       {isStaff && (
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
           <div>
-            <h2 className="text-lg font-bold text-gray-900">Brain Mapping / Mindset</h2>
+            <h2 className="text-lg font-bold text-gray-900">Brain Mapping</h2>
             <p className="text-xs text-gray-400 mt-0.5">Manage videos visible to clients</p>
           </div>
           <button
@@ -1632,7 +1635,7 @@ function MindsetTab({ getToken, isStaff }) {
 
       {!isStaff && (
         <div className="mb-5">
-          <h2 className="text-lg font-bold text-gray-900">Brain Mapping / Mindset</h2>
+          <h2 className="text-lg font-bold text-gray-900">Brain Mapping</h2>
           <p className="text-sm text-gray-500 mt-0.5">Foundational mindset work from your coaching team</p>
         </div>
       )}
@@ -2144,7 +2147,7 @@ export default function Community() {
   const TABS = [
     ...(isStaff || clientChannel === 'vip' ? [{ id: 'vip', label: 'VIP Chat' }] : []),
     ...(isStaff || clientChannel === 'ai'  ? [{ id: 'ai',  label: 'AI/Hybrid Chat' }] : []),
-    { id: 'mindset',   label: 'Brain Mapping/Mindset' },
+    { id: 'mindset',   label: 'Brain Mapping' },
     { id: 'resources', label: 'Resources' },
   ]
 
