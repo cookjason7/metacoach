@@ -93,6 +93,7 @@ async function uploadToDrive(localPath, filename) {
   })
   const drive = google.drive({ version: 'v3', auth })
   const resp  = await drive.files.create({
+    supportsAllDrives: true,
     requestBody: {
       name:    filename,
       parents: [cfg.folder],
@@ -117,12 +118,14 @@ async function driveUpload(localPath, logPrefix, statusKey) {
   try {
     const filename  = path.basename(localPath)
     const driveFile = await uploadToDrive(localPath, filename)
+    const now = new Date().toISOString()
     driveStatus[statusKey] = {
       file:        filename,
       drive_id:    driveFile.id,
-      uploaded_at: new Date().toISOString(),
+      uploaded_at: now,
     }
-    console.log(`${logPrefix} ✓ Drive upload: ${driveFile.name} (id=${driveFile.id})`)
+    driveStatus.last_error = null
+    console.log(`${logPrefix} ✓ Drive upload OK: ${driveFile.name} (id=${driveFile.id}) at ${now}`)
   } catch (err) {
     driveStatus.last_error = { message: err.message, at: new Date().toISOString() }
     console.error(`${logPrefix} Drive upload failed (local backup preserved):`, err.message)
