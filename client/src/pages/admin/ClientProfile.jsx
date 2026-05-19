@@ -944,30 +944,56 @@ const HABIT_LIBRARY = [
 
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 
-// Build the next-N-days mini-calendar preview for the coach habit tab
-function buildHabitPreview(habits, days = 14) {
-  const result = []
-  const today = new Date(); today.setHours(0,0,0,0)
-  for (let i = 0; i < days; i++) {
-    const d = new Date(today); d.setDate(d.getDate() + i)
-    const dKey = d.toISOString().slice(0, 10)
-    const dDow = d.getDay()
-    const dayHabits = habits.filter(h => {
-      if (!h.active) return false
-      const hStart = new Date(`${String(h.start_date).slice(0,10)}T00:00:00`)
-      const hEnd   = h.end_date ? new Date(`${String(h.end_date).slice(0,10)}T00:00:00`) : null
-      if (d < hStart) return false
-      if (hEnd && d > hEnd) return false
-      if (h.frequency === 'specific_days') {
-        const allowed = (h.days_of_week ?? '').split(',').map(s => parseInt(s, 10))
-        if (!allowed.includes(dDow)) return false
-      }
-      if (h.frequency === 'weekly' && dDow !== hStart.getDay()) return false
-      return true
-    })
-    result.push({ date: d, dateKey: dKey, habits: dayHabits })
+function habitActiveOnDay(h, date) {
+  if (!h.active) return false
+  const hStart = new Date(`${String(h.start_date).slice(0,10)}T00:00:00`)
+  const hEnd   = h.end_date ? new Date(`${String(h.end_date).slice(0,10)}T00:00:00`) : null
+  if (date < hStart) return false
+  if (hEnd && date > hEnd) return false
+  const dDow = date.getDay()
+  if (h.frequency === 'specific_days') {
+    const allowed = (h.days_of_week ?? '').split(',').map(s => parseInt(s, 10))
+    return allowed.includes(dDow)
   }
-  return result
+  if (h.frequency === 'weekly') return dDow === hStart.getDay()
+  return true
+}
+
+// Build a full-month grid for the coach habit calendar preview
+function buildMonthCalendar(habits) {
+  const today = new Date(); today.setHours(0,0,0,0)
+  const todayKey = today.toISOString().slice(0, 10)
+  const year = today.getFullYear()
+  const month = today.getMonth()
+  const firstDay = new Date(year, month, 1)
+  const lastDay  = new Date(year, month + 1, 0)
+  const monthName = firstDay.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+
+  const cells = []
+  // Pad days before month start
+  for (let i = 0; i < firstDay.getDay(); i++) {
+    const d = new Date(firstDay); d.setDate(d.getDate() - (firstDay.getDay() - i))
+    cells.push({ date: d, dateKey: d.toISOString().slice(0,10), habits: [], inMonth: false, isToday: false })
+  }
+  // Days in month
+  for (let n = 1; n <= lastDay.getDate(); n++) {
+    const d = new Date(year, month, n)
+    const dateKey = d.toISOString().slice(0, 10)
+    cells.push({ date: d, dateKey, habits: habits.filter(h => habitActiveOnDay(h, d)), inMonth: true, isToday: dateKey === todayKey })
+  }
+  // Pad end of last week
+  const tail = cells.length % 7
+  if (tail > 0) {
+    let pad = new Date(lastDay); pad.setDate(pad.getDate() + 1)
+    for (let i = 0; i < 7 - tail; i++) {
+      cells.push({ date: pad, dateKey: pad.toISOString().slice(0,10), habits: [], inMonth: false, isToday: false })
+      pad = new Date(pad); pad.setDate(pad.getDate() + 1)
+    }
+  }
+  // Chunk into weeks
+  const weeks = []
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7))
+  return { monthName, weeks }
 }
 
 function HabitsTab({ clientId, getToken }) {
@@ -1096,30 +1122,75 @@ function HabitsTab({ clientId, getToken }) {
     setEditForm(f => ({ ...f, days_of_week: next.join(',') }))
   }
 
-  const previewDays = buildHabitPreview(habits, 14)
+  const monthCal = buildMonthCalendar(habits)
 
   return (
     <div className="space-y-4">
       {/* Quick presets */}
-      <div className="bg-white border border-gray-200 rounded-xl p-4">
+      <div className="bg-white border border-gray-200 rounded-xl p-3">
         <p className="text-xs font-semibold text-gray-700 mb-2">Quick assign</p>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
           {QUICK_PRESETS.map(p => (
             <button key={p.label} onClick={() => applyPreset(p)}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium border-2 border-gray-200 text-gray-700 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors">
+              className="px-2 py-1 rounded-lg text-xs font-medium border border-gray-200 text-gray-700 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors">
               + {p.label}
             </button>
           ))}
           <button onClick={() => setShowForm(s => !s)}
-            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[#E8670A] text-white hover:bg-[#c45e09]">
-            + Custom habit
+            className="px-2 py-1 rounded-lg text-xs font-bold bg-[#E8670A] text-white hover:bg-[#c45e09]">
+            + Custom
           </button>
           <button onClick={() => setShowLibrary(s => !s)}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium border-2 border-[#1e2a3a] text-[#1e2a3a] hover:bg-[#1e2a3a] hover:text-white transition-colors">
-            📚 Full habit library
+            className="px-2 py-1 rounded-lg text-xs font-medium border border-[#1e2a3a] text-[#1e2a3a] hover:bg-[#1e2a3a] hover:text-white transition-colors">
+            📚 Library
           </button>
+          {habits.length > 0 && (
+            <button onClick={() => setShowPreview(s => !s)}
+              className="px-2 py-1 rounded-lg text-xs font-medium border border-[#1e2a3a] text-[#1e2a3a] hover:bg-[#1e2a3a] hover:text-white transition-colors">
+              📅 {showPreview ? 'Hide Calendar' : 'Habit Calendar'}
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Month habit calendar */}
+      {showPreview && habits.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-xl p-3">
+          <p className="text-xs font-semibold text-gray-700 mb-2">📅 {monthCal.monthName} — Client habit view</p>
+          <div className="grid grid-cols-7 gap-px mb-1">
+            {DAYS.map(d => (
+              <p key={d} className="text-[9px] font-bold text-gray-400 text-center py-0.5">{d}</p>
+            ))}
+          </div>
+          {monthCal.weeks.map((week, wi) => (
+            <div key={wi} className="grid grid-cols-7 gap-px mb-px">
+              {week.map(({ date, dateKey, habits: dayHabits, inMonth, isToday }) => (
+                <div key={dateKey} className={`border rounded p-0.5 min-h-[48px] ${
+                  !inMonth ? 'border-transparent bg-gray-50/40 opacity-40' :
+                  isToday  ? 'border-[#E8670A] bg-orange-50' : 'border-gray-100 bg-white'
+                }`}>
+                  <p className={`text-[9px] font-bold leading-tight ${isToday ? 'text-[#E8670A]' : inMonth ? 'text-gray-500' : 'text-gray-300'}`}>
+                    {date.getDate()}
+                  </p>
+                  <div className="space-y-px mt-0.5">
+                    {dayHabits.slice(0, 3).map(h => (
+                      <div key={h.id} className="text-[7px] bg-emerald-50 text-emerald-700 px-0.5 rounded truncate leading-tight" title={h.habit_name}>
+                        {h.habit_name}
+                      </div>
+                    ))}
+                    {dayHabits.length > 3 && (
+                      <p className="text-[7px] text-gray-400">+{dayHabits.length - 3}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+          <p className="text-[10px] text-gray-400 mt-2 italic">
+            Preview of what your client sees on their Calendar.
+          </p>
+        </div>
+      )}
 
       {/* Full library (collapsed by default) */}
       {showLibrary && (
@@ -1352,44 +1423,6 @@ function HabitsTab({ clientId, getToken }) {
         </div>
       </div>
 
-      {/* Client calendar preview — 14-day strip showing what the client will see */}
-      {habits.length > 0 && (
-        <div>
-          <button onClick={() => setShowPreview(s => !s)}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 border-[#1e2a3a] text-[#1e2a3a] text-sm font-semibold hover:bg-[#1e2a3a] hover:text-white transition-colors mb-3">
-            📅 {showPreview ? 'Hide Client Habit Calendar' : 'View Client Habit Calendar (14 days)'}
-          </button>
-          {showPreview && (
-            <div className="bg-white border border-gray-200 rounded-xl p-3">
-              <div className="grid grid-cols-7 gap-1.5">
-                {previewDays.map(({ date, dateKey, habits: dayHabits }, i) => {
-                  const isToday = dateKey === new Date().toISOString().slice(0, 10)
-                  return (
-                    <div key={dateKey} className={`border rounded-lg p-1.5 min-h-[80px] ${
-                      isToday ? 'border-[#E8670A] bg-orange-50' : 'border-gray-200 bg-white'
-                    }`}>
-                      <p className={`text-[10px] font-bold mb-1 ${isToday ? 'text-[#E8670A]' : 'text-gray-500'}`}>
-                        {DAYS[date.getDay()]} {date.getDate()}
-                      </p>
-                      <div className="space-y-0.5">
-                        {dayHabits.map(h => (
-                          <div key={h.id} className="text-[9px] bg-emerald-50 text-emerald-800 px-1 py-0.5 rounded border border-emerald-100 truncate" title={h.habit_name}>
-                            ○ {h.habit_name}
-                          </div>
-                        ))}
-                        {dayHabits.length === 0 && <p className="text-[9px] text-gray-300">—</p>}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-              <p className="text-[10px] text-gray-400 mt-2 italic">
-                This is what {''}<span className="font-semibold text-gray-600">your client will see</span> on their Calendar page.
-              </p>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   )
 }
@@ -1647,13 +1680,23 @@ function ProgressTab({ clientId, getToken }) {
   const wt     = data?.weight_series  ?? []
   const mac    = data?.macro_series   ?? []
   const stp    = data?.step_series    ?? []
+  const slp    = data?.sleep_series   ?? []
   const wko    = data?.workout_series ?? []
   const rows   = data?.table_rows     ?? []
   const photos = data?.progress_photos ?? []
 
   const wc = s.weight_change
   const wtColor = wc == null ? 'text-gray-900' : wc < 0 ? 'text-emerald-600' : wc > 0 ? 'text-red-500' : 'text-gray-900'
-  const hasData = wt.length > 0 || mac.length > 0 || stp.length > 0 || wko.length > 0
+  const hasData = wt.length > 0 || mac.length > 0 || stp.length > 0 || slp.length > 0 || wko.length > 0
+
+  function fmtSleep(mins) {
+    if (!mins) return '—'
+    const h = Math.floor(Number(mins) / 60)
+    const m = Number(mins) % 60
+    return m ? `${h}h ${m}m` : `${h}h`
+  }
+  // Convert sleep series minutes → hours for chart display
+  const slpHrs = slp.map(d => ({ date: d.date, value: d.value ? +(Number(d.value) / 60).toFixed(1) : 0 }))
 
   return (
     <div className="space-y-5">
@@ -1699,6 +1742,11 @@ function ProgressTab({ clientId, getToken }) {
               sub="per day with data"
             />
             <SummaryCard
+              label="Avg sleep"
+              value={fmtSleep(s.avg_sleep_minutes)}
+              sub="per night with data"
+            />
+            <SummaryCard
               label="Workouts"
               value={s.workouts_completed ?? '—'}
               sub="last 30 days"
@@ -1716,6 +1764,7 @@ function ProgressTab({ clientId, getToken }) {
                 series2={mac} valueKey2="protein" color2="#10b981"
               />
               <ChartCard title="Daily Steps" series={stp} valueKey="value" />
+              <ChartCard title="Sleep (hrs)" series={slpHrs} valueKey="value" color="#6366f1" />
               <ChartCard title="Workouts per Period" series={wko} valueKey="count" />
             </div>
           ) : (
@@ -1739,7 +1788,7 @@ function ProgressTab({ clientId, getToken }) {
                       <th className="px-3 py-2 text-right font-semibold">Weight</th>
                       <th className="px-3 py-2 text-right font-semibold">Steps</th>
                       <th className="px-3 py-2 text-right font-semibold">Workouts</th>
-                      <th className="px-3 py-2 text-right font-semibold">Sleep</th>
+                      <th className="px-3 py-2 text-right font-semibold">Sleep 😴</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -1751,7 +1800,7 @@ function ProgressTab({ clientId, getToken }) {
                         <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.weight   ? `${r.weight} lbs`                         : '—'}</td>
                         <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.steps    ? Number(r.steps).toLocaleString()           : '—'}</td>
                         <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.workouts != null ? r.workouts                         : '—'}</td>
-                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.sleep_quality != null ? `${r.sleep_quality}/5`        : '—'}</td>
+                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.sleep_minutes != null ? fmtSleep(r.sleep_minutes) : '—'}</td>
                       </tr>
                     ))}
                   </tbody>

@@ -87,6 +87,8 @@ export default function Layout() {
         body.weight_lbs = Number(quickValue)
       } else if (quickAction === 'steps') {
         body.steps = Number(quickValue)
+      } else if (quickAction === 'sleep') {
+        body.sleep_minutes = Math.round(Number(quickValue) * 60)
       }
       await fetch(`${API_URL}/api/daily-logs`, {
         method: 'POST',
@@ -445,6 +447,7 @@ export default function Layout() {
                   { id: 'water',    emoji: '💧', label: 'Water' },
                   { id: 'weight',   emoji: '⚖️', label: 'Weight' },
                   { id: 'steps',    emoji: '👟', label: 'Steps' },
+                  { id: 'sleep',    emoji: '😴', label: 'Sleep' },
                   { id: 'activity', emoji: '🏃', label: 'Activity' },
                 ].map(({ id, emoji, label }) => (
                   <button
@@ -534,6 +537,40 @@ export default function Layout() {
                     <button onClick={submitQuickLog} disabled={!quickValue || quickSaving}
                       className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
                       {quickSaving ? 'Saving…' : 'Log Steps'}
+                    </button>
+                  </>
+                )}
+
+                {/* sleep */}
+                {quickAction === 'sleep' && (
+                  <>
+                    <p className="text-sm text-gray-500 mb-3">Hours slept last night</p>
+                    <div className="flex gap-2 mb-3">
+                      {['6', '7', '8', '9'].map(h => (
+                        <button
+                          key={h}
+                          onClick={() => setQuickValue(h)}
+                          className={`flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-colors ${
+                            quickValue === h
+                              ? 'bg-[#E8670A] border-[#E8670A] text-white'
+                              : 'border-gray-200 text-gray-600 hover:border-[#E8670A]'
+                          }`}
+                        >
+                          {h}h
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={quickValue}
+                      onChange={e => setQuickValue(e.target.value)}
+                      placeholder="Custom hours (e.g. 7.5)" autoFocus
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-4"
+                    />
+                    <button onClick={submitQuickLog} disabled={!quickValue || quickSaving}
+                      className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
+                      {quickSaving ? 'Saving…' : 'Log Sleep'}
                     </button>
                   </>
                 )}
