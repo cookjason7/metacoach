@@ -2199,6 +2199,56 @@ router.patch('/form-schedules/:id/resume', requireAuth(), async (req, res, next)
   } catch (err) { next(err) }
 })
 
+// PATCH /api/coach-admin/form-schedules/:id  — edit future schedule details (staff only)
+router.patch('/form-schedules/:id', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id  = parseInt(req.params.id, 10)
+
+    const { rows: [fa] } = await pool.query(
+      'SELECT id, client_id, assignment_type, status, recurring_rule FROM form_assignments WHERE id = $1',
+      [id],
+    )
+    if (!fa) return res.status(404).json({ error: 'Schedule not found' })
+    if (!await canAccessClient(ctx, fa.client_id)) return res.status(403).json({ error: 'Not your client' })
+
+    if (fa.assignment_type === 'scheduled') {
+      if (fa.status !== 'pending')
+        return res.status(400).json({ error: 'Only pending scheduled sends can be edited.' })
+
+      const { send_at } = req.body
+      if (!send_at) return res.status(400).json({ error: 'send_at is required.' })
+      const dt = new Date(send_at)
+      if (isNaN(dt.getTime())) return res.status(400).json({ error: 'send_at is not a valid date.' })
+      if (dt <= new Date()) return res.status(400).json({ error: 'send_at must be in the future.' })
+
+      const { rows: [updated] } = await pool.query(
+        `UPDATE form_assignments SET send_at = $1, next_send_at = $1 WHERE id = $2 RETURNING *`,
+        [dt, id],
+      )
+      return res.json(updated)
+    }
+
+    if (fa.assignment_type === 'recurring') {
+      if (!['active', 'paused'].includes(fa.status))
+        return res.status(400).json({ error: 'Only active or paused recurring schedules can be edited.' })
+
+      const { recurring_rule } = req.body
+      if (!recurring_rule || recurring_rule.day_of_week == null || recurring_rule.hour == null)
+        return res.status(400).json({ error: 'recurring_rule with day_of_week and hour is required.' })
+
+      const nextSend = computeNextSendAt(recurring_rule.day_of_week, recurring_rule.hour, recurring_rule.minute ?? 0)
+      const { rows: [updated] } = await pool.query(
+        `UPDATE form_assignments SET recurring_rule = $1::jsonb, next_send_at = $2 WHERE id = $3 RETURNING *`,
+        [JSON.stringify(recurring_rule), nextSend, id],
+      )
+      return res.json(updated)
+    }
+
+    return res.status(400).json({ error: 'This schedule type cannot be edited.' })
+  } catch (err) { next(err) }
+})
+
 // POST /api/coach-admin/form-schedules/process  (admin only — manual trigger)
 router.post('/form-schedules/process', requireAuth(), async (req, res, next) => {
   try {

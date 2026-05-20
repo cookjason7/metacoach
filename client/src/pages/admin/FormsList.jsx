@@ -293,6 +293,146 @@ function SendModal({ form, getToken, onClose, onScheduled }) {
   )
 }
 
+// ── Edit Schedule Modal ───────────────────────────────────────────────────────
+
+function EditScheduleModal({ schedule, getToken, onClose, onSaved }) {
+  const isRecurring = schedule.assignment_type === 'recurring'
+
+  // scheduled fields — prefill from next_send_at
+  const prefillDt = schedule.next_send_at ? new Date(schedule.next_send_at) : new Date()
+  const [schedDate, setSchedDate] = useState(prefillDt.toISOString().slice(0, 10))
+  const [schedTime, setSchedTime] = useState(
+    String(prefillDt.getHours()).padStart(2, '0') + ':' + String(prefillDt.getMinutes()).padStart(2, '0')
+  )
+
+  // recurring fields — prefill from recurring_rule
+  const rule = schedule.recurring_rule ?? {}
+  const [recurDay,  setRecurDay]  = useState(rule.day_of_week ?? 1)
+  const [recurTime, setRecurTime] = useState(
+    String(rule.hour ?? 9).padStart(2, '0') + ':' + String(rule.minute ?? 0).padStart(2, '0')
+  )
+
+  const [saving, setSaving] = useState(false)
+  const [err,    setErr]    = useState(null)
+
+  async function handleSave() {
+    setSaving(true); setErr(null)
+    try {
+      const token = await getToken()
+      let body
+      if (isRecurring) {
+        body = {
+          recurring_rule: {
+            day_of_week: recurDay,
+            hour:        parseInt(recurTime.split(':')[0], 10),
+            minute:      parseInt(recurTime.split(':')[1], 10),
+          },
+        }
+      } else {
+        if (!schedDate || !schedTime) throw new Error('Please pick a date and time.')
+        body = { send_at: new Date(`${schedDate}T${schedTime}:00`).toISOString() }
+      }
+      const res = await fetch(`${API_URL}/api/coach-admin/form-schedules/${schedule.id}`, {
+        method:  'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Save failed')
+      onSaved()
+    } catch (e) { setErr(e.message) }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-gray-900">Edit Schedule</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <p className="text-sm text-gray-600 mb-1 truncate">
+          <span className="font-semibold text-gray-900">{schedule.form_title}</span>
+        </p>
+        <p className="text-xs text-gray-400 mb-4">
+          {[schedule.client_first_name, schedule.client_last_name].filter(Boolean).join(' ')} · {isRecurring ? 'Recurring' : 'One-time'}
+        </p>
+
+        {err && <p className="mb-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{err}</p>}
+
+        {isRecurring ? (
+          <div className="grid grid-cols-2 gap-3 mb-5">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Day of Week</label>
+              <select
+                value={recurDay}
+                onChange={e => setRecurDay(parseInt(e.target.value, 10))}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+              >
+                {DAY_LABELS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Time</label>
+              <input
+                type="time"
+                value={recurTime}
+                onChange={e => setRecurTime(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 mb-5">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Date</label>
+              <input
+                type="date"
+                value={schedDate}
+                min={new Date().toISOString().slice(0, 10)}
+                onChange={e => setSchedDate(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Time</label>
+              <input
+                type="time"
+                value={schedTime}
+                onChange={e => setSchedTime(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+              />
+            </div>
+          </div>
+        )}
+
+        {isRecurring && (
+          <p className="text-xs text-gray-400 mb-4">Changes apply to future sends only. Past sends and submissions are preserved.</p>
+        )}
+
+        <div className="flex gap-3">
+          <button onClick={onClose}
+            className="flex-1 border border-gray-200 text-gray-600 font-semibold py-2.5 rounded-xl text-sm hover:bg-gray-50">
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex-1 bg-[#E8670A] text-white font-bold py-2.5 rounded-xl text-sm hover:bg-[#c45e09] disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Scheduled Sends Panel ─────────────────────────────────────────────────────
 
 function fmtDt(iso) {
@@ -311,9 +451,10 @@ function clientName(row) {
 }
 
 function ScheduledSends({ getToken, refreshKey }) {
-  const [rows,       setRows]       = useState([])
-  const [loading,    setLoading]    = useState(true)
-  const [actioning,  setActioning]  = useState(null)
+  const [rows,            setRows]            = useState([])
+  const [loading,         setLoading]         = useState(true)
+  const [actioning,       setActioning]       = useState(null)
+  const [editingSchedule, setEditingSchedule] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -443,6 +584,15 @@ function ScheduledSends({ getToken, refreshKey }) {
                             {actioning === r.id + '_resume' ? '…' : 'Resume'}
                           </button>
                         )}
+                        {((r.assignment_type === 'scheduled' && r.status === 'pending') ||
+                          (r.assignment_type === 'recurring' && ['active', 'paused'].includes(r.status))) && (
+                          <button
+                            onClick={() => setEditingSchedule(r)}
+                            className="text-xs text-blue-600 hover:text-blue-700 font-semibold mr-3"
+                          >
+                            Edit
+                          </button>
+                        )}
                         <button
                           onClick={() => cancel(r.id)}
                           disabled={actioning === r.id + '_cancel'}
@@ -487,6 +637,15 @@ function ScheduledSends({ getToken, refreshKey }) {
                           {actioning === r.id + '_resume' ? '…' : 'Resume'}
                         </button>
                       )}
+                      {((r.assignment_type === 'scheduled' && r.status === 'pending') ||
+                        (r.assignment_type === 'recurring' && ['active', 'paused'].includes(r.status))) && (
+                        <button
+                          onClick={() => setEditingSchedule(r)}
+                          className="text-xs text-blue-600 font-semibold"
+                        >
+                          Edit
+                        </button>
+                      )}
                       <button
                         onClick={() => cancel(r.id)}
                         disabled={actioning === r.id + '_cancel'}
@@ -523,6 +682,15 @@ function ScheduledSends({ getToken, refreshKey }) {
             </div>
           )}
         </>
+      )}
+
+      {editingSchedule && (
+        <EditScheduleModal
+          schedule={editingSchedule}
+          getToken={getToken}
+          onClose={() => setEditingSchedule(null)}
+          onSaved={() => { setEditingSchedule(null); load() }}
+        />
       )}
     </section>
   )
