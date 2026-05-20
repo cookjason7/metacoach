@@ -53,6 +53,7 @@ export async function migrate() {
   `)
   await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS sleep_minutes INTEGER`)
   await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS steps_source TEXT DEFAULT 'manual'`)
+  await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS sleep_source TEXT DEFAULT 'manual'`)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS fitbit_tokens (
       id               SERIAL PRIMARY KEY,
@@ -67,6 +68,8 @@ export async function migrate() {
       updated_at       TIMESTAMPTZ DEFAULT NOW()
     )
   `)
+  await pool.query(`ALTER TABLE fitbit_tokens ADD COLUMN IF NOT EXISTS last_sync_error    TEXT`)
+  await pool.query(`ALTER TABLE fitbit_tokens ADD COLUMN IF NOT EXISTS last_sync_error_at TIMESTAMPTZ`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_fitbit_tokens_user ON fitbit_tokens (user_id)`)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS fitbit_oauth_state (

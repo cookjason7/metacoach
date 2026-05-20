@@ -57,8 +57,8 @@ router.post('/', requireAuth(), async (req, res, next) => {
     const dbUserId = await getOrCreateUser(userId)
 
     const { rows } = await pool.query(
-      `INSERT INTO daily_logs (user_id, logged_date, water_oz, steps, weight_lbs, steps_source, sleep_minutes)
-       VALUES ($1, CURRENT_DATE, $2, $3, $4, 'manual', $5)
+      `INSERT INTO daily_logs (user_id, logged_date, water_oz, steps, weight_lbs, steps_source, sleep_minutes, sleep_source)
+       VALUES ($1, CURRENT_DATE, $2, $3, $4, 'manual', $5, 'manual')
        ON CONFLICT (user_id, logged_date) DO UPDATE SET
          water_oz      = COALESCE(EXCLUDED.water_oz,      daily_logs.water_oz),
          steps         = COALESCE(EXCLUDED.steps,         daily_logs.steps),
@@ -67,6 +67,10 @@ router.post('/', requireAuth(), async (req, res, next) => {
          steps_source = CASE
            WHEN EXCLUDED.steps IS NOT NULL THEN 'manual'
            ELSE daily_logs.steps_source
+         END,
+         sleep_source = CASE
+           WHEN EXCLUDED.sleep_minutes IS NOT NULL THEN 'manual'
+           ELSE daily_logs.sleep_source
          END
        RETURNING water_oz, steps, weight_lbs, sleep_minutes`,
       [dbUserId, water_oz, steps, weight_lbs, sleep_minutes],

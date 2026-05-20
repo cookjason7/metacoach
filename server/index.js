@@ -33,6 +33,7 @@ import fitbitRouter from './routes/fitbit.js'
 import { runInactivityAlert } from './jobs/inactivityAlert.js'
 import { processFormSchedules } from './jobs/formScheduler.js'
 import { runPostgresBackup, runCloudinaryBackup, getBackupStatus } from './jobs/backup.js'
+import { runHealthSync } from './jobs/healthSync.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname  = path.dirname(__filename)
@@ -129,5 +130,8 @@ migrate()
       // Cloudinary metadata backup: weekly
       runCloudinaryBackup()
       setInterval(runCloudinaryBackup, 7 * 24 * 60 * 60 * 1000)
+      // Google Health sync: hourly (job_lock prevents duplicate runs across instances)
+      runHealthSync()
+      setInterval(runHealthSync, 60 * 60 * 1000)
     })
   })
