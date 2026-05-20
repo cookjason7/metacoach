@@ -193,7 +193,11 @@ router.get('/search', requireAuth(), async (req, res, next) => {
     }))
 
     // ── Local search ─────────────────────────────────────────────────────────
-    const localResults = await localSearch(q, limit, offset)
+    // For multi-word queries (brand + product like "chobani greek yogurt") cap local
+    // results so USDA branded foods always get at least 15 result slots.
+    const tokens = q.trim().split(/\s+/)
+    const localLimit = tokens.length >= 2 ? Math.max(limit - 15, 5) : limit
+    const localResults = await localSearch(q, localLimit, offset)
 
     // Local results always come first: custom foods, then DB whole foods.
     const combined = [...customResults, ...localResults]

@@ -604,10 +604,11 @@ function SlotSection({ name, meals, onAddClick, onEdit, onDelete, onCopy, onMove
 
 // ── Edit Meal Modal ────────────────────────────────────────────────────────────
 
-function EditMealModal({ meal, onSave, onClose }) {
+function EditMealModal({ meal, onSave, onDelete, onClose }) {
   const { getToken } = useAuth()
   const [form, setForm] = useState({
     meal_name:    meal.meal_name,
+    meal_slot:    meal.meal_slot || '',
     calories:     meal.calories  != null ? String(meal.calories)  : '',
     protein:      meal.protein   != null ? String(meal.protein)   : '',
     carbs:        meal.carbs     != null ? String(meal.carbs)     : '',
@@ -616,8 +617,9 @@ function EditMealModal({ meal, onSave, onClose }) {
     serving_size: meal.serving_size != null ? String(meal.serving_size) : '',
     serving_unit: meal.serving_unit ?? 'g',
   })
-  const [saving, setSaving] = useState(false)
-  const [error,  setError]  = useState(null)
+  const [saving,    setSaving]   = useState(false)
+  const [deleting,  setDeleting] = useState(false)
+  const [error,     setError]    = useState(null)
 
   // Auto-recalculate macros when serving size / unit changes (only when original serving is known)
   useEffect(() => {
@@ -665,6 +667,7 @@ function EditMealModal({ meal, onSave, onClose }) {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           meal_name:    form.meal_name.trim(),
+          meal_slot:    form.meal_slot  || undefined,
           calories:     form.calories     !== '' ? Number(form.calories)     : undefined,
           protein:      form.protein      !== '' ? Number(form.protein)      : undefined,
           carbs:        form.carbs        !== '' ? Number(form.carbs)        : undefined,
@@ -684,55 +687,94 @@ function EditMealModal({ meal, onSave, onClose }) {
     }
   }
 
+  async function handleDelete() {
+    setDeleting(true)
+    try {
+      await onDelete(meal.id)
+      onClose()
+    } catch {
+      setDeleting(false)
+    }
+  }
+
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center" onClick={onClose}>
       <form
         onSubmit={submit}
-        className="bg-white rounded-2xl p-5 w-full max-w-sm shadow-xl space-y-3 max-h-[calc(100vh-2rem)] overflow-y-auto"
+        className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-sm shadow-xl flex flex-col overflow-hidden"
+        style={{ maxHeight: 'calc(100dvh - 2rem)' }}
         onClick={e => e.stopPropagation()}
       >
-        <h3 className="text-base font-semibold text-gray-900">Edit Meal</h3>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Name</label>
-          <input type="text" name="meal_name" value={form.meal_name} onChange={set} required
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+        {/* Header */}
+        <div className="px-5 pt-5 pb-2 shrink-0">
+          <h3 className="text-base font-semibold text-gray-900">Edit Meal</h3>
         </div>
 
-        {/* Serving size + unit — updates macros automatically */}
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Serving</label>
-          <div className="flex gap-2">
-            <input type="number" name="serving_size" value={form.serving_size} onChange={set} min="0.01" step="any"
-              placeholder="100"
-              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
-            <select value={form.serving_unit} onChange={e => handleEditUnitChange(e.target.value)}
-              className="border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
-              {SERVING_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+        {/* Scrollable body */}
+        <div className="overflow-y-auto flex-1 px-5 pb-4 space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Name</label>
+            <input type="text" name="meal_name" value={form.meal_name} onChange={set} required
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+          </div>
+
+          {/* Meal slot */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Meal Slot</label>
+            <select name="meal_slot" value={form.meal_slot} onChange={set}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+              <option value="">— no slot —</option>
+              {SLOT_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
             </select>
           </div>
-          {meal.serving_size && (
-            <p className="text-[10px] text-gray-400 mt-0.5">Changing serving recalculates macros</p>
-          )}
+
+          {/* Serving size + unit — updates macros automatically */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Serving</label>
+            <div className="flex gap-2">
+              <input type="number" name="serving_size" value={form.serving_size} onChange={set} min="0.01" step="any"
+                placeholder="100"
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+              <select value={form.serving_unit} onChange={e => handleEditUnitChange(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+                {SERVING_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
+            {meal.serving_size && (
+              <p className="text-[10px] text-gray-400 mt-0.5">Changing serving recalculates macros</p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            {[['Calories', 'calories'], ['Protein g', 'protein'], ['Carbs g', 'carbs'], ['Fat g', 'fat'], ['Fiber g', 'fiber']].map(([lbl, nm]) => (
+              <div key={nm}>
+                <label className="block text-xs font-medium text-gray-600 mb-1">{lbl}</label>
+                <input type="number" name={nm} value={form[nm]} onChange={set} min="0"
+                  className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+              </div>
+            ))}
+          </div>
+          {error && <p className="text-xs text-red-500">{error}</p>}
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          {[['Calories', 'calories'], ['Protein g', 'protein'], ['Carbs g', 'carbs'], ['Fat g', 'fat'], ['Fiber g', 'fiber']].map(([lbl, nm]) => (
-            <div key={nm}>
-              <label className="block text-xs font-medium text-gray-600 mb-1">{lbl}</label>
-              <input type="number" name={nm} value={form[nm]} onChange={set} min="0"
-                className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
-            </div>
-          ))}
-        </div>
-        {error && <p className="text-xs text-red-500">{error}</p>}
-        <div className="flex gap-2">
-          <button type="submit" disabled={saving}
-            className="flex-1 bg-[#E8670A] text-white py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
+        {/* Sticky footer — sits above bottom nav / safe area */}
+        <div
+          className="shrink-0 flex gap-2 px-5 pt-3 border-t border-gray-100"
+          style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom, 1.25rem))' }}
+        >
+          <button type="submit" disabled={saving || deleting}
+            className="flex-1 bg-[#E8670A] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
             {saving ? 'Saving…' : 'Save'}
           </button>
-          <button type="button" onClick={onClose}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
+          <button type="button" onClick={onClose} disabled={saving || deleting}
+            className="px-4 py-2.5 rounded-lg text-sm font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-60">
             Cancel
+          </button>
+          <button type="button" onClick={handleDelete} disabled={saving || deleting}
+            className="px-4 py-2.5 rounded-lg text-sm font-medium text-red-500 border border-red-200 hover:bg-red-50 transition-colors disabled:opacity-60">
+            {deleting ? '…' : 'Delete'}
           </button>
         </div>
       </form>
@@ -3127,6 +3169,7 @@ export default function Journal() {
         <EditMealModal
           meal={editingMeal}
           onSave={handleMealEdited}
+          onDelete={handleMealDeleted}
           onClose={() => setEditingMeal(null)}
         />
       )}

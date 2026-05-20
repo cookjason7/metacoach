@@ -84,6 +84,84 @@ router.post('/', requireAuth(), async (req, res, next) => {
   }
 })
 
+// PATCH /api/recipes/:id — update name, servings, and ingredients
+router.patch('/:id', requireAuth(), async (req, res, next) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId = await getOrCreateUser(userId)
+    const recipeId = parseInt(req.params.id, 10)
+    if (isNaN(recipeId)) return res.status(400).json({ error: 'Invalid id' })
+
+    const { rows: [recipe] } = await pool.query(
+      'SELECT id FROM recipes WHERE id = $1 AND user_id = $2',
+      [recipeId, dbUserId],
+    )
+    if (!recipe) return res.status(404).json({ error: 'Recipe not found' })
+
+    const { name, servings, ingredients } = req.body
+    if (!name?.trim()) return res.status(400).json({ error: 'Recipe name required' })
+    if (!Array.isArray(ingredients) || !ingredients.length) {
+      return res.status(400).json({ error: 'At least one ingredient required' })
+    }
+
+    const totals = ingredients.reduce(
+      (acc, ing) => ({
+        calories: acc.calories + (parseFloat(ing.calories) || 0),
+        protein:  acc.protein  + (parseFloat(ing.protein)  || 0),
+        carbs:    acc.carbs    + (parseFloat(ing.carbs)    || 0),
+        fat:      acc.fat      + (parseFloat(ing.fat)      || 0),
+        fiber:    acc.fiber    + (parseFloat(ing.fiber)    || 0),
+      }),
+      { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 },
+    )
+
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      await client.query(
+        `UPDATE recipes SET name=$1, servings=$2, calories=$3, protein=$4, carbs=$5, fat=$6, fiber=$7 WHERE id=$8`,
+        [name.trim(), parseFloat(servings) || 1,
+         totals.calories, totals.protein, totals.carbs, totals.fat, totals.fiber,
+         recipeId],
+      )
+      await client.query('DELETE FROM recipe_ingredients WHERE recipe_id = $1', [recipeId])
+      for (const ing of ingredients) {
+        await client.query(
+          `INSERT INTO recipe_ingredients (recipe_id, food_name, calories, protein, carbs, fat, fiber, amount, unit)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [recipeId, ing.food_name || 'Ingredient',
+           parseFloat(ing.calories) || null, parseFloat(ing.protein) || null,
+           parseFloat(ing.carbs) || null, parseFloat(ing.fat) || null,
+           parseFloat(ing.fiber) || null, parseFloat(ing.amount) || null,
+           ing.unit || null],
+        )
+      }
+      await client.query('COMMIT')
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
+
+    // Re-fetch with ingredients
+    const { rows: [updated] } = await pool.query(
+      `SELECT r.id, r.name, r.servings, r.calories, r.protein, r.carbs, r.fat, r.fiber, r.created_at,
+              COALESCE(json_agg(json_build_object(
+                'id', ri.id, 'food_name', ri.food_name, 'amount', ri.amount, 'unit', ri.unit,
+                'calories', ri.calories, 'protein', ri.protein, 'carbs', ri.carbs,
+                'fat', ri.fat, 'fiber', ri.fiber
+              ) ORDER BY ri.id) FILTER (WHERE ri.id IS NOT NULL), '[]'::json) AS ingredients
+       FROM recipes r LEFT JOIN recipe_ingredients ri ON ri.recipe_id = r.id
+       WHERE r.id = $1 GROUP BY r.id`,
+      [recipeId],
+    )
+    res.json(updated)
+  } catch (err) {
+    next(err)
+  }
+})
+
 // POST /api/recipes/:id/log — log a recipe as a meal
 router.post('/:id/log', requireAuth(), async (req, res, next) => {
   try {

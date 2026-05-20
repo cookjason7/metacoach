@@ -719,11 +719,24 @@ function SearchMode({ slot, logDate }) {
 
 const EMPTY_ING = { food_name: '', amount: '', unit: 'g', calories: '', protein: '', carbs: '', fat: '', fiber: '' }
 
-function CreateRecipeForm({ onSave, onCancel }) {
+function CreateRecipeForm({ onSave, onCancel, initialRecipe = null }) {
   const { getToken } = useAuth()
-  const [name,        setName]        = useState('')
-  const [servings,    setServings]    = useState('1')
-  const [ingredients, setIngredients] = useState([{ ...EMPTY_ING }])
+  const [name,        setName]        = useState(initialRecipe?.name ?? '')
+  const [servings,    setServings]    = useState(String(initialRecipe?.servings ?? '1'))
+  const [ingredients, setIngredients] = useState(
+    initialRecipe?.ingredients?.length
+      ? initialRecipe.ingredients.map(i => ({
+          food_name: i.food_name || '',
+          amount:    String(i.amount    ?? ''),
+          unit:      i.unit     || 'g',
+          calories:  String(i.calories  ?? ''),
+          protein:   String(i.protein   ?? ''),
+          carbs:     String(i.carbs     ?? ''),
+          fat:       String(i.fat       ?? ''),
+          fiber:     String(i.fiber     ?? ''),
+        }))
+      : [{ ...EMPTY_ING }]
+  )
   const [saving,      setSaving]      = useState(false)
   const [error,       setError]       = useState(null)
 
@@ -752,12 +765,16 @@ function CreateRecipeForm({ onSave, onCancel }) {
     setError(null)
     try {
       const token = await getToken()
-      const res = await fetch(`${API_URL}/api/recipes`, {
-        method: 'POST',
+      const url    = initialRecipe
+        ? `${API_URL}/api/recipes/${initialRecipe.id}`
+        : `${API_URL}/api/recipes`
+      const method = initialRecipe ? 'PATCH' : 'POST'
+      const res = await fetch(url, {
+        method,
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim(), servings: srv, ingredients }),
       })
-      if (!res.ok) throw new Error('Failed to save recipe')
+      if (!res.ok) throw new Error(initialRecipe ? 'Failed to update recipe' : 'Failed to save recipe')
       const recipe = await res.json()
       onSave(recipe)
     } catch (err) {
@@ -884,7 +901,7 @@ function CreateRecipeForm({ onSave, onCancel }) {
           disabled={saving || !name.trim()}
           className="bg-[#E8670A] text-white px-5 py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors"
         >
-          {saving ? 'Saving…' : 'Save Recipe'}
+          {saving ? 'Saving…' : initialRecipe ? 'Update Recipe' : 'Save Recipe'}
         </button>
         <button
           type="button"
@@ -900,12 +917,13 @@ function CreateRecipeForm({ onSave, onCancel }) {
 
 function RecipesMode({ slot, logDate }) {
   const { getToken } = useAuth()
-  const [recipes,   setRecipes]   = useState([])
-  const [loading,   setLoading]   = useState(true)
-  const [creating,  setCreating]  = useState(false)
-  const [loggedId,  setLoggedId]  = useState(null)
-  const [loggingId, setLoggingId] = useState(null)
-  const [error,     setError]     = useState(null)
+  const [recipes,       setRecipes]       = useState([])
+  const [loading,       setLoading]       = useState(true)
+  const [creating,      setCreating]      = useState(false)
+  const [editingRecipe, setEditingRecipe] = useState(null)
+  const [loggedId,      setLoggedId]      = useState(null)
+  const [loggingId,     setLoggingId]     = useState(null)
+  const [error,         setError]         = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -946,6 +964,22 @@ function RecipesMode({ slot, logDate }) {
       await fetch(`${API_URL}/api/recipes/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
       setRecipes(prev => prev.filter(r => r.id !== id))
     } catch {}
+  }
+
+  if (editingRecipe) {
+    return (
+      <div>
+        <h2 className="text-sm font-semibold text-gray-700 mb-4">Edit Recipe</h2>
+        <CreateRecipeForm
+          initialRecipe={editingRecipe}
+          onSave={(updated) => {
+            setRecipes(prev => prev.map(r => r.id === updated.id ? updated : r))
+            setEditingRecipe(null)
+          }}
+          onCancel={() => setEditingRecipe(null)}
+        />
+      </div>
+    )
   }
 
   if (creating) {
@@ -1026,6 +1060,11 @@ function RecipesMode({ slot, logDate }) {
                   {loggedId === recipe.id ? '✓ Logged!' : loggingId === recipe.id ? 'Logging…' : 'Log It'}
                 </button>
                 <button
+                  onClick={() => setEditingRecipe(recipe)}
+                  className="text-gray-400 hover:text-[#E8670A] text-xs font-medium transition-colors px-1"
+                  title="Edit recipe"
+                >Edit</button>
+                <button
                   onClick={() => deleteRecipe(recipe.id)}
                   className="text-gray-300 hover:text-red-400 text-sm transition-colors"
                   title="Delete recipe"
@@ -1039,6 +1078,119 @@ function RecipesMode({ slot, logDate }) {
   )
 }
 
+// ── Edit Food Modal ───────────────────────────────────────────────────────────
+
+function EditFoodModal({ food, onSave, onClose }) {
+  const { getToken } = useAuth()
+  const [form, setForm] = useState({
+    food_name:            food.food_name,
+    calories_per_serving: food.calories_per_serving != null ? String(food.calories_per_serving) : '',
+    protein:              food.protein  != null ? String(food.protein)  : '',
+    carbs:                food.carbs    != null ? String(food.carbs)    : '',
+    fat:                  food.fat      != null ? String(food.fat)      : '',
+    fiber:                food.fiber    != null ? String(food.fiber)    : '',
+    serving_size:         food.serving_size != null ? String(food.serving_size) : '',
+    serving_unit:         food.serving_unit ?? 'g',
+  })
+  const [saving, setSaving] = useState(false)
+  const [error,  setError]  = useState(null)
+
+  function set(e) { setForm(f => ({ ...f, [e.target.name]: e.target.value })) }
+
+  async function submit(e) {
+    e.preventDefault()
+    if (!form.food_name.trim()) return
+    setSaving(true)
+    setError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/custom-foods/${food.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          food_name:            form.food_name.trim(),
+          calories_per_serving: form.calories_per_serving !== '' ? Number(form.calories_per_serving) : undefined,
+          protein:              form.protein  !== '' ? Number(form.protein)  : undefined,
+          carbs:                form.carbs    !== '' ? Number(form.carbs)    : undefined,
+          fat:                  form.fat      !== '' ? Number(form.fat)      : undefined,
+          fiber:                form.fiber    !== '' ? Number(form.fiber)    : undefined,
+          serving_size:         form.serving_size !== '' ? Number(form.serving_size) : undefined,
+          serving_unit:         form.serving_unit || undefined,
+        }),
+      })
+      if (!res.ok) throw new Error('Failed to save')
+      const updated = await res.json()
+      onSave(updated)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center" onClick={onClose}>
+      <form
+        onSubmit={submit}
+        className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-sm shadow-xl flex flex-col overflow-hidden"
+        style={{ maxHeight: 'calc(100dvh - 2rem)' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-5 pt-5 pb-2 shrink-0">
+          <h3 className="text-base font-semibold text-gray-900">Edit Food</h3>
+        </div>
+
+        {/* Scrollable body */}
+        <div className="overflow-y-auto flex-1 px-5 pb-4 space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Food Name *</label>
+            <input type="text" name="food_name" value={form.food_name} onChange={set} required
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Serving Size</label>
+              <input type="number" name="serving_size" value={form.serving_size} onChange={set} min="0" step="any"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Unit</label>
+              <input type="text" name="serving_unit" value={form.serving_unit} onChange={set} placeholder="g, oz, cup…"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {[['Calories', 'calories_per_serving'], ['Protein (g)', 'protein'], ['Carbs (g)', 'carbs'], ['Fat (g)', 'fat'], ['Fiber (g)', 'fiber']].map(([lbl, nm]) => (
+              <div key={nm}>
+                <label className="block text-xs font-medium text-gray-600 mb-1">{lbl}</label>
+                <input type="number" name={nm} value={form[nm]} onChange={set} min="0" step="any"
+                  className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+              </div>
+            ))}
+          </div>
+          {error && <p className="text-xs text-red-500">{error}</p>}
+        </div>
+
+        {/* Sticky footer */}
+        <div
+          className="shrink-0 flex gap-2 px-5 pt-3 border-t border-gray-100"
+          style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom, 1.25rem))' }}
+        >
+          <button type="submit" disabled={saving}
+            className="flex-1 bg-[#E8670A] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          <button type="button" onClick={onClose} disabled={saving}
+            className="px-4 py-2.5 rounded-lg text-sm font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-60">
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 // ── My Foods mode ─────────────────────────────────────────────────────────────
 
 const EMPTY_FOOD = {
@@ -1048,10 +1200,11 @@ const EMPTY_FOOD = {
 
 function MyFoodsMode() {
   const { getToken } = useAuth()
-  const [foods,    setFoods]    = useState([])
-  const [loading,  setLoading]  = useState(true)
-  const [creating, setCreating] = useState(false)
-  const [isAdmin,  setIsAdmin]  = useState(false)
+  const [foods,       setFoods]       = useState([])
+  const [loading,     setLoading]     = useState(true)
+  const [creating,    setCreating]    = useState(false)
+  const [editingFood, setEditingFood] = useState(null)
+  const [isAdmin,     setIsAdmin]     = useState(false)
   const [form,     setForm]     = useState({ ...EMPTY_FOOD })
   const [saving,   setSaving]   = useState(false)
   const [error,    setError]    = useState(null)
@@ -1215,14 +1368,32 @@ function MyFoodsMode() {
             </p>
           </div>
           {(!food.is_global || isAdmin) && (
-            <button
-              onClick={() => deleteFood(food.id)}
-              className="text-gray-300 hover:text-red-400 text-sm transition-colors shrink-0"
-              title="Delete"
-            >✕</button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setEditingFood(food)}
+                className="text-gray-400 hover:text-[#E8670A] text-xs font-medium transition-colors"
+                title="Edit"
+              >Edit</button>
+              <button
+                onClick={() => deleteFood(food.id)}
+                className="text-gray-300 hover:text-red-400 text-sm transition-colors"
+                title="Delete"
+              >✕</button>
+            </div>
           )}
         </div>
       ))}
+
+      {editingFood && (
+        <EditFoodModal
+          food={editingFood}
+          onSave={(updated) => {
+            setFoods(prev => prev.map(f => f.id === updated.id ? updated : f))
+            setEditingFood(null)
+          }}
+          onClose={() => setEditingFood(null)}
+        />
+      )}
     </div>
   )
 }
