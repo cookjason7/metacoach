@@ -1,10 +1,19 @@
 import { Router } from 'express'
+import multer from 'multer'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
-import { parseRecipeWithAI } from '../services/recipeParser.js'
+import { parseRecipeWithAI, parseRecipeFromImageWithAI } from '../services/recipeParser.js'
 import { recipeImportLimit } from '../middleware/rateLimits.js'
 
 const router = Router()
+
+// Multer for recipe image imports — memory only, not stored anywhere
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp'])
+const uploadRecipeImage = multer({
+  storage: multer.memoryStorage(),
+  limits:  { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  fileFilter: (_req, file, cb) => cb(null, ALLOWED_IMAGE_TYPES.has(file.mimetype)),
+})
 
 // GET /api/recipes
 router.get('/', requireAuth(), async (req, res, next) => {
@@ -94,6 +103,20 @@ router.post('/import', requireAuth(), recipeImportLimit, async (req, res, next) 
       return res.status(400).json({ error: 'recipe_text is required' })
     }
     const draft = await parseRecipeWithAI(recipe_text.trim())
+    res.json(draft)
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message })
+    next(err)
+  }
+})
+
+// POST /api/recipes/import-image — parse uploaded recipe image with AI vision, return draft (does NOT save)
+router.post('/import-image', requireAuth(), recipeImportLimit, uploadRecipeImage.single('photo'), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image provided. Upload a JPG, PNG, or WEBP file.' })
+    }
+    const draft = await parseRecipeFromImageWithAI(req.file.buffer, req.file.mimetype)
     res.json(draft)
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message })

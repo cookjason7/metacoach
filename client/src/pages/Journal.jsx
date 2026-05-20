@@ -2052,9 +2052,12 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
   const [editingRecipe, setEditingRecipe] = useState(null)
 
   // Recipe import state
-  const [importText,  setImportText]  = useState('')
-  const [importing,   setImporting]   = useState(false)
-  const [importError, setImportError] = useState(null)
+  const [importText,    setImportText]    = useState('')
+  const [importMode,    setImportMode]    = useState('text')  // 'text' | 'image'
+  const [importFile,    setImportFile]    = useState(null)    // File | null
+  const [importPreview, setImportPreview] = useState(null)    // object URL | null
+  const [importing,     setImporting]     = useState(false)
+  const [importError,   setImportError]   = useState(null)
 
   // Create recipe state
   const [cName,     setCName]     = useState('')
@@ -2388,6 +2391,53 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
     }
   }
 
+  function clearImportState() {
+    setImportText(''); setImportMode('text')
+    if (importPreview) { URL.revokeObjectURL(importPreview) }
+    setImportFile(null); setImportPreview(null)
+    setImportError(null)
+  }
+
+  async function importRecipeFromImage() {
+    if (!importFile) { setImportError('Select an image first'); return }
+    setImporting(true); setImportError(null)
+    try {
+      const token = await getToken()
+      const formData = new FormData()
+      formData.append('photo', importFile)
+      const res = await fetch(`${API_URL}/api/recipes/import-image`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Import failed')
+      setEditingRecipe(null)
+      setCName(data.name ?? '')
+      setCServings(String(data.servings ?? '4'))
+      setCIngs(Array.isArray(data.ingredients)
+        ? data.ingredients.map(i => ({
+            food_name: i.food_name || '',
+            calories:  String(i.calories ?? ''),
+            protein:   String(i.protein  ?? ''),
+            carbs:     String(i.carbs    ?? ''),
+            fat:       String(i.fat      ?? ''),
+            fiber:     String(i.fiber    ?? ''),
+            amount:    String(i.amount   ?? ''),
+            unit:      i.unit || '',
+          }))
+        : [])
+      setCIngMode('manual')
+      setCError(null)
+      clearImportState()
+      setRecipeView('create')
+    } catch (err) {
+      setImportError(err.message || 'Could not read the recipe from this image. Try a clearer photo or paste the text instead.')
+    } finally {
+      setImporting(false)
+    }
+  }
+
   // ── My Foods management ────────────────────────────────────────────────────
   async function saveFood() {
     if (!fForm.food_name.trim()) { setFError('Food name required'); return }
@@ -2620,29 +2670,104 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
 
   // Import recipe view
   if (recipeView === 'import') {
+    const canParseText  = importMode === 'text'  && importText.trim()
+    const canParseImage = importMode === 'image' && importFile
     return (
       <div className="space-y-4">
+        {/* Header */}
         <div className="flex items-center gap-3">
           <button
-            onClick={() => { setRecipeView(null); setImportText(''); setImportError(null) }}
+            onClick={() => { setRecipeView(null); clearImportState() }}
             className="text-sm text-gray-500 hover:text-gray-700">← Back</button>
           <p className="text-sm font-semibold text-gray-900">Import Recipe</p>
         </div>
-        <p className="text-xs text-gray-500 leading-relaxed">
-          Paste any recipe text below. Katie will extract the ingredients and estimate macros. You can review and edit everything before saving.
-        </p>
-        <textarea
-          value={importText}
-          onChange={e => setImportText(e.target.value)}
-          placeholder="Paste recipe text here — ingredients, amounts, cooking steps…"
-          rows={9}
-          className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/40 resize-none"
-        />
+
+        {/* Mode tabs */}
+        <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-semibold">
+          <button
+            onClick={() => { setImportMode('text'); setImportError(null) }}
+            className={`flex-1 py-2.5 transition-colors ${importMode === 'text' ? 'bg-[#E8670A] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+            Paste Text
+          </button>
+          <button
+            onClick={() => { setImportMode('image'); setImportError(null) }}
+            className={`flex-1 py-2.5 transition-colors ${importMode === 'image' ? 'bg-[#E8670A] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+            Upload Photo
+          </button>
+        </div>
+
+        {/* Text mode */}
+        {importMode === 'text' && (
+          <>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              Paste a recipe — ingredients list, amounts, steps — and Katie will extract the structure for you to review.
+            </p>
+            <textarea
+              value={importText}
+              onChange={e => setImportText(e.target.value)}
+              placeholder="Paste recipe text here — ingredients, amounts, cooking steps…"
+              rows={9}
+              className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/40 resize-none"
+            />
+          </>
+        )}
+
+        {/* Image mode */}
+        {importMode === 'image' && (
+          <>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              Upload a recipe screenshot, photo, or cookbook page. Katie will extract the ingredients and estimate macros.
+            </p>
+            {!importFile ? (
+              <label className="flex flex-col items-center justify-center w-full h-36 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-[#E8670A] hover:bg-orange-50/30 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-gray-300 mb-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                </svg>
+                <p className="text-sm font-medium text-gray-500">Tap to choose photo</p>
+                <p className="text-xs text-gray-400 mt-1">JPG, PNG or WEBP · max 10 MB</p>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/jpg,image/png,image/webp"
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    if (importPreview) URL.revokeObjectURL(importPreview)
+                    setImportFile(file)
+                    setImportPreview(URL.createObjectURL(file))
+                    setImportError(null)
+                    e.target.value = ''
+                  }}
+                />
+              </label>
+            ) : (
+              <div className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
+                <img
+                  src={importPreview}
+                  alt="Recipe to import"
+                  className="w-full max-h-56 object-contain"
+                />
+                <button
+                  onClick={() => {
+                    if (importPreview) URL.revokeObjectURL(importPreview)
+                    setImportFile(null); setImportPreview(null); setImportError(null)
+                  }}
+                  className="absolute top-2 right-2 bg-white/90 backdrop-blur-sm rounded-full w-7 h-7 flex items-center justify-center text-gray-500 hover:text-red-500 shadow-sm transition-colors text-sm font-bold"
+                  aria-label="Remove image">
+                  ✕
+                </button>
+                <p className="px-3 py-1.5 text-xs text-gray-500 truncate border-t border-gray-100">{importFile.name}</p>
+              </div>
+            )}
+          </>
+        )}
+
         {importError && <p className="text-xs text-red-500">{importError}</p>}
         <p className="text-[11px] text-gray-400">Macros are AI estimates — review and adjust before saving.</p>
+
         <button
-          onClick={importRecipe}
-          disabled={importing || !importText.trim()}
+          onClick={importMode === 'text' ? importRecipe : importRecipeFromImage}
+          disabled={importing || (importMode === 'text' ? !canParseText : !canParseImage)}
           className="w-full py-3 rounded-xl bg-[#E8670A] text-white text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
           {importing ? 'Analyzing…' : '✨ Parse with Katie'}
         </button>
