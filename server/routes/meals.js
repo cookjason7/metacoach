@@ -506,6 +506,8 @@ router.get('/', requireAuth(), async (req, res, next) => {
       JOIN users u ON u.id = m.user_id
       WHERE u.clerk_user_id = $1`
 
+    const limit = req.query.limit ? Math.min(Math.max(parseInt(req.query.limit, 10), 1), 200) : null
+
     const { rows } = date
       ? await pool.query(
           `${baseSelect}
@@ -514,7 +516,7 @@ router.get('/', requireAuth(), async (req, res, next) => {
           [userId, date],
         )
       : await pool.query(
-          `${baseSelect} ORDER BY m.logged_at DESC`,
+          `${baseSelect} ORDER BY m.logged_at DESC${limit ? ` LIMIT ${limit}` : ''}`,
           [userId],
         )
 

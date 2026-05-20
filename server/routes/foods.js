@@ -166,7 +166,9 @@ router.get('/search', requireAuth(), async (req, res, next) => {
          CASE WHEN cf.serving_size > 0
            THEN ROUND((cf.fiber / cf.serving_size * 100)::numeric, 1)
            ELSE ROUND(cf.fiber::numeric, 1)
-         END AS fiber_g
+         END AS fiber_g,
+         cf.serving_size AS custom_serving_size,
+         cf.serving_unit AS custom_serving_unit
        FROM custom_foods cf
        WHERE (cf.is_global = TRUE OR cf.user_id = $1)
          AND cf.food_name ILIKE $2
@@ -180,9 +182,10 @@ router.get('/search', requireAuth(), async (req, res, next) => {
       carbs_g:   r.carbs_g   != null ? parseFloat(r.carbs_g)   : null,
       fat_g:     r.fat_g     != null ? parseFloat(r.fat_g)     : null,
       fiber_g:   r.fiber_g   != null ? parseFloat(r.fiber_g)   : null,
-      // FIX 1: is_coach_food=TRUE → 'coach' source (distinct badge)
-      //        is_global=TRUE, is_coach_food=FALSE → 'global' (Food database badge)
-      //        user private food → 'custom' (My food badge)
+      // custom_serving_size / custom_serving_unit: prefill the portion picker
+      // when the user selects this food in SearchMode
+      custom_serving_size: r.custom_serving_size != null ? parseFloat(r.custom_serving_size) : null,
+      custom_serving_unit: r.custom_serving_unit || null,
       _source:      r.is_coach_food ? 'coach' : r.is_global ? 'global' : 'custom',
       is_verified:  false,
       verification_source: null,

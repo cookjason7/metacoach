@@ -409,15 +409,91 @@ function SearchMode({ slot, logDate }) {
   const { getToken } = useAuth()
   const debounceRef  = useRef(null)
 
-  const [query,     setQuery]     = useState('')
-  const [results,   setResults]   = useState([])
-  const [searching, setSearching] = useState(false)
-  const [selected,  setSelected]  = useState(null)
-  const [amount,    setAmount]    = useState('100')
-  const [unit,      setUnit]      = useState('g')
-  const [saving,    setSaving]    = useState(false)
-  const [saved,     setSaved]     = useState(false)
-  const [error,     setError]     = useState(null)
+  const [query,       setQuery]       = useState('')
+  const [results,     setResults]     = useState([])
+  const [searching,   setSearching]   = useState(false)
+  const [selected,    setSelected]    = useState(null)
+  const [amount,      setAmount]      = useState('100')
+  const [unit,        setUnit]        = useState('g')
+  const [saving,      setSaving]      = useState(false)
+  const [saved,       setSaved]       = useState(false)
+  const [error,       setError]       = useState(null)
+  const [recentMeals, setRecentMeals] = useState([])
+
+  // Load the 6 most-recent unique foods the user has logged
+  useEffect(() => {
+    async function loadRecent() {
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/meals?limit=40`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok) return
+        const meals = await res.json()
+        const seen = new Set()
+        const unique = []
+        for (const m of meals) {
+          if (!seen.has(m.meal_name) && m.calories != null) {
+            seen.add(m.meal_name)
+            unique.push(m)
+            if (unique.length >= 6) break
+          }
+        }
+        setRecentMeals(unique)
+      } catch {}
+    }
+    loadRecent()
+  }, [getToken])
+
+  // Convert a logged meal entry into a food-search-compatible object (per-100g macros)
+  function mealToFood(meal) {
+    const grams = meal.serving_size && meal.serving_unit
+      ? toGrams(meal.serving_size, meal.serving_unit) : 100
+    const base = grams > 0 ? grams : 100
+    const f = 100 / base
+    return {
+      id:           null,
+      name:         meal.meal_name,
+      calories:     meal.calories != null ? +(meal.calories * f).toFixed(1) : null,
+      protein_g:    meal.protein  != null ? +(meal.protein  * f).toFixed(1) : null,
+      carbs_g:      meal.carbs    != null ? +(meal.carbs    * f).toFixed(1) : null,
+      fat_g:        meal.fat      != null ? +(meal.fat      * f).toFixed(1) : null,
+      fiber_g:      meal.fiber    != null ? +(meal.fiber    * f).toFixed(1) : null,
+      _source:      meal.source_type  || 'custom',
+      source_label: meal.source_label || 'My food',
+      is_verified:  meal.is_verified  || false,
+      // Prefill hints — carried through to setAmount / setUnit
+      _prefillAmt:  meal.serving_size && meal.serving_unit && SERVING_UNITS.includes(meal.serving_unit)
+        ? String(meal.serving_size) : String(Math.round(base)),
+      _prefillUnit: meal.serving_unit && SERVING_UNITS.includes(meal.serving_unit)
+        ? meal.serving_unit : 'g',
+    }
+  }
+
+  function pickRecentMeal(meal) {
+    const food = mealToFood(meal)
+    if (!food) return
+    setSelected(food)
+    setResults([])
+    setAmount(food._prefillAmt)
+    setUnit(food._prefillUnit)
+  }
+
+  // Select a food from search results — prefill serving size for custom foods
+  function handleSelect(food) {
+    setSelected(food)
+    setResults([])
+    if (
+      food.custom_serving_size != null && food.custom_serving_size > 0 &&
+      food.custom_serving_unit && SERVING_UNITS.includes(food.custom_serving_unit)
+    ) {
+      setAmount(String(food.custom_serving_size))
+      setUnit(food.custom_serving_unit)
+    } else {
+      setAmount('100')
+      setUnit('g')
+    }
+  }
 
   function handleQuery(e) {
     const val = e.target.value
@@ -518,6 +594,26 @@ function SearchMode({ slot, logDate }) {
 
   return (
     <div className="max-w-lg space-y-4 pb-20">
+
+      {/* Recently Logged — shown only when idle (no query, no selection) */}
+      {recentMeals.length > 0 && !query && !selected && (
+        <div>
+          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Recently logged</p>
+          <div className="flex flex-wrap gap-2">
+            {recentMeals.map((meal, i) => (
+              <button
+                key={i}
+                onClick={() => pickRecentMeal(meal)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-xs font-medium text-gray-700 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors"
+              >
+                {meal.meal_name}
+                <span className="text-gray-400 font-normal">{Math.round(meal.calories)} cal</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="relative">
         <input
           type="text"
@@ -536,7 +632,7 @@ function SearchMode({ slot, logDate }) {
           {results.map((food, i) => (
             <button
               key={food.id ?? food.fdc_id ?? i}
-              onClick={() => { setSelected(food); setResults([]) }}
+              onClick={() => handleSelect(food)}
               className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors"
             >
               <div className="flex items-start justify-between gap-2">
