@@ -164,13 +164,22 @@ function CopyModal({ meal, onConfirm, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
-        <h3 className="text-base font-semibold text-gray-900 mb-1">Copy Meal</h3>
-        <p className="text-sm text-gray-500 mb-4">
-          Copy <span className="font-medium text-gray-700">{meal.meal_name}</span> to:
-        </p>
-        <div className="space-y-3 mb-4">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-[60]" onClick={onClose}>
+      <div
+        className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-sm shadow-xl flex flex-col overflow-hidden"
+        style={{ maxHeight: 'calc(100dvh - 2rem)' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-5 pt-5 pb-2 shrink-0">
+          <h3 className="text-base font-semibold text-gray-900">Copy Meal</h3>
+          <p className="text-sm text-gray-500 mt-1">
+            Copy <span className="font-medium text-gray-700">{meal.meal_name}</span> to:
+          </p>
+        </div>
+
+        {/* Scrollable body */}
+        <div className="overflow-y-auto flex-1 px-5 pb-4 space-y-3">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
             <input
@@ -189,15 +198,20 @@ function CopyModal({ meal, onConfirm, onClose }) {
               {SLOT_ORDER.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
+          {error && <p className="text-xs text-red-500">{error}</p>}
         </div>
-        {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
-        <div className="flex gap-2">
+
+        {/* Sticky footer — above safe area */}
+        <div
+          className="shrink-0 flex gap-2 px-5 pt-3 border-t border-gray-100"
+          style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom, 1.25rem))' }}
+        >
           <button onClick={handleConfirm} disabled={saving}
-            className="flex-1 bg-[#E8670A] text-white py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
+            className="flex-1 bg-[#E8670A] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
             {saving ? 'Saving…' : 'Copy'}
           </button>
           <button onClick={onClose}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
+            className="px-4 py-2.5 rounded-lg text-sm font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
             Cancel
           </button>
         </div>
@@ -228,25 +242,41 @@ function CopyDayModal({ fromDate, mealCount, onConfirm, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
-        <h3 className="text-base font-semibold text-gray-900 mb-1">Copy Full Day</h3>
-        <p className="text-sm text-gray-500 mb-4">
-          Copy all <span className="font-medium text-gray-700">{mealCount} meals</span> to which day?
-        </p>
-        <input
-          type="date" value={toDate} min={minStr} max={todayStr}
-          onChange={e => setToDate(e.target.value)}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-        />
-        {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
-        <div className="flex gap-2">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-[60]" onClick={onClose}>
+      <div
+        className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-sm shadow-xl flex flex-col overflow-hidden"
+        style={{ maxHeight: 'calc(100dvh - 2rem)' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-5 pt-5 pb-2 shrink-0">
+          <h3 className="text-base font-semibold text-gray-900">Copy Full Day</h3>
+          <p className="text-sm text-gray-500 mt-1">
+            Copy all <span className="font-medium text-gray-700">{mealCount} meals</span> to which day?
+          </p>
+        </div>
+
+        {/* Scrollable body */}
+        <div className="overflow-y-auto flex-1 px-5 pb-4">
+          <input
+            type="date" value={toDate} min={minStr} max={todayStr}
+            onChange={e => setToDate(e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+          />
+          {error && <p className="text-xs text-red-500 mt-3">{error}</p>}
+        </div>
+
+        {/* Sticky footer — above safe area */}
+        <div
+          className="shrink-0 flex gap-2 px-5 pt-3 border-t border-gray-100"
+          style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom, 1.25rem))' }}
+        >
           <button onClick={handleConfirm} disabled={saving}
-            className="flex-1 bg-[#E8670A] text-white py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
+            className="flex-1 bg-[#E8670A] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
             {saving ? 'Copying…' : 'Copy Day'}
           </button>
           <button onClick={onClose}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
+            className="px-4 py-2.5 rounded-lg text-sm font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
             Cancel
           </button>
         </div>

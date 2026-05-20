@@ -1051,7 +1051,7 @@ function RecipesMode({ slot, logDate }) {
                 <button
                   onClick={() => logRecipe(recipe)}
                   disabled={loggingId === recipe.id}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors min-h-[36px] ${
                     loggedId === recipe.id
                       ? 'bg-green-100 text-green-700'
                       : 'bg-[#E8670A] text-white hover:bg-[#c45e09] disabled:opacity-60'
@@ -1061,12 +1061,12 @@ function RecipesMode({ slot, logDate }) {
                 </button>
                 <button
                   onClick={() => setEditingRecipe(recipe)}
-                  className="text-gray-400 hover:text-[#E8670A] text-xs font-medium transition-colors px-1"
+                  className="px-3 py-2 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors min-h-[36px]"
                   title="Edit recipe"
                 >Edit</button>
                 <button
                   onClick={() => deleteRecipe(recipe.id)}
-                  className="text-gray-300 hover:text-red-400 text-sm transition-colors"
+                  className="p-2 text-gray-300 hover:text-red-400 text-sm transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
                   title="Delete recipe"
                 >✕</button>
               </div>
@@ -1346,7 +1346,13 @@ function MyFoodsMode() {
         <div className="text-center py-16">
           <p className="text-4xl mb-3">⭐</p>
           <p className="text-sm font-semibold text-gray-700 mb-1">No custom foods yet</p>
-          <p className="text-xs text-gray-400 max-w-xs mx-auto">Add your go-to foods or LWC supplements here. They'll appear in the food search.</p>
+          <p className="text-xs text-gray-400 max-w-xs mx-auto mb-5">Add your go-to foods or LWC supplements here. They'll appear in the food search.</p>
+          <button
+            onClick={() => setCreating(true)}
+            className="bg-[#E8670A] text-white px-5 py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors"
+          >
+            + Create Food
+          </button>
         </div>
       )}
 
