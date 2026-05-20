@@ -47,3 +47,12 @@ export const photoUploadLimit = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many photo uploads. Please wait a bit and try again.' },
 })
+
+export const recipeImportLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 15,
+  keyGenerator,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many recipe imports. Please wait a bit and try again.' },
+})

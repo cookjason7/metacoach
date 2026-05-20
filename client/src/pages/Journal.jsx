@@ -2051,6 +2051,11 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
   // Recipe edit state
   const [editingRecipe, setEditingRecipe] = useState(null)
 
+  // Recipe import state
+  const [importText,  setImportText]  = useState('')
+  const [importing,   setImporting]   = useState(false)
+  const [importError, setImportError] = useState(null)
+
   // Create recipe state
   const [cName,     setCName]     = useState('')
   const [cServings, setCServings] = useState('4')
@@ -2343,6 +2348,46 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
     setRecipeView('edit')
   }
 
+  // ── Recipe import ──────────────────────────────────────────────────────────
+  async function importRecipe() {
+    if (!importText.trim()) { setImportError('Paste a recipe first'); return }
+    setImporting(true); setImportError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/recipes/import`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipe_text: importText }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Import failed')
+      // Pre-fill the create form with the AI draft — user reviews before saving
+      setEditingRecipe(null)
+      setCName(data.name ?? '')
+      setCServings(String(data.servings ?? '4'))
+      setCIngs(Array.isArray(data.ingredients)
+        ? data.ingredients.map(i => ({
+            food_name: i.food_name || '',
+            calories:  String(i.calories ?? ''),
+            protein:   String(i.protein  ?? ''),
+            carbs:     String(i.carbs    ?? ''),
+            fat:       String(i.fat      ?? ''),
+            fiber:     String(i.fiber    ?? ''),
+            amount:    String(i.amount   ?? ''),
+            unit:      i.unit || '',
+          }))
+        : [])
+      setCIngMode('manual')
+      setCError(null)
+      setImportText('')
+      setRecipeView('create')
+    } catch (err) {
+      setImportError(err.message || 'AI import failed. Try again or create manually.')
+    } finally {
+      setImporting(false)
+    }
+  }
+
   // ── My Foods management ────────────────────────────────────────────────────
   async function saveFood() {
     if (!fForm.food_name.trim()) { setFError('Food name required'); return }
@@ -2568,6 +2613,38 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
           disabled={fSaving || !fForm.food_name.trim()}
           className="w-full bg-[#E8670A] text-white py-3 rounded-xl text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
           {fSaving ? 'Saving…' : foodView === 'edit' ? 'Update Food' : 'Save Food'}
+        </button>
+      </div>
+    )
+  }
+
+  // Import recipe view
+  if (recipeView === 'import') {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => { setRecipeView(null); setImportText(''); setImportError(null) }}
+            className="text-sm text-gray-500 hover:text-gray-700">← Back</button>
+          <p className="text-sm font-semibold text-gray-900">Import Recipe</p>
+        </div>
+        <p className="text-xs text-gray-500 leading-relaxed">
+          Paste any recipe text below. Katie will extract the ingredients and estimate macros. You can review and edit everything before saving.
+        </p>
+        <textarea
+          value={importText}
+          onChange={e => setImportText(e.target.value)}
+          placeholder="Paste recipe text here — ingredients, amounts, cooking steps…"
+          rows={9}
+          className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/40 resize-none"
+        />
+        {importError && <p className="text-xs text-red-500">{importError}</p>}
+        <p className="text-[11px] text-gray-400">Macros are AI estimates — review and adjust before saving.</p>
+        <button
+          onClick={importRecipe}
+          disabled={importing || !importText.trim()}
+          className="w-full py-3 rounded-xl bg-[#E8670A] text-white text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+          {importing ? 'Analyzing…' : '✨ Parse with Katie'}
         </button>
       </div>
     )
@@ -2877,7 +2954,7 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
                     setFError(null)
                     setFoodView('edit')
                   }}
-                  className="px-3 flex items-center justify-center text-gray-400 hover:text-[#E8670A] hover:bg-orange-50 transition-colors shrink-0 text-xs font-medium">
+                  className="px-3 flex items-center justify-center text-gray-600 hover:text-[#E8670A] hover:bg-orange-50 transition-colors shrink-0 text-xs font-semibold min-h-[44px]">
                   Edit
                 </button>
                 <button
@@ -2898,10 +2975,17 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
       <div>
         <div className="flex items-center justify-between mb-2">
           <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Recipes</p>
-          <button onClick={() => setRecipeView('create')}
-            className="text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] transition-colors">
-            + Create Recipe
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => { setRecipeView('import'); setImportText(''); setImportError(null) }}
+              className="text-xs font-semibold text-gray-500 hover:text-[#E8670A] transition-colors">
+              Import
+            </button>
+            <button onClick={() => setRecipeView('create')}
+              className="text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] transition-colors">
+              + Create Recipe
+            </button>
+          </div>
         </div>
         {recipes.length === 0 ? (
           <div className="text-center py-6 border border-dashed border-gray-200 rounded-xl">
@@ -2954,7 +3038,7 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
                     </p>
                   </button>
                   <button onClick={() => openEditRecipe(recipe)}
-                    className="px-3 flex items-center justify-center text-gray-400 hover:text-[#E8670A] hover:bg-orange-50 transition-colors shrink-0 text-xs font-medium">
+                    className="px-3 flex items-center justify-center text-gray-600 hover:text-[#E8670A] hover:bg-orange-50 transition-colors shrink-0 text-xs font-semibold min-h-[44px]">
                     Edit
                   </button>
                   <button onClick={() => { setDeletingId(recipe.id); setDeleteError(null) }}

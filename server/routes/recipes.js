@@ -1,6 +1,8 @@
 import { Router } from 'express'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
+import { parseRecipeWithAI } from '../services/recipeParser.js'
+import { recipeImportLimit } from '../middleware/rateLimits.js'
 
 const router = Router()
 
@@ -80,6 +82,21 @@ router.post('/', requireAuth(), async (req, res, next) => {
 
     res.status(201).json({ ...recipe, ingredients })
   } catch (err) {
+    next(err)
+  }
+})
+
+// POST /api/recipes/import — parse pasted recipe text with AI, return draft (does NOT save)
+router.post('/import', requireAuth(), recipeImportLimit, async (req, res, next) => {
+  try {
+    const { recipe_text } = req.body
+    if (!recipe_text || typeof recipe_text !== 'string' || !recipe_text.trim()) {
+      return res.status(400).json({ error: 'recipe_text is required' })
+    }
+    const draft = await parseRecipeWithAI(recipe_text.trim())
+    res.json(draft)
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message })
     next(err)
   }
 })
