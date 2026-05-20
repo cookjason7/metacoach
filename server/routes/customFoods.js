@@ -1,8 +1,18 @@
 import { Router } from 'express'
+import multer from 'multer'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
+import { parseLabelFromImageWithAI } from '../services/labelParser.js'
+import { labelScanLimit } from '../middleware/rateLimits.js'
 
 const router = Router()
+
+const ALLOWED_LABEL_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp'])
+const uploadLabelImage = multer({
+  storage: multer.memoryStorage(),
+  limits:  { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => cb(null, ALLOWED_LABEL_TYPES.has(file.mimetype)),
+})
 
 // GET /api/custom-foods — user's custom foods + global foods
 router.get('/', requireAuth(), async (req, res, next) => {
@@ -61,6 +71,20 @@ router.post('/', requireAuth(), async (req, res, next) => {
     )
     res.status(201).json(rows[0])
   } catch (err) {
+    next(err)
+  }
+})
+
+// POST /api/custom-foods/scan-label — parse nutrition label image with AI, return draft (does NOT save)
+router.post('/scan-label', requireAuth(), labelScanLimit, uploadLabelImage.single('photo'), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image provided. Upload a JPG, PNG, or WEBP file.' })
+    }
+    const draft = await parseLabelFromImageWithAI(req.file.buffer, req.file.mimetype)
+    res.json(draft)
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message, code: err.code || undefined })
     next(err)
   }
 })

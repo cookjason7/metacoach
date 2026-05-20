@@ -105,7 +105,7 @@ router.post('/import', requireAuth(), recipeImportLimit, async (req, res, next) 
     const draft = await parseRecipeWithAI(recipe_text.trim())
     res.json(draft)
   } catch (err) {
-    if (err.status) return res.status(err.status).json({ error: err.message })
+    if (err.status) return res.status(err.status).json({ error: err.message, code: err.code || undefined })
     next(err)
   }
 })
@@ -119,7 +119,7 @@ router.post('/import-image', requireAuth(), recipeImportLimit, uploadRecipeImage
     const draft = await parseRecipeFromImageWithAI(req.file.buffer, req.file.mimetype)
     res.json(draft)
   } catch (err) {
-    if (err.status) return res.status(err.status).json({ error: err.message })
+    if (err.status) return res.status(err.status).json({ error: err.message, code: err.code || undefined })
     next(err)
   }
 })

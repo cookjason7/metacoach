@@ -2,6 +2,18 @@ import Anthropic from '@anthropic-ai/sdk'
 
 const anthropic = new Anthropic()
 
+function withTimeout(promise, ms, message) {
+  let timer
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new Error(message)
+      err.status = 504
+      reject(err)
+    }, ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
+
 // Shared tool schema for both text and image parsing
 const RECIPE_TOOL = {
   name:        'create_recipe',
@@ -92,11 +104,22 @@ Extraction rules:
 - If an ingredient amount is partially visible or ambiguous, use a reasonable estimate
 - notes: any brief recipe tips or instructions visible in the image (keep under 200 chars, omit if nothing useful)
 - All calorie/macro values are estimates — users will review before saving
-- If the image is not clearly a recipe (e.g. a photo of plated food, a nutrition label, or unrelated content), still do your best — return what you can see, using "Unknown Recipe" as the name if no title is visible`
+- IMPORTANT: If the image is a Nutrition Facts panel, Supplement Facts panel, or nutrition/product label, do NOT attempt to parse it as a recipe. Instead return name as "__NUTRITION_LABEL__" and ingredients as an empty array.
+- If the image is a photo of plated food with no ingredient list, return name as "__NUTRITION_LABEL__" as well — the user should use Scan Label instead.
+- For any other non-recipe image (menu, unrelated content), use "Unknown Recipe" as the name with an empty ingredients array.`
 
 function validateAndNormalize(aiResult) {
   const name = aiResult.name?.trim()
-  if (!name || name === 'Unknown Recipe' && (!Array.isArray(aiResult.ingredients) || !aiResult.ingredients.length)) {
+
+  // Nutrition label detected — return special code so frontend can redirect
+  if (name === '__NUTRITION_LABEL__') {
+    const err = new Error('This looks like a nutrition label, not a recipe. Use Scan Label in My Foods to save it as a food.')
+    err.status = 422
+    err.code   = 'NUTRITION_LABEL'
+    throw err
+  }
+
+  if (!name || (name === 'Unknown Recipe' && (!Array.isArray(aiResult.ingredients) || !aiResult.ingredients.length))) {
     const err = new Error('AI could not determine a recipe from this image. Try a clearer photo or paste the text instead.')
     err.status = 422
     throw err
@@ -152,7 +175,7 @@ function validateAndNormalize(aiResult) {
 
 // Parse recipe from pasted text
 export async function parseRecipeWithAI(recipeText) {
-  const response = await anthropic.messages.create({
+  const parsePromise = anthropic.messages.create({
     model:      'claude-sonnet-4-6',
     max_tokens: 4096,
     system:     TEXT_SYSTEM,
@@ -160,6 +183,12 @@ export async function parseRecipeWithAI(recipeText) {
     tool_choice: { type: 'tool', name: 'create_recipe' },
     messages:    [{ role: 'user', content: recipeText.slice(0, 15000) }],
   })
+
+  const response = await withTimeout(
+    parsePromise,
+    55000,
+    'Recipe parsing timed out. Try again or simplify the text.',
+  )
 
   const toolBlock = response.content.find(b => b.type === 'tool_use')
   if (!toolBlock?.input) {
@@ -175,7 +204,7 @@ export async function parseRecipeWithAI(recipeText) {
 export async function parseRecipeFromImageWithAI(buffer, mediaType) {
   const base64 = buffer.toString('base64')
 
-  const response = await anthropic.messages.create({
+  const parsePromise = anthropic.messages.create({
     model:      'claude-sonnet-4-6',
     max_tokens: 4096,
     system:     IMAGE_SYSTEM,
@@ -184,17 +213,17 @@ export async function parseRecipeFromImageWithAI(buffer, mediaType) {
     messages: [{
       role:    'user',
       content: [
-        {
-          type:   'image',
-          source: { type: 'base64', media_type: mediaType, data: base64 },
-        },
-        {
-          type: 'text',
-          text: 'Extract the complete recipe from this image, including all visible ingredients with amounts, units, and estimated nutrition values.',
-        },
+        { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+        { type: 'text',  text: 'Extract the complete recipe from this image, including all visible ingredients with amounts, units, and estimated nutrition values.' },
       ],
     }],
   })
+
+  const response = await withTimeout(
+    parsePromise,
+    55000,
+    'Recipe image analysis timed out. Try again with a clearer photo or paste the text instead.',
+  )
 
   const toolBlock = response.content.find(b => b.type === 'tool_use')
   if (!toolBlock?.input) {

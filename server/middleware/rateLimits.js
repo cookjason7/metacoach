@@ -56,3 +56,12 @@ export const recipeImportLimit = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many recipe imports. Please wait a bit and try again.' },
 })
+
+export const labelScanLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 20,
+  keyGenerator,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many label scans. Please wait a bit and try again.' },
+})

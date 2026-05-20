@@ -2059,6 +2059,11 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
   const [importing,     setImporting]     = useState(false)
   const [importError,   setImportError]   = useState(null)
 
+  // Label scan state
+  const [labelFile,     setLabelFile]     = useState(null)   // File | null
+  const [labelPreview,  setLabelPreview]  = useState(null)   // object URL | null
+  const [labelScanning, setLabelScanning] = useState(false)
+
   // Create recipe state
   const [cName,     setCName]     = useState('')
   const [cServings, setCServings] = useState('4')
@@ -2355,39 +2360,29 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
   async function importRecipe() {
     if (!importText.trim()) { setImportError('Paste a recipe first'); return }
     setImporting(true); setImportError(null)
+    const controller = new AbortController()
+    const timeoutId  = setTimeout(() => controller.abort(), 62000)
     try {
       const token = await getToken()
-      const res = await fetch(`${API_URL}/api/recipes/import`, {
+      const res   = await fetch(`${API_URL}/api/recipes/import`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ recipe_text: importText }),
+        signal: controller.signal,
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Import failed')
-      // Pre-fill the create form with the AI draft — user reviews before saving
-      setEditingRecipe(null)
-      setCName(data.name ?? '')
-      setCServings(String(data.servings ?? '4'))
-      setCIngs(Array.isArray(data.ingredients)
-        ? data.ingredients.map(i => ({
-            food_name: i.food_name || '',
-            calories:  String(i.calories ?? ''),
-            protein:   String(i.protein  ?? ''),
-            carbs:     String(i.carbs    ?? ''),
-            fat:       String(i.fat      ?? ''),
-            fiber:     String(i.fiber    ?? ''),
-            amount:    String(i.amount   ?? ''),
-            unit:      i.unit || '',
-          }))
-        : [])
-      setCIngMode('manual')
-      setCError(null)
+      prefillRecipeForm(data)
       setImportText('')
       setRecipeView('create')
     } catch (err) {
-      setImportError(err.message || 'AI import failed. Try again or create manually.')
+      if (err.name === 'AbortError') {
+        setImportError('Request timed out. Try again or shorten the pasted text.')
+      } else {
+        setImportError(err.message || 'AI import failed. Try again or create manually.')
+      }
     } finally {
-      setImporting(false)
+      clearTimeout(timeoutId); setImporting(false)
     }
   }
 
@@ -2398,43 +2393,102 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
     setImportError(null)
   }
 
+  function clearLabelState() {
+    if (labelPreview) URL.revokeObjectURL(labelPreview)
+    setLabelFile(null); setLabelPreview(null); setFError(null)
+  }
+
+  function prefillRecipeForm(data) {
+    setEditingRecipe(null)
+    setCName(data.name ?? '')
+    setCServings(String(data.servings ?? '4'))
+    setCIngs(Array.isArray(data.ingredients)
+      ? data.ingredients.map(i => ({
+          food_name: i.food_name || '',
+          calories:  String(i.calories ?? ''),
+          protein:   String(i.protein  ?? ''),
+          carbs:     String(i.carbs    ?? ''),
+          fat:       String(i.fat      ?? ''),
+          fiber:     String(i.fiber    ?? ''),
+          amount:    String(i.amount   ?? ''),
+          unit:      i.unit || '',
+        }))
+      : [])
+    setCIngMode('manual'); setCError(null)
+  }
+
   async function importRecipeFromImage() {
     if (!importFile) { setImportError('Select an image first'); return }
     setImporting(true); setImportError(null)
+    const controller = new AbortController()
+    const timeoutId  = setTimeout(() => controller.abort(), 62000)
     try {
-      const token = await getToken()
+      const token    = await getToken()
       const formData = new FormData()
       formData.append('photo', importFile)
-      const res = await fetch(`${API_URL}/api/recipes/import-image`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
+      const res  = await fetch(`${API_URL}/api/recipes/import-image`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+        body: formData, signal: controller.signal,
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Import failed')
-      setEditingRecipe(null)
-      setCName(data.name ?? '')
-      setCServings(String(data.servings ?? '4'))
-      setCIngs(Array.isArray(data.ingredients)
-        ? data.ingredients.map(i => ({
-            food_name: i.food_name || '',
-            calories:  String(i.calories ?? ''),
-            protein:   String(i.protein  ?? ''),
-            carbs:     String(i.carbs    ?? ''),
-            fat:       String(i.fat      ?? ''),
-            fiber:     String(i.fiber    ?? ''),
-            amount:    String(i.amount   ?? ''),
-            unit:      i.unit || '',
-          }))
-        : [])
-      setCIngMode('manual')
-      setCError(null)
+      if (!res.ok) {
+        if (data.code === 'NUTRITION_LABEL') {
+          setImportError('This looks like a nutrition label, not a recipe. Use Scan Label in My Foods to save it as a food.')
+          return
+        }
+        throw new Error(data.error || 'Import failed')
+      }
+      prefillRecipeForm(data)
       clearImportState()
       setRecipeView('create')
     } catch (err) {
-      setImportError(err.message || 'Could not read the recipe from this image. Try a clearer photo or paste the text instead.')
+      if (err.name === 'AbortError') {
+        setImportError('Request timed out. Try again with a clearer photo or paste the text instead.')
+      } else {
+        setImportError(err.message || 'Could not read the recipe from this image. Try a clearer photo or paste the text instead.')
+      }
     } finally {
-      setImporting(false)
+      clearTimeout(timeoutId); setImporting(false)
+    }
+  }
+
+  async function scanLabel() {
+    if (!labelFile) { setFError('Select a nutrition label photo first'); return }
+    setLabelScanning(true); setFError(null)
+    const controller = new AbortController()
+    const timeoutId  = setTimeout(() => controller.abort(), 62000)
+    try {
+      const token    = await getToken()
+      const formData = new FormData()
+      formData.append('photo', labelFile)
+      const res  = await fetch(`${API_URL}/api/custom-foods/scan-label`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+        body: formData, signal: controller.signal,
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Scan failed')
+      // Pre-fill the food create form with label data
+      setFForm({
+        food_name:            data.food_name || '',
+        calories_per_serving: data.calories_per_serving != null ? String(data.calories_per_serving) : '',
+        protein:  data.protein  != null ? String(data.protein)  : '',
+        carbs:    data.carbs    != null ? String(data.carbs)    : '',
+        fat:      data.fat      != null ? String(data.fat)      : '',
+        fiber:    data.fiber    != null ? String(data.fiber)    : '',
+        serving_size: data.serving_size != null ? String(data.serving_size) : '100',
+        serving_unit: data.serving_unit || 'g',
+      })
+      setEditingFood(null)
+      clearLabelState()
+      setFoodView('create')
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        setFError('Scan timed out. Try again with a clearer photo.')
+      } else {
+        setFError(err.message || 'Could not read the label. Try a clearer, well-lit photo.')
+      }
+    } finally {
+      clearTimeout(timeoutId); setLabelScanning(false)
     }
   }
 
@@ -2607,6 +2661,62 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
     )
   }
 
+  // Scan nutrition label view
+  if (foodView === 'scan') {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <button onClick={() => { setFoodView(null); clearLabelState() }}
+            className="text-sm text-gray-500 hover:text-gray-700">← Back</button>
+          <p className="text-sm font-semibold text-gray-900">Scan Nutrition Label</p>
+        </div>
+        <p className="text-xs text-gray-500 leading-relaxed">
+          Upload a nutrition facts or supplement facts label. Katie will read the data and pre-fill a food for you to review before saving.
+        </p>
+        {!labelFile ? (
+          <label className="flex flex-col items-center justify-center w-full h-36 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-[#E8670A] hover:bg-orange-50/30 transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-gray-300 mb-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+            </svg>
+            <p className="text-sm font-medium text-gray-500">Tap to choose label photo</p>
+            <p className="text-xs text-gray-400 mt-1">JPG, PNG or WEBP · max 10 MB</p>
+            <input
+              type="file"
+              accept="image/jpeg,image/jpg,image/png,image/webp"
+              className="hidden"
+              onChange={e => {
+                const file = e.target.files?.[0]
+                if (!file) return
+                if (labelPreview) URL.revokeObjectURL(labelPreview)
+                setLabelFile(file)
+                setLabelPreview(URL.createObjectURL(file))
+                setFError(null)
+                e.target.value = ''
+              }}
+            />
+          </label>
+        ) : (
+          <div className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
+            <img src={labelPreview} alt="Nutrition label" className="w-full max-h-56 object-contain" />
+            <button
+              onClick={() => { if (labelPreview) URL.revokeObjectURL(labelPreview); setLabelFile(null); setLabelPreview(null); setFError(null) }}
+              className="absolute top-2 right-2 bg-white/90 backdrop-blur-sm rounded-full w-7 h-7 flex items-center justify-center text-gray-500 hover:text-red-500 shadow-sm transition-colors text-sm font-bold"
+              aria-label="Remove image">✕</button>
+            <p className="px-3 py-1.5 text-xs text-gray-500 truncate border-t border-gray-100">{labelFile.name}</p>
+          </div>
+        )}
+        {fError && <p className="text-xs text-red-500">{fError}</p>}
+        <p className="text-[11px] text-gray-400">Values are read from the label per serving. Review and edit before saving.</p>
+        <button
+          onClick={scanLabel}
+          disabled={labelScanning || !labelFile}
+          className="w-full py-3 rounded-xl bg-[#E8670A] text-white text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+          {labelScanning ? 'Scanning…' : '✨ Scan with Katie'}
+        </button>
+      </div>
+    )
+  }
+
   // My Foods create / edit form
   if (foodView === 'create' || foodView === 'edit') {
     const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]'
@@ -2679,8 +2789,11 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
           <button
             onClick={() => { setRecipeView(null); clearImportState() }}
             className="text-sm text-gray-500 hover:text-gray-700">← Back</button>
-          <p className="text-sm font-semibold text-gray-900">Import Recipe</p>
+          <p className="text-sm font-semibold text-gray-900">✨ Katie Magic</p>
         </div>
+        <p className="text-xs text-gray-500 leading-relaxed">
+          Paste or upload a recipe and Katie will turn it into a saved recipe you can log anytime.
+        </p>
 
         {/* Mode tabs */}
         <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-semibold">
@@ -3028,11 +3141,18 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
       <div>
         <div className="flex items-center justify-between mb-2">
           <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">My Foods</p>
-          <button
-            onClick={() => { setFForm({ ...EMPTY_FOOD_FORM }); setEditingFood(null); setFError(null); setFoodView('create') }}
-            className="text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] transition-colors">
-            + Add My Food
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => { clearLabelState(); setFoodView('scan') }}
+              className="text-xs font-semibold text-gray-500 hover:text-[#E8670A] transition-colors">
+              Scan Label
+            </button>
+            <button
+              onClick={() => { setFForm({ ...EMPTY_FOOD_FORM }); setEditingFood(null); setFError(null); setFoodView('create') }}
+              className="text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] transition-colors">
+              + Add My Food
+            </button>
+          </div>
         </div>
         {myFoods.length === 0 ? (
           <div className="text-center py-6 border border-gray-200 rounded-xl bg-gray-50">
@@ -3104,7 +3224,7 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
             <button
               onClick={() => { setRecipeView('import'); setImportText(''); setImportError(null) }}
               className="text-xs font-semibold text-gray-500 hover:text-[#E8670A] transition-colors">
-              Import
+              ✨ Katie Magic
             </button>
             <button onClick={() => setRecipeView('create')}
               className="text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] transition-colors">
