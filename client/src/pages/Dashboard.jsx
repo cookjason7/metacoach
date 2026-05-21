@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { Link } from 'react-router-dom'
 import { API_URL } from '../config.js'
@@ -620,6 +620,265 @@ function CoachDashboard({ getToken }) {
   )
 }
 
+// ── Progress Photos ───────────────────────────────────────────────────────────
+
+const ANGLES = ['front', 'side', 'back']
+
+function generateSessionId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+function PhotoSlot({ angle, photo, sessionId, uploading, onFileSelected }) {
+  const inputRef = useRef(null)
+  const isUploading = uploading === angle
+
+  return (
+    <div className="text-center">
+      <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1 capitalize">{angle}</p>
+      <div
+        onClick={() => !isUploading && inputRef.current?.click()}
+        className={`w-full aspect-[3/4] rounded-xl overflow-hidden cursor-pointer transition-all flex items-center justify-center border-2 ${
+          photo
+            ? 'border-gray-200 hover:opacity-90'
+            : 'border-dashed border-gray-300 bg-gray-50 hover:border-[#E8670A] hover:bg-[#fff7ed]'
+        }`}
+      >
+        {photo ? (
+          <img src={photo.photo_url} alt={angle} className="w-full h-full object-cover" />
+        ) : isUploading ? (
+          <span className="text-[10px] text-gray-400">Uploading…</span>
+        ) : (
+          <span className="text-[10px] text-gray-400 px-1 text-center leading-snug">Tap to add</span>
+        )}
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={e => e.target.files[0] && onFileSelected(angle, e.target.files[0], sessionId)}
+      />
+    </div>
+  )
+}
+
+function SessionRow({ session, compact = false }) {
+  const dateStr = new Date(session.session_date).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+  })
+  const thumbs = ANGLES.map(a => session.photos[a]).filter(Boolean)
+
+  if (compact) {
+    return (
+      <div className="flex items-center gap-2 py-2 border-t border-gray-100 first:border-t-0">
+        <p className="text-[11px] text-gray-400 w-20 shrink-0">{dateStr}</p>
+        <div className="flex gap-1 flex-1">
+          {ANGLES.map(a => {
+            const p = session.photos[a]
+            return p ? (
+              <a key={a} href={p.photo_url} target="_blank" rel="noopener noreferrer"
+                className="w-9 h-12 rounded overflow-hidden bg-gray-100 shrink-0 block hover:opacity-80 transition-opacity">
+                <img src={p.photo_url} alt={a} className="w-full h-full object-cover" />
+              </a>
+            ) : (
+              <div key={a} className="w-9 h-12 rounded bg-gray-100 shrink-0 flex items-center justify-center">
+                <span className="text-[8px] text-gray-300 capitalize">{a[0]}</span>
+              </div>
+            )
+          })}
+        </div>
+        <span className="text-[10px] text-gray-300 shrink-0">{thumbs.length}/3</span>
+      </div>
+    )
+  }
+
+  return null
+}
+
+function ProgressPhotosCard({ sessions, getToken, onUploaded, onNewSession }) {
+  const [uploading, setUploading] = useState(null) // angle being uploaded
+
+  const latest   = sessions[0] ?? null
+  const older    = sessions.slice(1)
+  const [showAll, setShowAll] = useState(false)
+
+  async function handleFileSelected(angle, file, sessionId) {
+    setUploading(angle)
+    try {
+      const token = await getToken()
+      const body  = new FormData()
+      body.append('photo', file)
+      body.append('angle', angle)
+      body.append('session_id', sessionId)
+      const res = await fetch(`${API_URL}/api/progress-photos`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body,
+      })
+      if (res.ok) onUploaded(await res.json())
+    } finally {
+      setUploading(null)
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden mb-8">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 pt-3.5 pb-2.5 border-b border-gray-100">
+        <div>
+          <h2 className="text-sm font-bold text-gray-900">Progress Photos</h2>
+          {latest && (
+            <p className="text-[10px] text-gray-400 mt-0.5">
+              {sessions.length} {sessions.length === 1 ? 'set' : 'sets'} · latest{' '}
+              {new Date(latest.session_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </p>
+          )}
+        </div>
+        <button
+          onClick={onNewSession}
+          className="flex items-center gap-1 bg-[#E8670A] text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-[#c45e09] transition-colors min-h-[36px]"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          New Set
+        </button>
+      </div>
+
+      {/* Latest session */}
+      <div className="px-4 py-3">
+        {!latest ? (
+          <div className="text-center py-5">
+            <p className="text-sm text-gray-400 mb-1">No progress photos yet.</p>
+            <p className="text-xs text-gray-300">Tap "New Set" to add your first front, side &amp; back photos.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+            {ANGLES.map(angle => (
+              <PhotoSlot
+                key={angle}
+                angle={angle}
+                photo={latest.photos[angle]}
+                sessionId={latest.session_id}
+                uploading={uploading}
+                onFileSelected={handleFileSelected}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Older sessions */}
+      {older.length > 0 && (
+        <div className="px-4 pb-3">
+          <button
+            onClick={() => setShowAll(v => !v)}
+            className="text-[11px] text-gray-400 hover:text-gray-600 font-medium transition-colors mb-1 min-h-[36px] flex items-center gap-1"
+          >
+            <svg
+              className={`w-3 h-3 transition-transform ${showAll ? 'rotate-90' : ''}`}
+              fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+            {showAll ? 'Hide' : 'Show'} {older.length} older {older.length === 1 ? 'set' : 'sets'}
+          </button>
+          {showAll && (
+            <div>
+              {older.map(s => <SessionRow key={s.session_id} session={s} compact />)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── New-session upload modal ──────────────────────────────────────────────────
+
+function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
+  const [uploading, setUploading] = useState(null)
+  const [done,      setDone]      = useState({ front: false, side: false, back: false })
+  const inputRefs   = { front: useRef(null), side: useRef(null), back: useRef(null) }
+
+  async function handleFile(angle, file) {
+    setUploading(angle)
+    try {
+      const token = await getToken()
+      const body  = new FormData()
+      body.append('photo', file)
+      body.append('angle', angle)
+      body.append('session_id', sessionId)
+      const res = await fetch(`${API_URL}/api/progress-photos`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body,
+      })
+      if (res.ok) {
+        onUploaded(await res.json())
+        setDone(d => ({ ...d, [angle]: true }))
+      }
+    } finally {
+      setUploading(null)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="bg-white w-full max-w-sm rounded-t-2xl sm:rounded-2xl p-5 pb-safe shadow-xl">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-bold text-gray-900">New Photo Set</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none min-h-[44px] min-w-[44px] flex items-center justify-center">✕</button>
+        </div>
+        <p className="text-xs text-gray-500 mb-4">Add front, side, and back photos to this set. You can skip angles — partial sets save safely.</p>
+        <div className="grid grid-cols-3 gap-3 mb-5">
+          {ANGLES.map(angle => (
+            <div key={angle} className="text-center">
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5 capitalize">{angle}</p>
+              <div
+                onClick={() => !uploading && inputRefs[angle].current?.click()}
+                className={`w-full aspect-[3/4] rounded-xl overflow-hidden cursor-pointer border-2 flex items-center justify-center transition-all ${
+                  done[angle]
+                    ? 'border-emerald-400 bg-emerald-50'
+                    : uploading === angle
+                      ? 'border-gray-200 bg-gray-50'
+                      : 'border-dashed border-gray-300 bg-gray-50 hover:border-[#E8670A] hover:bg-[#fff7ed]'
+                }`}
+              >
+                {done[angle] ? (
+                  <span className="text-emerald-500 text-xl">✓</span>
+                ) : uploading === angle ? (
+                  <span className="text-[10px] text-gray-400">Uploading…</span>
+                ) : (
+                  <span className="text-[10px] text-gray-400 px-1 text-center leading-snug">Tap to add</span>
+                )}
+              </div>
+              <input
+                ref={inputRefs[angle]}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={e => e.target.files[0] && handleFile(angle, e.target.files[0])}
+              />
+            </div>
+          ))}
+        </div>
+        <button
+          onClick={onClose}
+          className="w-full py-2.5 rounded-xl text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors min-h-[44px]"
+        >
+          {Object.values(done).some(Boolean) ? 'Done' : 'Cancel'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const { getToken } = useAuth()
 
@@ -634,6 +893,8 @@ export default function Dashboard() {
   const [katieBanner,  setKatieBanner]  = useState(null)
   const [gamData,      setGamData]      = useState(null)
   const [gamLoading,   setGamLoading]   = useState(true)
+  const [photoSessions, setPhotoSessions] = useState([])
+  const [newSessionId,  setNewSessionId]  = useState(null) // when set, shows upload modal
 
   useEffect(() => {
     let cancelled = false
@@ -646,7 +907,7 @@ export default function Dashboard() {
         // Fire proactive check non-blocking, then fetch latest banner
         fetch(`${API_URL}/api/coach/check-proactive`, { method: 'POST', headers }).catch(() => {})
 
-        const [r1, r2, r3, r4, r5, r6, r7, r8] = await Promise.all([
+        const [r1, r2, r3, r4, r5, r6, r7, r8, r9] = await Promise.all([
           fetch(`${API_URL}/api/meals/today?date=${today}`, { headers }),
           fetch(`${API_URL}/api/daily-logs/today`, { headers }),
           fetch(`${API_URL}/api/meals/week`,       { headers }),
@@ -655,6 +916,7 @@ export default function Dashboard() {
           fetch(`${API_URL}/api/meals?date=${today}`, { headers }),
           fetch(`${API_URL}/api/coach/latest-proactive`, { headers }),
           fetch(`${API_URL}/api/gamification/momentum`, { headers }),
+          fetch(`${API_URL}/api/progress-photos`,  { headers }),
         ])
 
         if (!r1.ok || !r2.ok || !r3.ok || !r4.ok || !r5.ok || !r6.ok) throw new Error('Failed to load dashboard data')
@@ -673,6 +935,7 @@ export default function Dashboard() {
           }
           if (r8.ok) setGamData(await r8.json())
           setGamLoading(false)
+          if (r9.ok) setPhotoSessions(await r9.json())
         }
       } catch (err) {
         if (!cancelled) setError(err.message)
@@ -693,6 +956,31 @@ export default function Dashboard() {
     })
     if (!res.ok) throw new Error('Failed to save')
     setTodayLog(await res.json())
+  }
+
+  function handlePhotoUploaded(photo) {
+    // photo has: { id, photo_url, angle, taken_at, session_id }
+    setPhotoSessions(prev => {
+      const idx = prev.findIndex(s => s.session_id === photo.session_id)
+      if (idx >= 0) {
+        // Update existing session
+        const updated = [...prev]
+        updated[idx] = {
+          ...updated[idx],
+          photos: { ...updated[idx].photos, [photo.angle]: photo },
+        }
+        // Move to front if it's the one being added to (in case sort changed)
+        return updated
+      } else {
+        // New session — prepend to list
+        const newSession = {
+          session_id:   photo.session_id,
+          session_date: photo.taken_at,
+          photos:       { front: null, side: null, back: null, [photo.angle]: photo },
+        }
+        return [newSession, ...prev]
+      }
+    })
   }
 
   const fmt   = (n) => n != null ? n.toLocaleString() : '—'
@@ -840,6 +1128,23 @@ export default function Dashboard() {
           />
         ))}
       </div>
+
+      {/* Progress Photos */}
+      <ProgressPhotosCard
+        sessions={photoSessions}
+        getToken={getToken}
+        onUploaded={handlePhotoUploaded}
+        onNewSession={() => setNewSessionId(generateSessionId())}
+      />
+
+      {newSessionId && (
+        <NewSessionModal
+          sessionId={newSessionId}
+          getToken={getToken}
+          onUploaded={handlePhotoUploaded}
+          onClose={() => setNewSessionId(null)}
+        />
+      )}
 
       {/* Weekly Summary */}
       <h2 className="text-sm font-semibold text-gray-700 mb-3">This Week</h2>

@@ -30,43 +30,74 @@ function uploadToCloudinary(buffer) {
 }
 
 // GET /api/progress-photos
+// Returns sessions grouped by photo_session_id, most-recent session first.
+// Each session: { session_id, session_date, photos: { front, side, back } }
 router.get('/', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const dbUserId   = await getOrCreateUser(userId)
 
     const { rows } = await pool.query(
-      `SELECT id, photo_url, angle, taken_at
+      `SELECT
+         photo_session_id AS session_id,
+         MIN(taken_at)    AS session_date,
+         json_agg(
+           json_build_object(
+             'id',        id,
+             'photo_url', photo_url,
+             'angle',     angle,
+             'taken_at',  taken_at
+           ) ORDER BY taken_at
+         ) AS photos
        FROM progress_photos
        WHERE user_id = $1
-       ORDER BY taken_at DESC`,
+       GROUP BY photo_session_id
+       ORDER BY MIN(taken_at) DESC`,
       [dbUserId],
     )
-    res.json(rows)
+
+    // Shape each session: photos array → { front, side, back } map
+    const sessions = rows.map(row => {
+      const byAngle = { front: null, side: null, back: null }
+      for (const p of row.photos) {
+        if (['front', 'side', 'back'].includes(p.angle)) byAngle[p.angle] = p
+      }
+      return {
+        session_id:   row.session_id,
+        session_date: row.session_date,
+        photos:       byAngle,
+      }
+    })
+
+    res.json(sessions)
   } catch (err) {
     next(err)
   }
 })
 
 // POST /api/progress-photos
+// Body (multipart): photo (file), angle (front|back|side), session_id (optional string)
 router.post('/', requireAuth(), photoUploadLimit, upload.single('photo'), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const dbUserId   = await getOrCreateUser(userId)
-    const { angle }  = req.body
+    const { angle, session_id } = req.body
 
     if (!req.file) return res.status(400).json({ error: 'Photo required' })
     if (!['front', 'back', 'side'].includes(angle)) {
       return res.status(400).json({ error: 'angle must be front, back, or side' })
     }
 
+    // If no session_id supplied, fall back to a date-based key so it still groups sensibly
+    const sessionId = session_id?.trim() || `auto-${dbUserId}-${new Date().toISOString().slice(0, 10)}`
+
     const result = await uploadToCloudinary(req.file.buffer)
 
     const { rows } = await pool.query(
-      `INSERT INTO progress_photos (user_id, photo_url, angle)
-       VALUES ($1, $2, $3)
-       RETURNING id, photo_url, angle, taken_at`,
-      [dbUserId, result.secure_url, angle],
+      `INSERT INTO progress_photos (user_id, photo_url, angle, photo_session_id)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, photo_url, angle, taken_at, photo_session_id AS session_id`,
+      [dbUserId, result.secure_url, angle, sessionId],
     )
     res.status(201).json(rows[0])
   } catch (err) {

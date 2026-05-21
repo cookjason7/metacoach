@@ -195,12 +195,21 @@ export async function migrate() {
   `)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS progress_photos (
-      id         SERIAL PRIMARY KEY,
-      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      photo_url  TEXT    NOT NULL,
-      angle      TEXT    NOT NULL CHECK (angle IN ('front', 'back', 'side')),
-      taken_at   TIMESTAMPTZ DEFAULT NOW()
+      id               SERIAL PRIMARY KEY,
+      user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      photo_url        TEXT    NOT NULL,
+      angle            TEXT    NOT NULL CHECK (angle IN ('front', 'back', 'side')),
+      taken_at         TIMESTAMPTZ DEFAULT NOW(),
+      photo_session_id TEXT
     )
+  `)
+  // Add photo_session_id to existing tables that predate the column
+  await pool.query(`ALTER TABLE progress_photos ADD COLUMN IF NOT EXISTS photo_session_id TEXT`)
+  // Backfill: group legacy photos by user + calendar date so they appear as a set
+  await pool.query(`
+    UPDATE progress_photos
+    SET photo_session_id = 'legacy-' || user_id::text || '-' || TO_CHAR(taken_at AT TIME ZONE 'UTC', 'YYYY-MM-DD')
+    WHERE photo_session_id IS NULL
   `)
 
   // ── Food database ────────────────────────────────────────────────────────────
