@@ -1084,11 +1084,10 @@ const filtered = useMemo(() => {
 
   // Tabs — Dev Tools only shown to admins
   const tabs = [
-    { id: 'clients',        label: 'Clients' },
-    { id: 'food-macros',    label: 'Food & Macros' },
-    { id: 'habit-coaching', label: 'Habit Coaching' },
-    { id: 'messaging',      label: 'Messaging' },
-    { id: 'coach-foods',    label: 'Coach Foods' },
+    { id: 'clients',     label: 'Clients' },
+    { id: 'food-macros', label: 'Food & Macros' },
+    { id: 'messaging',   label: 'Messaging' },
+    { id: 'coach-foods', label: 'Coach Foods' },
     ...(isAdmin ? [{ id: 'dev-tools', label: '🛠 Dev Tools' }] : []),
   ]
 
