@@ -3,6 +3,7 @@ import { useAuth } from '@clerk/clerk-react'
 import { useUser } from '@clerk/clerk-react'
 import { Link } from 'react-router-dom'
 import { API_URL } from '../config.js'
+import BloodworkIntakeForm from '../components/BloodworkIntakeForm.jsx'
 
 const ACTIVITY_OPTIONS = [
   { value: 'sedentary',         label: 'Sedentary (little or no exercise)' },
@@ -201,7 +202,7 @@ const EMPTY_ASSESSMENT = {
 
 const BLOODWORK_CLIENT_ENABLED = import.meta.env.VITE_BLOODWORK_CLIENT_ENABLED === 'true'
 
-function BloodworkSection({ getToken }) {
+function BloodworkSection({ getToken, profile }) {
   const [uploads, setUploads] = useState([])
   const [loadingList, setLoadingList] = useState(true)
   const [uploading, setUploading] = useState(false)
@@ -270,7 +271,19 @@ function BloodworkSection({ getToken }) {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 mb-8">
+    <div className="space-y-4 mb-8">
+      <BloodworkIntakeForm
+        intakeUrl={`${API_URL}/api/bloodwork/intake`}
+        getToken={getToken}
+        defaults={{
+          age:           profile?.age,
+          sex:           profile?.gender,
+          height_inches: profile?.height_inches,
+          weight_lbs:    profile?.starting_weight_lbs,
+        }}
+      />
+
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
       <p className="text-sm font-semibold text-gray-800 mb-1">Upload Lab Results</p>
       <p className="text-xs text-gray-500 mb-4">PDF, JPG, PNG, or WEBP. Max 20 MB. Your coach will be able to review and provide an AI-assisted educational summary.</p>
 
@@ -346,6 +359,7 @@ function BloodworkSection({ getToken }) {
           ))}
         </ul>
       )}
+      </div>
     </div>
   )
 }
@@ -1113,7 +1127,7 @@ export default function Settings() {
           {(BLOODWORK_CLIENT_ENABLED || profile?.bloodwork_enabled) && (
             <>
               <h2 className="text-sm font-semibold text-gray-700 mb-3">Bloodwork</h2>
-              <BloodworkSection getToken={getToken} />
+              <BloodworkSection getToken={getToken} profile={profile} />
             </>
           )}
 

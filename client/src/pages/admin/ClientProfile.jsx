@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, Fragment, useRef } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { API_URL } from '../../config.js'
+import BloodworkIntakeForm from '../../components/BloodworkIntakeForm.jsx'
 
 const TABS = [
   { id: 'overview',    label: 'Overview',   icon: '◉' },
@@ -3010,7 +3011,7 @@ function EngagementTab({ clientId, getToken }) {
 const BLOODWORK_DISCLAIMER =
   'Educational only · Not medical advice · Not a diagnosis · Do not change any medication or supplement without speaking with your healthcare provider · Review results with a qualified doctor or provider, ideally a hormone specialist or functional medicine provider.'
 
-function BloodworkTab({ clientId, getToken, bloodworkEnabled = false, onClientUpdate }) {
+function BloodworkTab({ clientId, getToken, bloodworkEnabled = false, onClientUpdate, client }) {
   const [uploads, setUploads] = useState([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
@@ -3022,6 +3023,7 @@ function BloodworkTab({ clientId, getToken, bloodworkEnabled = false, onClientUp
   const [labDate, setLabDate] = useState('')
   const [notes, setNotes] = useState('')
   const [togglingAccess, setTogglingAccess] = useState(false)
+  const [intakeSaved, setIntakeSaved] = useState(null) // null=unknown, false=missing, true=saved
   const fileRef = useRef(null)
 
   useEffect(() => {
@@ -3163,6 +3165,19 @@ function BloodworkTab({ clientId, getToken, bloodworkEnabled = false, onClientUp
         </button>
       </div>
 
+      {/* ── Intake questionnaire ── */}
+      <BloodworkIntakeForm
+        intakeUrl={`${API_URL}/api/bloodwork/staff/${clientId}/intake`}
+        getToken={getToken}
+        defaults={{
+          age:          client?.age,
+          sex:          client?.gender,
+          height_inches: client?.height_inches,
+          weight_lbs:   client?.starting_weight_lbs,
+        }}
+        onIntakeChange={data => setIntakeSaved(data !== null)}
+      />
+
       {/* ── Upload form ── */}
       <div className="bg-white border border-gray-200 rounded-xl p-5">
         <h3 className="text-sm font-semibold text-gray-800 mb-4">Upload Lab Results</h3>
@@ -3296,13 +3311,20 @@ function BloodworkTab({ clientId, getToken, bloodworkEnabled = false, onClientUp
                       </p>
                     </div>
                     {u.has_text ? (
-                      <button
-                        onClick={() => summarize(u.id)}
-                        disabled={summarizingId === u.id}
-                        className="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#1e2a3a] text-white hover:bg-[#243347] transition-colors disabled:opacity-50"
-                      >
-                        {summarizingId === u.id ? 'Generating…' : 'Generate AI Summary'}
-                      </button>
+                      <div className="shrink-0 flex flex-col items-end gap-1">
+                        {intakeSaved === false && (
+                          <p className="text-[10px] text-amber-600 text-right max-w-[180px] leading-snug">
+                            Health context missing — fill in above for better AI results
+                          </p>
+                        )}
+                        <button
+                          onClick={() => summarize(u.id)}
+                          disabled={summarizingId === u.id}
+                          className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#1e2a3a] text-white hover:bg-[#243347] transition-colors disabled:opacity-50"
+                        >
+                          {summarizingId === u.id ? 'Generating…' : 'Generate AI Summary'}
+                        </button>
+                      </div>
                     ) : (
                       <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 border border-amber-100">
                         Ask the client to re-upload a clearer image or a text-based PDF.
@@ -3448,7 +3470,7 @@ export default function ClientProfile() {
       {tab === 'notes'      && <NotesTab       clientId={client.id} role={meRole} getToken={getToken} />}
       {tab === 'messaging'  && <MessagingTab   client={client} role={meRole} getToken={getToken} />}
       {tab === 'engagement' && <EngagementTab  clientId={client.id} getToken={getToken} />}
-      {tab === 'bloodwork'  && <BloodworkTab   clientId={client.id} getToken={getToken} bloodworkEnabled={client.bloodwork_enabled ?? false} onClientUpdate={u => setClient(c => ({ ...c, ...u }))} />}
+      {tab === 'bloodwork'  && <BloodworkTab   clientId={client.id} getToken={getToken} bloodworkEnabled={client.bloodwork_enabled ?? false} onClientUpdate={u => setClient(c => ({ ...c, ...u }))} client={client} />}
     </div>
   )
 }

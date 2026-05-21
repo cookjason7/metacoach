@@ -292,11 +292,71 @@ router.post('/', requireAuth(), bloodworkUploadLimit, upload.single('file'), asy
   } catch (err) { next(err) }
 })
 
+// ── Client intake routes ──────────────────────────────────────────────────────
+// Registered before /:id wildcards so "intake" is never treated as an upload id.
+
+// GET /api/bloodwork/intake — load own intake
+router.get('/intake', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await getCtx(req)
+    if (!isPrivileged(ctx.role) && !(await isBloodworkEnabled(ctx.dbUserId))) {
+      return res.status(403).json({ error: 'Bloodwork feature not yet available.' })
+    }
+    const { rows } = await pool.query(
+      `SELECT conditions, medication_categories, confirmed_age, confirmed_sex,
+              confirmed_height_inches, confirmed_weight_lbs, notes, updated_at
+       FROM bloodwork_intake WHERE user_id = $1`,
+      [ctx.dbUserId],
+    )
+    res.json(rows[0] ?? null)
+  } catch (err) { next(err) }
+})
+
+// PUT /api/bloodwork/intake — upsert own intake
+router.put('/intake', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await getCtx(req)
+    if (!isPrivileged(ctx.role) && !(await isBloodworkEnabled(ctx.dbUserId))) {
+      return res.status(403).json({ error: 'Bloodwork feature not yet available.' })
+    }
+    const { conditions, medication_categories, confirmed_age, confirmed_sex,
+            confirmed_height_inches, confirmed_weight_lbs, notes } = req.body ?? {}
+    const { rows } = await pool.query(
+      `INSERT INTO bloodwork_intake
+         (user_id, conditions, medication_categories, confirmed_age, confirmed_sex,
+          confirmed_height_inches, confirmed_weight_lbs, notes, updated_at)
+       VALUES ($1, $2::jsonb, $3::jsonb, $4, $5, $6, $7, $8, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         conditions              = EXCLUDED.conditions,
+         medication_categories   = EXCLUDED.medication_categories,
+         confirmed_age           = EXCLUDED.confirmed_age,
+         confirmed_sex           = EXCLUDED.confirmed_sex,
+         confirmed_height_inches = EXCLUDED.confirmed_height_inches,
+         confirmed_weight_lbs    = EXCLUDED.confirmed_weight_lbs,
+         notes                   = EXCLUDED.notes,
+         updated_at              = NOW()
+       RETURNING conditions, medication_categories, confirmed_age, confirmed_sex,
+                 confirmed_height_inches, confirmed_weight_lbs, notes, updated_at`,
+      [
+        ctx.dbUserId,
+        JSON.stringify(conditions ?? []),
+        JSON.stringify(medication_categories ?? []),
+        confirmed_age || null,
+        confirmed_sex?.trim() || null,
+        confirmed_height_inches || null,
+        confirmed_weight_lbs || null,
+        notes?.trim() || null,
+      ],
+    )
+    res.json(rows[0])
+  } catch (err) { next(err) }
+})
+
 // ── Client context helper for AI summarize ────────────────────────────────────
 
 async function buildClientContext(userId) {
   try {
-    const [uR, haR, weightR, prevR] = await Promise.all([
+    const [uR, haR, weightR, prevR, intakeR] = await Promise.all([
       pool.query(
         `SELECT gender, coaching_type, start_date,
                 height_inches, age, starting_weight_lbs, goal_weight_lbs
@@ -322,17 +382,26 @@ async function buildClientContext(userId) {
          ORDER BY COALESCE(lab_date, created_at::date) DESC LIMIT 3`,
         [userId],
       ),
+      pool.query(
+        `SELECT conditions, medication_categories, confirmed_age, confirmed_sex,
+                confirmed_height_inches, confirmed_weight_lbs, notes
+         FROM bloodwork_intake WHERE user_id = $1`,
+        [userId],
+      ),
     ])
 
-    const u  = uR.rows[0]  ?? {}
-    const ha = haR.rows[0] ?? {}
-    const wt = weightR.rows[0]
-    const prev = prevR.rows
+    const u      = uR.rows[0]     ?? {}
+    const ha     = haR.rows[0]    ?? {}
+    const wt     = weightR.rows[0]
+    const prev   = prevR.rows
+    const intake = intakeR.rows[0] ?? null
 
     const lines = []
 
-    // Age: prefer health_assessment DOB (more precise); fall back to users.age
-    if (ha.date_of_birth) {
+    // ── Age — intake confirmed value takes priority ──────────────────────────
+    if (intake?.confirmed_age) {
+      lines.push(`Age (client confirmed): ${intake.confirmed_age}`)
+    } else if (ha.date_of_birth) {
       const age = Math.floor((Date.now() - new Date(ha.date_of_birth)) / 31_557_600_000)
       lines.push(`Age: ${age}`)
     } else if (u.age) {
@@ -341,43 +410,79 @@ async function buildClientContext(userId) {
       lines.push('Age: not provided')
     }
 
-    lines.push(`Sex/Gender: ${u.gender ?? 'not provided'}`)
+    // ── Biological sex ───────────────────────────────────────────────────────
+    if (intake?.confirmed_sex) {
+      lines.push(`Biological sex (client confirmed): ${intake.confirmed_sex}`)
+    } else {
+      lines.push(`Sex/Gender: ${u.gender ?? 'not provided'}`)
+    }
 
-    // Height
-    if (u.height_inches) {
-      const ft = Math.floor(u.height_inches / 12)
-      const inch = Math.round(u.height_inches % 12)
-      lines.push(`Height: ${ft}'${inch}" (${u.height_inches} inches)`)
+    // ── Height ───────────────────────────────────────────────────────────────
+    const heightIn = Number(intake?.confirmed_height_inches ?? u.height_inches ?? 0) || null
+    if (heightIn) {
+      const ft = Math.floor(heightIn / 12)
+      const inch = Math.round(heightIn % 12)
+      const src = intake?.confirmed_height_inches ? ' (client confirmed)' : ''
+      lines.push(`Height${src}: ${ft}'${inch}" (${heightIn} inches)`)
     } else {
       lines.push('Height: not provided')
     }
 
-    // Weight + BMI
-    const recentWeight = wt?.weight_lbs ? Number(wt.weight_lbs) : null
-    if (recentWeight) {
+    // ── Weight + BMI — intake confirmed weight takes priority ────────────────
+    const intakeWeight  = intake?.confirmed_weight_lbs  ? Number(intake.confirmed_weight_lbs)  : null
+    const recentWeight  = wt?.weight_lbs                ? Number(wt.weight_lbs)                : null
+    const effectiveWeight = intakeWeight ?? recentWeight
+
+    if (intakeWeight) {
+      lines.push(`Weight (client confirmed): ${intakeWeight} lbs`)
+    } else if (recentWeight) {
       lines.push(`Recent weight: ${recentWeight} lbs (${String(wt.logged_date).slice(0, 10)})`)
-      if (u.height_inches) {
-        const bmi = ((recentWeight / (u.height_inches ** 2)) * 703).toFixed(1)
-        lines.push(`Calculated BMI: ${bmi}`)
-      }
     } else if (u.starting_weight_lbs) {
       lines.push(`Starting weight (no recent log): ${u.starting_weight_lbs} lbs`)
     } else {
       lines.push('Weight: not provided')
     }
 
-    if (u.starting_weight_lbs) lines.push(`Starting weight: ${u.starting_weight_lbs} lbs`)
-    if (u.goal_weight_lbs)     lines.push(`Goal weight: ${u.goal_weight_lbs} lbs`)
-    if (u.coaching_type)       lines.push(`Coaching type: ${u.coaching_type}`)
-    if (u.start_date)          lines.push(`Program start: ${String(u.start_date).slice(0, 10)}`)
+    if (effectiveWeight && heightIn) {
+      const bmi = ((effectiveWeight / (heightIn ** 2)) * 703).toFixed(1)
+      lines.push(`Calculated BMI: ${bmi}`)
+    }
+
+    if (u.starting_weight_lbs && !intakeWeight) lines.push(`Starting weight: ${u.starting_weight_lbs} lbs`)
+    if (u.goal_weight_lbs)  lines.push(`Goal weight: ${u.goal_weight_lbs} lbs`)
+    if (u.coaching_type)    lines.push(`Coaching type: ${u.coaching_type}`)
+    if (u.start_date)       lines.push(`Program start: ${String(u.start_date).slice(0, 10)}`)
 
     lines.push(`Goals (6-month): ${ha.goals_6_months ?? 'not provided'}`)
+    if (ha.injuries_limitations) lines.push(`Health history / limitations (self-reported): ${ha.injuries_limitations}`)
 
-    if (ha.injuries_limitations) lines.push(`Health history / limitations / diagnoses (self-reported): ${ha.injuries_limitations}`)
+    // ── Intake questionnaire: conditions + medications ───────────────────────
+    if (intake) {
+      const conds = Array.isArray(intake.conditions) ? intake.conditions : []
+      const hasRealConditions = conds.some(c => c !== 'none')
+      if (hasRealConditions) {
+        lines.push(`Medical conditions (client confirmed): ${conds.filter(c => c !== 'none').join(', ')}`)
+      } else if (conds.includes('none')) {
+        lines.push('Medical conditions (client confirmed): None of the above')
+      }
+
+      const meds = Array.isArray(intake.medication_categories) ? intake.medication_categories : []
+      const hasRealMeds = meds.some(m => m !== 'none')
+      if (hasRealMeds) {
+        lines.push(`Prescription medication categories (client confirmed): ${meds.filter(m => m !== 'none').join(', ')}`)
+      } else if (meds.includes('none')) {
+        lines.push('Prescription medications (client confirmed): None')
+      } else {
+        lines.push('Prescription medications: client has not specified')
+      }
+
+      if (intake.notes?.trim()) lines.push(`Additional client notes: ${intake.notes.trim()}`)
+    } else {
+      lines.push('Medical conditions: intake questionnaire not completed — do not assume absence of conditions or medications')
+      lines.push('Prescription medications: NOT COLLECTED — client has not completed intake questionnaire')
+    }
 
     lines.push(`Current supplements (self-reported): ${ha.supplements ?? 'not provided'}`)
-    lines.push('Current medications / hormones: NOT COLLECTED — client has not entered this data in the app. Do not assume absent.')
-
     if (ha.activity_level)         lines.push(`Activity level: ${ha.activity_level}`)
     if (ha.sleep_hours)            lines.push(`Typical sleep: ${ha.sleep_hours} hrs/night`)
     if (ha.sleep_quality  != null) lines.push(`Sleep quality (self-rated): ${ha.sleep_quality}/5`)
@@ -463,6 +568,63 @@ router.patch('/staff/:clientId/access', requireAuth(), async (req, res, next) =>
     const enabled = Boolean(req.body?.enabled)
     await pool.query('UPDATE users SET bloodwork_enabled = $1 WHERE id = $2', [enabled, clientId])
     res.json({ bloodwork_enabled: enabled })
+  } catch (err) { next(err) }
+})
+
+// GET /api/bloodwork/staff/:clientId/intake — load client intake
+router.get('/staff/:clientId/intake', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await getCtx(req)
+    if (!isPrivileged(ctx.role)) return res.status(403).json({ error: 'Staff only.' })
+    const clientId = Number(req.params.clientId)
+    if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied.' })
+    const { rows } = await pool.query(
+      `SELECT conditions, medication_categories, confirmed_age, confirmed_sex,
+              confirmed_height_inches, confirmed_weight_lbs, notes, updated_at
+       FROM bloodwork_intake WHERE user_id = $1`,
+      [clientId],
+    )
+    res.json(rows[0] ?? null)
+  } catch (err) { next(err) }
+})
+
+// PUT /api/bloodwork/staff/:clientId/intake — staff saves/updates client intake
+router.put('/staff/:clientId/intake', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await getCtx(req)
+    if (!isPrivileged(ctx.role)) return res.status(403).json({ error: 'Staff only.' })
+    const clientId = Number(req.params.clientId)
+    if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied.' })
+    const { conditions, medication_categories, confirmed_age, confirmed_sex,
+            confirmed_height_inches, confirmed_weight_lbs, notes } = req.body ?? {}
+    const { rows } = await pool.query(
+      `INSERT INTO bloodwork_intake
+         (user_id, conditions, medication_categories, confirmed_age, confirmed_sex,
+          confirmed_height_inches, confirmed_weight_lbs, notes, updated_at)
+       VALUES ($1, $2::jsonb, $3::jsonb, $4, $5, $6, $7, $8, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         conditions              = EXCLUDED.conditions,
+         medication_categories   = EXCLUDED.medication_categories,
+         confirmed_age           = EXCLUDED.confirmed_age,
+         confirmed_sex           = EXCLUDED.confirmed_sex,
+         confirmed_height_inches = EXCLUDED.confirmed_height_inches,
+         confirmed_weight_lbs    = EXCLUDED.confirmed_weight_lbs,
+         notes                   = EXCLUDED.notes,
+         updated_at              = NOW()
+       RETURNING conditions, medication_categories, confirmed_age, confirmed_sex,
+                 confirmed_height_inches, confirmed_weight_lbs, notes, updated_at`,
+      [
+        clientId,
+        JSON.stringify(conditions ?? []),
+        JSON.stringify(medication_categories ?? []),
+        confirmed_age || null,
+        confirmed_sex?.trim() || null,
+        confirmed_height_inches || null,
+        confirmed_weight_lbs || null,
+        notes?.trim() || null,
+      ],
+    )
+    res.json(rows[0])
   } catch (err) { next(err) }
 })
 
