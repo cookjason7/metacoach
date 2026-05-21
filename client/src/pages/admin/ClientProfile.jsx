@@ -3010,7 +3010,7 @@ function EngagementTab({ clientId, getToken }) {
 const BLOODWORK_DISCLAIMER =
   'Educational only · Not medical advice · Not a diagnosis · Do not change any medication or supplement without speaking with your healthcare provider · Review results with a qualified doctor or provider, ideally a hormone specialist or functional medicine provider.'
 
-function BloodworkTab({ clientId, getToken }) {
+function BloodworkTab({ clientId, getToken, bloodworkEnabled = false, onClientUpdate }) {
   const [uploads, setUploads] = useState([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
@@ -3021,6 +3021,7 @@ function BloodworkTab({ clientId, getToken }) {
   const [file, setFile] = useState(null)
   const [labDate, setLabDate] = useState('')
   const [notes, setNotes] = useState('')
+  const [togglingAccess, setTogglingAccess] = useState(false)
   const fileRef = useRef(null)
 
   useEffect(() => {
@@ -3109,6 +3110,23 @@ function BloodworkTab({ clientId, getToken }) {
     finally { setDeletingId(null) }
   }
 
+  async function toggleAccess() {
+    setTogglingAccess(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/bloodwork/staff/${clientId}/access`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !bloodworkEnabled }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        onClientUpdate?.({ bloodwork_enabled: data.bloodwork_enabled })
+      }
+    } catch { /* silent */ }
+    finally { setTogglingAccess(false) }
+  }
+
   function fmtShort(iso) {
     if (!iso) return null
     return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -3119,6 +3137,31 @@ function BloodworkTab({ clientId, getToken }) {
 
   return (
     <div className="space-y-5">
+
+      {/* ── Client access toggle ── */}
+      <div className="bg-white border border-gray-200 rounded-xl p-5 flex items-center justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold text-gray-800">Client Access</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {bloodworkEnabled
+              ? 'This client can see their own Bloodwork panel.'
+              : 'Client cannot see Bloodwork. Enable below to give them access.'}
+          </p>
+        </div>
+        <button
+          onClick={toggleAccess}
+          disabled={togglingAccess}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none disabled:opacity-50 ${
+            bloodworkEnabled ? 'bg-[#E8670A]' : 'bg-gray-300'
+          }`}
+          role="switch"
+          aria-checked={bloodworkEnabled}
+        >
+          <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+            bloodworkEnabled ? 'translate-x-6' : 'translate-x-1'
+          }`} />
+        </button>
+      </div>
 
       {/* ── Upload form ── */}
       <div className="bg-white border border-gray-200 rounded-xl p-5">
@@ -3405,7 +3448,7 @@ export default function ClientProfile() {
       {tab === 'notes'      && <NotesTab       clientId={client.id} role={meRole} getToken={getToken} />}
       {tab === 'messaging'  && <MessagingTab   client={client} role={meRole} getToken={getToken} />}
       {tab === 'engagement' && <EngagementTab  clientId={client.id} getToken={getToken} />}
-      {tab === 'bloodwork'  && <BloodworkTab   clientId={client.id} getToken={getToken} />}
+      {tab === 'bloodwork'  && <BloodworkTab   clientId={client.id} getToken={getToken} bloodworkEnabled={client.bloodwork_enabled ?? false} onClientUpdate={u => setClient(c => ({ ...c, ...u }))} />}
     </div>
   )
 }

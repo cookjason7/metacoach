@@ -1067,6 +1067,7 @@ export async function migrate() {
     )
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_bloodwork_user_date ON bloodwork_uploads (user_id, lab_date DESC, created_at DESC)`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bloodwork_enabled BOOLEAN NOT NULL DEFAULT FALSE`)
 
   // ── Remove old onboarding gate — mark all users as onboarding_complete ──────
   // The multi-step onboarding form (name/gender/age/height/weight) is removed.

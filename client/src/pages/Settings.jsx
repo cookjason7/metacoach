@@ -1110,7 +1110,7 @@ export default function Settings() {
             </a>
           </div>
 
-          {BLOODWORK_CLIENT_ENABLED && (
+          {(BLOODWORK_CLIENT_ENABLED || profile?.bloodwork_enabled) && (
             <>
               <h2 className="text-sm font-semibold text-gray-700 mb-3">Bloodwork</h2>
               <BloodworkSection getToken={getToken} />

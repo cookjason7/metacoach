@@ -35,7 +35,13 @@ cloudinary.config({
 
 const anthropic = new Anthropic()
 
-const clientEnabled = () => process.env.BLOODWORK_CLIENT_ENABLED === 'true'
+// Returns true if this client user should see their own Bloodwork panel.
+// Privileged staff always bypass this check via isPrivileged() separately.
+async function isBloodworkEnabled(dbUserId) {
+  if (process.env.BLOODWORK_CLIENT_ENABLED === 'true') return true
+  const { rows } = await pool.query('SELECT bloodwork_enabled FROM users WHERE id = $1', [dbUserId])
+  return rows[0]?.bloodwork_enabled === true
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -213,9 +219,6 @@ SAFETY — END EVERY REPORT WITH THIS DISCLAIMER VERBATIM
 ══════════════════════════════════════════════════
 "This summary is for educational purposes only. It is not medical advice, a diagnosis, or a treatment plan. Do not change any medication, hormone, or supplement without speaking with your healthcare provider. Review your results with a qualified doctor or provider, ideally a hormone specialist or functional medicine provider."
 
-══════════════════════════════════════════════════
-LAB RESULTS TO INTERPRET:
-══════════════════════════════════════════════════
 `
 
 // ── Client routes (feature-flag gated) ────────────────────────────────────────
@@ -224,7 +227,7 @@ LAB RESULTS TO INTERPRET:
 router.get('/', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await getCtx(req)
-    if (!isPrivileged(ctx.role) && !clientEnabled()) {
+    if (!isPrivileged(ctx.role) && !(await isBloodworkEnabled(ctx.dbUserId))) {
       return res.status(403).json({ error: 'Bloodwork feature not yet available.' })
     }
     const { rows } = await pool.query(
@@ -245,7 +248,7 @@ router.get('/', requireAuth(), async (req, res, next) => {
 router.post('/', requireAuth(), bloodworkUploadLimit, upload.single('file'), async (req, res, next) => {
   try {
     const ctx = await getCtx(req)
-    if (!isPrivileged(ctx.role) && !clientEnabled()) {
+    if (!isPrivileged(ctx.role) && !(await isBloodworkEnabled(ctx.dbUserId))) {
       return res.status(403).json({ error: 'Bloodwork feature not yet available.' })
     }
     if (!req.file) return res.status(400).json({ error: 'File required (PDF, JPG, PNG, or WEBP).' })
@@ -269,6 +272,89 @@ router.post('/', requireAuth(), bloodworkUploadLimit, upload.single('file'), asy
     res.status(201).json(rows[0])
   } catch (err) { next(err) }
 })
+
+// ── Client context helper for AI summarize ────────────────────────────────────
+
+async function buildClientContext(userId) {
+  try {
+    const [uR, haR, weightR, prevR] = await Promise.all([
+      pool.query(
+        `SELECT gender, coaching_type, start_date FROM users WHERE id = $1`,
+        [userId],
+      ),
+      pool.query(
+        `SELECT date_of_birth, supplements, goals_6_months, injuries_limitations,
+                energy_level, sleep_hours, stress_management, sleep_quality,
+                activity_level, alcohol_weekdays, alcohol_weekends
+         FROM health_assessments WHERE user_id = $1`,
+        [userId],
+      ),
+      pool.query(
+        `SELECT weight_lbs, logged_date FROM daily_logs
+         WHERE user_id = $1 AND weight_lbs IS NOT NULL
+         ORDER BY logged_date DESC LIMIT 1`,
+        [userId],
+      ),
+      pool.query(
+        `SELECT lab_date, ai_summary, created_at FROM bloodwork_uploads
+         WHERE user_id = $1 AND deleted = FALSE AND ai_summary IS NOT NULL
+         ORDER BY COALESCE(lab_date, created_at::date) DESC LIMIT 3`,
+        [userId],
+      ),
+    ])
+
+    const u  = uR.rows[0]  ?? {}
+    const ha = haR.rows[0] ?? {}
+    const wt = weightR.rows[0]
+    const prev = prevR.rows
+
+    const lines = []
+
+    if (ha.date_of_birth) {
+      const age = Math.floor((Date.now() - new Date(ha.date_of_birth)) / 31_557_600_000)
+      lines.push(`Age: ${age}`)
+    } else {
+      lines.push('Age: not provided')
+    }
+
+    lines.push(`Sex/Gender: ${u.gender ?? 'not provided'}`)
+
+    if (wt) lines.push(`Recent weight: ${wt.weight_lbs} lbs (${String(wt.logged_date).slice(0, 10)})`)
+    else     lines.push('Recent weight: not provided')
+
+    if (u.coaching_type) lines.push(`Coaching type: ${u.coaching_type}`)
+    if (u.start_date)    lines.push(`Program start: ${String(u.start_date).slice(0, 10)}`)
+
+    lines.push(`Goals (6-month): ${ha.goals_6_months ?? 'not provided'}`)
+
+    if (ha.injuries_limitations) lines.push(`Health history / limitations: ${ha.injuries_limitations}`)
+
+    lines.push(`Current supplements (self-reported): ${ha.supplements ?? 'not provided'}`)
+
+    if (ha.activity_level)         lines.push(`Activity level: ${ha.activity_level}`)
+    if (ha.sleep_hours)            lines.push(`Typical sleep: ${ha.sleep_hours} hrs/night`)
+    if (ha.sleep_quality  != null) lines.push(`Sleep quality (self-rated): ${ha.sleep_quality}/5`)
+    if (ha.stress_management != null) lines.push(`Stress management (self-rated): ${ha.stress_management}/5`)
+    if (ha.energy_level   != null) lines.push(`Energy level (self-rated): ${ha.energy_level}/5`)
+    const wd = ha.alcohol_weekdays ?? 0
+    const we = ha.alcohol_weekends ?? 0
+    if (wd || we) lines.push(`Alcohol: ${wd} drinks/weekday avg, ${we} drinks/weekend day avg`)
+
+    if (prev.length > 0) {
+      lines.push('\nPrevious bloodwork summaries (most recent first — use for trend comparison):')
+      for (const p of prev) {
+        const d = p.lab_date ? String(p.lab_date).slice(0, 10) : String(p.created_at).slice(0, 10)
+        const snippet = p.ai_summary.length > 600 ? p.ai_summary.slice(0, 600) + '…' : p.ai_summary
+        lines.push(`[${d}] ${snippet}`)
+      }
+    }
+
+    return lines.join('\n')
+  } catch (err) {
+    console.error('[bloodwork] buildClientContext failed:', err?.message)
+    return null
+  }
+}
 
 // ── Staff routes ───────────────────────────────────────────────────────────────
 
@@ -320,6 +406,19 @@ router.post('/staff/:clientId', requireAuth(), bloodworkUploadLimit, upload.sing
   } catch (err) { next(err) }
 })
 
+// PATCH /api/bloodwork/staff/:clientId/access — toggle bloodwork_enabled for a client
+router.patch('/staff/:clientId/access', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await getCtx(req)
+    if (!isPrivileged(ctx.role)) return res.status(403).json({ error: 'Staff only.' })
+    const clientId = Number(req.params.clientId)
+    if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied.' })
+    const enabled = Boolean(req.body?.enabled)
+    await pool.query('UPDATE users SET bloodwork_enabled = $1 WHERE id = $2', [enabled, clientId])
+    res.json({ bloodwork_enabled: enabled })
+  } catch (err) { next(err) }
+})
+
 // GET /api/bloodwork/:id/file — return authorized Cloudinary URL
 router.get('/:id/file', requireAuth(), async (req, res, next) => {
   try {
@@ -355,10 +454,15 @@ router.post('/:id/summarize', requireAuth(), async (req, res, next) => {
         error: 'Could not extract readable lab text from this file. Please upload a clearer image or text-based PDF.',
       })
     }
+    const clientContext = await buildClientContext(rows[0].user_id)
+    const contextBlock = clientContext
+      ? `\n\n══════════════════════════════════════════════════\nCLIENT CONTEXT (provided by their coaching program):\n══════════════════════════════════════════════════\n${clientContext}\n\n`
+      : ''
+    const labBlock = `\n\n══════════════════════════════════════════════════\nLAB RESULTS TO INTERPRET:\n══════════════════════════════════════════════════\n${rows[0].extracted_text}`
     const msg = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
-      messages: [{ role: 'user', content: SUMMARY_PROMPT + rows[0].extracted_text }],
+      max_tokens: 4000,
+      messages: [{ role: 'user', content: SUMMARY_PROMPT + contextBlock + labBlock }],
     })
     const summary = msg.content[0]?.text?.trim()
     if (!summary) return res.status(500).json({ error: 'AI did not return a summary.' })
