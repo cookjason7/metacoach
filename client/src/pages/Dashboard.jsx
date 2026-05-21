@@ -1155,6 +1155,19 @@ function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
   const camRefs = { front: frontCamRef, side: sideCamRef, back: backCamRef }
   const galRefs = { front: frontGalRef, side: sideGalRef, back: backGalRef }
 
+  // Prevent iOS phantom backdrop-click when native camera returns to browser.
+  // Set true when camera opens; reset via visibilitychange + onChange.
+  const cameraActiveRef = useRef(false)
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === 'visible' && cameraActiveRef.current) {
+        setTimeout(() => { cameraActiveRef.current = false }, 500)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [])
+
   async function handleFile(angle, file) {
     setMenu(null)
     // Show local preview immediately so the user sees their selection
@@ -1189,7 +1202,7 @@ function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
   return (
     <div
       className="mobile-modal-backdrop"
-      onClick={e => { if (e.target === e.currentTarget) { setMenu(null); onClose() } }}
+      onClick={e => { if (e.target === e.currentTarget && !cameraActiveRef.current) { setMenu(null); onClose() } }}
     >
       <div className="mobile-modal-panel max-w-sm">
         <div className="flex items-center justify-between px-5 pt-5 pb-4 shrink-0">
@@ -1251,7 +1264,7 @@ function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
                       onClick={e => e.stopPropagation()}
                     >
                       <button
-                        onClick={() => { camRefs[angle].current?.click() }}
+                        onClick={() => { cameraActiveRef.current = true; camRefs[angle].current?.click() }}
                         className="w-full flex items-center justify-center gap-1.5 bg-gray-900 text-white text-[11px] font-semibold py-2 rounded-lg min-h-[36px] active:bg-gray-700"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -1284,7 +1297,11 @@ function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
                   accept="image/*"
                   capture="environment"
                   className="hidden"
-                  onChange={e => { if (e.target.files[0]) handleFile(angle, e.target.files[0]); e.target.value = '' }}
+                  onChange={e => {
+                    setTimeout(() => { cameraActiveRef.current = false }, 300)
+                    if (e.target.files[0]) handleFile(angle, e.target.files[0])
+                    e.target.value = ''
+                  }}
                 />
                 <input
                   ref={galRefs[angle]}

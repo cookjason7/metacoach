@@ -883,10 +883,10 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
         (SELECT COUNT(DISTINCT ${md})::int FROM meals WHERE user_id=$1
            AND ${md} >= CURRENT_DATE-30) AS logged_day_count,
         (SELECT ROUND(COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0))
-           FROM meals WHERE user_id=$1 AND ${md} >= CURRENT_DATE-$2) AS total_sodium_mg,
+           FROM meals WHERE user_id=$1 AND ${md} >= CURRENT_DATE-$2::int) AS total_sodium_mg,
         (SELECT ROUND(AVG(dns)) FROM
            (SELECT SUM((micronutrients->>'sodium_mg')::numeric) dns FROM meals WHERE user_id=$1
-              AND ${md} >= CURRENT_DATE-$2 GROUP BY ${md}) t) AS avg_sodium_mg`
+              AND ${md} >= CURRENT_DATE-$2::int GROUP BY ${md}) t) AS avg_sodium_mg`
 
     const [sumR, wtR, macR, stpR, slpR, wkoR, chkR, photoR] = await Promise.all([
       pool.query(sum_q, [id, rangeDays]),
