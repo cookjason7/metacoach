@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '@clerk/clerk-react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { API_URL } from '../config.js'
 import MicronutrientTotals, { calculateMicronutrientTotals } from '../components/MicronutrientTotals.jsx'
 
@@ -428,6 +428,7 @@ function coachTypeBadge(type) {
 }
 
 function CoachDashboard({ getToken }) {
+  const navigate = useNavigate()
   const [clients,      setClients]      = useState([])
   const [msgUnread,    setMsgUnread]    = useState(0)
   const [checkins,     setCheckins]     = useState([])
@@ -679,15 +680,32 @@ function CoachDashboard({ getToken }) {
                     <th className="text-left px-3 py-3 font-semibold">Type</th>
                     <th className="text-left px-3 py-3 font-semibold">Status</th>
                     <th className="text-left px-3 py-3 font-semibold">Last Activity</th>
-                    <th className="text-right px-4 py-3 font-semibold">Profile</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {filteredClients.map(client => (
-                    <tr key={client.id} className="hover:bg-orange-50/50 transition-colors">
+                    <tr
+                      key={client.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => navigate(`/admin/clients/${client.id}`)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          navigate(`/admin/clients/${client.id}`)
+                        }
+                      }}
+                      className="hover:bg-orange-50/50 cursor-pointer transition-colors"
+                    >
                       <td className="px-4 py-3">
-                        <p className="font-semibold text-gray-900">{coachClientName(client)}</p>
-                        <p className="text-xs text-gray-400 truncate max-w-[220px]">{client.email}</p>
+                        <Link
+                          to={`/admin/clients/${client.id}`}
+                          onClick={e => e.stopPropagation()}
+                          className="block rounded-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] focus:ring-offset-2"
+                        >
+                          <p className="font-semibold text-gray-900">{coachClientName(client)}</p>
+                          <p className="text-xs text-gray-400 truncate max-w-[220px]">{client.email}</p>
+                        </Link>
                       </td>
                       <td className="px-3 py-3 text-xs text-gray-600">{client.assigned_coach_name || 'Unassigned'}</td>
                       <td className="px-3 py-3">
@@ -707,14 +725,6 @@ function CoachDashboard({ getToken }) {
                             Check-in {fmtShortDate(client.last_checkin_at)}
                           </span>
                         )}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <Link
-                          to={`/admin/clients/${client.id}`}
-                          className="inline-flex items-center justify-center rounded-lg bg-[#E8670A] px-3 py-2 text-xs font-semibold text-white hover:bg-[#c45e09]"
-                        >
-                          Open
-                        </Link>
                       </td>
                     </tr>
                   ))}
