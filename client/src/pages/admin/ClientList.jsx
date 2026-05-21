@@ -480,21 +480,58 @@ function coachFoodEditInitial(food) {
   }
 }
 
-function CoachFoodCard({ food, editingId, editSaving, editErr, togglingId, deletingId,
-                         onEditOpen, onSaveEdit, onCancelEdit, onToggle, onDelete }) {
+function coachFoodDate(value) {
+  if (!value) return null
+  return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function CoachFoodArchiveModal({ food, archiving, onConfirm, onCancel }) {
+  if (!food) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-4 py-5">
+      <div className="w-full max-w-md rounded-xl bg-white shadow-xl border border-gray-200 p-4">
+        <p className="text-sm font-semibold text-gray-900">Archive coach food?</p>
+        <p className="text-sm text-gray-600 mt-2">
+          "{food.food_name}" will be hidden from client food search, but preserved for any existing logs or history.
+        </p>
+        <div className="mt-4 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+          <button type="button" onClick={onCancel} disabled={archiving}
+            className="min-h-11 rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-60">
+            Cancel
+          </button>
+          <button type="button" onClick={onConfirm} disabled={archiving}
+            className="min-h-11 rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white hover:bg-red-600 disabled:opacity-60">
+            {archiving ? 'Archiving...' : 'Archive food'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CoachFoodCard({ food, editingId, editSaving, editErr, togglingId, archivingId,
+                         onEditOpen, onSaveEdit, onCancelEdit, onToggle, onArchive }) {
   const isEditing   = editingId === food.id
   const borderClass = food.is_active !== false ? 'border-orange-200' : 'border-gray-200 opacity-60'
+  const createdBy   = food.created_by_name || 'Unknown'
+  const updatedAt   = coachFoodDate(food.updated_at)
 
   return (
     <div className={`bg-white border rounded-xl px-4 py-3 ${borderClass}`}>
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-sm font-semibold text-gray-900">{food.food_name}</p>
             {food.is_active !== false ? (
+              <>
               <span className="inline-flex items-center rounded-full border border-orange-300 bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-[#E8670A]">
                 ⭐ LWC-Approved
               </span>
+              <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">
+                Appears to clients as Coach Food
+              </span>
+              </>
             ) : (
               <span className="inline-flex items-center rounded-full border border-gray-300 bg-gray-100 px-2 py-0.5 text-[10px] font-bold text-gray-500">
                 Inactive
@@ -506,23 +543,23 @@ function CoachFoodCard({ food, editingId, editSaving, editErr, togglingId, delet
             <p className="text-[11px] text-gray-400 mt-0.5">Serving: {food.serving_size}{food.serving_unit}</p>
           )}
           {food.notes && <p className="text-xs text-[#E8670A] mt-0.5 italic">"{food.notes}"</p>}
-          <p className="text-[10px] text-gray-400 mt-1">
-            {food.created_by_name && <span>Added by {food.created_by_name}</span>}
-            {food.updated_at && <span>{food.created_by_name ? ' · ' : ''}Updated {new Date(food.updated_at).toLocaleDateString()}</span>}
+          <p className="text-[10px] text-gray-400 mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
+            <span>Created by {createdBy}</span>
+            {updatedAt && <span>Last updated {updatedAt}</span>}
           </p>
         </div>
-        <div className="flex flex-col items-end gap-1.5 shrink-0">
+        <div className="flex flex-wrap sm:flex-col sm:items-end gap-2 shrink-0">
           <button onClick={() => onEditOpen(food.id, isEditing)}
-            className="text-xs text-[#E8670A] hover:text-[#c45e09] font-medium transition-colors">
+            className="min-h-9 rounded-lg border border-orange-200 px-3 text-xs text-[#E8670A] hover:bg-orange-50 font-semibold transition-colors">
             {isEditing ? 'Cancel' : 'Edit'}
           </button>
           <button onClick={() => onToggle(food)} disabled={togglingId === food.id}
-            className="text-xs text-gray-500 hover:text-gray-700 disabled:opacity-40 transition-colors font-medium">
+            className={`${food.is_active !== false ? 'hidden' : 'inline-flex items-center'} min-h-9 rounded-lg border border-gray-200 px-3 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40 transition-colors font-semibold`}>
             {togglingId === food.id ? '…' : food.is_active !== false ? 'Deactivate' : 'Reactivate'}
           </button>
-          <button onClick={() => onDelete(food.id, food.food_name)} disabled={deletingId === food.id}
-            className="text-xs text-red-400 hover:text-red-600 disabled:opacity-40 transition-colors font-medium">
-            {deletingId === food.id ? '…' : 'Delete'}
+          <button onClick={() => onArchive(food)} disabled={archivingId === food.id}
+            className={`${food.is_active === false ? 'hidden' : 'inline-flex items-center'} min-h-9 rounded-lg border border-red-200 px-3 text-xs text-red-500 hover:bg-red-50 disabled:opacity-40 transition-colors font-semibold`}>
+            {archivingId === food.id ? 'Archiving...' : 'Archive'}
           </button>
         </div>
       </div>
@@ -558,7 +595,8 @@ function CoachFoodsTab({ getToken }) {
   const [editSaving,    setEditSaving]    = useState(false)
   const [editErr,       setEditErr]       = useState(null)
   const [togglingId,    setTogglingId]    = useState(null)
-  const [deletingId,    setDeletingId]    = useState(null)
+  const [archivingId,   setArchivingId]   = useState(null)
+  const [archiveFood,   setArchiveFood]   = useState(null)
   const debounceRef = useRef(null)
 
   useEffect(() => {
@@ -659,16 +697,20 @@ function CoachFoodsTab({ getToken }) {
     } finally { setTogglingId(null) }
   }
 
-  async function deleteCoachFood(id, name) {
-    if (!confirm(`Permanently delete "${name}"? This cannot be undone.`)) return
-    setDeletingId(id)
+  async function archiveCoachFood() {
+    if (!archiveFood) return
+    setArchivingId(archiveFood.id)
     try {
       const token = await getToken()
-      const res = await fetch(`${API_URL}/api/admin/coach-foods/${id}`, {
+      const res = await fetch(`${API_URL}/api/admin/coach-foods/${archiveFood.id}`, {
         method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
       })
-      if (res.ok) setCoachFoods(prev => prev.filter(f => f.id !== id))
-    } finally { setDeletingId(null) }
+      if (res.ok) {
+        const updated = await res.json()
+        setCoachFoods(prev => prev.map(f => f.id === archiveFood.id ? { ...f, ...updated } : f))
+        setArchiveFood(null)
+      }
+    } finally { setArchivingId(null) }
   }
 
   const activeFoods    = coachFoods.filter(f => f.is_active !== false)
@@ -678,16 +720,23 @@ function CoachFoodsTab({ getToken }) {
   const filteredInactive = listQ.trim() ? inactiveFoods.filter(f => f.food_name.toLowerCase().includes(lq)) : inactiveFoods
 
   const cardProps = {
-    editingId, editSaving, editErr, togglingId, deletingId,
+    editingId, editSaving, editErr, togglingId, archivingId,
     onEditOpen:   (id, isOpen) => { setEditingId(isOpen ? null : id); setEditErr(null) },
     onSaveEdit:   saveEdit,
     onCancelEdit: () => { setEditingId(null); setEditErr(null) },
     onToggle:     toggleActive,
-    onDelete:     deleteCoachFood,
+    onArchive:    food => setArchiveFood(food),
   }
 
   return (
     <div>
+      <CoachFoodArchiveModal
+        food={archiveFood}
+        archiving={Boolean(archivingId)}
+        onConfirm={archiveCoachFood}
+        onCancel={() => setArchiveFood(null)}
+      />
+
       {/* Client-facing label */}
       <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 mb-5 flex gap-2 items-start">
         <span className="text-lg shrink-0">⭐</span>
@@ -761,7 +810,7 @@ function CoachFoodsTab({ getToken }) {
         <input
           type="text" value={listQ} onChange={e => setListQ(e.target.value)}
           placeholder="Filter by name…"
-          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-52 focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+          className="w-full sm:w-64 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
         />
       </div>
 
