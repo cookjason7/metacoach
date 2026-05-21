@@ -1683,7 +1683,7 @@ function ProgressTab({ clientId, getToken }) {
   const slp    = data?.sleep_series   ?? []
   const wko    = data?.workout_series ?? []
   const rows   = data?.table_rows     ?? []
-  const photos = data?.progress_photos ?? []
+  const photoSessions = data?.progress_photos ?? []
 
   const wc = s.weight_change
   const wtColor = wc == null ? 'text-gray-900' : wc < 0 ? 'text-emerald-600' : wc > 0 ? 'text-red-500' : 'text-gray-900'
@@ -1812,27 +1812,66 @@ function ProgressTab({ clientId, getToken }) {
           {/* Measurements */}
           <MeasurementsSection clientId={clientId} getToken={getToken} />
 
-          {/* Progress photos */}
+          {/* Progress photos — grouped by session */}
           <div className="bg-white border border-gray-200 rounded-xl p-4">
             <p className="text-sm font-semibold text-gray-900 mb-3">Progress Photos</p>
-            {photos.length === 0 ? (
-              <p className="text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg px-3 py-2">No progress photos yet.</p>
+            {photoSessions.length === 0 ? (
+              <p className="text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg px-3 py-2">
+                No progress photos yet.
+              </p>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {photos.map((p, i) => (
-                  <a key={i} href={p.photo_url} target="_blank" rel="noopener noreferrer"
-                    className="rounded-xl overflow-hidden bg-gray-100 block hover:opacity-90 transition-opacity group">
-                    <div className="aspect-[3/4] overflow-hidden">
-                      <img src={p.photo_url} alt={p.angle ?? 'Progress photo'} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" />
+              <div className="space-y-5">
+                {photoSessions.map((session, si) => {
+                  const photoCount = ['front', 'side', 'back'].filter(a => session.photos[a]).length
+                  const dateStr    = new Date(session.session_date).toLocaleDateString('en-US', {
+                    month: 'short', day: 'numeric', year: 'numeric',
+                  })
+                  return (
+                    <div key={session.session_id ?? si}>
+                      {/* Session header */}
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs font-semibold text-gray-700">{dateStr}</span>
+                        <span className="text-[10px] text-gray-400 ml-auto">{photoCount}/3</span>
+                      </div>
+                      {/* 3-column photo grid — compact on desktop */}
+                      <div className="grid grid-cols-3 gap-2">
+                        {['front', 'side', 'back'].map(angle => {
+                          const p = session.photos[angle]
+                          return (
+                            <div key={angle} className="text-center">
+                              <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider mb-1 capitalize">{angle}</p>
+                              {p ? (
+                                <a
+                                  href={p.photo_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="block rounded-lg overflow-hidden bg-gray-100 hover:opacity-85 transition-opacity group"
+                                >
+                                  {/* Compact on desktop: smaller aspect ratio wrapper */}
+                                  <div className="aspect-[3/4] sm:aspect-[2/3] overflow-hidden">
+                                    <img
+                                      src={p.photo_url}
+                                      alt={angle}
+                                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                    />
+                                  </div>
+                                </a>
+                              ) : (
+                                <div className="aspect-[3/4] sm:aspect-[2/3] rounded-lg bg-gray-50 border border-dashed border-gray-200 flex items-center justify-center">
+                                  <span className="text-[9px] text-gray-300">—</span>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                      {/* Divider between sets */}
+                      {si < photoSessions.length - 1 && (
+                        <div className="mt-4 border-t border-gray-100" />
+                      )}
                     </div>
-                    <div className="px-2 py-1.5">
-                      {p.angle && <p className="text-[10px] font-semibold text-gray-700 capitalize">{p.angle}</p>}
-                      <p className="text-[10px] text-gray-400">
-                        {p.taken_at ? new Date(p.taken_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                      </p>
-                    </div>
-                  </a>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>

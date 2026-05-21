@@ -628,18 +628,65 @@ function generateSessionId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
 }
 
-function PhotoSlot({ angle, photo, sessionId, uploading, onFileSelected }) {
-  const inputRef = useRef(null)
+function fmtSessionDate(iso) {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+// A single read-only set row: date + optional weight chip + 3-col photo grid
+function SessionSetView({ session, weight }) {
+  const photoCount = ANGLES.filter(a => session.photos[a]).length
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-xs font-semibold text-gray-700">{fmtSessionDate(session.session_date)}</span>
+        {weight != null && (
+          <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium">
+            {weight} lbs
+          </span>
+        )}
+        <span className="text-[10px] text-gray-400 ml-auto">{photoCount}/3</span>
+      </div>
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        {ANGLES.map(a => {
+          const p = session.photos[a]
+          return (
+            <div key={a} className="text-center">
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1 capitalize">{a}</p>
+              {p ? (
+                <a
+                  href={p.photo_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block w-full aspect-[3/4] rounded-xl overflow-hidden bg-gray-100 hover:opacity-85 transition-opacity"
+                >
+                  <img src={p.photo_url} alt={a} className="w-full h-full object-cover" />
+                </a>
+              ) : (
+                <div className="w-full aspect-[3/4] rounded-xl bg-gray-50 border border-dashed border-gray-200 flex items-center justify-center">
+                  <span className="text-[10px] text-gray-300">—</span>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// Latest session with upload capability per slot
+function UploadPhotoSlot({ angle, photo, sessionId, uploading, onFileSelected }) {
+  const inputRef    = useRef(null)
   const isUploading = uploading === angle
 
   return (
     <div className="text-center">
-      <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1 capitalize">{angle}</p>
+      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1 capitalize">{angle}</p>
       <div
         onClick={() => !isUploading && inputRef.current?.click()}
         className={`w-full aspect-[3/4] rounded-xl overflow-hidden cursor-pointer transition-all flex items-center justify-center border-2 ${
           photo
-            ? 'border-gray-200 hover:opacity-90'
+            ? 'border-gray-200 hover:opacity-85'
             : 'border-dashed border-gray-300 bg-gray-50 hover:border-[#E8670A] hover:bg-[#fff7ed]'
         }`}
       >
@@ -663,45 +710,12 @@ function PhotoSlot({ angle, photo, sessionId, uploading, onFileSelected }) {
   )
 }
 
-function SessionRow({ session, compact = false }) {
-  const dateStr = new Date(session.session_date).toLocaleDateString('en-US', {
-    month: 'short', day: 'numeric', year: 'numeric',
-  })
-  const thumbs = ANGLES.map(a => session.photos[a]).filter(Boolean)
+function ProgressPhotosCard({ sessions, getToken, onUploaded, onNewSession, latestWeight }) {
+  const [uploading,    setUploading]    = useState(null)
+  const [historyOpen,  setHistoryOpen]  = useState(false)
 
-  if (compact) {
-    return (
-      <div className="flex items-center gap-2 py-2 border-t border-gray-100 first:border-t-0">
-        <p className="text-[11px] text-gray-400 w-20 shrink-0">{dateStr}</p>
-        <div className="flex gap-1 flex-1">
-          {ANGLES.map(a => {
-            const p = session.photos[a]
-            return p ? (
-              <a key={a} href={p.photo_url} target="_blank" rel="noopener noreferrer"
-                className="w-9 h-12 rounded overflow-hidden bg-gray-100 shrink-0 block hover:opacity-80 transition-opacity">
-                <img src={p.photo_url} alt={a} className="w-full h-full object-cover" />
-              </a>
-            ) : (
-              <div key={a} className="w-9 h-12 rounded bg-gray-100 shrink-0 flex items-center justify-center">
-                <span className="text-[8px] text-gray-300 capitalize">{a[0]}</span>
-              </div>
-            )
-          })}
-        </div>
-        <span className="text-[10px] text-gray-300 shrink-0">{thumbs.length}/3</span>
-      </div>
-    )
-  }
-
-  return null
-}
-
-function ProgressPhotosCard({ sessions, getToken, onUploaded, onNewSession }) {
-  const [uploading, setUploading] = useState(null) // angle being uploaded
-
-  const latest   = sessions[0] ?? null
-  const older    = sessions.slice(1)
-  const [showAll, setShowAll] = useState(false)
+  const latest = sessions[0] ?? null
+  const older  = sessions.slice(1)
 
   async function handleFileSelected(angle, file, sessionId) {
     setUploading(angle)
@@ -728,12 +742,11 @@ function ProgressPhotosCard({ sessions, getToken, onUploaded, onNewSession }) {
       <div className="flex items-center justify-between px-4 pt-3.5 pb-2.5 border-b border-gray-100">
         <div>
           <h2 className="text-sm font-bold text-gray-900">Progress Photos</h2>
-          {latest && (
-            <p className="text-[10px] text-gray-400 mt-0.5">
-              {sessions.length} {sessions.length === 1 ? 'set' : 'sets'} · latest{' '}
-              {new Date(latest.session_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-            </p>
-          )}
+          <p className="text-[10px] text-gray-400 mt-0.5">
+            {sessions.length === 0
+              ? 'No sets yet'
+              : `${sessions.length} ${sessions.length === 1 ? 'set' : 'sets'}`}
+          </p>
         </div>
         <button
           onClick={onNewSession}
@@ -746,17 +759,30 @@ function ProgressPhotosCard({ sessions, getToken, onUploaded, onNewSession }) {
         </button>
       </div>
 
-      {/* Latest session */}
-      <div className="px-4 py-3">
-        {!latest ? (
-          <div className="text-center py-5">
-            <p className="text-sm text-gray-400 mb-1">No progress photos yet.</p>
-            <p className="text-xs text-gray-300">Tap "New Set" to add your first front, side &amp; back photos.</p>
+      {!latest ? (
+        /* Empty state */
+        <div className="px-4 py-7 text-center">
+          <p className="text-sm text-gray-400 mb-1">No progress photos yet.</p>
+          <p className="text-xs text-gray-300">Tap "New Set" to add your first front, side &amp; back photos.</p>
+        </div>
+      ) : (
+        <div className="px-4 pt-3 pb-1">
+          {/* Latest set: date + weight + upload slots */}
+          <div className="flex items-center gap-2 mb-2.5">
+            <span className="text-xs font-semibold text-gray-700">{fmtSessionDate(latest.session_date)}</span>
+            {latestWeight != null && (
+              <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium">
+                {latestWeight} lbs
+              </span>
+            )}
+            <span className="text-[10px] text-gray-400 ml-auto">
+              {ANGLES.filter(a => latest.photos[a]).length}/3
+            </span>
           </div>
-        ) : (
-          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-3">
             {ANGLES.map(angle => (
-              <PhotoSlot
+              <UploadPhotoSlot
                 key={angle}
                 angle={angle}
                 photo={latest.photos[angle]}
@@ -766,27 +792,32 @@ function ProgressPhotosCard({ sessions, getToken, onUploaded, onNewSession }) {
               />
             ))}
           </div>
-        )}
-      </div>
 
-      {/* Older sessions */}
-      {older.length > 0 && (
-        <div className="px-4 pb-3">
-          <button
-            onClick={() => setShowAll(v => !v)}
-            className="text-[11px] text-gray-400 hover:text-gray-600 font-medium transition-colors mb-1 min-h-[36px] flex items-center gap-1"
-          >
-            <svg
-              className={`w-3 h-3 transition-transform ${showAll ? 'rotate-90' : ''}`}
-              fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
-            {showAll ? 'Hide' : 'Show'} {older.length} older {older.length === 1 ? 'set' : 'sets'}
-          </button>
-          {showAll && (
-            <div>
-              {older.map(s => <SessionRow key={s.session_id} session={s} compact />)}
+          {/* History toggle */}
+          {older.length > 0 && (
+            <div className="border-t border-gray-100 pt-2 pb-2">
+              <button
+                onClick={() => setHistoryOpen(v => !v)}
+                className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-400 hover:text-[#E8670A] transition-colors min-h-[36px] w-full"
+              >
+                <svg
+                  className={`w-3 h-3 transition-transform ${historyOpen ? 'rotate-90' : ''}`}
+                  fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+                {historyOpen
+                  ? 'Hide history'
+                  : `Show ${older.length} older ${older.length === 1 ? 'set' : 'sets'}`}
+              </button>
+
+              {historyOpen && (
+                <div className="space-y-5 pt-3 pb-1">
+                  {older.map(s => (
+                    <SessionSetView key={s.session_id} session={s} />
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -800,7 +831,10 @@ function ProgressPhotosCard({ sessions, getToken, onUploaded, onNewSession }) {
 function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
   const [uploading, setUploading] = useState(null)
   const [done,      setDone]      = useState({ front: false, side: false, back: false })
-  const inputRefs   = { front: useRef(null), side: useRef(null), back: useRef(null) }
+  const frontRef = useRef(null)
+  const sideRef  = useRef(null)
+  const backRef  = useRef(null)
+  const inputRefs = { front: frontRef, side: sideRef, back: backRef }
 
   async function handleFile(angle, file) {
     setUploading(angle)
@@ -829,12 +863,17 @@ function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="bg-white w-full max-w-sm rounded-t-2xl sm:rounded-2xl p-5 pb-safe shadow-xl">
+      <div className="bg-white w-full max-w-sm rounded-t-2xl sm:rounded-2xl p-5 pb-8 sm:pb-5 shadow-xl">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-bold text-gray-900">New Photo Set</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none min-h-[44px] min-w-[44px] flex items-center justify-center">✕</button>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 text-lg leading-none min-h-[44px] min-w-[44px] flex items-center justify-center"
+          >✕</button>
         </div>
-        <p className="text-xs text-gray-500 mb-4">Add front, side, and back photos to this set. You can skip angles — partial sets save safely.</p>
+        <p className="text-xs text-gray-500 mb-4">
+          Add front, side, and back photos. You can skip angles — partial sets save safely.
+        </p>
         <div className="grid grid-cols-3 gap-3 mb-5">
           {ANGLES.map(angle => (
             <div key={angle} className="text-center">
@@ -1135,6 +1174,7 @@ export default function Dashboard() {
         getToken={getToken}
         onUploaded={handlePhotoUploaded}
         onNewSession={() => setNewSessionId(generateSessionId())}
+        latestWeight={todayLog?.weight_lbs ?? weekLog?.avg_weight ?? null}
       />
 
       {newSessionId && (

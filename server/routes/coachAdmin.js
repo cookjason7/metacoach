@@ -883,8 +883,25 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
       pool.query(slp_q, [id]),
       pool.query(wko_q, [id]),
       pool.query(chk_q, [id]),
-      pool.query(`SELECT id, photo_url, angle, taken_at FROM progress_photos
-                  WHERE user_id=$1 ORDER BY taken_at DESC LIMIT 12`, [id]),
+      pool.query(
+        `SELECT
+           photo_session_id AS session_id,
+           MIN(taken_at)    AS session_date,
+           json_agg(
+             json_build_object(
+               'id',        id,
+               'photo_url', photo_url,
+               'angle',     angle,
+               'taken_at',  taken_at
+             ) ORDER BY taken_at
+           ) AS photos
+         FROM progress_photos
+         WHERE user_id = $1
+         GROUP BY photo_session_id
+         ORDER BY MIN(taken_at) DESC
+         LIMIT 30`,
+        [id],
+      ),
     ])
 
     // ── Summary: compute weight change ────────────────────────────────────────
@@ -926,9 +943,18 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
         return r
       })
 
+    // Shape photo sessions: photos array → { front, side, back } map per session
+    const photoSessions = photoR.rows.map(row => {
+      const byAngle = { front: null, side: null, back: null }
+      for (const p of row.photos) {
+        if (['front', 'side', 'back'].includes(p.angle)) byAngle[p.angle] = p
+      }
+      return { session_id: row.session_id, session_date: row.session_date, photos: byAngle }
+    })
+
     res.json({ range, summary, weight_series: wtR.rows, macro_series: macR.rows,
                step_series: stpR.rows, sleep_series: slpR.rows, workout_series: wkoR.rows,
-               checkin_series: chkR.rows, table_rows, progress_photos: photoR.rows })
+               checkin_series: chkR.rows, table_rows, progress_photos: photoSessions })
   } catch (err) { next(err) }
 })
 
