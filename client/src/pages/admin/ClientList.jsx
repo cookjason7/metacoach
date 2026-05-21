@@ -976,6 +976,7 @@ export default function ClientList() {
   const [activeTab, setActiveTab] = useState('clients')
   const [isAdmin,      setIsAdmin]      = useState(false)
   const [inviteOpen,   setInviteOpen]   = useState(false)
+  const [coaches,      setCoaches]      = useState([])
   const coachFilter = searchParams.get('coach_id') ?? 'all'
 
   // Detect admin role once on mount
@@ -991,6 +992,18 @@ export default function ClientList() {
       } catch {}
     }
     checkRole()
+  }, [getToken])
+
+  // Fetch all coaches/staff for the filter dropdown
+  useEffect(() => {
+    async function loadCoaches() {
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/coach-admin/coaches`, { headers: { Authorization: `Bearer ${token}` } })
+        if (res.ok) setCoaches(await res.json())
+      } catch {}
+    }
+    loadCoaches()
   }, [getToken])
 
   const load = useCallback(async () => {
@@ -1043,17 +1056,7 @@ export default function ClientList() {
     }
   }
 
-  const coachOptions = useMemo(() => {
-    const byId = new Map()
-    clients.forEach(c => {
-      if (c.assigned_coach_id) {
-        byId.set(String(c.assigned_coach_id), c.assigned_coach_name || c.assigned_coach_email || 'Assigned coach')
-      }
-    })
-    return [...byId.entries()].sort((a, b) => a[1].localeCompare(b[1]))
-  }, [clients])
-
-  const filtered = useMemo(() => {
+const filtered = useMemo(() => {
     const rows = clients.filter(c => {
       if (coachFilter !== 'all' && String(c.assigned_coach_id ?? '') !== coachFilter) return false
       if (filter !== 'all' && (c.coaching_type || 'vip') !== filter) return false
@@ -1157,14 +1160,17 @@ export default function ClientList() {
                 }}
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
                 <option value="all">All coaches</option>
-                {coachOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+                {coaches.map(c => (
+                  <option key={c.id} value={String(c.id)}>
+                    {c.first_name || c.email}
+                  </option>
+                ))}
               </select>
               <select value={filter} onChange={e => setFilter(e.target.value)}
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
                 <option value="all">All coaching</option>
                 <option value="vip">VIP</option>
                 <option value="ai">AI</option>
-                <option value="hybrid">Hybrid</option>
               </select>
               <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
