@@ -3215,10 +3215,10 @@ export default function ClientProfile() {
         <p className="text-sm text-gray-500">{client.email}</p>
       </div>
 
-      {/* Tabs */}
-      <div className="border-b border-gray-200 mb-5">
-        <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
-          <div className="flex gap-1 min-w-max sm:min-w-0">
+      {/* Tabs — primary tabs scroll on mobile; More button sits outside overflow so its dropdown isn't clipped */}
+      <div className="border-b border-gray-200 mb-5 flex items-stretch">
+        <div className="flex-1 overflow-x-auto min-w-0">
+          <div className="flex gap-1">
             {PRIMARY_TABS.map(t => (
               <button key={t.id} onClick={() => {
                 setTab(t.id)
@@ -3236,43 +3236,43 @@ export default function ClientProfile() {
                 <span className="mr-1">{t.icon}</span>{t.label}
               </button>
             ))}
-            {/* More ▾ dropdown for Engagement + Bloodwork */}
-            <div className="relative">
-              <button
-                onClick={() => setMoreOpen(o => !o)}
-                className={`px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-semibold transition-colors border-b-2 whitespace-nowrap ${
-                  MORE_TABS.some(t => t.id === tab)
-                    ? 'border-[#E8670A] text-[#E8670A]'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {MORE_TABS.some(t => t.id === tab)
-                  ? <><span className="mr-1">{MORE_TABS.find(t2 => t2.id === tab)?.icon}</span>{MORE_TABS.find(t2 => t2.id === tab)?.label} ▾</>
-                  : 'More ▾'}
-              </button>
-              {moreOpen && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setMoreOpen(false)} />
-                  <div className="absolute left-0 top-full mt-0.5 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[150px]">
-                    {MORE_TABS.map(t => (
-                      <button key={t.id} onClick={() => {
-                        setTab(t.id)
-                        setMoreOpen(false)
-                        const next = new URLSearchParams(searchParams)
-                        next.set('tab', t.id)
-                        setSearchParams(next, { replace: true })
-                      }}
-                        className={`flex items-center gap-2 w-full px-4 py-2.5 text-sm font-medium text-left transition-colors first:rounded-t-lg last:rounded-b-lg ${
-                          tab === t.id ? 'text-[#E8670A] bg-orange-50' : 'text-gray-700 hover:bg-gray-50'
-                        }`}>
-                        <span>{t.icon}</span>{t.label}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
           </div>
+        </div>
+        {/* More button is a flex sibling — NOT inside overflow-x-auto — so dropdown escapes clipping */}
+        <div className="relative shrink-0">
+          <button
+            onClick={() => setMoreOpen(o => !o)}
+            className={`px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-semibold transition-colors border-b-2 whitespace-nowrap ${
+              MORE_TABS.some(t => t.id === tab)
+                ? 'border-[#E8670A] text-[#E8670A]'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {MORE_TABS.some(t => t.id === tab)
+              ? <><span className="mr-1">{MORE_TABS.find(t2 => t2.id === tab)?.icon}</span>{MORE_TABS.find(t2 => t2.id === tab)?.label} ▾</>
+              : 'More ▾'}
+          </button>
+          {moreOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setMoreOpen(false)} />
+              <div className="absolute right-0 top-full mt-0.5 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[160px]">
+                {MORE_TABS.map(t => (
+                  <button key={t.id} onClick={() => {
+                    setTab(t.id)
+                    setMoreOpen(false)
+                    const next = new URLSearchParams(searchParams)
+                    next.set('tab', t.id)
+                    setSearchParams(next, { replace: true })
+                  }}
+                    className={`flex items-center gap-2 w-full px-4 py-2.5 text-sm font-medium text-left transition-colors first:rounded-t-lg last:rounded-b-lg ${
+                      tab === t.id ? 'text-[#E8670A] bg-orange-50' : 'text-gray-700 hover:bg-gray-50'
+                    }`}>
+                    <span>{t.icon}</span>{t.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
