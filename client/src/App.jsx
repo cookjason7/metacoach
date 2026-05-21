@@ -27,6 +27,8 @@ import AiWelcome from './pages/AiWelcome'
 import FormsList from './pages/admin/FormsList'
 import FormBuilder from './pages/admin/FormBuilder'
 import FormFill from './pages/FormFill'
+import Terms from './pages/Terms'
+import Privacy from './pages/Privacy'
 import { API_URL } from './config.js'
 
 // Module-level cache: null | { onboardingComplete: bool, paid: bool }
@@ -173,6 +175,8 @@ export default function App() {
           <Route path="/admin/clients/:id"   element={<ClientProfile />} />
           <Route path="/admin/forms"         element={<FormsList />} />
           <Route path="/admin/forms/:id/edit" element={<FormBuilder />} />
+          <Route path="/terms"   element={<Terms />} />
+          <Route path="/privacy" element={<Privacy />} />
         </Route>
       </Routes>
     </BrowserRouter>

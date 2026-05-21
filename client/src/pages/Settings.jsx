@@ -1116,6 +1116,33 @@ export default function Settings() {
           </div>
         </>
       ) : null}
+
+      {/* Legal */}
+      {profile && (
+        <>
+          <h2 className="text-sm font-semibold text-gray-700 mb-3 mt-10">Legal</h2>
+          <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+            <Link
+              to="/terms"
+              className="flex items-center justify-between px-4 py-4 hover:bg-gray-50 transition-colors min-h-[56px]"
+            >
+              <span className="text-sm text-gray-700">Terms of Service</span>
+              <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
+            <Link
+              to="/privacy"
+              className="flex items-center justify-between px-4 py-4 hover:bg-gray-50 transition-colors min-h-[56px]"
+            >
+              <span className="text-sm text-gray-700">Privacy Policy</span>
+              <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
+          </div>
+        </>
+      )}
     </div>
   )
 }
