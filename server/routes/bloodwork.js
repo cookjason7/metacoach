@@ -7,9 +7,9 @@ import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 import { bloodworkUploadLimit } from '../middleware/rateLimits.js'
 
-// pdf-parse is CJS; createRequire lets us load it from ESM without the exports-field restriction
+// createRequire is set up at module level but pdf-parse is loaded lazily inside extractText
+// so a missing package can never crash startup.
 const require = createRequire(import.meta.url)
-const pdfParse = require('pdf-parse')
 
 const router = Router()
 
@@ -72,6 +72,7 @@ function uploadToCloud(buffer, mimetype) {
 async function extractText(buffer, mimetype) {
   if (mimetype === 'application/pdf') {
     try {
+      const pdfParse = require('pdf-parse')
       const data = await pdfParse(buffer)
       const text = data.text?.trim()
       return text?.length > 30 ? text : null
