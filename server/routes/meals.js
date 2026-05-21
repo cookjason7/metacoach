@@ -540,6 +540,7 @@ router.get('/today', requireAuth(), async (req, res, next) => {
          COALESCE(SUM(m.carbs),    0)::int AS total_carbs,
          COALESCE(SUM(m.fat),      0)::int AS total_fat,
          COALESCE(SUM(m.fiber),    0)::int AS total_fiber,
+         ROUND(SUM((m.micronutrients->>'sodium_mg')::numeric))::int AS total_sodium_mg,
          COUNT(*)::int                     AS meal_count
        FROM meals m
        JOIN users u ON u.id = m.user_id

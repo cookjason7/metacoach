@@ -1348,6 +1348,7 @@ export default function Dashboard() {
     { label: 'Carbs',     value: fmtG(todayMeals?.total_carbs),   color: 'text-yellow-500' },
     { label: 'Fat',       value: fmtG(todayMeals?.total_fat),     color: 'text-pink-500' },
     { label: 'Fiber',     value: fmtG(todayMeals?.total_fiber),   color: 'text-[#E8670A]' },
+    { label: 'Sodium',    value: todayMeals?.total_sodium_mg != null ? `${todayMeals.total_sodium_mg.toLocaleString()} mg` : '—', color: 'text-rose-500' },
     { label: 'Water',     value: todayLog?.water_oz != null ? `${todayLog.water_oz} oz` : '—', color: 'text-cyan-500' },
     { label: 'Steps',     value: fmt(todayLog?.steps),            color: 'text-purple-500' },
   ]
