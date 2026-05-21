@@ -202,6 +202,34 @@ router.get('/staff/:clientId', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// POST /api/bloodwork/staff/:clientId — staff uploads on behalf of a client
+router.post('/staff/:clientId', requireAuth(), bloodworkUploadLimit, upload.single('file'), async (req, res, next) => {
+  try {
+    const ctx = await getCtx(req)
+    if (!isPrivileged(ctx.role)) return res.status(403).json({ error: 'Staff only.' })
+    const clientId = Number(req.params.clientId)
+    if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied.' })
+    if (!req.file) return res.status(400).json({ error: 'File required (PDF, JPG, PNG, or WEBP).' })
+    if (!ALLOWED_MIMES.has(req.file.mimetype)) {
+      return res.status(400).json({ error: 'Unsupported file type. Please upload a PDF, JPG, PNG, or WEBP.' })
+    }
+    const { lab_date, notes } = req.body
+    const cloud = await uploadToCloud(req.file.buffer, req.file.mimetype)
+    const extracted = await extractText(req.file.buffer, req.file.mimetype)
+    const { rows } = await pool.query(
+      `INSERT INTO bloodwork_uploads
+         (user_id, cloudinary_public_id, original_filename, mime_type, lab_date, notes, extracted_text)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, original_filename, mime_type, lab_date, notes,
+                 extracted_text IS NOT NULL AS has_text,
+                 ai_summary, status, created_at`,
+      [clientId, cloud.public_id, req.file.originalname, req.file.mimetype,
+       lab_date || null, notes?.trim() || null, extracted || null],
+    )
+    res.status(201).json(rows[0])
+  } catch (err) { next(err) }
+})
+
 // GET /api/bloodwork/:id/file — return authorized Cloudinary URL
 router.get('/:id/file', requireAuth(), async (req, res, next) => {
   try {

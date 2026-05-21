@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Fragment } from 'react'
+import { useState, useEffect, useCallback, Fragment, useRef } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { API_URL } from '../../config.js'
@@ -3007,12 +3007,21 @@ function EngagementTab({ clientId, getToken }) {
 
 // ─── Bloodwork Tab ────────────────────────────────────────────────────────────
 
+const BLOODWORK_DISCLAIMER =
+  'Educational only · Not medical advice · Not a diagnosis · Do not change any medication or supplement without speaking with your healthcare provider · Review results with a qualified doctor or provider, ideally a hormone specialist or functional medicine provider.'
+
 function BloodworkTab({ clientId, getToken }) {
   const [uploads, setUploads] = useState([])
   const [loading, setLoading] = useState(true)
+  const [uploading, setUploading] = useState(false)
   const [summarizingId, setSummarizingId] = useState(null)
   const [deletingId, setDeletingId] = useState(null)
   const [error, setError] = useState(null)
+  const [uploadError, setUploadError] = useState(null)
+  const [file, setFile] = useState(null)
+  const [labDate, setLabDate] = useState('')
+  const [notes, setNotes] = useState('')
+  const fileRef = useRef(null)
 
   useEffect(() => {
     async function load() {
@@ -3030,6 +3039,33 @@ function BloodworkTab({ clientId, getToken }) {
     }
     load()
   }, [clientId, getToken])
+
+  async function handleUpload(e) {
+    e.preventDefault()
+    if (!file) return
+    setUploading(true)
+    setUploadError(null)
+    try {
+      const token = await getToken()
+      const fd = new FormData()
+      fd.append('file', file)
+      if (labDate) fd.append('lab_date', labDate)
+      if (notes.trim()) fd.append('notes', notes.trim())
+      const res = await fetch(`${API_URL}/api/bloodwork/staff/${clientId}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      })
+      const data = await res.json()
+      if (!res.ok) { setUploadError(data.error ?? 'Upload failed.'); return }
+      setUploads(prev => [data, ...prev])
+      setFile(null)
+      setLabDate('')
+      setNotes('')
+      if (fileRef.current) fileRef.current.value = ''
+    } catch { setUploadError('Upload failed. Please try again.') }
+    finally { setUploading(false) }
+  }
 
   async function viewFile(id) {
     try {
@@ -3073,7 +3109,7 @@ function BloodworkTab({ clientId, getToken }) {
     finally { setDeletingId(null) }
   }
 
-  function fmtDate(iso) {
+  function fmtShort(iso) {
     if (!iso) return null
     return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   }
@@ -3082,73 +3118,157 @@ function BloodworkTab({ clientId, getToken }) {
   if (error) return <p className="text-sm text-red-500 py-6">{error}</p>
 
   return (
-    <div className="space-y-4">
-      <div className="bg-white border border-gray-200 rounded-xl p-4">
-        <p className="text-sm font-semibold text-gray-700 mb-1">Client Bloodwork</p>
-        <p className="text-xs text-gray-500">Uploads are made by the client from their Settings page. Use Generate AI Summary to produce an educational functional-health interpretation.</p>
+    <div className="space-y-5">
+
+      {/* ── Upload form ── */}
+      <div className="bg-white border border-gray-200 rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-gray-800 mb-4">Upload Lab Results</h3>
+        <form onSubmit={handleUpload} className="space-y-3">
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".pdf,.jpg,.jpeg,.png,.webp"
+            className="hidden"
+            onChange={e => setFile(e.target.files[0] ?? null)}
+          />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="w-full border-2 border-dashed border-gray-300 hover:border-[#E8670A] rounded-lg py-5 px-4 text-center transition-colors group"
+          >
+            {file ? (
+              <span className="text-sm font-medium text-gray-800">{file.name}</span>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-gray-500 group-hover:text-[#E8670A]">Click to select file</p>
+                <p className="text-xs text-gray-400 mt-1">PDF, JPG, PNG, or WEBP · max 20 MB</p>
+              </>
+            )}
+          </button>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Lab Date</label>
+              <input
+                type="date"
+                value={labDate}
+                onChange={e => setLabDate(e.target.value)}
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Notes <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <input
+                type="text"
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder="e.g. Quest Diagnostics panel"
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]"
+              />
+            </div>
+          </div>
+
+          {uploadError && <p className="text-xs text-red-600">{uploadError}</p>}
+
+          <button
+            type="submit"
+            disabled={!file || uploading}
+            className="w-full py-2.5 rounded-lg text-sm font-semibold bg-[#1e2a3a] text-white hover:bg-[#243347] transition-colors disabled:opacity-40"
+          >
+            {uploading ? 'Uploading…' : 'Upload Lab Results'}
+          </button>
+        </form>
       </div>
 
+      {/* ── Uploads list ── */}
       {uploads.length === 0 ? (
-        <div className="bg-white border border-gray-200 rounded-xl p-6 text-center">
-          <p className="text-sm text-gray-400">No bloodwork uploaded for this client.</p>
+        <div className="bg-white border border-gray-200 rounded-xl p-8 text-center">
+          <p className="text-sm text-gray-400">No bloodwork uploaded for this client yet.</p>
+          <p className="text-xs text-gray-300 mt-1">Upload the first lab results above.</p>
         </div>
       ) : (
         <div className="space-y-4">
+          <p className="text-sm font-semibold text-gray-700">Uploaded Labs ({uploads.length})</p>
           {uploads.map(u => (
-            <div key={u.id} className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
-              {/* Header row */}
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 truncate">{u.original_filename}</p>
-                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                    {u.lab_date && <span className="text-xs text-gray-500">{fmtDate(u.lab_date)}</span>}
-                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${u.has_text ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-                      {u.has_text ? 'Text extracted' : 'No text extracted'}
-                    </span>
+            <div key={u.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+
+              {/* File header */}
+              <div className="p-4">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{u.original_filename}</p>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      {u.lab_date && (
+                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+                          Lab: {fmtShort(u.lab_date)}
+                        </span>
+                      )}
+                      <span className="text-xs text-gray-400">Uploaded {fmtShort(u.created_at)}</span>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                        u.has_text ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                      }`}>
+                        {u.has_text ? 'Text extracted' : 'No text extracted'}
+                      </span>
+                    </div>
+                    {u.notes && <p className="text-xs text-gray-500 mt-1 italic">"{u.notes}"</p>}
                   </div>
-                  {u.notes && <p className="text-xs text-gray-500 mt-1 italic">{u.notes}</p>}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={() => viewFile(u.id)}
-                    className="text-xs font-medium text-[#E8670A] hover:text-[#c45e09] px-2 py-1 rounded border border-[#E8670A]/30 hover:border-[#E8670A] transition-colors"
-                  >
-                    View
-                  </button>
-                  <button
-                    onClick={() => softDelete(u.id)}
-                    disabled={deletingId === u.id}
-                    className="text-xs font-medium text-gray-400 hover:text-red-500 px-2 py-1 rounded border border-gray-200 hover:border-red-200 transition-colors disabled:opacity-40"
-                  >
-                    {deletingId === u.id ? '…' : 'Delete'}
-                  </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => viewFile(u.id)}
+                      className="text-xs font-medium text-[#E8670A] hover:text-[#c45e09] px-3 py-1.5 rounded-lg border border-[#E8670A]/30 hover:border-[#E8670A] transition-colors"
+                    >
+                      View
+                    </button>
+                    <button
+                      onClick={() => softDelete(u.id)}
+                      disabled={deletingId === u.id}
+                      className="text-xs font-medium text-gray-400 hover:text-red-500 px-3 py-1.5 rounded-lg border border-gray-200 hover:border-red-200 transition-colors disabled:opacity-40"
+                    >
+                      {deletingId === u.id ? '…' : 'Delete'}
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              {/* AI Summary section */}
-              {u.ai_summary ? (
-                <div className="rounded-lg bg-blue-50 border border-blue-100 p-3">
-                  <p className="text-[10px] font-semibold text-blue-600 uppercase tracking-wide mb-2">AI Educational Summary</p>
-                  <div className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">{u.ai_summary}</div>
-                  <p className="text-[10px] text-gray-400 mt-3 italic">Educational only. Not medical advice. Not a diagnosis.</p>
-                </div>
-              ) : (
-                <div>
-                  {u.has_text ? (
-                    <button
-                      onClick={() => summarize(u.id)}
-                      disabled={summarizingId === u.id}
-                      className="w-full py-2 rounded-lg text-xs font-semibold bg-[#1e2a3a] text-white hover:bg-[#243347] transition-colors disabled:opacity-50"
-                    >
-                      {summarizingId === u.id ? 'Generating AI summary…' : 'Generate AI Summary'}
-                    </button>
-                  ) : (
-                    <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
-                      Could not extract readable lab text from this file. Please ask the client to upload a clearer image or a text-based PDF.
-                    </p>
-                  )}
-                </div>
-              )}
+              {/* AI summary section */}
+              <div className="border-t border-gray-100 bg-gray-50 p-4">
+                {u.ai_summary ? (
+                  <div>
+                    <p className="text-[10px] font-semibold text-blue-600 uppercase tracking-wide mb-2">AI Educational Summary</p>
+                    <div className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">{u.ai_summary}</div>
+                    <div className="mt-3 p-2.5 bg-amber-50 border border-amber-100 rounded-lg">
+                      <p className="text-[10px] text-amber-700 leading-snug">{BLOODWORK_DISCLAIMER}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div>
+                      <p className="text-xs font-medium text-gray-600">AI Educational Summary</p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {u.has_text
+                          ? 'Ready to generate — uses extracted lab text.'
+                          : 'Cannot generate — no readable text was extracted from this file.'}
+                      </p>
+                    </div>
+                    {u.has_text ? (
+                      <button
+                        onClick={() => summarize(u.id)}
+                        disabled={summarizingId === u.id}
+                        className="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#1e2a3a] text-white hover:bg-[#243347] transition-colors disabled:opacity-50"
+                      >
+                        {summarizingId === u.id ? 'Generating…' : 'Generate AI Summary'}
+                      </button>
+                    ) : (
+                      <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 border border-amber-100">
+                        Ask the client to re-upload a clearer image or a text-based PDF.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
             </div>
           ))}
         </div>
