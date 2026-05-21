@@ -4,16 +4,19 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { API_URL } from '../../config.js'
 
 const TABS = [
-  { id: 'overview',    label: 'Overview',  icon: '◉' },
-  { id: 'nutrition',   label: 'Nutrition', icon: '🥗' },
-  { id: 'habits',      label: 'Habits',    icon: '✓' },
-  { id: 'progress',    label: 'Progress',  icon: '↗' },
-  { id: 'assessment',  label: 'Forms',     icon: '★' },
-  { id: 'notes',       label: 'Notes',     icon: '✎' },
-  { id: 'messaging',   label: 'Messages',  icon: '✉' },
+  { id: 'overview',    label: 'Overview',   icon: '◉' },
+  { id: 'nutrition',   label: 'Nutrition',  icon: '🥗' },
+  { id: 'habits',      label: 'Habits',     icon: '✓' },
+  { id: 'progress',    label: 'Progress',   icon: '↗' },
+  { id: 'assessment',  label: 'Forms',      icon: '★' },
+  { id: 'notes',       label: 'Notes',      icon: '✎' },
+  { id: 'messaging',   label: 'Messages',   icon: '✉' },
   { id: 'engagement',  label: 'Engagement', icon: '⚡' },
-  { id: 'bloodwork',   label: 'Bloodwork', icon: '🩸' },
+  { id: 'bloodwork',   label: 'Bloodwork',  icon: '🩸' },
 ]
+// First 7 always visible; last 2 tucked behind "More ▾" so the row fits desktop without scrolling.
+const PRIMARY_TABS = TABS.slice(0, 7)
+const MORE_TABS    = TABS.slice(7)
 
 const MOMENTUM_COLORS = {
   'Locked In':  'bg-emerald-600 text-white',
@@ -3166,6 +3169,7 @@ export default function ClientProfile() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [tab, setTab] = useState('overview')
+  const [moreOpen, setMoreOpen] = useState(false)
 
   useEffect(() => {
     const requestedTab = searchParams.get('tab')
@@ -3212,24 +3216,63 @@ export default function ClientProfile() {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-5 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
-        <div className="flex gap-1 min-w-max">
-          {TABS.map(t => (
-            <button key={t.id} onClick={() => {
-              setTab(t.id)
-              const next = new URLSearchParams(searchParams)
-              if (t.id === 'overview') next.delete('tab')
-              else next.set('tab', t.id)
-              setSearchParams(next, { replace: true })
-            }}
-              className={`px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-semibold transition-colors border-b-2 whitespace-nowrap ${
-                tab === t.id
-                  ? 'border-[#E8670A] text-[#E8670A]'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}>
-              <span className="mr-1">{t.icon}</span>{t.label}
-            </button>
-          ))}
+      <div className="border-b border-gray-200 mb-5">
+        <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+          <div className="flex gap-1 min-w-max sm:min-w-0">
+            {PRIMARY_TABS.map(t => (
+              <button key={t.id} onClick={() => {
+                setTab(t.id)
+                setMoreOpen(false)
+                const next = new URLSearchParams(searchParams)
+                if (t.id === 'overview') next.delete('tab')
+                else next.set('tab', t.id)
+                setSearchParams(next, { replace: true })
+              }}
+                className={`px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-semibold transition-colors border-b-2 whitespace-nowrap ${
+                  tab === t.id
+                    ? 'border-[#E8670A] text-[#E8670A]'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}>
+                <span className="mr-1">{t.icon}</span>{t.label}
+              </button>
+            ))}
+            {/* More ▾ dropdown for Engagement + Bloodwork */}
+            <div className="relative">
+              <button
+                onClick={() => setMoreOpen(o => !o)}
+                className={`px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-semibold transition-colors border-b-2 whitespace-nowrap ${
+                  MORE_TABS.some(t => t.id === tab)
+                    ? 'border-[#E8670A] text-[#E8670A]'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {MORE_TABS.some(t => t.id === tab)
+                  ? <><span className="mr-1">{MORE_TABS.find(t2 => t2.id === tab)?.icon}</span>{MORE_TABS.find(t2 => t2.id === tab)?.label} ▾</>
+                  : 'More ▾'}
+              </button>
+              {moreOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setMoreOpen(false)} />
+                  <div className="absolute left-0 top-full mt-0.5 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[150px]">
+                    {MORE_TABS.map(t => (
+                      <button key={t.id} onClick={() => {
+                        setTab(t.id)
+                        setMoreOpen(false)
+                        const next = new URLSearchParams(searchParams)
+                        next.set('tab', t.id)
+                        setSearchParams(next, { replace: true })
+                      }}
+                        className={`flex items-center gap-2 w-full px-4 py-2.5 text-sm font-medium text-left transition-colors first:rounded-t-lg last:rounded-b-lg ${
+                          tab === t.id ? 'text-[#E8670A] bg-orange-50' : 'text-gray-700 hover:bg-gray-50'
+                        }`}>
+                        <span>{t.icon}</span>{t.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
