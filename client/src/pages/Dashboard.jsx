@@ -1140,10 +1140,11 @@ function ProgressPhotosCard({ sessions, getToken, onUploaded, onNewSession, late
 // ── New-session upload modal ──────────────────────────────────────────────────
 
 function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
-  const [uploading, setUploading] = useState(null)   // angle currently uploading
-  const [previews,  setPreviews]  = useState({ front: null, side: null, back: null })
-  const [uploaded,  setUploaded]  = useState({ front: false, side: false, back: false })
-  const [menu,      setMenu]      = useState(null)   // angle whose picker is open
+  const [uploading,    setUploading]    = useState(null)   // angle currently uploading
+  const [previews,     setPreviews]     = useState({ front: null, side: null, back: null })
+  const [uploaded,     setUploaded]     = useState({ front: false, side: false, back: false })
+  const [uploadErrors, setUploadErrors] = useState({ front: null, side: null, back: null })
+  const [menu,         setMenu]         = useState(null)   // angle whose picker is open
 
   // Individual refs required by React hook rules — one camera + one gallery per angle
   const frontCamRef = useRef(null)
@@ -1156,7 +1157,7 @@ function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
   const galRefs = { front: frontGalRef, side: sideGalRef, back: backGalRef }
 
   // Prevent iOS phantom backdrop-click when native camera returns to browser.
-  // Set true when camera opens; reset via visibilitychange + onChange.
+  // Set true when camera opens; cleared via visibilitychange (500ms) and onChange (300ms).
   const cameraActiveRef = useRef(false)
   useEffect(() => {
     function onVisible() {
@@ -1170,10 +1171,11 @@ function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
 
   async function handleFile(angle, file) {
     setMenu(null)
-    // Show local preview immediately so the user sees their selection
+    setUploadErrors(prev => ({ ...prev, [angle]: null }))
     const previewUrl = URL.createObjectURL(file)
     setPreviews(p => ({ ...p, [angle]: previewUrl }))
     setUploading(angle)
+    let ok = false
     try {
       const token = await getToken()
       const body  = new FormData()
@@ -1188,14 +1190,38 @@ function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
       if (res.ok) {
         onUploaded(await res.json())
         setUploaded(u => ({ ...u, [angle]: true }))
+        ok = true
       }
-    } finally {
+    } catch { /* network error — handled below */ }
+    finally {
       setUploading(null)
+      if (!ok) {
+        // Remove failed preview so the slot is tappable again for retry
+        setPreviews(p => ({ ...p, [angle]: null }))
+        setUploadErrors(prev => ({ ...prev, [angle]: 'Upload failed — tap to retry' }))
+      }
     }
+  }
+
+  // Copy camera file into a detached Blob before processing.
+  // On iOS Safari, clearing e.target.value (done to allow re-take) can invalidate
+  // the original File's underlying data if it hasn't been read into memory yet.
+  // Camera files are lazily loaded; gallery files are already in memory.
+  // Creating a Blob from an ArrayBuffer gives us a fully in-memory copy that
+  // survives the input reset regardless of platform.
+  function captureAndHandle(angle, rawFile) {
+    const reader = new FileReader()
+    reader.onload = ev => {
+      const blob = new Blob([ev.target.result], { type: rawFile.type })
+      const safe = new File([blob], rawFile.name, { type: rawFile.type, lastModified: rawFile.lastModified })
+      handleFile(angle, safe)
+    }
+    reader.readAsArrayBuffer(rawFile)
   }
 
   function openMenu(angle) {
     if (uploading) return
+    setUploadErrors(prev => ({ ...prev, [angle]: null }))
     setMenu(prev => prev === angle ? null : angle)
   }
 
@@ -1216,10 +1242,11 @@ function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
         <div className="mobile-modal-body px-5 pb-5">
           <div className="grid grid-cols-3 gap-3">
           {ANGLES.map(angle => {
-            const preview    = previews[angle]
+            const preview     = previews[angle]
             const isUploading = uploading === angle
-            const isDone     = uploaded[angle]
-            const menuOpen   = menu === angle
+            const isDone      = uploaded[angle]
+            const menuOpen    = menu === angle
+            const uploadError = uploadErrors[angle]
 
             return (
               <div key={angle} className="text-center">
@@ -1237,11 +1264,12 @@ function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
                         ? 'border-[#E8670A] bg-[#fff7ed] cursor-pointer'
                         : isUploading
                           ? 'border-gray-200 bg-gray-50 cursor-default'
-                          : 'border-dashed border-gray-300 bg-gray-50 hover:border-[#E8670A] hover:bg-[#fff7ed] cursor-pointer'
+                          : uploadError
+                            ? 'border-dashed border-red-300 bg-red-50 cursor-pointer'
+                            : 'border-dashed border-gray-300 bg-gray-50 hover:border-[#E8670A] hover:bg-[#fff7ed] cursor-pointer'
                   }`}
                 >
                   {preview ? (
-                    /* Preview image fills the slot */
                     <>
                       <img src={preview} alt={angle} className="w-full h-full object-cover" />
                       {isUploading && (
@@ -1258,7 +1286,6 @@ function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
                       )}
                     </>
                   ) : menuOpen ? (
-                    /* Inline Camera / Gallery picker */
                     <div
                       className="w-full h-full flex flex-col gap-2 items-center justify-center p-2"
                       onClick={e => e.stopPropagation()}
@@ -1285,12 +1312,14 @@ function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
                     </div>
                   ) : isUploading ? (
                     <span className="text-[10px] text-gray-400">Uploading…</span>
+                  ) : uploadError ? (
+                    <span className="text-[10px] text-red-500 px-1 text-center leading-snug">{uploadError}</span>
                   ) : (
                     <span className="text-[10px] text-gray-400 px-1 text-center leading-snug">Tap to add</span>
                   )}
                 </div>
 
-                {/* Hidden inputs: camera (with capture) and gallery (without) */}
+                {/* Camera input: copy file into memory before clearing so iOS can't free the data */}
                 <input
                   ref={camRefs[angle]}
                   type="file"
@@ -1299,16 +1328,22 @@ function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
                   className="hidden"
                   onChange={e => {
                     setTimeout(() => { cameraActiveRef.current = false }, 300)
-                    if (e.target.files[0]) handleFile(angle, e.target.files[0])
+                    const raw = e.target.files?.[0]
                     e.target.value = ''
+                    if (raw) captureAndHandle(angle, raw)
                   }}
                 />
+                {/* Gallery input: file is already in memory, direct call is safe */}
                 <input
                   ref={galRefs[angle]}
                   type="file"
                   accept="image/*"
                   className="hidden"
-                  onChange={e => { if (e.target.files[0]) handleFile(angle, e.target.files[0]); e.target.value = '' }}
+                  onChange={e => {
+                    const raw = e.target.files?.[0]
+                    e.target.value = ''
+                    if (raw) handleFile(angle, raw)
+                  }}
                 />
               </div>
             )
