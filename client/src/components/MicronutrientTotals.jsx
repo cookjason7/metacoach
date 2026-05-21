@@ -49,7 +49,7 @@ function formatValue(value, decimals) {
   return String(rounded).replace(/\.0$/, '')
 }
 
-export default function MicronutrientTotals({ meals, loading = false, title = 'Micronutrient Totals', periodLabel = 'Selected day', exclude = [] }) {
+export default function MicronutrientTotals({ meals, loading = false, title = 'Micronutrient Totals', periodLabel = 'Selected day', exclude = [], onNutrientClick }) {
   const nutrients = loading ? [] : calculateMicronutrientTotals(meals).filter(n => !exclude.includes(n.key))
 
   return (
@@ -65,15 +65,24 @@ export default function MicronutrientTotals({ meals, loading = false, title = 'M
         <p className="text-sm text-gray-400">Loading micronutrients...</p>
       ) : nutrients.length > 0 ? (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {nutrients.map(n => (
-            <div key={n.key} className="rounded-lg bg-gray-50 px-3 py-2">
-              <p className="text-[11px] text-gray-400">{n.label}</p>
-              <p className="text-sm font-semibold text-gray-900">
-                {formatValue(n.value, n.decimals)}
-                <span className="ml-0.5 text-[11px] font-medium text-gray-400">{n.unit}</span>
-              </p>
-            </div>
-          ))}
+          {nutrients.map(n => {
+            const clickable = !!onNutrientClick
+            const Tile = clickable ? 'button' : 'div'
+            return (
+              <Tile
+                key={n.key}
+                onClick={clickable ? () => onNutrientClick(n.key, n.label, n.unit, n.decimals) : undefined}
+                className={`rounded-lg bg-gray-50 px-3 py-2 text-left w-full ${clickable ? 'hover:bg-gray-100 active:bg-gray-200 transition-colors' : ''}`}
+              >
+                <p className="text-[11px] text-gray-400">{n.label}</p>
+                <p className="text-sm font-semibold text-gray-900">
+                  {formatValue(n.value, n.decimals)}
+                  <span className="ml-0.5 text-[11px] font-medium text-gray-400">{n.unit}</span>
+                </p>
+                {clickable && <p className="text-[9px] text-gray-300 mt-0.5">tap for breakdown</p>}
+              </Tile>
+            )
+          })}
         </div>
       ) : (
         <p className="text-sm text-gray-400">No micronutrient data available for this day yet.</p>

@@ -143,13 +143,81 @@ function KatieBanner({ message, onDismiss }) {
   )
 }
 
-function StatCard({ label, value, sub, color = 'text-gray-900' }) {
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4">
+function StatCard({ label, value, sub, color = 'text-gray-900', onClick }) {
+  const inner = (
+    <>
       <p className="text-xs text-gray-500 mb-1">{label}</p>
       <p className={`text-2xl font-bold ${color}`}>{value}</p>
       {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
-    </div>
+      {onClick && <p className="text-[10px] text-gray-300 mt-1">tap for breakdown</p>}
+    </>
+  )
+  return onClick ? (
+    <button onClick={onClick} className="bg-white rounded-xl border border-gray-200 p-4 text-left w-full hover:border-gray-300 active:bg-gray-50 transition-colors">
+      {inner}
+    </button>
+  ) : (
+    <div className="bg-white rounded-xl border border-gray-200 p-4">{inner}</div>
+  )
+}
+
+// ── Nutrient Breakdown Bottom Sheet ──────────────────────────────────────────
+
+function NutrientBreakdownSheet({ label, unit, total, decimals, items, onClose }) {
+  function fmt(v) {
+    return decimals === 0 ? Math.round(v).toLocaleString() : Number(v).toFixed(decimals)
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-50 bg-black/40" onClick={onClose} />
+      <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl max-h-[70vh] flex flex-col pb-[env(safe-area-inset-bottom)]">
+        {/* drag handle */}
+        <div className="flex justify-center pt-3 pb-1 shrink-0">
+          <div className="w-10 h-1 bg-gray-200 rounded-full" />
+        </div>
+
+        {/* header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 shrink-0">
+          <div>
+            <p className="text-base font-bold text-gray-900">{label} Breakdown</p>
+            <p className="text-sm text-gray-500">
+              Total: <span className="font-semibold text-gray-700">{fmt(total)} {unit}</span>
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 text-lg leading-none"
+          >×</button>
+        </div>
+
+        {/* body */}
+        <div className="overflow-y-auto flex-1 px-5 py-3">
+          {items.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-6">No breakdown data available.</p>
+          ) : (
+            <div className="space-y-2">
+              {items.map((item, i) => (
+                <div key={i} className="flex items-start justify-between gap-3 py-2 border-b border-gray-100 last:border-0">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-800 truncate">{item.meal_name}</p>
+                    <p className="text-xs text-gray-400">
+                      {item.meal_slot && <span>{item.meal_slot}</span>}
+                      {item.serving_size != null && item.serving_unit && (
+                        <span>{item.meal_slot ? ' · ' : ''}{item.serving_size} {item.serving_unit}</span>
+                      )}
+                    </p>
+                  </div>
+                  <p className="text-sm font-semibold text-gray-900 shrink-0">
+                    {fmt(item.value)} <span className="text-xs font-normal text-gray-400">{unit}</span>
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -1250,6 +1318,7 @@ export default function Dashboard() {
   const [gamLoading,   setGamLoading]   = useState(true)
   const [photoSessions, setPhotoSessions] = useState([])
   const [newSessionId,  setNewSessionId]  = useState(null) // when set, shows upload modal
+  const [breakdown,     setBreakdown]     = useState(null) // { label, unit, total, decimals, items }
 
   useEffect(() => {
     let cancelled = false
@@ -1342,13 +1411,38 @@ export default function Dashboard() {
   const fmtG  = (n) => n != null ? `${n}g` : '—'
   const fmtLb = (n) => n != null ? `${n} lbs` : '—'
 
+  function parseMicros(m) {
+    if (!m) return null
+    if (typeof m === 'object') return m
+    try { return JSON.parse(m) } catch { return null }
+  }
+
+  function openMacroBreakdown(label, unit, decimals, field) {
+    const items = mealRows
+      .map(m => ({ meal_name: m.meal_name, meal_slot: m.meal_slot, serving_size: m.serving_size, serving_unit: m.serving_unit, value: m[field] != null ? Number(m[field]) : null }))
+      .filter(i => i.value != null && i.value > 0)
+      .sort((a, b) => b.value - a.value)
+    setBreakdown({ label, unit, total: items.reduce((s, i) => s + i.value, 0), decimals, items })
+  }
+
+  function openMicroBreakdown(key, label, unit, decimals) {
+    const items = mealRows
+      .map(m => {
+        const micro = parseMicros(m.micronutrients)
+        return { meal_name: m.meal_name, meal_slot: m.meal_slot, serving_size: m.serving_size, serving_unit: m.serving_unit, value: micro?.[key] != null ? Number(micro[key]) : null }
+      })
+      .filter(i => i.value != null && i.value > 0)
+      .sort((a, b) => b.value - a.value)
+    setBreakdown({ label, unit, total: items.reduce((s, i) => s + i.value, 0), decimals, items })
+  }
+
   const todayStats = [
     { label: 'Calories',  value: fmt(todayMeals?.total_calories), color: 'text-orange-500' },
-    { label: 'Protein',   value: fmtG(todayMeals?.total_protein), color: 'text-blue-600' },
-    { label: 'Carbs',     value: fmtG(todayMeals?.total_carbs),   color: 'text-yellow-500' },
-    { label: 'Fat',       value: fmtG(todayMeals?.total_fat),     color: 'text-pink-500' },
-    { label: 'Fiber',     value: fmtG(todayMeals?.total_fiber),   color: 'text-[#E8670A]' },
-    { label: 'Sodium',    value: todayMeals?.total_sodium_mg != null ? `${todayMeals.total_sodium_mg.toLocaleString()} mg` : '—', color: 'text-rose-500' },
+    { label: 'Protein',   value: fmtG(todayMeals?.total_protein), color: 'text-blue-600',   onClick: () => openMacroBreakdown('Protein', 'g', 1, 'protein') },
+    { label: 'Carbs',     value: fmtG(todayMeals?.total_carbs),   color: 'text-yellow-500', onClick: () => openMacroBreakdown('Carbs',   'g', 1, 'carbs') },
+    { label: 'Fat',       value: fmtG(todayMeals?.total_fat),     color: 'text-pink-500',   onClick: () => openMacroBreakdown('Fat',     'g', 1, 'fat') },
+    { label: 'Fiber',     value: fmtG(todayMeals?.total_fiber),   color: 'text-[#E8670A]',  onClick: () => openMacroBreakdown('Fiber',   'g', 1, 'fiber') },
+    { label: 'Sodium',    value: todayMeals?.total_sodium_mg != null ? `${todayMeals.total_sodium_mg.toLocaleString()} mg` : '—', color: 'text-rose-500', onClick: () => openMicroBreakdown('sodium_mg', 'Sodium', 'mg', 0) },
     { label: 'Water',     value: todayLog?.water_oz != null ? `${todayLog.water_oz} oz` : '—', color: 'text-cyan-500' },
     { label: 'Steps',     value: fmt(todayLog?.steps),            color: 'text-purple-500' },
   ]
@@ -1395,13 +1489,31 @@ export default function Dashboard() {
       <h2 className="text-sm font-semibold text-gray-700 mb-3">Today's Totals</h2>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
         {todayStats.map((s) => (
-          <StatCard key={s.label} label={s.label} value={loading ? '…' : s.value} color={s.color} />
+          <StatCard key={s.label} label={s.label} value={loading ? '…' : s.value} color={s.color} onClick={!loading && s.onClick ? s.onClick : undefined} />
         ))}
       </div>
 
       <div className="mb-8">
-        <MicronutrientTotals meals={mealRows} loading={loading} title="Today's Micronutrients" periodLabel="Today" exclude={['fiber_g']} />
+        <MicronutrientTotals
+          meals={mealRows}
+          loading={loading}
+          title="Today's Micronutrients"
+          periodLabel="Today"
+          exclude={['fiber_g']}
+          onNutrientClick={(key, label, unit, decimals) => openMicroBreakdown(key, label, unit, decimals)}
+        />
       </div>
+
+      {breakdown && (
+        <NutrientBreakdownSheet
+          label={breakdown.label}
+          unit={breakdown.unit}
+          total={breakdown.total}
+          decimals={breakdown.decimals}
+          items={breakdown.items}
+          onClose={() => setBreakdown(null)}
+        />
+      )}
 
       <WomensHealthFoundation
         meals={mealRows}
