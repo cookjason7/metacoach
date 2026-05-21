@@ -1848,7 +1848,7 @@ function ProgressTab({ clientId, getToken }) {
                                   className="block rounded-lg overflow-hidden bg-gray-100 hover:opacity-85 transition-opacity group"
                                 >
                                   {/* Compact on desktop: smaller aspect ratio wrapper */}
-                                  <div className="aspect-[3/4] sm:aspect-[2/3] overflow-hidden">
+                                  <div className="h-40 sm:h-44 overflow-hidden">
                                     <img
                                       src={p.photo_url}
                                       alt={angle}
@@ -1857,7 +1857,7 @@ function ProgressTab({ clientId, getToken }) {
                                   </div>
                                 </a>
                               ) : (
-                                <div className="aspect-[3/4] sm:aspect-[2/3] rounded-lg bg-gray-50 border border-dashed border-gray-200 flex items-center justify-center">
+                                <div className="h-40 sm:h-44 rounded-lg bg-gray-50 border border-dashed border-gray-200 flex items-center justify-center">
                                   <span className="text-[9px] text-gray-300">—</span>
                                 </div>
                               )}

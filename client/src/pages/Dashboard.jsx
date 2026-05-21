@@ -702,7 +702,6 @@ function UploadPhotoSlot({ angle, photo, sessionId, uploading, onFileSelected })
         ref={inputRef}
         type="file"
         accept="image/*"
-        capture="environment"
         className="hidden"
         onChange={e => e.target.files[0] && onFileSelected(angle, e.target.files[0], sessionId)}
       />
@@ -900,7 +899,6 @@ function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
                 ref={inputRefs[angle]}
                 type="file"
                 accept="image/*"
-                capture="environment"
                 className="hidden"
                 onChange={e => e.target.files[0] && handleFile(angle, e.target.files[0])}
               />

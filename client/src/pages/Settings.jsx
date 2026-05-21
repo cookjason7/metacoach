@@ -959,18 +959,6 @@ export default function Settings() {
             </a>
           </div>
 
-          {/* Progress Photos — managed on Dashboard */}
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">Progress Photos</h2>
-          <div className="bg-white rounded-xl border border-gray-200 p-4 mb-8 flex items-center justify-between gap-3">
-            <p className="text-xs sm:text-sm text-gray-500">View and add progress photos from your Dashboard.</p>
-            <a
-              href="/dashboard"
-              className="shrink-0 text-xs sm:text-sm font-semibold text-[#E8670A] hover:text-[#c45e09] transition-colors"
-            >
-              Go to Dashboard →
-            </a>
-          </div>
-
           {/* Measurements */}
           <h2 className="text-sm font-semibold text-gray-700 mb-3">Measurements</h2>
           <div className="bg-white rounded-xl border border-gray-200 p-4 mb-8">
