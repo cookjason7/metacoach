@@ -48,13 +48,34 @@ router.get('/week', requireAuth(), async (req, res, next) => {
   }
 })
 
-// POST /api/daily-logs — upsert; only provided fields are written
+// POST /api/daily-logs — upsert; only provided fields are written.
+// Sending a field as explicit null (e.g. { steps: null }) is a CLEAR signal:
+// sets the value to null and the source to null so auto-sync can fill it again.
+// Omitting a field entirely keeps the existing value unchanged (COALESCE).
 router.post('/', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
-    const { water_oz = null, steps = null, weight_lbs = null, sleep_minutes = null } = req.body
+    const body      = req.body
+    const dbUserId  = await getOrCreateUser(userId)
 
-    const dbUserId = await getOrCreateUser(userId)
+    // Detect explicit null == "clear this field so sync can fill it"
+    const clearSteps = Object.hasOwn(body, 'steps')         && body.steps         === null
+    const clearSleep = Object.hasOwn(body, 'sleep_minutes') && body.sleep_minutes === null
+
+    if (clearSteps || clearSleep) {
+      const sets = []
+      if (clearSteps) sets.push('steps = NULL', 'steps_source = NULL')
+      if (clearSleep) sets.push('sleep_minutes = NULL', 'sleep_source = NULL')
+      const { rows: cleared } = await pool.query(
+        `UPDATE daily_logs SET ${sets.join(', ')}
+         WHERE user_id = $1 AND logged_date = CURRENT_DATE
+         RETURNING water_oz, steps, weight_lbs, sleep_minutes`,
+        [dbUserId],
+      )
+      return res.json(cleared[0] ?? { water_oz: null, steps: null, weight_lbs: null, sleep_minutes: null })
+    }
+
+    const { water_oz = null, steps = null, weight_lbs = null, sleep_minutes = null } = body
 
     const { rows } = await pool.query(
       `INSERT INTO daily_logs (user_id, logged_date, water_oz, steps, weight_lbs, steps_source, sleep_minutes, sleep_source)

@@ -153,7 +153,7 @@ function StatCard({ label, value, sub, color = 'text-gray-900' }) {
   )
 }
 
-function TrackerCard({ label, unit, field, currentValue, onSave }) {
+function TrackerCard({ label, unit, field, currentValue, onSave, clearable = false }) {
   const [editing, setEditing] = useState(false)
   const [input,   setInput]   = useState('')
   const [saving,  setSaving]  = useState(false)
@@ -177,6 +177,16 @@ function TrackerCard({ label, unit, field, currentValue, onSave }) {
     }
   }
 
+  async function handleClear() {
+    setSaving(true)
+    try {
+      await onSave(field, null)  // explicit null → backend clears value + source
+      setEditing(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div
       className="bg-white rounded-xl border border-gray-200 p-3 flex flex-col items-center text-center cursor-pointer select-none"
@@ -194,7 +204,7 @@ function TrackerCard({ label, unit, field, currentValue, onSave }) {
             onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') cancel() }}
             className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#E8670A] mb-2"
           />
-          <div className="flex gap-1.5 justify-center">
+          <div className="flex gap-1.5 justify-center mb-1.5">
             <button
               onClick={handleSave}
               disabled={saving}
@@ -209,6 +219,15 @@ function TrackerCard({ label, unit, field, currentValue, onSave }) {
               ✕
             </button>
           </div>
+          {clearable && currentValue != null && (
+            <button
+              onClick={handleClear}
+              disabled={saving}
+              className="w-full text-[11px] text-gray-400 hover:text-red-500 py-0.5 min-h-[28px] transition-colors disabled:opacity-50"
+            >
+              Clear (let sync fill)
+            </button>
+          )}
         </div>
       ) : (
         <>
@@ -703,7 +722,7 @@ export default function Dashboard() {
 
   const trackers = [
     { label: 'Water',  unit: 'oz',    field: 'water_oz',   currentValue: todayLog?.water_oz },
-    { label: 'Steps',  unit: 'steps', field: 'steps',      currentValue: todayLog?.steps },
+    { label: 'Steps',  unit: 'steps', field: 'steps',      currentValue: todayLog?.steps,      clearable: true },
     { label: 'Weight', unit: 'lbs',   field: 'weight_lbs', currentValue: todayLog?.weight_lbs },
   ]
 
@@ -817,6 +836,7 @@ export default function Dashboard() {
             field={t.field}
             currentValue={loading ? null : t.currentValue}
             onSave={saveTracker}
+            clearable={t.clearable ?? false}
           />
         ))}
       </div>

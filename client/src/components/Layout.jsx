@@ -101,6 +101,29 @@ export default function Layout() {
     finally { setQuickSaving(false) }
   }
 
+  // Clears steps or sleep so auto-sync can fill them again
+  async function clearQuickLog() {
+    if (quickSaving) return
+    setQuickSaving(true)
+    try {
+      const token = await getToken()
+      const body = quickAction === 'steps'
+        ? { steps: null }
+        : quickAction === 'sleep'
+          ? { sleep_minutes: null }
+          : null
+      if (!body) return
+      await fetch(`${API_URL}/api/daily-logs`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      setQuickDone(true)
+      setTimeout(() => closeQuickMenu(), 1200)
+    } catch {}
+    finally { setQuickSaving(false) }
+  }
+
   async function submitQuickActivity() {
     if (!quickActivityType || quickSaving) return
     setQuickSaving(true)
@@ -469,7 +492,7 @@ export default function Layout() {
             {quickAction && quickDone && (
               <div className="px-5 pb-12 pt-4 text-center">
                 <p className="text-3xl mb-2">✅</p>
-                <p className="text-sm font-semibold text-gray-700">Logged!</p>
+                <p className="text-sm font-semibold text-gray-700">Saved!</p>
               </div>
             )}
 
@@ -538,6 +561,10 @@ export default function Layout() {
                       className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
                       {quickSaving ? 'Saving…' : 'Log Steps'}
                     </button>
+                    <button onClick={clearQuickLog} disabled={quickSaving}
+                      className="w-full mt-2 border-2 border-gray-200 text-gray-500 text-sm font-medium py-3 rounded-2xl hover:border-gray-300 hover:text-gray-700 disabled:opacity-50 transition-colors min-h-[44px]">
+                      Clear steps (let sync fill)
+                    </button>
                   </>
                 )}
 
@@ -571,6 +598,10 @@ export default function Layout() {
                     <button onClick={submitQuickLog} disabled={!quickValue || quickSaving}
                       className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
                       {quickSaving ? 'Saving…' : 'Log Sleep'}
+                    </button>
+                    <button onClick={clearQuickLog} disabled={quickSaving}
+                      className="w-full mt-2 border-2 border-gray-200 text-gray-500 text-sm font-medium py-3 rounded-2xl hover:border-gray-300 hover:text-gray-700 disabled:opacity-50 transition-colors min-h-[44px]">
+                      Clear sleep (let sync fill)
                     </button>
                   </>
                 )}
