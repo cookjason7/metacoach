@@ -142,6 +142,7 @@ router.get('/coaches', requireAuth(), async (req, res, next) => {
     const { rows } = await pool.query(`
       SELECT id, first_name, email FROM users
       WHERE role IN ('coach', 'admin')
+        AND COALESCE(staff_status, 'active') = 'active'
       ORDER BY first_name ASC NULLS LAST
     `)
     res.json(rows)

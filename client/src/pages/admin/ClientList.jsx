@@ -971,7 +971,7 @@ export default function ClientList() {
   const [error,   setError]   = useState(null)
   const [search,  setSearch]  = useState('')
   const [filter,  setFilter]  = useState('all')
-  const [statusFilter, setStatusFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('active')
   const [sortBy, setSortBy] = useState('name')
   const [activeTab, setActiveTab] = useState('clients')
   const [isAdmin,      setIsAdmin]      = useState(false)
@@ -1150,22 +1150,24 @@ const filtered = useMemo(() => {
                 placeholder="Search by name or email…"
                 className="lg:col-span-2 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
               />
-              <select
-                value={coachFilter}
-                onChange={e => {
-                  const next = new URLSearchParams(searchParams)
-                  if (e.target.value === 'all') next.delete('coach_id')
-                  else next.set('coach_id', e.target.value)
-                  setSearchParams(next)
-                }}
-                className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
-                <option value="all">All coaches</option>
-                {coaches.map(c => (
-                  <option key={c.id} value={String(c.id)}>
-                    {c.first_name || c.email}
-                  </option>
-                ))}
-              </select>
+              {isAdmin && (
+                <select
+                  value={coachFilter}
+                  onChange={e => {
+                    const next = new URLSearchParams(searchParams)
+                    if (e.target.value === 'all') next.delete('coach_id')
+                    else next.set('coach_id', e.target.value)
+                    setSearchParams(next)
+                  }}
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+                  <option value="all">All coaches</option>
+                  {coaches.map(c => (
+                    <option key={c.id} value={String(c.id)}>
+                      {c.first_name || c.email}
+                    </option>
+                  ))}
+                </select>
+              )}
               <select value={filter} onChange={e => setFilter(e.target.value)}
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
                 <option value="all">All coaching</option>
@@ -1189,7 +1191,7 @@ const filtered = useMemo(() => {
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <p className="text-xs text-gray-400">{filtered.length} of {clients.length} clients</p>
-              {coachFilter !== 'all' && (
+              {isAdmin && coachFilter !== 'all' && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1270,10 +1272,6 @@ const filtered = useMemo(() => {
                         <AccountStatusBadge client={c} />
                       </td>
                       <td className="px-3 py-3 text-right whitespace-nowrap">
-                        <button onClick={e => { e.stopPropagation(); navigate(`/admin/clients/${c.id}`) }}
-                          className="text-xs text-[#E8670A] hover:text-[#c45e09] font-semibold mr-2">
-                          Open
-                        </button>
                         {c.client_status === 'archived' ? (
                           <button onClick={e => reactivateClient(e, c.id)}
                             className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold mr-2">
