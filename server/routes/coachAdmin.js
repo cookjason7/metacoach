@@ -112,6 +112,7 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
         (SELECT first_name FROM users WHERE id = u.assigned_coach_id) AS assigned_coach_name,
         (SELECT email      FROM users WHERE id = u.assigned_coach_id) AS assigned_coach_email,
         (SELECT MAX(logged_at) FROM meals WHERE user_id = u.id) AS last_meal_at,
+        (SELECT MAX(submitted_at) FROM form_submissions WHERE user_id = u.id) AS last_checkin_at,
         COALESCE((
           SELECT AVG(completion_percentage)::numeric(5,1)
           FROM habit_completions hc

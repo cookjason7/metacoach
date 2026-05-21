@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { API_URL } from '../../config.js'
@@ -51,6 +51,20 @@ function LifecycleBadge({ status }) {
   )
 }
 
+function AccountStatusBadge({ client }) {
+  const status = accountStatus(client)
+  const styles = {
+    active:   'bg-emerald-50 text-emerald-700 border-emerald-200',
+    invited:  'bg-purple-50 text-purple-700 border-purple-200',
+    inactive: 'bg-gray-100 text-gray-600 border-gray-300',
+  }
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold whitespace-nowrap ${styles[status]}`}>
+      {accountStatusLabel(client)}
+    </span>
+  )
+}
+
 function daysSince(iso) {
   if (!iso) return null
   return Math.floor((Date.now() - new Date(iso)) / 86400_000)
@@ -62,6 +76,51 @@ function adherenceColor(v) {
   if (n >= 50) return 'text-blue-600'
   if (n >= 30) return 'text-amber-600'
   return 'text-gray-400'
+}
+
+function clientName(c) {
+  return [c.first_name, c.display_last_name].filter(Boolean).join(' ') || c.email || 'Unknown'
+}
+
+function coachingLabel(type) {
+  if (type === 'ai') return 'AI'
+  if (type === 'hybrid') return 'Hybrid'
+  return 'VIP'
+}
+
+function coachingBadgeClass(type) {
+  if (type === 'ai') return 'bg-blue-50 text-blue-700 border-blue-200'
+  if (type === 'hybrid') return 'bg-emerald-50 text-emerald-700 border-emerald-200'
+  return 'bg-orange-50 text-[#E8670A] border-orange-200'
+}
+
+function lastActivityAt(c) {
+  const dates = [c.last_checkin_at, c.last_meal_at, c.last_login_at].filter(Boolean).map(d => new Date(d))
+  if (dates.length === 0) return null
+  return new Date(Math.max(...dates.map(d => d.getTime())))
+}
+
+function accountStatus(c) {
+  if (c.client_status === 'invited') return 'invited'
+  if (c.client_status === 'archived') return 'inactive'
+  const last = lastActivityAt(c)
+  if (!last) return 'inactive'
+  return daysSince(last.toISOString()) > 14 ? 'inactive' : 'active'
+}
+
+function accountStatusLabel(c) {
+  const status = accountStatus(c)
+  return status.charAt(0).toUpperCase() + status.slice(1)
+}
+
+function formatActivity(c) {
+  const last = lastActivityAt(c)
+  if (!last) return 'No activity yet'
+  const d = daysSince(last.toISOString())
+  const prefix = c.last_checkin_at && new Date(c.last_checkin_at).getTime() === last.getTime() ? 'Check-in' : 'Activity'
+  if (d === 0) return `${prefix} today`
+  if (d === 1) return `${prefix} yesterday`
+  return `${prefix} ${d}d ago`
 }
 
 // ── Food & Macros tab components ─────────────────────────────────────────────
@@ -757,9 +816,9 @@ function InviteModal({ getToken, onClose, onSuccess }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+    <div className="mobile-modal-backdrop" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl max-h-[90vh] overflow-y-auto"
+        className="mobile-modal-panel max-w-md p-6 overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -913,7 +972,7 @@ export default function ClientList() {
   const [search,  setSearch]  = useState('')
   const [filter,  setFilter]  = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
-  const [lifecycleFilter, setLifecycleFilter] = useState('active')
+  const [sortBy, setSortBy] = useState('name')
   const [activeTab, setActiveTab] = useState('clients')
   const [isAdmin,      setIsAdmin]      = useState(false)
   const [inviteOpen,   setInviteOpen]   = useState(false)
@@ -938,14 +997,14 @@ export default function ClientList() {
     setLoading(true)
     try {
       const token = await getToken()
-      const res = await fetch(`${API_URL}/api/coach-admin/clients?status=${lifecycleFilter}`, {
+      const res = await fetch(`${API_URL}/api/coach-admin/clients?status=all`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (res.status === 403) { navigate('/dashboard', { replace: true }); return }
       if (!res.ok) throw new Error(`Server ${res.status}`)
       setClients(await res.json())
     } catch (err) { setError(err.message) } finally { setLoading(false) }
-  }, [getToken, navigate, lifecycleFilter])
+  }, [getToken, navigate])
 
   useEffect(() => { load() }, [load])
 
@@ -984,17 +1043,41 @@ export default function ClientList() {
     }
   }
 
-  const filtered = clients.filter(c => {
-    if (coachFilter !== 'all' && String(c.assigned_coach_id ?? '') !== coachFilter) return false
-    if (filter === 'vip' && c.coaching_type !== 'vip') return false
-    if (filter === 'ai'  && c.coaching_type !== 'ai')  return false
-    if (statusFilter !== 'all' && c.status_tag !== statusFilter) return false
-    if (search) {
-      const q = search.toLowerCase()
-      if (!`${c.first_name ?? ''} ${c.display_last_name ?? ''} ${c.email ?? ''}`.toLowerCase().includes(q)) return false
-    }
-    return true
-  })
+  const coachOptions = useMemo(() => {
+    const byId = new Map()
+    clients.forEach(c => {
+      if (c.assigned_coach_id) {
+        byId.set(String(c.assigned_coach_id), c.assigned_coach_name || c.assigned_coach_email || 'Assigned coach')
+      }
+    })
+    return [...byId.entries()].sort((a, b) => a[1].localeCompare(b[1]))
+  }, [clients])
+
+  const filtered = useMemo(() => {
+    const rows = clients.filter(c => {
+      if (coachFilter !== 'all' && String(c.assigned_coach_id ?? '') !== coachFilter) return false
+      if (filter !== 'all' && (c.coaching_type || 'vip') !== filter) return false
+      if (statusFilter !== 'all' && accountStatus(c) !== statusFilter) return false
+      if (search) {
+        const q = search.toLowerCase()
+        if (!`${clientName(c)} ${c.email ?? ''}`.toLowerCase().includes(q)) return false
+      }
+      return true
+    })
+
+    return rows.sort((a, b) => {
+      if (sortBy === 'activity') {
+        return (lastActivityAt(b)?.getTime() ?? 0) - (lastActivityAt(a)?.getTime() ?? 0)
+      }
+      if (sortBy === 'coach') {
+        return (a.assigned_coach_name || '').localeCompare(b.assigned_coach_name || '')
+      }
+      if (sortBy === 'status') {
+        return accountStatus(a).localeCompare(accountStatus(b)) || clientName(a).localeCompare(clientName(b))
+      }
+      return clientName(a).localeCompare(clientName(b))
+    })
+  }, [clients, coachFilter, filter, search, sortBy, statusFilter])
 
   // Tabs — Dev Tools only shown to admins
   const tabs = [
@@ -1056,35 +1139,46 @@ export default function ClientList() {
         <>
           {/* Filters */}
           <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-            <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
               <input
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search by name or email…"
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                className="lg:col-span-2 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
               />
+              <select
+                value={coachFilter}
+                onChange={e => {
+                  const next = new URLSearchParams(searchParams)
+                  if (e.target.value === 'all') next.delete('coach_id')
+                  else next.set('coach_id', e.target.value)
+                  setSearchParams(next)
+                }}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+                <option value="all">All coaches</option>
+                {coachOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+              </select>
               <select value={filter} onChange={e => setFilter(e.target.value)}
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
-                <option value="all">All clients</option>
-                <option value="vip">VIP coaching</option>
-                <option value="ai">AI coaching</option>
+                <option value="all">All coaching</option>
+                <option value="vip">VIP</option>
+                <option value="ai">AI</option>
+                <option value="hybrid">Hybrid</option>
               </select>
               <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
                 <option value="all">All statuses</option>
-                <option value="Consistent">Consistent</option>
-                <option value="Building Momentum">Building Momentum</option>
-                <option value="Rebuilding Momentum">Rebuilding Momentum</option>
-                <option value="Needs Attention">Needs Attention</option>
-                <option value="New Client">New Client</option>
+                <option value="active">Active</option>
+                <option value="invited">Invited</option>
+                <option value="inactive">Inactive</option>
               </select>
-              <select value={lifecycleFilter} onChange={e => setLifecycleFilter(e.target.value)}
+              <select value={sortBy} onChange={e => setSortBy(e.target.value)}
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
-                <option value="active">Active clients</option>
-                <option value="invited">Invited clients</option>
-                <option value="archived">Archived clients</option>
-                <option value="all">All (active + archived)</option>
+                <option value="name">Sort by name</option>
+                <option value="activity">Sort by activity</option>
+                <option value="coach">Sort by coach</option>
+                <option value="status">Sort by status</option>
               </select>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -1126,13 +1220,12 @@ export default function ClientList() {
                   <th className="text-center px-3 py-3 font-semibold">7d</th>
                   <th className="text-center px-3 py-3 font-semibold">30d</th>
                   <th className="text-left px-3 py-3 font-semibold">Momentum</th>
-                  <th className="text-left px-3 py-3 font-semibold">Account</th>
+                  <th className="text-left px-3 py-3 font-semibold">Status</th>
                   <th className="text-right px-3 py-3 font-semibold">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filtered.map(c => {
-                  const inactive = daysSince(c.last_meal_at ?? c.last_login_at)
                   return (
                     <tr key={c.id}
                       onClick={() => navigate(`/admin/clients/${c.id}`)}
@@ -1140,22 +1233,23 @@ export default function ClientList() {
                     >
                       <td className="px-4 py-3">
                         <p className="font-semibold text-gray-900">
-                          {[c.first_name, c.display_last_name].filter(Boolean).join(' ') || c.email || 'Unknown'}
+                          {clientName(c)}
                         </p>
                         <p className="text-xs text-gray-400 truncate max-w-[180px]">{c.email}</p>
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold border ${
-                          c.coaching_type === 'ai'
-                            ? 'bg-purple-50 text-purple-700 border-purple-200'
-                            : 'bg-orange-50 text-[#E8670A] border-orange-200'
-                        }`}>
-                          {c.coaching_type === 'ai' ? 'AI' : 'VIP'}
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold border ${coachingBadgeClass(c.coaching_type)}`}>
+                          {coachingLabel(c.coaching_type)}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-600">{c.assigned_coach_name ?? '—'}</td>
                       <td className="px-3 py-3 text-xs text-gray-500">
-                        {inactive === null ? '—' : inactive === 0 ? 'Today' : `${inactive}d ago`}
+                        <span className="block font-medium text-gray-700">{formatActivity(c)}</span>
+                        {c.last_checkin_at && (
+                          <span className="block text-[11px] text-gray-400">
+                            Last check-in {daysSince(c.last_checkin_at) === 0 ? 'today' : `${daysSince(c.last_checkin_at)}d ago`}
+                          </span>
+                        )}
                       </td>
                       <td className={`px-3 py-3 text-center font-bold ${adherenceColor(c.adherence_7d)}`}>
                         {Math.round(Number(c.adherence_7d) || 0)}%
@@ -1167,9 +1261,13 @@ export default function ClientList() {
                         <StatusBadge status={c.status_tag} />
                       </td>
                       <td className="px-3 py-3">
-                        <LifecycleBadge status={c.client_status} />
+                        <AccountStatusBadge client={c} />
                       </td>
                       <td className="px-3 py-3 text-right whitespace-nowrap">
+                        <button onClick={e => { e.stopPropagation(); navigate(`/admin/clients/${c.id}`) }}
+                          className="text-xs text-[#E8670A] hover:text-[#c45e09] font-semibold mr-2">
+                          Open
+                        </button>
                         {c.client_status === 'archived' ? (
                           <button onClick={e => reactivateClient(e, c.id)}
                             className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold mr-2">
@@ -1196,7 +1294,6 @@ export default function ClientList() {
           {/* Mobile cards */}
           <div className="lg:hidden space-y-3">
             {filtered.map(c => {
-              const inactive = daysSince(c.last_meal_at ?? c.last_login_at)
               return (
                 <button key={c.id}
                   onClick={() => navigate(`/admin/clients/${c.id}`)}
@@ -1205,23 +1302,21 @@ export default function ClientList() {
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="min-w-0">
                       <p className="font-semibold text-gray-900">
-                        {[c.first_name, c.display_last_name].filter(Boolean).join(' ') || c.email || 'Unknown'}
+                        {clientName(c)}
                       </p>
                       <p className="text-xs text-gray-400 truncate">{c.email}</p>
                     </div>
                     <StatusBadge status={c.status_tag} />
                   </div>
                   <div className="flex items-center gap-2 text-[10px] mb-2 flex-wrap">
-                    <span className={`rounded-full px-2 py-0.5 font-bold border ${
-                      c.coaching_type === 'ai'
-                        ? 'bg-purple-50 text-purple-700 border-purple-200'
-                        : 'bg-orange-50 text-[#E8670A] border-orange-200'
-                    }`}>{c.coaching_type === 'ai' ? 'AI' : 'VIP'}</span>
+                    <span className={`rounded-full px-2 py-0.5 font-bold border ${coachingBadgeClass(c.coaching_type)}`}>
+                      {coachingLabel(c.coaching_type)}
+                    </span>
                     {c.assigned_coach_name && (
                       <span className="text-gray-500">Coach: {c.assigned_coach_name}</span>
                     )}
                     <span className="text-gray-400">
-                      {inactive === null ? 'No activity' : inactive === 0 ? 'Active today' : `${inactive}d ago`}
+                      {formatActivity(c)}
                     </span>
                   </div>
                   <div className="flex gap-4 text-xs">
@@ -1239,7 +1334,7 @@ export default function ClientList() {
                     </div>
                   </div>
                   <div className="mt-3 pt-2 border-t border-gray-100 flex items-center justify-between gap-2">
-                    <LifecycleBadge status={c.client_status} />
+                    <AccountStatusBadge client={c} />
                     <div className="flex gap-3">
                       {c.client_status === 'archived' ? (
                         <span onClick={e => reactivateClient(e, c.id)} className="text-[11px] text-emerald-600 hover:text-emerald-700 font-semibold cursor-pointer">

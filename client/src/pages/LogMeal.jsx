@@ -1129,11 +1129,10 @@ function EditFoodModal({ food, onSave, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center" onClick={onClose}>
+    <div className="mobile-modal-backdrop bg-black/50" onClick={onClose}>
       <form
         onSubmit={submit}
-        className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-sm shadow-xl flex flex-col overflow-hidden"
-        style={{ maxHeight: 'calc(100dvh - 2rem)' }}
+        className="mobile-modal-panel max-w-sm"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -1142,7 +1141,7 @@ function EditFoodModal({ food, onSave, onClose }) {
         </div>
 
         {/* Scrollable body */}
-        <div className="overflow-y-auto flex-1 px-5 pb-4 space-y-3">
+        <div className="mobile-modal-body px-5 pb-4 space-y-3">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Food Name *</label>
             <input type="text" name="food_name" value={form.food_name} onChange={set} required
@@ -1173,10 +1172,7 @@ function EditFoodModal({ food, onSave, onClose }) {
         </div>
 
         {/* Sticky footer */}
-        <div
-          className="shrink-0 flex gap-2 px-5 pt-3 border-t border-gray-100"
-          style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom, 1.25rem))' }}
-        >
+        <div className="mobile-modal-footer flex gap-2">
           <button type="submit" disabled={saving}
             className="flex-1 bg-[#E8670A] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
             {saving ? 'Saving…' : 'Save'}

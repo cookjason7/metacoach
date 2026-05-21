@@ -121,8 +121,8 @@ function SendModal({ form, getToken, onClose, onScheduled }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+    <div className="mobile-modal-backdrop">
+      <div className="mobile-modal-panel max-w-md p-6 overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-gray-900">Send Form</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
@@ -345,8 +345,8 @@ function EditScheduleModal({ schedule, getToken, onClose, onSaved }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+    <div className="mobile-modal-backdrop">
+      <div className="mobile-modal-panel max-w-sm p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-gray-900">Edit Schedule</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
@@ -742,8 +742,8 @@ function AiImportModal({ getToken, onClose, onCreated }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+    <div className="mobile-modal-backdrop">
+      <div className="mobile-modal-panel max-w-lg p-6">
         <div className="flex items-start justify-between mb-4">
           <div>
             <h2 className="text-lg font-bold text-gray-900">Import With AI</h2>
@@ -821,8 +821,8 @@ function CreateModal({ onClose, onCreate }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+    <div className="mobile-modal-backdrop">
+      <div className="mobile-modal-panel max-w-md p-6">
         <h2 className="text-lg font-bold text-gray-900 mb-4">New Form</h2>
         {err && <p className="mb-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{err}</p>}
         <form onSubmit={submit} className="space-y-4">

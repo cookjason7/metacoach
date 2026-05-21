@@ -1,3 +1,43 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer components {
+  .mobile-modal-backdrop {
+    @apply fixed inset-0 z-[70] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4;
+  }
+
+  .mobile-modal-panel {
+    @apply flex w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-2xl;
+    max-height: calc(100dvh - 1rem);
+  }
+
+  .mobile-modal-body {
+    @apply min-h-0 flex-1 overflow-y-auto;
+  }
+
+  .mobile-modal-footer {
+    @apply shrink-0 border-t border-gray-100 bg-white px-5 pt-3;
+    padding-bottom: max(5.75rem, calc(1.25rem + env(safe-area-inset-bottom, 0px)));
+  }
+
+  @media (min-width: 640px) {
+    .mobile-modal-panel {
+      max-height: calc(100dvh - 2rem);
+    }
+
+    .mobile-modal-footer {
+      padding-bottom: 1.25rem;
+    }
+  }
+
+  .mobile-sheet-panel {
+    @apply flex w-full flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl;
+    max-height: calc(100dvh - 1rem);
+  }
+
+  .mobile-sheet-body {
+    @apply min-h-0 flex-1 overflow-y-auto;
+    padding-bottom: max(6rem, calc(1.5rem + env(safe-area-inset-bottom, 0px)));
+  }
+}

@@ -612,8 +612,8 @@ function CoachDashboard({ getToken }) {
           View All Clients
         </Link>
         <Link to="/messages"
-          className="inline-flex items-center gap-1.5 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors">
-          Open Inbox {msgUnread > 0 && <span className="bg-[#E8670A] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{msgUnread}</span>}
+          className="inline-flex items-center gap-1.5 text-gray-500 px-2 py-2 rounded-lg text-sm font-medium hover:text-[#E8670A] transition-colors">
+          Messages {msgUnread > 0 && <span className="bg-[#E8670A] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{msgUnread}</span>}
         </Link>
       </div>
     </div>
@@ -876,11 +876,11 @@ function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
+      className="mobile-modal-backdrop"
       onClick={e => { if (e.target === e.currentTarget) { setMenu(null); onClose() } }}
     >
-      <div className="bg-white w-full max-w-sm rounded-t-2xl sm:rounded-2xl p-5 pb-10 sm:pb-5 shadow-xl">
-        <div className="flex items-center justify-between mb-4">
+      <div className="mobile-modal-panel max-w-sm">
+        <div className="flex items-center justify-between px-5 pt-5 pb-4 shrink-0">
           <h3 className="text-base font-bold text-gray-900">New Photo Set</h3>
           <button
             onClick={onClose}
@@ -888,7 +888,8 @@ function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
           >✕</button>
         </div>
 
-        <div className="grid grid-cols-3 gap-3 mb-5">
+        <div className="mobile-modal-body px-5 pb-5">
+          <div className="grid grid-cols-3 gap-3">
           {ANGLES.map(angle => {
             const preview    = previews[angle]
             const isUploading = uploading === angle
@@ -983,14 +984,17 @@ function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
               </div>
             )
           })}
+          </div>
         </div>
 
-        <button
-          onClick={onClose}
-          className="w-full py-2.5 rounded-xl text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors min-h-[44px]"
-        >
-          {Object.values(uploaded).some(Boolean) ? 'Done' : 'Cancel'}
-        </button>
+        <div className="mobile-modal-footer">
+          <button
+            onClick={onClose}
+            className="w-full py-2.5 rounded-xl text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors min-h-[44px]"
+          >
+            {Object.values(uploaded).some(Boolean) ? 'Done' : 'Cancel'}
+          </button>
+        </div>
       </div>
     </div>
   )
