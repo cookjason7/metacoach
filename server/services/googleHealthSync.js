@@ -196,6 +196,10 @@ export async function syncUser(dbUserId) {
     throw err
   }
 
+  // COALESCE(source, 'manual') ensures any NULL source is treated as 'manual'
+  // (safe / do-not-overwrite). Sync may only write when:
+  //   • the existing value is NULL (nothing there yet), OR
+  //   • source is already a sync-originated value ('fitbit', 'google_health', 'synced')
   const { rows: logRows } = await pool.query(
     `INSERT INTO daily_logs (user_id, logged_date, steps, sleep_minutes, steps_source, sleep_source)
      VALUES ($1, CURRENT_DATE, $2, $3,
@@ -203,26 +207,30 @@ export async function syncUser(dbUserId) {
              CASE WHEN $3::integer IS NULL THEN 'manual' ELSE 'fitbit' END)
      ON CONFLICT (user_id, logged_date) DO UPDATE SET
        steps = CASE
-         WHEN daily_logs.steps IS NULL OR daily_logs.steps_source = 'fitbit'
+         WHEN daily_logs.steps IS NULL
+              OR COALESCE(daily_logs.steps_source, 'manual') IN ('fitbit', 'google_health', 'synced')
            THEN COALESCE(EXCLUDED.steps, daily_logs.steps)
          ELSE daily_logs.steps
        END,
        steps_source = CASE
          WHEN EXCLUDED.steps IS NOT NULL
-              AND (daily_logs.steps IS NULL OR daily_logs.steps_source = 'fitbit')
+              AND (daily_logs.steps IS NULL
+                   OR COALESCE(daily_logs.steps_source, 'manual') IN ('fitbit', 'google_health', 'synced'))
            THEN 'fitbit'
-         ELSE daily_logs.steps_source
+         ELSE COALESCE(daily_logs.steps_source, 'manual')
        END,
        sleep_minutes = CASE
-         WHEN daily_logs.sleep_minutes IS NULL OR daily_logs.sleep_source = 'fitbit'
+         WHEN daily_logs.sleep_minutes IS NULL
+              OR COALESCE(daily_logs.sleep_source, 'manual') IN ('fitbit', 'google_health', 'synced')
            THEN COALESCE(EXCLUDED.sleep_minutes, daily_logs.sleep_minutes)
          ELSE daily_logs.sleep_minutes
        END,
        sleep_source = CASE
          WHEN EXCLUDED.sleep_minutes IS NOT NULL
-              AND (daily_logs.sleep_minutes IS NULL OR daily_logs.sleep_source = 'fitbit')
+              AND (daily_logs.sleep_minutes IS NULL
+                   OR COALESCE(daily_logs.sleep_source, 'manual') IN ('fitbit', 'google_health', 'synced'))
            THEN 'fitbit'
-         ELSE daily_logs.sleep_source
+         ELSE COALESCE(daily_logs.sleep_source, 'manual')
        END
      RETURNING steps, sleep_minutes, steps_source, sleep_source`,
     [dbUserId, steps, sleepMinutes],

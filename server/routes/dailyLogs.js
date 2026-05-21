@@ -66,11 +66,11 @@ router.post('/', requireAuth(), async (req, res, next) => {
          sleep_minutes = COALESCE(EXCLUDED.sleep_minutes, daily_logs.sleep_minutes),
          steps_source = CASE
            WHEN EXCLUDED.steps IS NOT NULL THEN 'manual'
-           ELSE daily_logs.steps_source
+           ELSE COALESCE(daily_logs.steps_source, 'manual')
          END,
          sleep_source = CASE
            WHEN EXCLUDED.sleep_minutes IS NOT NULL THEN 'manual'
-           ELSE daily_logs.sleep_source
+           ELSE COALESCE(daily_logs.sleep_source, 'manual')
          END
        RETURNING water_oz, steps, weight_lbs, sleep_minutes`,
       [dbUserId, water_oz, steps, weight_lbs, sleep_minutes],

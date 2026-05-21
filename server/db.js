@@ -54,6 +54,11 @@ export async function migrate() {
   await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS sleep_minutes INTEGER`)
   await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS steps_source TEXT DEFAULT 'manual'`)
   await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS sleep_source TEXT DEFAULT 'manual'`)
+  // Backfill: any row where steps or sleep has a value but source is NULL
+  // should be treated as manually entered. The DEFAULT handles new rows; this
+  // catches rows created before the column existed or via raw INSERT paths.
+  await pool.query(`UPDATE daily_logs SET steps_source = 'manual' WHERE steps IS NOT NULL AND steps_source IS NULL`)
+  await pool.query(`UPDATE daily_logs SET sleep_source = 'manual' WHERE sleep_minutes IS NOT NULL AND sleep_source IS NULL`)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS fitbit_tokens (
       id               SERIAL PRIMARY KEY,
