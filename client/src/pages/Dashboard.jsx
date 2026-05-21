@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { Link } from 'react-router-dom'
 import { API_URL } from '../config.js'
@@ -343,12 +343,32 @@ function CoachStatCard({ label, value, sub, accent = false, href }) {
   return href ? <Link to={href} className="block hover:opacity-90 transition-opacity">{inner}</Link> : inner
 }
 
+function coachClientName(client) {
+  return [client.first_name, client.display_last_name].filter(Boolean).join(' ') || client.email || 'Unknown'
+}
+
+function coachTypeLabel(type) {
+  if (type === 'ai') return 'AI'
+  if (type === 'hybrid') return 'Hybrid'
+  return 'VIP'
+}
+
+function coachTypeBadge(type) {
+  if (type === 'ai') return 'bg-blue-50 text-blue-700 border-blue-200'
+  if (type === 'hybrid') return 'bg-emerald-50 text-emerald-700 border-emerald-200'
+  return 'bg-orange-50 text-[#E8670A] border-orange-200'
+}
+
 function CoachDashboard({ getToken }) {
   const [clients,      setClients]      = useState([])
   const [msgUnread,    setMsgUnread]    = useState(0)
   const [checkins,     setCheckins]     = useState([])
   const [activity,     setActivity]     = useState([])
   const [loading,      setLoading]      = useState(true)
+  const [clientSearch, setClientSearch] = useState('')
+  const [coachFilter,  setCoachFilter]  = useState('all')
+  const [typeFilter,   setTypeFilter]   = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
 
   useEffect(() => {
     let cancelled = false
@@ -357,7 +377,7 @@ function CoachDashboard({ getToken }) {
         const token   = await getToken()
         const headers = { Authorization: `Bearer ${token}` }
         const [r1, r2, r3] = await Promise.all([
-          fetch(`${API_URL}/api/coach-admin/clients?status=active`, { headers }),
+          fetch(`${API_URL}/api/coach-admin/clients?status=all`, { headers }),
           fetch(`${API_URL}/api/messages/unread-count`,             { headers }),
           fetch(`${API_URL}/api/coach-admin/dashboard-summary`,      { headers }),
         ])
@@ -398,11 +418,74 @@ function CoachDashboard({ getToken }) {
     })
   }
 
-  const needsAttention = clients.filter(c => c.status_tag === 'Needs Attention')
-  const noRecentLogs   = clients.filter(c => {
+  function lastClientActivity(client) {
+    const dates = [client.last_checkin_at, client.last_meal_at, client.last_login_at].filter(Boolean).map(d => new Date(d))
+    if (dates.length === 0) return null
+    return new Date(Math.max(...dates.map(d => d.getTime())))
+  }
+
+  function clientStatus(client) {
+    if (client.client_status === 'invited') return 'invited'
+    if (client.client_status === 'archived') return 'inactive'
+    const last = lastClientActivity(client)
+    if (!last) return 'inactive'
+    return daysSince(last.toISOString()) > 14 ? 'inactive' : 'active'
+  }
+
+  function clientStatusLabel(client) {
+    const status = clientStatus(client)
+    return status.charAt(0).toUpperCase() + status.slice(1)
+  }
+
+  function clientStatusBadge(client) {
+    const status = clientStatus(client)
+    if (status === 'active') return 'bg-emerald-50 text-emerald-700 border-emerald-200'
+    if (status === 'invited') return 'bg-purple-50 text-purple-700 border-purple-200'
+    return 'bg-gray-100 text-gray-600 border-gray-300'
+  }
+
+  function clientActivityLabel(client) {
+    const last = lastClientActivity(client)
+    if (!last) return 'No activity yet'
+    const d = daysSince(last.toISOString())
+    const source = client.last_checkin_at && new Date(client.last_checkin_at).getTime() === last.getTime()
+      ? 'Check-in'
+      : 'Activity'
+    if (d === 0) return `${source} today`
+    if (d === 1) return `${source} yesterday`
+    return `${source} ${d}d ago`
+  }
+
+  const activeClients = clients.filter(c => clientStatus(c) === 'active')
+  const needsAttention = activeClients.filter(c => c.status_tag === 'Needs Attention')
+  const noRecentLogs   = activeClients.filter(c => {
     const d = daysSince(c.last_meal_at)
     return d === null || d > 3
   })
+
+  const coachOptions = useMemo(() => {
+    const seen = new Map()
+    clients.forEach(c => {
+      if (c.assigned_coach_id) seen.set(String(c.assigned_coach_id), c.assigned_coach_name || c.assigned_coach_email || 'Assigned coach')
+    })
+    return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]))
+  }, [clients])
+
+  const filteredClients = useMemo(() => {
+    const q = clientSearch.trim().toLowerCase()
+    return clients
+      .filter(c => {
+        if (coachFilter !== 'all' && String(c.assigned_coach_id ?? '') !== coachFilter) return false
+        if (typeFilter !== 'all' && (c.coaching_type || 'vip') !== typeFilter) return false
+        if (statusFilter !== 'all' && clientStatus(c) !== statusFilter) return false
+        if (q && !`${coachClientName(c)} ${c.email ?? ''}`.toLowerCase().includes(q)) return false
+        return true
+      })
+      .sort((a, b) => {
+        const activityDiff = (lastClientActivity(b)?.getTime() ?? 0) - (lastClientActivity(a)?.getTime() ?? 0)
+        return activityDiff || coachClientName(a).localeCompare(coachClientName(b))
+      })
+  }, [clients, clientSearch, coachFilter, typeFilter, statusFilter])
 
   const adherenceColor = v => {
     const n = Number(v) || 0
@@ -423,7 +506,7 @@ function CoachDashboard({ getToken }) {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <CoachStatCard
           label="Active Clients"
-          value={loading ? '…' : clients.length}
+          value={loading ? '…' : activeClients.length}
           sub="in your roster"
           href="/admin/clients"
         />
@@ -448,6 +531,157 @@ function CoachDashboard({ getToken }) {
           accent={!loading && noRecentLogs.length > 0}
           href="/admin/clients"
         />
+      </div>
+
+      {/* Full client list */}
+      <div id="all-clients" className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+            <div>
+              <p className="text-sm font-semibold text-gray-900">View All Clients</p>
+              <p className="text-xs text-gray-400">{filteredClients.length} of {clients.length} clients</p>
+            </div>
+            <Link
+              to="/admin/clients"
+              className="inline-flex items-center justify-center rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+            >
+              Advanced tools
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+            <input
+              type="text"
+              value={clientSearch}
+              onChange={e => setClientSearch(e.target.value)}
+              placeholder="Search name or email..."
+              className="lg:col-span-2 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+            />
+            <select
+              value={coachFilter}
+              onChange={e => setCoachFilter(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+            >
+              <option value="all">All coaches</option>
+              {coachOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </select>
+            <select
+              value={typeFilter}
+              onChange={e => setTypeFilter(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+            >
+              <option value="all">All coaching</option>
+              <option value="vip">VIP</option>
+              <option value="ai">AI</option>
+              <option value="hybrid">Hybrid</option>
+            </select>
+            <select
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+            >
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="invited">Invited</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+        </div>
+
+        {loading ? (
+          <p className="text-sm text-gray-400 py-8 text-center">Loading clients...</p>
+        ) : filteredClients.length === 0 ? (
+          <div className="px-4 py-8 text-center">
+            <p className="text-sm text-gray-500">No clients match those filters.</p>
+            <button
+              type="button"
+              onClick={() => { setClientSearch(''); setCoachFilter('all'); setTypeFilter('all'); setStatusFilter('all') }}
+              className="mt-2 text-xs font-semibold text-[#E8670A] hover:text-[#c45e09]"
+            >
+              Clear filters
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="hidden lg:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wider">
+                  <tr>
+                    <th className="text-left px-4 py-3 font-semibold">Client</th>
+                    <th className="text-left px-3 py-3 font-semibold">Coach</th>
+                    <th className="text-left px-3 py-3 font-semibold">Type</th>
+                    <th className="text-left px-3 py-3 font-semibold">Status</th>
+                    <th className="text-left px-3 py-3 font-semibold">Last Activity</th>
+                    <th className="text-right px-4 py-3 font-semibold">Profile</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filteredClients.map(client => (
+                    <tr key={client.id} className="hover:bg-orange-50/50 transition-colors">
+                      <td className="px-4 py-3">
+                        <p className="font-semibold text-gray-900">{coachClientName(client)}</p>
+                        <p className="text-xs text-gray-400 truncate max-w-[220px]">{client.email}</p>
+                      </td>
+                      <td className="px-3 py-3 text-xs text-gray-600">{client.assigned_coach_name || 'Unassigned'}</td>
+                      <td className="px-3 py-3">
+                        <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${coachTypeBadge(client.coaching_type)}`}>
+                          {coachTypeLabel(client.coaching_type)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3">
+                        <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${clientStatusBadge(client)}`}>
+                          {clientStatusLabel(client)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-xs text-gray-500">
+                        <span className="block font-medium text-gray-700">{clientActivityLabel(client)}</span>
+                        {client.last_checkin_at && (
+                          <span className="block text-[11px] text-gray-400">
+                            Check-in {fmtShortDate(client.last_checkin_at)}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <Link
+                          to={`/admin/clients/${client.id}`}
+                          className="inline-flex items-center justify-center rounded-lg bg-[#E8670A] px-3 py-2 text-xs font-semibold text-white hover:bg-[#c45e09]"
+                        >
+                          Open
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="lg:hidden divide-y divide-gray-100">
+              {filteredClients.map(client => (
+                <Link
+                  key={client.id}
+                  to={`/admin/clients/${client.id}`}
+                  className="block px-4 py-3 active:bg-orange-50"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{coachClientName(client)}</p>
+                      <p className="text-xs text-gray-400 truncate">{client.email}</p>
+                    </div>
+                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${clientStatusBadge(client)}`}>
+                      {clientStatusLabel(client)}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-gray-500">
+                    <span className={`rounded-full border px-2 py-0.5 font-bold ${coachTypeBadge(client.coaching_type)}`}>
+                      {coachTypeLabel(client.coaching_type)}
+                    </span>
+                    <span>{client.assigned_coach_name ? `Coach: ${client.assigned_coach_name}` : 'Unassigned'}</span>
+                    <span>{clientActivityLabel(client)}</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Clients needing attention */}
@@ -607,10 +841,10 @@ function CoachDashboard({ getToken }) {
 
       {/* Quick links */}
       <div className="flex flex-wrap gap-2 pt-1">
-        <Link to="/admin/clients"
+        <a href="#all-clients"
           className="inline-flex items-center gap-1.5 bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors">
           View All Clients
-        </Link>
+        </a>
         <Link to="/messages"
           className="inline-flex items-center gap-1.5 text-gray-500 px-2 py-2 rounded-lg text-sm font-medium hover:text-[#E8670A] transition-colors">
           Messages {msgUnread > 0 && <span className="bg-[#E8670A] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{msgUnread}</span>}
