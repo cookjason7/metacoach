@@ -460,6 +460,9 @@ export async function migrate() {
   // existing global entries (milk etc.) get retagged automatically.
   await pool.query(`ALTER TABLE custom_foods ADD COLUMN IF NOT EXISTS is_coach_food BOOLEAN DEFAULT FALSE`)
   await pool.query(`ALTER TABLE custom_foods ADD COLUMN IF NOT EXISTS notes TEXT`)
+  await pool.query(`ALTER TABLE custom_foods ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE`)
+  await pool.query(`ALTER TABLE custom_foods ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`)
+  await pool.query(`ALTER TABLE custom_foods ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id) ON DELETE SET NULL`)
 
   // ── Global milk foods ────────────────────────────────────────────────────────
   // Stored per-serving (244 ml = 1 cup). Search query normalises to per-100ml.

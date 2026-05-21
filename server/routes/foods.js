@@ -172,6 +172,7 @@ router.get('/search', requireAuth(), async (req, res, next) => {
        FROM custom_foods cf
        WHERE (cf.is_global = TRUE OR cf.user_id = $1)
          AND cf.food_name ILIKE $2
+         AND COALESCE(cf.is_active, TRUE) = TRUE
        ORDER BY cf.is_coach_food DESC, cf.food_name`,
       [dbUserId, `%${q}%`],
     )
