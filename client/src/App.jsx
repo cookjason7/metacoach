@@ -29,6 +29,7 @@ import FormBuilder from './pages/admin/FormBuilder'
 import FormFill from './pages/FormFill'
 import Terms from './pages/Terms'
 import Privacy from './pages/Privacy'
+import Progress from './pages/Progress'
 import { API_URL } from './config.js'
 
 // Module-level cache: null | { onboardingComplete: bool, paid: bool }
@@ -166,6 +167,7 @@ export default function App() {
           <Route path="/workouts"     element={<Workouts />} />
           <Route path="/badges"       element={<Badges />} />
           <Route path="/settings"     element={<Settings />} />
+          <Route path="/progress"     element={<Progress />} />
           <Route path="/calendar"     element={<Calendar />} />
           <Route path="/messages"     element={<Messages />} />
           <Route path="/weekly-checkin"      element={<Navigate to="/dashboard" replace />} />

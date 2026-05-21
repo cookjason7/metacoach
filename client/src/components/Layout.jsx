@@ -8,6 +8,7 @@ const CLIENT_NAV_ITEMS = [
   { to: '/dashboard',    label: 'Dashboard' },
   { to: '/ai-coach',     label: 'Coach Katie' },
   { to: '/journal',      label: 'Food Log' },
+  { to: '/progress',     label: 'Progress' },
   { to: '/calendar',     label: 'Calendar' },
   { to: '/messages',     label: 'Messages' },
   { to: '/food-list',    label: 'Food List' },

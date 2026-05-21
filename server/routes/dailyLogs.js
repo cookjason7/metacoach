@@ -48,6 +48,120 @@ router.get('/week', requireAuth(), async (req, res, next) => {
   }
 })
 
+// GET /api/daily-logs/progress?range=30d|90d|6m
+router.get('/progress', requireAuth(), async (req, res, next) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId   = await getOrCreateUser(userId)
+    const rangeParam = req.query.range
+    const days       = rangeParam === '90d' ? 90 : rangeParam === '6m' ? 180 : 30
+
+    const md = `COALESCE(log_date, logged_at::date)`
+
+    const [sumR, wtR, stpR, slpR, macR, photoR] = await Promise.all([
+      pool.query(`
+        SELECT
+          (SELECT ROUND(weight_lbs::numeric,1) FROM daily_logs WHERE user_id=$1
+             AND weight_lbs IS NOT NULL AND logged_date >= CURRENT_DATE-$2
+             ORDER BY logged_date ASC LIMIT 1) AS weight_start,
+          (SELECT ROUND(weight_lbs::numeric,1) FROM daily_logs WHERE user_id=$1
+             AND weight_lbs IS NOT NULL
+             ORDER BY logged_date DESC LIMIT 1) AS weight_current,
+          (SELECT goal_calories    FROM users WHERE id=$1) AS goal_calories,
+          (SELECT goal_protein     FROM users WHERE id=$1) AS goal_protein,
+          (SELECT starting_weight_lbs FROM users WHERE id=$1) AS starting_weight_lbs,
+          (SELECT ROUND(AVG(dc)) FROM
+             (SELECT SUM(calories) dc FROM meals WHERE user_id=$1
+                AND ${md} >= CURRENT_DATE-$2 GROUP BY ${md}) t) AS avg_calories,
+          (SELECT ROUND(AVG(dp)::numeric,1) FROM
+             (SELECT SUM(protein) dp FROM meals WHERE user_id=$1
+                AND ${md} >= CURRENT_DATE-$2 GROUP BY ${md}) t) AS avg_protein,
+          (SELECT ROUND(AVG(steps)) FROM daily_logs WHERE user_id=$1
+             AND steps IS NOT NULL AND logged_date >= CURRENT_DATE-$2) AS avg_steps,
+          (SELECT ROUND(AVG(sleep_minutes)) FROM daily_logs WHERE user_id=$1
+             AND sleep_minutes IS NOT NULL AND logged_date >= CURRENT_DATE-$2) AS avg_sleep_minutes,
+          (SELECT COUNT(*)::int FROM workout_logs WHERE user_id=$1
+             AND completed_at >= NOW()-$2*INTERVAL '1 day') AS workouts_completed,
+          (SELECT COUNT(*)::int FROM activity_logs WHERE user_id=$1
+             AND logged_at >= NOW()-$2*INTERVAL '1 day') AS activities_completed,
+          (SELECT ROUND(COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0))
+             FROM meals WHERE user_id=$1 AND ${md} >= CURRENT_DATE-$2) AS total_sodium_mg,
+          (SELECT ROUND(AVG(dns)) FROM
+             (SELECT SUM((micronutrients->>'sodium_mg')::numeric) dns FROM meals WHERE user_id=$1
+                AND ${md} >= CURRENT_DATE-7 GROUP BY ${md}) t) AS avg_sodium_7d
+      `, [dbUserId, days]),
+
+      pool.query(`
+        SELECT logged_date AS date, ROUND(weight_lbs::numeric,1) AS value
+        FROM daily_logs WHERE user_id=$1 AND weight_lbs IS NOT NULL
+          AND logged_date >= CURRENT_DATE-$2
+        ORDER BY logged_date
+      `, [dbUserId, days]),
+
+      pool.query(`
+        SELECT logged_date AS date, steps AS value
+        FROM daily_logs WHERE user_id=$1 AND steps IS NOT NULL
+          AND logged_date >= CURRENT_DATE-$2
+        ORDER BY logged_date
+      `, [dbUserId, days]),
+
+      pool.query(`
+        SELECT logged_date AS date, sleep_minutes AS value
+        FROM daily_logs WHERE user_id=$1 AND sleep_minutes IS NOT NULL
+          AND logged_date >= CURRENT_DATE-$2
+        ORDER BY logged_date
+      `, [dbUserId, days]),
+
+      pool.query(`
+        SELECT ${md} AS date,
+          ROUND(SUM(calories)) AS calories,
+          ROUND(SUM(protein)::numeric,1) AS protein,
+          ROUND(COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0)) AS sodium_mg
+        FROM meals WHERE user_id=$1 AND ${md} >= CURRENT_DATE-$2
+        GROUP BY ${md} ORDER BY ${md}
+      `, [dbUserId, days]),
+
+      pool.query(`
+        SELECT photo_session_id AS session_id, MIN(taken_at) AS session_date,
+          json_agg(json_build_object(
+            'id', id, 'photo_url', photo_url, 'angle', angle, 'taken_at', taken_at
+          ) ORDER BY taken_at) AS photos
+        FROM progress_photos WHERE user_id=$1
+        GROUP BY photo_session_id
+        ORDER BY MIN(taken_at) DESC
+        LIMIT 20
+      `, [dbUserId]),
+    ])
+
+    const summary = { ...sumR.rows[0] }
+    summary.weight_change = (summary.weight_start != null && summary.weight_current != null)
+      ? Math.round((Number(summary.weight_current) - Number(summary.weight_start)) * 10) / 10
+      : null
+    summary.total_activity = (summary.workouts_completed ?? 0) + (summary.activities_completed ?? 0)
+
+    const photoSessions = photoR.rows.map(row => {
+      const byAngle = { front: null, side: null, back: null }
+      for (const p of row.photos) {
+        if (['front', 'side', 'back'].includes(p.angle)) byAngle[p.angle] = p
+      }
+      return { session_id: row.session_id, session_date: row.session_date, photos: byAngle }
+    })
+
+    res.json({
+      range: rangeParam || '30d',
+      days,
+      summary,
+      weight_series: wtR.rows,
+      step_series:   stpR.rows,
+      sleep_series:  slpR.rows,
+      macro_series:  macR.rows,
+      progress_photos: photoSessions,
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
 // POST /api/daily-logs — upsert; only provided fields are written.
 // Sending a field as explicit null (e.g. { steps: null }) is a CLEAR signal:
 // sets the value to null and the source to null so auto-sync can fill it again.

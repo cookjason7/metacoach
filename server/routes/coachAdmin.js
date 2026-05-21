@@ -774,7 +774,8 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
                  AND logged_date >= CURRENT_DATE-30 ORDER BY logged_date`
       mac_q = `SELECT ${md} AS date,
                  ROUND(SUM(calories)) AS calories, ROUND(SUM(protein)::numeric,1) AS protein,
-                 ROUND(SUM(carbs)::numeric,1) AS carbs, ROUND(SUM(fat)::numeric,1) AS fat
+                 ROUND(SUM(carbs)::numeric,1) AS carbs, ROUND(SUM(fat)::numeric,1) AS fat,
+                 ROUND(COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0)) AS sodium_mg
                FROM meals WHERE user_id=$1 AND ${md} >= CURRENT_DATE-30
                GROUP BY ${md} ORDER BY ${md}`
       stp_q = `SELECT logged_date AS date, steps AS value
@@ -799,9 +800,11 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
                GROUP BY 1 ORDER BY 1`
       mac_q = `SELECT DATE_TRUNC('week', d)::date AS date,
                  ROUND(AVG(cal)) AS calories, ROUND(AVG(prot)::numeric,1) AS protein,
-                 ROUND(AVG(crb)::numeric,1) AS carbs, ROUND(AVG(ft)::numeric,1) AS fat
+                 ROUND(AVG(crb)::numeric,1) AS carbs, ROUND(AVG(ft)::numeric,1) AS fat,
+                 ROUND(AVG(sod), 0) AS sodium_mg
                FROM (SELECT ${md} AS d, SUM(calories) cal, SUM(protein) prot,
-                       SUM(carbs) crb, SUM(fat) ft
+                       SUM(carbs) crb, SUM(fat) ft,
+                       COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0) sod
                      FROM meals WHERE user_id=$1 AND ${md} >= CURRENT_DATE-84 GROUP BY d) t
                GROUP BY 1 ORDER BY 1`
       stp_q = `SELECT DATE_TRUNC('week', logged_date)::date AS date, ROUND(AVG(steps)) AS value
@@ -828,9 +831,11 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
                GROUP BY 1 ORDER BY 1`
       mac_q = `SELECT DATE_TRUNC('month', d)::date AS date,
                  ROUND(AVG(cal)) AS calories, ROUND(AVG(prot)::numeric,1) AS protein,
-                 ROUND(AVG(crb)::numeric,1) AS carbs, ROUND(AVG(ft)::numeric,1) AS fat
+                 ROUND(AVG(crb)::numeric,1) AS carbs, ROUND(AVG(ft)::numeric,1) AS fat,
+                 ROUND(AVG(sod), 0) AS sodium_mg
                FROM (SELECT ${md} AS d, SUM(calories) cal, SUM(protein) prot,
-                       SUM(carbs) crb, SUM(fat) ft
+                       SUM(carbs) crb, SUM(fat) ft,
+                       COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0) sod
                      FROM meals WHERE user_id=$1 AND ${md} >= CURRENT_DATE-180 GROUP BY d) t
                GROUP BY 1 ORDER BY 1`
       stp_q = `SELECT DATE_TRUNC('month', logged_date)::date AS date, ROUND(AVG(steps)) AS value
@@ -853,7 +858,8 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
                GROUP BY 1 ORDER BY 1`
     }
 
-    // ── Summary always from last 30 days ──────────────────────────────────────
+    // ── Summary — core metrics from last 30 days, sodium follows the range ──────
+    const rangeDays = range === 'daily' ? 30 : range === 'weekly' ? 84 : 180
     const sum_q = `
       SELECT
         (SELECT ROUND(weight_lbs::numeric,1) FROM daily_logs WHERE user_id=$1
@@ -875,10 +881,15 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
         (SELECT COUNT(*)::int FROM workout_logs WHERE user_id=$1
            AND completed_at >= NOW()-INTERVAL '30 days') AS workouts_completed,
         (SELECT COUNT(DISTINCT ${md})::int FROM meals WHERE user_id=$1
-           AND ${md} >= CURRENT_DATE-30) AS logged_day_count`
+           AND ${md} >= CURRENT_DATE-30) AS logged_day_count,
+        (SELECT ROUND(COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0))
+           FROM meals WHERE user_id=$1 AND ${md} >= CURRENT_DATE-$2) AS total_sodium_mg,
+        (SELECT ROUND(AVG(dns)) FROM
+           (SELECT SUM((micronutrients->>'sodium_mg')::numeric) dns FROM meals WHERE user_id=$1
+              AND ${md} >= CURRENT_DATE-$2 GROUP BY ${md}) t) AS avg_sodium_mg`
 
     const [sumR, wtR, macR, stpR, slpR, wkoR, chkR, photoR] = await Promise.all([
-      pool.query(sum_q, [id]),
+      pool.query(sum_q, [id, rangeDays]),
       pool.query(wt_q,  [id]),
       pool.query(mac_q, [id]),
       pool.query(stp_q, [id]),
