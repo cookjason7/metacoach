@@ -828,14 +828,26 @@ function ProgressPhotosCard({ sessions, getToken, onUploaded, onNewSession, late
 // ── New-session upload modal ──────────────────────────────────────────────────
 
 function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
-  const [uploading, setUploading] = useState(null)
-  const [done,      setDone]      = useState({ front: false, side: false, back: false })
-  const frontRef = useRef(null)
-  const sideRef  = useRef(null)
-  const backRef  = useRef(null)
-  const inputRefs = { front: frontRef, side: sideRef, back: backRef }
+  const [uploading, setUploading] = useState(null)   // angle currently uploading
+  const [previews,  setPreviews]  = useState({ front: null, side: null, back: null })
+  const [uploaded,  setUploaded]  = useState({ front: false, side: false, back: false })
+  const [menu,      setMenu]      = useState(null)   // angle whose picker is open
+
+  // Individual refs required by React hook rules — one camera + one gallery per angle
+  const frontCamRef = useRef(null)
+  const frontGalRef = useRef(null)
+  const sideCamRef  = useRef(null)
+  const sideGalRef  = useRef(null)
+  const backCamRef  = useRef(null)
+  const backGalRef  = useRef(null)
+  const camRefs = { front: frontCamRef, side: sideCamRef, back: backCamRef }
+  const galRefs = { front: frontGalRef, side: sideGalRef, back: backGalRef }
 
   async function handleFile(angle, file) {
+    setMenu(null)
+    // Show local preview immediately so the user sees their selection
+    const previewUrl = URL.createObjectURL(file)
+    setPreviews(p => ({ ...p, [angle]: previewUrl }))
     setUploading(angle)
     try {
       const token = await getToken()
@@ -850,19 +862,24 @@ function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
       })
       if (res.ok) {
         onUploaded(await res.json())
-        setDone(d => ({ ...d, [angle]: true }))
+        setUploaded(u => ({ ...u, [angle]: true }))
       }
     } finally {
       setUploading(null)
     }
   }
 
+  function openMenu(angle) {
+    if (uploading) return
+    setMenu(prev => prev === angle ? null : angle)
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+      onClick={e => { if (e.target === e.currentTarget) { setMenu(null); onClose() } }}
     >
-      <div className="bg-white w-full max-w-sm rounded-t-2xl sm:rounded-2xl p-5 pb-8 sm:pb-5 shadow-xl">
+      <div className="bg-white w-full max-w-sm rounded-t-2xl sm:rounded-2xl p-5 pb-10 sm:pb-5 shadow-xl">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-bold text-gray-900">New Photo Set</h3>
           <button
@@ -870,46 +887,109 @@ function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
             className="text-gray-400 hover:text-gray-600 text-lg leading-none min-h-[44px] min-w-[44px] flex items-center justify-center"
           >✕</button>
         </div>
-        <p className="text-xs text-gray-500 mb-4">
-          Add front, side, and back photos. You can skip angles — partial sets save safely.
-        </p>
+
         <div className="grid grid-cols-3 gap-3 mb-5">
-          {ANGLES.map(angle => (
-            <div key={angle} className="text-center">
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5 capitalize">{angle}</p>
-              <div
-                onClick={() => !uploading && inputRefs[angle].current?.click()}
-                className={`w-full aspect-[3/4] rounded-xl overflow-hidden cursor-pointer border-2 flex items-center justify-center transition-all ${
-                  done[angle]
-                    ? 'border-emerald-400 bg-emerald-50'
-                    : uploading === angle
-                      ? 'border-gray-200 bg-gray-50'
-                      : 'border-dashed border-gray-300 bg-gray-50 hover:border-[#E8670A] hover:bg-[#fff7ed]'
-                }`}
-              >
-                {done[angle] ? (
-                  <span className="text-emerald-500 text-xl">✓</span>
-                ) : uploading === angle ? (
-                  <span className="text-[10px] text-gray-400">Uploading…</span>
-                ) : (
-                  <span className="text-[10px] text-gray-400 px-1 text-center leading-snug">Tap to add</span>
-                )}
+          {ANGLES.map(angle => {
+            const preview    = previews[angle]
+            const isUploading = uploading === angle
+            const isDone     = uploaded[angle]
+            const menuOpen   = menu === angle
+
+            return (
+              <div key={angle} className="text-center">
+                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5 capitalize">
+                  {angle}
+                </p>
+
+                {/* Photo slot */}
+                <div
+                  onClick={() => !preview && !isUploading && openMenu(angle)}
+                  className={`w-full aspect-[3/4] rounded-xl overflow-hidden border-2 relative flex items-center justify-center transition-all ${
+                    preview
+                      ? 'border-gray-200 cursor-default'
+                      : menuOpen
+                        ? 'border-[#E8670A] bg-[#fff7ed] cursor-pointer'
+                        : isUploading
+                          ? 'border-gray-200 bg-gray-50 cursor-default'
+                          : 'border-dashed border-gray-300 bg-gray-50 hover:border-[#E8670A] hover:bg-[#fff7ed] cursor-pointer'
+                  }`}
+                >
+                  {preview ? (
+                    /* Preview image fills the slot */
+                    <>
+                      <img src={preview} alt={angle} className="w-full h-full object-cover" />
+                      {isUploading && (
+                        <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+                          <span className="text-[10px] font-semibold text-white">Uploading…</span>
+                        </div>
+                      )}
+                      {isDone && !isUploading && (
+                        <div className="absolute top-1.5 right-1.5 w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center shadow">
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        </div>
+                      )}
+                    </>
+                  ) : menuOpen ? (
+                    /* Inline Camera / Gallery picker */
+                    <div
+                      className="w-full h-full flex flex-col gap-2 items-center justify-center p-2"
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <button
+                        onClick={() => { camRefs[angle].current?.click() }}
+                        className="w-full flex items-center justify-center gap-1.5 bg-gray-900 text-white text-[11px] font-semibold py-2 rounded-lg min-h-[36px] active:bg-gray-700"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Camera
+                      </button>
+                      <button
+                        onClick={() => { galRefs[angle].current?.click() }}
+                        className="w-full flex items-center justify-center gap-1.5 bg-gray-100 text-gray-700 text-[11px] font-semibold py-2 rounded-lg min-h-[36px] active:bg-gray-200"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        Gallery
+                      </button>
+                    </div>
+                  ) : isUploading ? (
+                    <span className="text-[10px] text-gray-400">Uploading…</span>
+                  ) : (
+                    <span className="text-[10px] text-gray-400 px-1 text-center leading-snug">Tap to add</span>
+                  )}
+                </div>
+
+                {/* Hidden inputs: camera (with capture) and gallery (without) */}
+                <input
+                  ref={camRefs[angle]}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={e => { if (e.target.files[0]) handleFile(angle, e.target.files[0]); e.target.value = '' }}
+                />
+                <input
+                  ref={galRefs[angle]}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={e => { if (e.target.files[0]) handleFile(angle, e.target.files[0]); e.target.value = '' }}
+                />
               </div>
-              <input
-                ref={inputRefs[angle]}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={e => e.target.files[0] && handleFile(angle, e.target.files[0])}
-              />
-            </div>
-          ))}
+            )
+          })}
         </div>
+
         <button
           onClick={onClose}
           className="w-full py-2.5 rounded-xl text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors min-h-[44px]"
         >
-          {Object.values(done).some(Boolean) ? 'Done' : 'Cancel'}
+          {Object.values(uploaded).some(Boolean) ? 'Done' : 'Cancel'}
         </button>
       </div>
     </div>
