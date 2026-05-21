@@ -71,12 +71,22 @@ function uploadToCloud(buffer, mimetype) {
 
 async function extractText(buffer, mimetype) {
   if (mimetype === 'application/pdf') {
+    let parser
     try {
-      const pdfParse = require('pdf-parse')
-      const data = await pdfParse(buffer)
-      const text = data.text?.trim()
+      // pdf-parse v2 exports a PDFParse class, not a function.
+      // Previous code called require('pdf-parse')(buffer) which throws
+      // "not a function" — silently caught, giving every PDF "No text extracted."
+      const { PDFParse } = require('pdf-parse')
+      parser = new PDFParse({ data: buffer })
+      const result = await parser.getText()
+      const text = result.text?.trim()
       return text?.length > 30 ? text : null
-    } catch { return null }
+    } catch (err) {
+      console.error('[bloodwork] PDF text extraction failed:', err?.message ?? err)
+      return null
+    } finally {
+      try { await parser?.destroy() } catch { /* ignore cleanup errors */ }
+    }
   }
   if (mimetype.startsWith('image/')) {
     try {
