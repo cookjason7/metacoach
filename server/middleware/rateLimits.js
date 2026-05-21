@@ -65,3 +65,12 @@ export const labelScanLimit = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many label scans. Please wait a bit and try again.' },
 })
+
+export const bloodworkUploadLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  keyGenerator,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many bloodwork uploads. Please wait a bit and try again.' },
+})

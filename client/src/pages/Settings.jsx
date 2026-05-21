@@ -199,6 +199,157 @@ const EMPTY_ASSESSMENT = {
   activity_level: '',
 }
 
+const BLOODWORK_CLIENT_ENABLED = import.meta.env.VITE_BLOODWORK_CLIENT_ENABLED === 'true'
+
+function BloodworkSection({ getToken }) {
+  const [uploads, setUploads] = useState([])
+  const [loadingList, setLoadingList] = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const [file, setFile] = useState(null)
+  const [labDate, setLabDate] = useState('')
+  const [notes, setNotes] = useState('')
+  const [uploadError, setUploadError] = useState(null)
+  const fileRef = useRef(null)
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/bloodwork`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.ok) setUploads(await res.json())
+      } finally { setLoadingList(false) }
+    }
+    load()
+  }, [getToken])
+
+  async function handleUpload(e) {
+    e.preventDefault()
+    if (!file) return
+    setUploading(true)
+    setUploadError(null)
+    try {
+      const token = await getToken()
+      const body = new FormData()
+      body.append('file', file)
+      if (labDate) body.append('lab_date', labDate)
+      if (notes.trim()) body.append('notes', notes.trim())
+      const res = await fetch(`${API_URL}/api/bloodwork`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body,
+      })
+      const data = await res.json()
+      if (!res.ok) { setUploadError(data.error ?? 'Upload failed.'); return }
+      setUploads(prev => [data, ...prev])
+      setFile(null)
+      setLabDate('')
+      setNotes('')
+      if (fileRef.current) fileRef.current.value = ''
+    } catch { setUploadError('Upload failed. Please try again.') }
+    finally { setUploading(false) }
+  }
+
+  async function viewFile(id) {
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/bloodwork/${id}/file`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const { url } = await res.json()
+        window.open(url, '_blank', 'noopener,noreferrer')
+      }
+    } catch { /* silent */ }
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return null
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-5 mb-8">
+      <p className="text-sm font-semibold text-gray-800 mb-1">Upload Lab Results</p>
+      <p className="text-xs text-gray-500 mb-4">PDF, JPG, PNG, or WEBP. Max 20 MB. Your coach will be able to review and provide an AI-assisted educational summary.</p>
+
+      <form onSubmit={handleUpload} className="space-y-3 mb-6">
+        <div>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".pdf,.jpg,.jpeg,.png,.webp"
+            className="hidden"
+            onChange={e => setFile(e.target.files[0] ?? null)}
+          />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="w-full py-2.5 rounded-lg border-2 border-dashed border-gray-300 text-sm text-gray-600 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors bg-gray-50"
+          >
+            {file ? file.name : 'Choose file…'}
+          </button>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Lab date (optional)</label>
+          <input
+            type="date"
+            value={labDate}
+            onChange={e => setLabDate(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full max-w-[200px] focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Notes (optional)</label>
+          <textarea
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            rows={2}
+            placeholder="e.g. fasting labs, thyroid panel"
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full resize-none focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]"
+          />
+        </div>
+        {uploadError && <p className="text-xs text-red-500">{uploadError}</p>}
+        <button
+          type="submit"
+          disabled={uploading || !file}
+          className="w-full py-2.5 rounded-lg text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors disabled:opacity-50"
+        >
+          {uploading ? 'Uploading…' : 'Upload'}
+        </button>
+      </form>
+
+      <p className="text-xs font-semibold text-gray-700 mb-2">Past uploads</p>
+      {loadingList ? (
+        <p className="text-xs text-gray-400">Loading…</p>
+      ) : uploads.length === 0 ? (
+        <p className="text-xs text-gray-400">No bloodwork uploaded yet.</p>
+      ) : (
+        <ul className="space-y-2">
+          {uploads.map(u => (
+            <li key={u.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-gray-800 truncate">{u.original_filename}</p>
+                {u.lab_date && <p className="text-[11px] text-gray-400">{fmtDate(u.lab_date)}</p>}
+                {!u.has_text && (
+                  <p className="text-[10px] text-amber-600 mt-0.5">Could not extract readable lab text from this file. Please upload a clearer image or text-based PDF.</p>
+                )}
+              </div>
+              <button
+                onClick={() => viewFile(u.id)}
+                className="shrink-0 text-xs font-medium text-[#E8670A] hover:text-[#c45e09]"
+              >
+                View
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 export default function Settings() {
   const { getToken }   = useAuth()
   const { user }       = useUser()
@@ -958,6 +1109,13 @@ export default function Settings() {
               Edit Health Profile
             </a>
           </div>
+
+          {BLOODWORK_CLIENT_ENABLED && (
+            <>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">Bloodwork</h2>
+              <BloodworkSection getToken={getToken} />
+            </>
+          )}
 
           {/* Measurements */}
           <h2 className="text-sm font-semibold text-gray-700 mb-3">Measurements</h2>

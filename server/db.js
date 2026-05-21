@@ -1048,6 +1048,26 @@ export async function migrate() {
     )
   `)
 
+  // ── Bloodwork uploads ─────────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bloodwork_uploads (
+      id                    SERIAL PRIMARY KEY,
+      user_id               INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      cloudinary_public_id  TEXT NOT NULL,
+      original_filename     TEXT,
+      mime_type             TEXT,
+      lab_date              DATE,
+      notes                 TEXT,
+      extracted_text        TEXT,
+      ai_summary            TEXT,
+      status                TEXT NOT NULL DEFAULT 'active',
+      deleted               BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at            TIMESTAMPTZ DEFAULT NOW(),
+      updated_at            TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_bloodwork_user_date ON bloodwork_uploads (user_id, lab_date DESC, created_at DESC)`)
+
   // ── Remove old onboarding gate — mark all users as onboarding_complete ──────
   // The multi-step onboarding form (name/gender/age/height/weight) is removed.
   // New post-signup flow is: Health Assessment → Identity Traits → Enter app.

@@ -12,6 +12,7 @@ const TABS = [
   { id: 'notes',       label: 'Notes',     icon: '✎' },
   { id: 'messaging',   label: 'Messages',  icon: '✉' },
   { id: 'engagement',  label: 'Engagement', icon: '⚡' },
+  { id: 'bloodwork',   label: 'Bloodwork', icon: '🩸' },
 ]
 
 const MOMENTUM_COLORS = {
@@ -3001,6 +3002,158 @@ function EngagementTab({ clientId, getToken }) {
   )
 }
 
+// ─── Bloodwork Tab ────────────────────────────────────────────────────────────
+
+function BloodworkTab({ clientId, getToken }) {
+  const [uploads, setUploads] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [summarizingId, setSummarizingId] = useState(null)
+  const [deletingId, setDeletingId] = useState(null)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/bloodwork/staff/${clientId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok) throw new Error(`Server ${res.status}`)
+        setUploads(await res.json())
+      } catch (err) { setError(err.message) }
+      finally { setLoading(false) }
+    }
+    load()
+  }, [clientId, getToken])
+
+  async function viewFile(id) {
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/bloodwork/${id}/file`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const { url } = await res.json()
+        window.open(url, '_blank', 'noopener,noreferrer')
+      }
+    } catch { /* silent */ }
+  }
+
+  async function summarize(id) {
+    setSummarizingId(id)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/bloodwork/${id}/summarize`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json()
+      if (!res.ok) { alert(data.error ?? 'Summary failed.'); return }
+      setUploads(prev => prev.map(u => u.id === id ? { ...u, ai_summary: data.ai_summary } : u))
+    } catch { alert('Summary failed. Please try again.') }
+    finally { setSummarizingId(null) }
+  }
+
+  async function softDelete(id) {
+    if (!window.confirm('Remove this bloodwork upload? This cannot be undone.')) return
+    setDeletingId(id)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/bloodwork/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) setUploads(prev => prev.filter(u => u.id !== id))
+    } catch { /* silent */ }
+    finally { setDeletingId(null) }
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return null
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
+  if (loading) return <p className="text-sm text-gray-400 py-8 text-center">Loading bloodwork…</p>
+  if (error) return <p className="text-sm text-red-500 py-6">{error}</p>
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white border border-gray-200 rounded-xl p-4">
+        <p className="text-sm font-semibold text-gray-700 mb-1">Client Bloodwork</p>
+        <p className="text-xs text-gray-500">Uploads are made by the client from their Settings page. Use Generate AI Summary to produce an educational functional-health interpretation.</p>
+      </div>
+
+      {uploads.length === 0 ? (
+        <div className="bg-white border border-gray-200 rounded-xl p-6 text-center">
+          <p className="text-sm text-gray-400">No bloodwork uploaded for this client.</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {uploads.map(u => (
+            <div key={u.id} className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+              {/* Header row */}
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{u.original_filename}</p>
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                    {u.lab_date && <span className="text-xs text-gray-500">{fmtDate(u.lab_date)}</span>}
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${u.has_text ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                      {u.has_text ? 'Text extracted' : 'No text extracted'}
+                    </span>
+                  </div>
+                  {u.notes && <p className="text-xs text-gray-500 mt-1 italic">{u.notes}</p>}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => viewFile(u.id)}
+                    className="text-xs font-medium text-[#E8670A] hover:text-[#c45e09] px-2 py-1 rounded border border-[#E8670A]/30 hover:border-[#E8670A] transition-colors"
+                  >
+                    View
+                  </button>
+                  <button
+                    onClick={() => softDelete(u.id)}
+                    disabled={deletingId === u.id}
+                    className="text-xs font-medium text-gray-400 hover:text-red-500 px-2 py-1 rounded border border-gray-200 hover:border-red-200 transition-colors disabled:opacity-40"
+                  >
+                    {deletingId === u.id ? '…' : 'Delete'}
+                  </button>
+                </div>
+              </div>
+
+              {/* AI Summary section */}
+              {u.ai_summary ? (
+                <div className="rounded-lg bg-blue-50 border border-blue-100 p-3">
+                  <p className="text-[10px] font-semibold text-blue-600 uppercase tracking-wide mb-2">AI Educational Summary</p>
+                  <div className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">{u.ai_summary}</div>
+                  <p className="text-[10px] text-gray-400 mt-3 italic">Educational only. Not medical advice. Not a diagnosis.</p>
+                </div>
+              ) : (
+                <div>
+                  {u.has_text ? (
+                    <button
+                      onClick={() => summarize(u.id)}
+                      disabled={summarizingId === u.id}
+                      className="w-full py-2 rounded-lg text-xs font-semibold bg-[#1e2a3a] text-white hover:bg-[#243347] transition-colors disabled:opacity-50"
+                    >
+                      {summarizingId === u.id ? 'Generating AI summary…' : 'Generate AI Summary'}
+                    </button>
+                  ) : (
+                    <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                      Could not extract readable lab text from this file. Please ask the client to upload a clearer image or a text-based PDF.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main ClientProfile shell ─────────────────────────────────────────────────
 
 export default function ClientProfile() {
@@ -3089,6 +3242,7 @@ export default function ClientProfile() {
       {tab === 'notes'      && <NotesTab       clientId={client.id} role={meRole} getToken={getToken} />}
       {tab === 'messaging'  && <MessagingTab   client={client} role={meRole} getToken={getToken} />}
       {tab === 'engagement' && <EngagementTab  clientId={client.id} getToken={getToken} />}
+      {tab === 'bloodwork'  && <BloodworkTab   clientId={client.id} getToken={getToken} />}
     </div>
   )
 }

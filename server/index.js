@@ -30,6 +30,7 @@ import mindsetVideosRouter from './routes/mindsetVideos.js'
 import communityResourcesRouter from './routes/communityResources.js'
 import stripeRouter from './routes/stripe.js'
 import fitbitRouter from './routes/fitbit.js'
+import bloodworkRouter from './routes/bloodwork.js'
 import { runInactivityAlert } from './jobs/inactivityAlert.js'
 import { processFormSchedules } from './jobs/formScheduler.js'
 import { runPostgresBackup, runCloudinaryBackup, getBackupStatus } from './jobs/backup.js'
@@ -81,6 +82,7 @@ app.use('/api/measurements',     clerkMiddleware(), measurementsRouter)
 app.use('/api/mindset-videos',        clerkMiddleware(), mindsetVideosRouter)
 app.use('/api/community-resources',   clerkMiddleware(), communityResourcesRouter)
 app.use('/api/fitbit',                fitbitRouter)
+app.use('/api/bloodwork',             clerkMiddleware(), bloodworkRouter)
 
 // Admin backup status — admin-only, no sensitive data exposed
 app.get('/api/admin/backup/status', clerkMiddleware(), async (req, res) => {
