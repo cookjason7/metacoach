@@ -41,12 +41,16 @@ async function checkAdmin(req, res) {
   return dbUserId
 }
 
+function normalizeChannel(ct) {
+  return (ct === 'ai' || ct === 'hybrid') ? 'ai' : 'vip'
+}
+
 async function getUserContext(userId) {
   const dbUserId = await getOrCreateUser(userId)
   const { rows } = await pool.query('SELECT role, coaching_type FROM users WHERE id = $1', [dbUserId])
   const row = rows[0] ?? {}
   const isStaff = row.role === 'admin' || row.role === 'coach'
-  const channel = row.coaching_type ?? 'vip'
+  const channel = normalizeChannel(row.coaching_type)
   return { dbUserId, isStaff, channel, role: row.role }
 }
 

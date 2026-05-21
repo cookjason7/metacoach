@@ -47,6 +47,10 @@ const REACTIONS = [
 
 const CATEGORIES = ['General Discussion', 'Non-Scale Victories']
 
+function normalizeChannel(ct) {
+  return (ct === 'ai' || ct === 'hybrid') ? 'ai' : 'vip'
+}
+
 const CATEGORY_STYLES = {
   'General Discussion':  'bg-gray-100 text-gray-600 border-gray-200',
   'Announcements':       'bg-amber-50 text-amber-700 border-amber-200',
@@ -2110,7 +2114,7 @@ export default function Community() {
         if (!res.ok) return
         const data = await res.json()
         const staff = data.role === 'admin' || data.role === 'coach'
-        const ch    = data.coaching_type ?? 'vip'
+        const ch    = normalizeChannel(data.coaching_type)
         setIsAdmin(data.role === 'admin')
         setIsStaff(staff)
         setClientChannel(ch)
