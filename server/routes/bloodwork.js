@@ -155,6 +155,11 @@ Do not list abnormal labs like a receipt. Group related markers into patterns an
 
 Connect markers clearly. Explain what may be driving what.
 
+SPECIAL CALCULATION RULES:
+• HOMA-IR: Do NOT calculate or report HOMA-IR for any client with Type 1 diabetes, documented beta cell failure, or any condition that makes endogenous insulin measurement invalid. If the client context mentions T1D or beta cell failure, skip HOMA-IR entirely and explain why.
+• Hormone/medication effects: If the client is on hormones (e.g., testosterone, estrogen, progesterone, thyroid hormone) or medications known to affect lab values, flag this BEFORE interpreting any affected marker. State clearly: "Interpretation is limited because this marker is significantly affected by [hormone/medication] and the current dose and draw timing are not available." Do not interpret affected markers as if the client were unmedicated.
+• Medications not collected: Client medication data is not collected in this app version. If any lab pattern strongly suggests a medication effect (e.g., suppressed LH/FSH with high testosterone, unusual thyroid pattern), note the possibility and recommend confirming medication list with a provider before drawing conclusions.
+
 ══════════════════════════════════════════════════
 STEP 3 — GENERATE THE REPORT IN TWO LAYERS
 ══════════════════════════════════════════════════
@@ -171,6 +176,7 @@ Avoid these terms in Layer 1: biomarker, aromatization, exogenous, suppressed, e
 --- LAYER 2: CLINICAL DETAIL ---
 Write for a health-literate adult. Include:
 • Specific lab values and their reference ranges (conventional and functional/optimal where relevant — label each clearly)
+• When citing a non-standard or functional medicine range, always label it exactly as: "Functional Medicine Target (not universally standardized)" — never present it as an established lab standard.
 • Trends: improving / worsening / stable (when previous values are available)
 • Connected marker patterns and what they suggest together
 • What may be driving the pattern (upstream causes)
@@ -203,6 +209,19 @@ After the table, add a "Proactive Flags" section. For each flag:
 • State what type of provider should review it (e.g., primary care, endocrinologist, cardiologist, functional medicine provider).
 • Do not create fear — explain, don't alarm.
 • If any marker is severely out of range or potentially urgent, recommend timely provider evaluation without delay.
+
+══════════════════════════════════════════════════
+STEP 6 — COMPLETION CHECK (internal — do not print this section header)
+══════════════════════════════════════════════════
+Before submitting the report, silently verify all of the following. If any check fails, fix it before outputting:
+□ Layer 1 simple summary is present and written at a 5th-grade reading level.
+□ Layer 2 clinical detail is present with specific values, reference ranges, and trend notes where available.
+□ Recommendations table is complete — all four columns filled for every row.
+□ Every table row has exactly one Confidence label (Widely Supported / Based on Available Evidence / Emerging / Limited Evidence).
+□ No supplement in the table is already listed in the client's supplement stack from context.
+□ The verbatim disclaimer is the absolute final line of the report.
+□ The report does not end mid-sentence, mid-table, or mid-section.
+□ No section is duplicated.
 
 ══════════════════════════════════════════════════
 ACCURACY RULES (apply throughout)
@@ -279,7 +298,9 @@ async function buildClientContext(userId) {
   try {
     const [uR, haR, weightR, prevR] = await Promise.all([
       pool.query(
-        `SELECT gender, coaching_type, start_date FROM users WHERE id = $1`,
+        `SELECT gender, coaching_type, start_date,
+                height_inches, age, starting_weight_lbs, goal_weight_lbs
+         FROM users WHERE id = $1`,
         [userId],
       ),
       pool.query(
@@ -310,26 +331,52 @@ async function buildClientContext(userId) {
 
     const lines = []
 
+    // Age: prefer health_assessment DOB (more precise); fall back to users.age
     if (ha.date_of_birth) {
       const age = Math.floor((Date.now() - new Date(ha.date_of_birth)) / 31_557_600_000)
       lines.push(`Age: ${age}`)
+    } else if (u.age) {
+      lines.push(`Age: ${u.age}`)
     } else {
       lines.push('Age: not provided')
     }
 
     lines.push(`Sex/Gender: ${u.gender ?? 'not provided'}`)
 
-    if (wt) lines.push(`Recent weight: ${wt.weight_lbs} lbs (${String(wt.logged_date).slice(0, 10)})`)
-    else     lines.push('Recent weight: not provided')
+    // Height
+    if (u.height_inches) {
+      const ft = Math.floor(u.height_inches / 12)
+      const inch = Math.round(u.height_inches % 12)
+      lines.push(`Height: ${ft}'${inch}" (${u.height_inches} inches)`)
+    } else {
+      lines.push('Height: not provided')
+    }
 
-    if (u.coaching_type) lines.push(`Coaching type: ${u.coaching_type}`)
-    if (u.start_date)    lines.push(`Program start: ${String(u.start_date).slice(0, 10)}`)
+    // Weight + BMI
+    const recentWeight = wt?.weight_lbs ? Number(wt.weight_lbs) : null
+    if (recentWeight) {
+      lines.push(`Recent weight: ${recentWeight} lbs (${String(wt.logged_date).slice(0, 10)})`)
+      if (u.height_inches) {
+        const bmi = ((recentWeight / (u.height_inches ** 2)) * 703).toFixed(1)
+        lines.push(`Calculated BMI: ${bmi}`)
+      }
+    } else if (u.starting_weight_lbs) {
+      lines.push(`Starting weight (no recent log): ${u.starting_weight_lbs} lbs`)
+    } else {
+      lines.push('Weight: not provided')
+    }
+
+    if (u.starting_weight_lbs) lines.push(`Starting weight: ${u.starting_weight_lbs} lbs`)
+    if (u.goal_weight_lbs)     lines.push(`Goal weight: ${u.goal_weight_lbs} lbs`)
+    if (u.coaching_type)       lines.push(`Coaching type: ${u.coaching_type}`)
+    if (u.start_date)          lines.push(`Program start: ${String(u.start_date).slice(0, 10)}`)
 
     lines.push(`Goals (6-month): ${ha.goals_6_months ?? 'not provided'}`)
 
-    if (ha.injuries_limitations) lines.push(`Health history / limitations: ${ha.injuries_limitations}`)
+    if (ha.injuries_limitations) lines.push(`Health history / limitations / diagnoses (self-reported): ${ha.injuries_limitations}`)
 
     lines.push(`Current supplements (self-reported): ${ha.supplements ?? 'not provided'}`)
+    lines.push('Current medications / hormones: NOT COLLECTED — client has not entered this data in the app. Do not assume absent.')
 
     if (ha.activity_level)         lines.push(`Activity level: ${ha.activity_level}`)
     if (ha.sleep_hours)            lines.push(`Typical sleep: ${ha.sleep_hours} hrs/night`)
