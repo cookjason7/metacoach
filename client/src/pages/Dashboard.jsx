@@ -427,7 +427,7 @@ function coachTypeBadge(type) {
   return 'bg-orange-50 text-[#E8670A] border-orange-200'
 }
 
-function CoachDashboard({ getToken }) {
+function CoachDashboard({ getToken, userRole }) {
   const navigate = useNavigate()
   const [clients,      setClients]      = useState([])
   const [msgUnread,    setMsgUnread]    = useState(0)
@@ -566,9 +566,17 @@ function CoachDashboard({ getToken }) {
 
   return (
     <div className="max-w-4xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Coaching Dashboard</h1>
-        <p className="text-sm text-gray-500 mt-0.5">What needs your attention today.</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Coaching Dashboard</h1>
+          <p className="text-sm text-gray-500 mt-0.5">What needs your attention today.</p>
+        </div>
+        <Link
+          to="/admin/clients?invite=1"
+          className="shrink-0 bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors min-h-[44px] flex items-center"
+        >
+          + Add Client
+        </Link>
       </div>
 
       {/* Stat cards */}
@@ -614,7 +622,7 @@ function CoachDashboard({ getToken }) {
               to="/admin/clients"
               className="inline-flex items-center justify-center rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
             >
-              Advanced tools
+              Command Center →
             </Link>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
@@ -1528,7 +1536,7 @@ export default function Dashboard() {
 
   // Staff (admin/coach) see the coaching dashboard instead
   if (!loading && (userProfile?.role === 'admin' || userProfile?.role === 'coach')) {
-    return <CoachDashboard getToken={getToken} />
+    return <CoachDashboard getToken={getToken} userRole={userProfile.role} />
   }
 
   return (

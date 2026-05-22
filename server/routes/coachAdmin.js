@@ -437,7 +437,7 @@ router.patch('/staff/:id/reactivate', requireAuth(), async (req, res, next) => {
 
 router.post('/clients/invite', requireAuth(), async (req, res, next) => {
   try {
-    const ctx = await requireAdmin(req, res); if (!ctx) return
+    const ctx = await requireStaff(req, res); if (!ctx) return
 
     const { first_name, last_name, email, phone, assigned_coach_id, notes } = req.body
 
@@ -488,7 +488,7 @@ router.post('/clients/invite', requireAuth(), async (req, res, next) => {
       [
         normalizedEmail,
         first_name.trim(),
-        last_name.trim(),
+        last_name?.trim() || null,
         phone?.trim() || null,
         coachId,
         notes?.trim() || null,
@@ -527,6 +527,35 @@ router.post('/clients/invite', requireAuth(), async (req, res, next) => {
       last_name:     invite.last_name,
       email:         invite.email,
     })
+  } catch (err) { next(err) }
+})
+
+// GET /api/coach-admin/clients/pending-invites — staff+, returns unaccepted invites
+// Must be declared before /clients/:id so Express doesn't treat 'pending-invites' as an id.
+router.get('/clients/pending-invites', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const appUrl = process.env.APP_BASE_URL ?? process.env.APP_URL ?? 'https://app.lwcvip.com'
+
+    const params = []
+    let extra = ''
+    if (ctx.role === 'coach') {
+      params.push(ctx.dbUserId)
+      extra = `AND ci.assigned_coach_id = $${params.length}`
+    }
+
+    const { rows } = await pool.query(`
+      SELECT ci.id, ci.email, ci.first_name, ci.last_name, ci.coaching_type,
+             ci.created_at, ci.expires_at, ci.token,
+             (SELECT first_name FROM users WHERE id = ci.invited_by) AS invited_by_name
+      FROM client_invites ci
+      WHERE ci.accepted_at IS NULL
+        AND (ci.expires_at IS NULL OR ci.expires_at > NOW())
+        ${extra}
+      ORDER BY ci.created_at DESC
+    `, params)
+
+    res.json(rows.map(r => ({ ...r, invite_url: `${appUrl}/invite/${r.token}` })))
   } catch (err) { next(err) }
 })
 

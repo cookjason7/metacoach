@@ -981,6 +981,45 @@ function PlaceholderTab({ title, description }) {
   )
 }
 
+// ── Pending Invite Row ────────────────────────────────────────────────────────
+
+function PendingInviteRow({ invite }) {
+  const [copied, setCopied] = useState(false)
+  const name = [invite.first_name, invite.last_name].filter(Boolean).join(' ') || invite.email
+  const sentDaysAgo = Math.floor((Date.now() - new Date(invite.created_at)) / 86400_000)
+  const daysLeft    = invite.expires_at
+    ? Math.max(0, Math.ceil((new Date(invite.expires_at) - Date.now()) / 86400_000))
+    : null
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(invite.invite_url)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch { /* ignore */ }
+  }
+
+  return (
+    <div className="px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-gray-900">{name}</p>
+        <p className="text-xs text-gray-500 truncate">{invite.email}</p>
+        <p className="text-[11px] text-purple-600 mt-0.5">
+          Sent {sentDaysAgo === 0 ? 'today' : `${sentDaysAgo}d ago`}
+          {daysLeft !== null && ` · ${daysLeft}d left`}
+          {invite.invited_by_name && ` · by ${invite.invited_by_name}`}
+        </p>
+      </div>
+      <button
+        onClick={copy}
+        className="shrink-0 text-xs font-semibold text-purple-700 hover:text-purple-900 border border-purple-200 rounded-lg px-3 py-2 hover:bg-purple-50 transition-colors min-h-[36px]"
+      >
+        {copied ? '✓ Copied!' : 'Copy Link'}
+      </button>
+    </div>
+  )
+}
+
 // ── Invite Client modal ───────────────────────────────────────────────────────
 
 const EMPTY_INVITE = { first_name: '', last_name: '', email: '', phone: '', notes: '' }
@@ -1041,7 +1080,7 @@ function InviteModal({ getToken, onClose, onSuccess }) {
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-[#fff7ed] flex items-center justify-center text-[#E8670A] text-lg shrink-0">✉️</div>
             <div>
-              <p className="text-base font-bold text-gray-900">Invite VIP Client</p>
+              <p className="text-base font-bold text-gray-900">Add Client</p>
               <p className="text-xs text-gray-400">They'll receive a secure sign-up link</p>
             </div>
           </div>
@@ -1189,12 +1228,15 @@ export default function ClientList() {
   const [statusFilter, setStatusFilter] = useState('active')
   const [sortBy, setSortBy] = useState('name')
   const [activeTab, setActiveTab] = useState('clients')
-  const [isAdmin,      setIsAdmin]      = useState(false)
-  const [inviteOpen,   setInviteOpen]   = useState(false)
-  const [coaches,      setCoaches]      = useState([])
+  const [isAdmin,         setIsAdmin]         = useState(false)
+  const [isStaff,         setIsStaff]         = useState(false)
+  const [inviteOpen,      setInviteOpen]       = useState(false)
+  const [coaches,         setCoaches]          = useState([])
+  const [pendingInvites,  setPendingInvites]   = useState([])
+  const [pendingLoading,  setPendingLoading]   = useState(true)
   const coachFilter = searchParams.get('coach_id') ?? 'all'
 
-  // Detect admin role once on mount
+  // Detect role once on mount
   useEffect(() => {
     async function checkRole() {
       try {
@@ -1203,11 +1245,22 @@ export default function ClientList() {
         if (res.ok) {
           const data = await res.json()
           setIsAdmin(data.role === 'admin')
+          setIsStaff(data.role === 'admin' || data.role === 'coach')
         }
       } catch {}
     }
     checkRole()
   }, [getToken])
+
+  // Auto-open invite modal when navigated here with ?invite=1 (e.g. from Dashboard)
+  useEffect(() => {
+    if (searchParams.get('invite') === '1') {
+      setInviteOpen(true)
+      const p = new URLSearchParams(searchParams)
+      p.delete('invite')
+      setSearchParams(p, { replace: true })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch all coaches/staff for the filter dropdown
   useEffect(() => {
@@ -1220,6 +1273,20 @@ export default function ClientList() {
     }
     loadCoaches()
   }, [getToken])
+
+  // Fetch pending (unaccepted) invites
+  const loadPendingInvites = useCallback(async () => {
+    setPendingLoading(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/pending-invites`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) setPendingInvites(await res.json())
+    } catch { /* non-fatal */ } finally { setPendingLoading(false) }
+  }, [getToken])
+
+  useEffect(() => { loadPendingInvites() }, [loadPendingInvites])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1313,22 +1380,22 @@ const filtered = useMemo(() => {
           <h1 className="text-2xl font-bold text-gray-900 mb-1">Coaching Command Center</h1>
           <p className="text-sm text-gray-500">Clients, macros, habits, and coaching tools in one place.</p>
         </div>
-        {isAdmin && (
+        {isStaff && (
           <button
             onClick={() => setInviteOpen(true)}
-            className="shrink-0 bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors"
+            className="shrink-0 bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors min-h-[44px]"
           >
-            + Invite Client
+            + Add Client
           </button>
         )}
       </div>
 
-      {/* Invite Client modal */}
+      {/* Add Client / Invite modal */}
       {inviteOpen && (
         <InviteModal
           getToken={getToken}
           onClose={() => setInviteOpen(false)}
-          onSuccess={() => { setInviteOpen(false); load() }}
+          onSuccess={() => { setInviteOpen(false); load(); loadPendingInvites() }}
         />
       )}
 
@@ -1354,6 +1421,37 @@ const filtered = useMemo(() => {
       {/* ── Clients tab ── */}
       {activeTab === 'clients' && (
         <>
+          {/* Pending Invites — clients who haven't accepted yet */}
+          {(pendingLoading || pendingInvites.length > 0) && (
+            <div className="bg-purple-50 border border-purple-200 rounded-xl mb-4 overflow-hidden">
+              <div className="px-4 py-3 border-b border-purple-100 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-purple-900">
+                    Pending Invites{!pendingLoading && pendingInvites.length > 0 ? ` (${pendingInvites.length})` : ''}
+                  </p>
+                  <p className="text-xs text-purple-600 mt-0.5">Invited but not yet signed up</p>
+                </div>
+                {isStaff && (
+                  <button
+                    onClick={() => setInviteOpen(true)}
+                    className="text-xs font-semibold text-purple-700 hover:text-purple-900 border border-purple-200 rounded-lg px-3 py-1.5 hover:bg-purple-100 transition-colors"
+                  >
+                    + New Invite
+                  </button>
+                )}
+              </div>
+              {pendingLoading ? (
+                <p className="text-xs text-purple-400 px-4 py-3">Loading…</p>
+              ) : (
+                <div className="divide-y divide-purple-100">
+                  {pendingInvites.map(inv => (
+                    <PendingInviteRow key={inv.id} invite={inv} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Filters */}
           <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
