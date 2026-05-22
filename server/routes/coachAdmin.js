@@ -756,146 +756,135 @@ router.get('/clients/:id/engagement', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-// GET /api/coach-admin/clients/:id/progress?range=daily|weekly|monthly
+// GET /api/coach-admin/clients/:id/progress?range=daily|weekly|monthly|custom&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
 router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireStaff(req, res); if (!ctx) return
     const id  = parseInt(req.params.id, 10)
     if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
 
-    const range = ['daily','weekly','monthly'].includes(req.query.range) ? req.query.range : 'daily'
+    const range = ['daily','weekly','monthly','custom'].includes(req.query.range) ? req.query.range : 'daily'
+    const isoDate = d => d.toISOString().slice(0, 10)
+    const shiftDays = n => {
+      const d = new Date()
+      d.setHours(12, 0, 0, 0)
+      d.setDate(d.getDate() - n)
+      return isoDate(d)
+    }
+    const validDate = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)
+    let startDate = range === 'daily' ? shiftDays(30) : range === 'weekly' ? shiftDays(84) : shiftDays(180)
+    let endDate   = shiftDays(0)
+    if (range === 'custom') {
+      if (!validDate(req.query.start_date) || !validDate(req.query.end_date)) {
+        return res.status(400).json({ error: 'Custom range requires start_date and end_date in YYYY-MM-DD format.' })
+      }
+      startDate = req.query.start_date
+      endDate   = req.query.end_date
+      if (startDate > endDate) return res.status(400).json({ error: 'start_date must be on or before end_date.' })
+    }
     const md    = `COALESCE(log_date, logged_at::date)` // meal date expression
+    const group = range === 'monthly'
+      ? { exprLog: `DATE_TRUNC('month', logged_date)::date`, exprMeal: `DATE_TRUNC('month', d)::date`, exprWorkout: `DATE_TRUNC('month', completed_at)::date`, exprCheckin: `DATE_TRUNC('month', week_start)::date` }
+      : range === 'weekly'
+        ? { exprLog: `DATE_TRUNC('week', logged_date)::date`, exprMeal: `DATE_TRUNC('week', d)::date`, exprWorkout: `DATE_TRUNC('week', completed_at)::date`, exprCheckin: `DATE_TRUNC('week', week_start)::date` }
+        : { exprLog: `logged_date`, exprMeal: `d`, exprWorkout: `completed_at::date`, exprCheckin: `DATE_TRUNC('week', week_start)::date` }
+    const isDailyLike = range === 'daily' || range === 'custom'
 
     // ── Per-range series queries ──────────────────────────────────────────────
-    let wt_q, mac_q, stp_q, slp_q, wko_q, chk_q
-    if (range === 'daily') {
-      wt_q  = `SELECT logged_date AS date, ROUND(weight_lbs::numeric,1) AS value
-               FROM daily_logs WHERE user_id=$1 AND weight_lbs IS NOT NULL
-                 AND logged_date >= CURRENT_DATE-30 ORDER BY logged_date`
-      mac_q = `SELECT ${md} AS date,
-                 ROUND(SUM(calories)) AS calories, ROUND(SUM(protein)::numeric,1) AS protein,
-                 ROUND(SUM(carbs)::numeric,1) AS carbs, ROUND(SUM(fat)::numeric,1) AS fat,
-                 ROUND(COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0)) AS sodium_mg
-               FROM meals WHERE user_id=$1 AND ${md} >= CURRENT_DATE-30
-               GROUP BY ${md} ORDER BY ${md}`
-      stp_q = `SELECT logged_date AS date, steps AS value
-               FROM daily_logs WHERE user_id=$1 AND steps IS NOT NULL
-                 AND logged_date >= CURRENT_DATE-30 ORDER BY logged_date`
-      slp_q = `SELECT logged_date AS date, sleep_minutes AS value
-               FROM daily_logs WHERE user_id=$1 AND sleep_minutes IS NOT NULL
-                 AND logged_date >= CURRENT_DATE-30 ORDER BY logged_date`
-      wko_q = `SELECT completed_at::date AS date, COUNT(*)::int AS count
-               FROM workout_logs WHERE user_id=$1 AND completed_at >= NOW()-INTERVAL '30 days'
-               GROUP BY 1 ORDER BY 1`
-      chk_q = `SELECT DATE_TRUNC('week', week_start)::date AS date,
-                 sleep_quality, energy, stress,
-                 ROUND(current_weight::numeric,1) AS current_weight
-               FROM weekly_checkins WHERE user_id=$1 AND week_start >= CURRENT_DATE-30
-               ORDER BY week_start`
-    } else if (range === 'weekly') {
-      wt_q  = `SELECT DATE_TRUNC('week', logged_date)::date AS date,
-                 ROUND(AVG(weight_lbs)::numeric,1) AS value
-               FROM daily_logs WHERE user_id=$1 AND weight_lbs IS NOT NULL
-                 AND logged_date >= CURRENT_DATE-84
-               GROUP BY 1 ORDER BY 1`
-      mac_q = `SELECT DATE_TRUNC('week', d)::date AS date,
-                 ROUND(AVG(cal)) AS calories, ROUND(AVG(prot)::numeric,1) AS protein,
-                 ROUND(AVG(crb)::numeric,1) AS carbs, ROUND(AVG(ft)::numeric,1) AS fat,
-                 ROUND(AVG(sod), 0) AS sodium_mg
-               FROM (SELECT ${md} AS d, SUM(calories) cal, SUM(protein) prot,
-                       SUM(carbs) crb, SUM(fat) ft,
-                       COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0) sod
-                     FROM meals WHERE user_id=$1 AND ${md} >= CURRENT_DATE-84 GROUP BY d) t
-               GROUP BY 1 ORDER BY 1`
-      stp_q = `SELECT DATE_TRUNC('week', logged_date)::date AS date, ROUND(AVG(steps)) AS value
-               FROM daily_logs WHERE user_id=$1 AND steps IS NOT NULL
-                 AND logged_date >= CURRENT_DATE-84
-               GROUP BY 1 ORDER BY 1`
-      slp_q = `SELECT DATE_TRUNC('week', logged_date)::date AS date, ROUND(AVG(sleep_minutes)) AS value
-               FROM daily_logs WHERE user_id=$1 AND sleep_minutes IS NOT NULL
-                 AND logged_date >= CURRENT_DATE-84
-               GROUP BY 1 ORDER BY 1`
-      wko_q = `SELECT DATE_TRUNC('week', completed_at)::date AS date, COUNT(*)::int AS count
-               FROM workout_logs WHERE user_id=$1 AND completed_at >= NOW()-INTERVAL '84 days'
-               GROUP BY 1 ORDER BY 1`
-      chk_q = `SELECT DATE_TRUNC('week', week_start)::date AS date,
-                 sleep_quality, energy, stress,
-                 ROUND(current_weight::numeric,1) AS current_weight
-               FROM weekly_checkins WHERE user_id=$1 AND week_start >= CURRENT_DATE-84
-               ORDER BY week_start`
-    } else {
-      wt_q  = `SELECT DATE_TRUNC('month', logged_date)::date AS date,
-                 ROUND(AVG(weight_lbs)::numeric,1) AS value
-               FROM daily_logs WHERE user_id=$1 AND weight_lbs IS NOT NULL
-                 AND logged_date >= CURRENT_DATE-180
-               GROUP BY 1 ORDER BY 1`
-      mac_q = `SELECT DATE_TRUNC('month', d)::date AS date,
-                 ROUND(AVG(cal)) AS calories, ROUND(AVG(prot)::numeric,1) AS protein,
-                 ROUND(AVG(crb)::numeric,1) AS carbs, ROUND(AVG(ft)::numeric,1) AS fat,
-                 ROUND(AVG(sod), 0) AS sodium_mg
-               FROM (SELECT ${md} AS d, SUM(calories) cal, SUM(protein) prot,
-                       SUM(carbs) crb, SUM(fat) ft,
-                       COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0) sod
-                     FROM meals WHERE user_id=$1 AND ${md} >= CURRENT_DATE-180 GROUP BY d) t
-               GROUP BY 1 ORDER BY 1`
-      stp_q = `SELECT DATE_TRUNC('month', logged_date)::date AS date, ROUND(AVG(steps)) AS value
-               FROM daily_logs WHERE user_id=$1 AND steps IS NOT NULL
-                 AND logged_date >= CURRENT_DATE-180
-               GROUP BY 1 ORDER BY 1`
-      slp_q = `SELECT DATE_TRUNC('month', logged_date)::date AS date, ROUND(AVG(sleep_minutes)) AS value
-               FROM daily_logs WHERE user_id=$1 AND sleep_minutes IS NOT NULL
-                 AND logged_date >= CURRENT_DATE-180
-               GROUP BY 1 ORDER BY 1`
-      wko_q = `SELECT DATE_TRUNC('month', completed_at)::date AS date, COUNT(*)::int AS count
-               FROM workout_logs WHERE user_id=$1 AND completed_at >= NOW()-INTERVAL '180 days'
-               GROUP BY 1 ORDER BY 1`
-      chk_q = `SELECT DATE_TRUNC('month', week_start)::date AS date,
-                 ROUND(AVG(sleep_quality)::numeric,1) AS sleep_quality,
-                 ROUND(AVG(energy)::numeric,1) AS energy,
-                 ROUND(AVG(stress)::numeric,1) AS stress,
-                 ROUND(AVG(current_weight)::numeric,1) AS current_weight
-               FROM weekly_checkins WHERE user_id=$1 AND week_start >= CURRENT_DATE-180
-               GROUP BY 1 ORDER BY 1`
-    }
+    const wt_q  = isDailyLike
+      ? `SELECT logged_date AS date, ROUND(weight_lbs::numeric,1) AS value
+         FROM daily_logs WHERE user_id=$1 AND weight_lbs IS NOT NULL
+           AND logged_date BETWEEN $2::date AND $3::date ORDER BY logged_date`
+      : `SELECT ${group.exprLog} AS date, ROUND(AVG(weight_lbs)::numeric,1) AS value
+         FROM daily_logs WHERE user_id=$1 AND weight_lbs IS NOT NULL
+           AND logged_date BETWEEN $2::date AND $3::date
+         GROUP BY 1 ORDER BY 1`
+    const mac_q = isDailyLike
+      ? `SELECT ${md} AS date,
+           ROUND(SUM(calories)) AS calories, ROUND(SUM(protein)::numeric,1) AS protein,
+           ROUND(SUM(carbs)::numeric,1) AS carbs, ROUND(SUM(fat)::numeric,1) AS fat,
+           ROUND(COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0)) AS sodium_mg
+         FROM meals WHERE user_id=$1 AND ${md} BETWEEN $2::date AND $3::date
+         GROUP BY ${md} ORDER BY ${md}`
+      : `SELECT ${group.exprMeal} AS date,
+           ROUND(AVG(cal)) AS calories, ROUND(AVG(prot)::numeric,1) AS protein,
+           ROUND(AVG(crb)::numeric,1) AS carbs, ROUND(AVG(ft)::numeric,1) AS fat,
+           ROUND(AVG(sod), 0) AS sodium_mg
+         FROM (SELECT ${md} AS d, SUM(calories) cal, SUM(protein) prot,
+                 SUM(carbs) crb, SUM(fat) ft,
+                 COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0) sod
+               FROM meals WHERE user_id=$1 AND ${md} BETWEEN $2::date AND $3::date GROUP BY d) t
+         GROUP BY 1 ORDER BY 1`
+    const stp_q = isDailyLike
+      ? `SELECT logged_date AS date, steps AS value
+         FROM daily_logs WHERE user_id=$1 AND steps IS NOT NULL
+           AND logged_date BETWEEN $2::date AND $3::date ORDER BY logged_date`
+      : `SELECT ${group.exprLog} AS date, ROUND(AVG(steps)) AS value
+         FROM daily_logs WHERE user_id=$1 AND steps IS NOT NULL
+           AND logged_date BETWEEN $2::date AND $3::date
+         GROUP BY 1 ORDER BY 1`
+    const slp_q = isDailyLike
+      ? `SELECT logged_date AS date, sleep_minutes AS value
+         FROM daily_logs WHERE user_id=$1 AND sleep_minutes IS NOT NULL
+           AND logged_date BETWEEN $2::date AND $3::date ORDER BY logged_date`
+      : `SELECT ${group.exprLog} AS date, ROUND(AVG(sleep_minutes)) AS value
+         FROM daily_logs WHERE user_id=$1 AND sleep_minutes IS NOT NULL
+           AND logged_date BETWEEN $2::date AND $3::date
+         GROUP BY 1 ORDER BY 1`
+    const wko_q = `SELECT ${group.exprWorkout} AS date, COUNT(*)::int AS count
+                   FROM workout_logs WHERE user_id=$1 AND completed_at::date BETWEEN $2::date AND $3::date
+                   GROUP BY 1 ORDER BY 1`
+    const chk_q = range === 'monthly'
+      ? `SELECT ${group.exprCheckin} AS date,
+           ROUND(AVG(sleep_quality)::numeric,1) AS sleep_quality,
+           ROUND(AVG(energy)::numeric,1) AS energy,
+           ROUND(AVG(stress)::numeric,1) AS stress,
+           ROUND(AVG(current_weight)::numeric,1) AS current_weight
+         FROM weekly_checkins WHERE user_id=$1 AND week_start BETWEEN $2::date AND $3::date
+         GROUP BY 1 ORDER BY 1`
+      : `SELECT ${group.exprCheckin} AS date,
+           sleep_quality, energy, stress,
+           ROUND(current_weight::numeric,1) AS current_weight
+         FROM weekly_checkins WHERE user_id=$1 AND week_start BETWEEN $2::date AND $3::date
+         ORDER BY week_start`
 
-    // ── Summary — core metrics from last 30 days, sodium follows the range ──────
-    const rangeDays = range === 'daily' ? 30 : range === 'weekly' ? 84 : 180
+    // ── Summary — all core metrics follow the selected date range ──────────────
     const sum_q = `
       SELECT
         (SELECT ROUND(weight_lbs::numeric,1) FROM daily_logs WHERE user_id=$1
-           AND weight_lbs IS NOT NULL AND logged_date >= CURRENT_DATE-30
+           AND weight_lbs IS NOT NULL AND logged_date BETWEEN $2::date AND $3::date
            ORDER BY logged_date ASC  LIMIT 1) AS weight_start,
         (SELECT ROUND(weight_lbs::numeric,1) FROM daily_logs WHERE user_id=$1
-           AND weight_lbs IS NOT NULL AND logged_date >= CURRENT_DATE-30
+           AND weight_lbs IS NOT NULL AND logged_date BETWEEN $2::date AND $3::date
            ORDER BY logged_date DESC LIMIT 1) AS weight_end,
         (SELECT ROUND(AVG(dc)) FROM
            (SELECT SUM(calories) dc FROM meals WHERE user_id=$1
-              AND ${md} >= CURRENT_DATE-30 GROUP BY ${md}) t) AS avg_calories,
+              AND ${md} BETWEEN $2::date AND $3::date GROUP BY ${md}) t) AS avg_calories,
         (SELECT ROUND(AVG(dp)::numeric,1) FROM
            (SELECT SUM(protein) dp FROM meals WHERE user_id=$1
-              AND ${md} >= CURRENT_DATE-30 GROUP BY ${md}) t) AS avg_protein,
+              AND ${md} BETWEEN $2::date AND $3::date GROUP BY ${md}) t) AS avg_protein,
         (SELECT ROUND(AVG(steps)) FROM daily_logs WHERE user_id=$1
-           AND steps IS NOT NULL AND logged_date >= CURRENT_DATE-30) AS avg_steps,
+           AND steps IS NOT NULL AND logged_date BETWEEN $2::date AND $3::date) AS avg_steps,
         (SELECT ROUND(AVG(sleep_minutes)) FROM daily_logs WHERE user_id=$1
-           AND sleep_minutes IS NOT NULL AND logged_date >= CURRENT_DATE-30) AS avg_sleep_minutes,
+           AND sleep_minutes IS NOT NULL AND logged_date BETWEEN $2::date AND $3::date) AS avg_sleep_minutes,
         (SELECT COUNT(*)::int FROM workout_logs WHERE user_id=$1
-           AND completed_at >= NOW()-INTERVAL '30 days') AS workouts_completed,
+           AND completed_at::date BETWEEN $2::date AND $3::date) AS workouts_completed,
         (SELECT COUNT(DISTINCT ${md})::int FROM meals WHERE user_id=$1
-           AND ${md} >= CURRENT_DATE-30) AS logged_day_count,
+           AND ${md} BETWEEN $2::date AND $3::date) AS logged_day_count,
         (SELECT ROUND(COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0))
-           FROM meals WHERE user_id=$1 AND ${md} >= CURRENT_DATE-$2::int) AS total_sodium_mg,
+           FROM meals WHERE user_id=$1 AND ${md} BETWEEN $2::date AND $3::date) AS total_sodium_mg,
         (SELECT ROUND(AVG(dns)) FROM
            (SELECT SUM((micronutrients->>'sodium_mg')::numeric) dns FROM meals WHERE user_id=$1
-              AND ${md} >= CURRENT_DATE-$2::int GROUP BY ${md}) t) AS avg_sodium_mg`
+              AND ${md} BETWEEN $2::date AND $3::date GROUP BY ${md}) t) AS avg_sodium_mg`
 
     const [sumR, wtR, macR, stpR, slpR, wkoR, chkR, photoR] = await Promise.all([
-      pool.query(sum_q, [id, rangeDays]),
-      pool.query(wt_q,  [id]),
-      pool.query(mac_q, [id]),
-      pool.query(stp_q, [id]),
-      pool.query(slp_q, [id]),
-      pool.query(wko_q, [id]),
-      pool.query(chk_q, [id]),
+      pool.query(sum_q, [id, startDate, endDate]),
+      pool.query(wt_q,  [id, startDate, endDate]),
+      pool.query(mac_q, [id, startDate, endDate]),
+      pool.query(stp_q, [id, startDate, endDate]),
+      pool.query(slp_q, [id, startDate, endDate]),
+      pool.query(wko_q, [id, startDate, endDate]),
+      pool.query(chk_q, [id, startDate, endDate]),
       pool.query(
         `SELECT
            photo_session_id AS session_id,
@@ -910,10 +899,11 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
            ) AS photos
          FROM progress_photos
          WHERE user_id = $1
+           AND taken_at::date BETWEEN $2::date AND $3::date
          GROUP BY photo_session_id
          ORDER BY MIN(taken_at) DESC
          LIMIT 30`,
-        [id],
+        [id, startDate, endDate],
       ),
     ])
 
@@ -942,7 +932,7 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
       if (r.current_weight != null && o.weight == null) o.weight = r.current_weight
     }
 
-    const limit     = range === 'daily' ? 14 : range === 'weekly' ? 12 : 6
+    const limit     = isDailyLike ? 14 : range === 'weekly' ? 12 : 6
     const table_rows = [...tmap.values()]
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, limit)
@@ -965,7 +955,7 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
       return { session_id: row.session_id, session_date: row.session_date, photos: byAngle }
     })
 
-    res.json({ range, summary, weight_series: wtR.rows, macro_series: macR.rows,
+    res.json({ range, start_date: startDate, end_date: endDate, summary, weight_series: wtR.rows, macro_series: macR.rows,
                step_series: stpR.rows, sleep_series: slpR.rows, workout_series: wkoR.rows,
                checkin_series: chkR.rows, table_rows, progress_photos: photoSessions })
   } catch (err) { next(err) }
@@ -979,11 +969,17 @@ router.get('/clients/:id/measurements', requireAuth(), async (req, res, next) =>
     const ctx = await requireStaff(req, res); if (!ctx) return
     const id = parseInt(req.params.id, 10)
     if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+    const validDate = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)
+    const hasRange = validDate(req.query.start_date) && validDate(req.query.end_date)
+    if ((req.query.start_date || req.query.end_date) && !hasRange) {
+      return res.status(400).json({ error: 'Measurements range requires start_date and end_date in YYYY-MM-DD format.' })
+    }
     const { rows } = await pool.query(
       `SELECT id, user_id, measurement_date, chest, waist, hips, created_at
        FROM client_measurements WHERE user_id = $1
+       ${hasRange ? 'AND measurement_date BETWEEN $2::date AND $3::date' : ''}
        ORDER BY measurement_date DESC, created_at DESC`,
-      [id],
+      hasRange ? [id, req.query.start_date, req.query.end_date] : [id],
     )
     res.json(rows)
   } catch (err) { next(err) }

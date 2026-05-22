@@ -1440,7 +1440,7 @@ const MFIELDS = [
   { key: 'hips',  label: 'Hips',       sub: 'widest point' },
 ]
 
-function MeasurementsSection({ clientId, getToken }) {
+function MeasurementsSection({ clientId, getToken, startDate, endDate }) {
   const [measurements, setMeasurements] = useState([])
   const [mLoading,     setMLoading]     = useState(true)
   const [showForm,     setShowForm]     = useState(false)
@@ -1456,7 +1456,8 @@ function MeasurementsSection({ clientId, getToken }) {
     async function load() {
       try {
         const token = await getToken()
-        const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/measurements`, {
+        const params = startDate && endDate ? `?start_date=${startDate}&end_date=${endDate}` : ''
+        const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/measurements${params}`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (res.ok && !cancelled) setMeasurements(await res.json())
@@ -1464,7 +1465,7 @@ function MeasurementsSection({ clientId, getToken }) {
     }
     load()
     return () => { cancelled = true }
-  }, [clientId, getToken])
+  }, [clientId, getToken, startDate, endDate])
 
   async function addMeasurement(e) {
     e.preventDefault()
@@ -1630,17 +1631,18 @@ function MiniChart({ series, valueKey = 'value', series2, valueKey2, color = '#E
   )
 }
 
-function ChartCard({ title, legend, series, valueKey, series2, valueKey2, color2 }) {
-  const hasData = (series ?? []).some(d => Number(d[valueKey]) > 0)
+function ChartCard({ title, legend, series, valueKey, series2, valueKey2, color, color2 }) {
+  const points = (series ?? []).filter(d => d[valueKey] != null && Number.isFinite(Number(d[valueKey])))
+  const hasEnoughData = points.length >= 2
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4">
       <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
         <p className="text-xs font-semibold text-gray-700">{title}</p>
         {legend && <div className="flex items-center gap-3 text-[10px] text-gray-400">{legend}</div>}
       </div>
-      {hasData
-        ? <MiniChart series={series} valueKey={valueKey} series2={series2} valueKey2={valueKey2} color2={color2} />
-        : <p className="text-[11px] text-gray-300 text-center py-6">No data yet</p>}
+      {hasEnoughData
+        ? <MiniChart series={series} valueKey={valueKey} series2={series2} valueKey2={valueKey2} color={color} color2={color2} />
+        : <p className="text-[11px] text-gray-300 text-center py-6">Need 2+ entries to chart.</p>}
     </div>
   )
 }
@@ -1657,6 +1659,14 @@ function SummaryCard({ label, value, sub, color }) {
 
 function ProgressTab({ clientId, getToken }) {
   const [range,   setRange]   = useState('daily')
+  const today = new Date().toISOString().slice(0, 10)
+  const thirtyDaysAgo = (() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 30)
+    return d.toISOString().slice(0, 10)
+  })()
+  const [startDate, setStartDate] = useState(thirtyDaysAgo)
+  const [endDate,   setEndDate]   = useState(today)
   const [data,    setData]    = useState(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(false)
@@ -1667,8 +1677,13 @@ function ProgressTab({ clientId, getToken }) {
     async function load() {
       try {
         const token = await getToken()
+        const params = new URLSearchParams({ range })
+        if (range === 'custom') {
+          params.set('start_date', startDate)
+          params.set('end_date', endDate)
+        }
         const res = await fetch(
-          `${API_URL}/api/coach-admin/clients/${clientId}/progress?range=${range}`,
+          `${API_URL}/api/coach-admin/clients/${clientId}/progress?${params.toString()}`,
           { headers: { Authorization: `Bearer ${token}` } },
         )
         if (!cancelled) {
@@ -1679,7 +1694,7 @@ function ProgressTab({ clientId, getToken }) {
     }
     load()
     return () => { cancelled = true }
-  }, [clientId, getToken, range])
+  }, [clientId, getToken, range, startDate, endDate])
 
   const s      = data?.summary        ?? {}
   const wt     = data?.weight_series  ?? []
@@ -1689,10 +1704,14 @@ function ProgressTab({ clientId, getToken }) {
   const wko    = data?.workout_series ?? []
   const rows   = data?.table_rows     ?? []
   const photoSessions = data?.progress_photos ?? []
+  const effectiveStart = data?.start_date ?? startDate
+  const effectiveEnd   = data?.end_date ?? endDate
 
   const wc = s.weight_change
   const wtColor = wc == null ? 'text-gray-900' : wc < 0 ? 'text-emerald-600' : wc > 0 ? 'text-red-500' : 'text-gray-900'
-  const hasData = wt.length > 0 || mac.length > 0 || stp.length > 0 || slp.length > 0 || wko.length > 0
+  const rangeLabel = range === 'custom'
+    ? `${effectiveStart} to ${effectiveEnd}`
+    : range.charAt(0).toUpperCase() + range.slice(1)
 
   function fmtSleep(mins) {
     if (!mins) return '—'
@@ -1708,13 +1727,40 @@ function ProgressTab({ clientId, getToken }) {
       {/* Header + range toggle */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-lg font-bold text-gray-900">Progress</h2>
-        <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-semibold">
-          {['daily','weekly','monthly'].map(r => (
-            <button key={r} onClick={() => setRange(r)}
-              className={`px-3 py-1.5 capitalize transition-colors ${range === r ? 'bg-[#E8670A] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
-              {r.charAt(0).toUpperCase() + r.slice(1)}
-            </button>
-          ))}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-semibold">
+            {['daily','weekly','monthly','custom'].map(r => (
+              <button key={r} onClick={() => setRange(r)}
+                className={`px-3 py-2 capitalize transition-colors min-h-11 ${range === r ? 'bg-[#E8670A] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                {r.charAt(0).toUpperCase() + r.slice(1)}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <label className="flex items-center gap-1 text-gray-500">
+              <span className="hidden sm:inline">Start Date</span>
+              <input
+                type="date"
+                aria-label="Start Date"
+                value={startDate}
+                onChange={e => { setStartDate(e.target.value); setRange('custom') }}
+                max={endDate}
+                className="min-h-11 rounded-lg border border-gray-200 px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+              />
+            </label>
+            <label className="flex items-center gap-1 text-gray-500">
+              <span className="hidden sm:inline">End Date</span>
+              <input
+                type="date"
+                aria-label="End Date"
+                value={endDate}
+                onChange={e => { setEndDate(e.target.value); setRange('custom') }}
+                min={startDate}
+                max={today}
+                className="min-h-11 rounded-lg border border-gray-200 px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+              />
+            </label>
+          </div>
         </div>
       </div>
 
@@ -1728,7 +1774,7 @@ function ProgressTab({ clientId, getToken }) {
             <SummaryCard
               label="Weight change"
               value={wc != null ? `${wc > 0 ? '+' : ''}${wc} lbs` : '—'}
-              sub="last 30 days"
+              sub={rangeLabel}
               color={wtColor}
             />
             <SummaryCard
@@ -1754,30 +1800,23 @@ function ProgressTab({ clientId, getToken }) {
             <SummaryCard
               label="Workouts"
               value={s.workouts_completed ?? '—'}
-              sub="last 30 days"
+              sub={rangeLabel}
             />
           </div>
 
           {/* Charts */}
-          {hasData ? (
-            <div className="grid sm:grid-cols-2 gap-4">
-              <ChartCard title="Weight (lbs)" series={wt} valueKey="value" />
-              <ChartCard
-                title="Calories & Protein"
-                legend={<><span style={{ color: '#E8670A' }}>— Cal</span><span style={{ color: '#10b981' }}>- - Prot</span></>}
-                series={mac} valueKey="calories"
-                series2={mac} valueKey2="protein" color2="#10b981"
-              />
-              <ChartCard title="Daily Steps" series={stp} valueKey="value" />
-              <ChartCard title="Sleep (hrs)" series={slpHrs} valueKey="value" color="#6366f1" />
-              <ChartCard title="Workouts per Period" series={wko} valueKey="count" />
-            </div>
-          ) : (
-            <div className="bg-white border border-gray-200 rounded-xl p-8 text-center">
-              <p className="text-2xl mb-2">↗</p>
-              <p className="text-sm text-gray-500">No logged data in this period yet.</p>
-            </div>
-          )}
+          <div className="grid sm:grid-cols-2 gap-4">
+            <ChartCard title="Weight (lbs)" series={wt} valueKey="value" />
+            <ChartCard
+              title="Calories & Protein"
+              legend={<><span style={{ color: '#E8670A' }}>— Cal</span><span style={{ color: '#10b981' }}>- - Prot</span></>}
+              series={mac} valueKey="calories"
+              series2={mac} valueKey2="protein" color2="#10b981"
+            />
+            <ChartCard title="Daily Steps" series={stp} valueKey="value" />
+            <ChartCard title="Sleep (hrs)" series={slpHrs} valueKey="value" color="#6366f1" />
+            <ChartCard title="Workouts per Period" series={wko} valueKey="count" />
+          </div>
 
           {/* Averages table */}
           {rows.length > 0 && (
@@ -1815,7 +1854,7 @@ function ProgressTab({ clientId, getToken }) {
           )}
 
           {/* Measurements */}
-          <MeasurementsSection clientId={clientId} getToken={getToken} />
+          <MeasurementsSection clientId={clientId} getToken={getToken} startDate={effectiveStart} endDate={effectiveEnd} />
 
           {/* Progress photos — grouped by session */}
           <div className="bg-white border border-gray-200 rounded-xl p-4">
@@ -1839,7 +1878,7 @@ function ProgressTab({ clientId, getToken }) {
                         <span className="text-[10px] text-gray-400 ml-auto">{photoCount}/3</span>
                       </div>
                       {/* 3-column photo grid — compact on desktop */}
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:max-w-3xl">
                         {['front', 'side', 'back'].map(angle => {
                           const p = session.photos[angle]
                           return (
@@ -1850,19 +1889,19 @@ function ProgressTab({ clientId, getToken }) {
                                   href={p.photo_url}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="block rounded-lg overflow-hidden bg-gray-100 hover:opacity-85 transition-opacity group"
+                                  className="block rounded-lg overflow-hidden bg-gray-50 border border-gray-100 hover:opacity-85 transition-opacity"
                                 >
-                                  {/* Compact on desktop: smaller aspect ratio wrapper */}
-                                  <div className="h-40 sm:h-44 overflow-hidden">
+                                  {/* Compact on desktop, full image visible */}
+                                  <div className="h-40 sm:h-36 lg:h-32 xl:h-28 flex items-center justify-center">
                                     <img
                                       src={p.photo_url}
                                       alt={angle}
-                                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                      className="w-full h-full object-contain"
                                     />
                                   </div>
                                 </a>
                               ) : (
-                                <div className="h-40 sm:h-44 rounded-lg bg-gray-50 border border-dashed border-gray-200 flex items-center justify-center">
+                                <div className="h-40 sm:h-36 lg:h-32 xl:h-28 rounded-lg bg-gray-50 border border-dashed border-gray-200 flex items-center justify-center">
                                   <span className="text-[9px] text-gray-300">—</span>
                                 </div>
                               )}
