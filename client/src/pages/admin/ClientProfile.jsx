@@ -1022,6 +1022,24 @@ function buildMonthCalendar(habits) {
   return { monthName, weeks }
 }
 
+// Returns an array of 7 status objects for the last 7 days (oldest → today) for a given habit
+function getHabitDots(habitId, calendar) {
+  const now = new Date()
+  const todayKey = now.toISOString().slice(0, 10)
+  const dots = []
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now)
+    d.setDate(d.getDate() - i)
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    if (key > todayKey) { dots.push({ key, status: 'future' }); continue }
+    const entry = (calendar[key] || []).find(e => e.habit.id === habitId)
+    if (!entry) dots.push({ key, status: 'not_scheduled' })
+    else if (entry.completion) dots.push({ key, status: 'completed' })
+    else dots.push({ key, status: 'missed' })
+  }
+  return dots
+}
+
 function HabitsTab({ clientId, getToken }) {
   const [habits, setHabits] = useState([])
   const [loading, setLoading] = useState(true)
@@ -1035,6 +1053,9 @@ function HabitsTab({ clientId, getToken }) {
     frequency: 'daily', start_date: new Date().toISOString().slice(0, 10),
     end_date: '', days_of_week: '', notes: '', identity_category: '',
   })
+  const [compCalendar, setCompCalendar] = useState(null)
+  const [compLoading, setCompLoading] = useState(false)
+  const [compError, setCompError] = useState(null)
 
   const load = useCallback(async () => {
     const token = await getToken()
@@ -1046,6 +1067,33 @@ function HabitsTab({ clientId, getToken }) {
   }, [clientId, getToken])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadCompliance() {
+      setCompLoading(true)
+      try {
+        const now = new Date()
+        const todayISO = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
+        const d6 = new Date(now); d6.setDate(now.getDate() - 6)
+        const startISO = `${d6.getFullYear()}-${String(d6.getMonth()+1).padStart(2,'0')}-${String(d6.getDate()).padStart(2,'0')}`
+        const token = await getToken()
+        const res = await fetch(
+          `${API_URL}/api/coach-admin/clients/${clientId}/habits/calendar?start=${startISO}&end=${todayISO}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        )
+        if (!res.ok) throw new Error('Could not load compliance data')
+        const data = await res.json()
+        if (!cancelled) setCompCalendar(data.calendar)
+      } catch (e) {
+        if (!cancelled) setCompError(e.message)
+      } finally {
+        if (!cancelled) setCompLoading(false)
+      }
+    }
+    loadCompliance()
+    return () => { cancelled = true }
+  }, [clientId, getToken])
 
   function applyPreset(p) {
     setForm(f => ({
@@ -1435,6 +1483,34 @@ function HabitsTab({ clientId, getToken }) {
                       </span>
                     )}
                     {h.notes && <p className="text-xs text-[#E8670A] italic mt-1">"{h.notes}"</p>}
+                    {/* 7-day compliance row */}
+                    {compLoading && !compCalendar && (
+                      <p className="text-[10px] text-gray-300 mt-2">Loading compliance…</p>
+                    )}
+                    {compError && !compCalendar && (
+                      <p className="text-[10px] text-gray-300 mt-2">Compliance unavailable</p>
+                    )}
+                    {compCalendar && (() => {
+                      const dots = getHabitDots(h.id, compCalendar)
+                      const scheduled = dots.filter(d => d.status !== 'not_scheduled' && d.status !== 'future')
+                      const completed = dots.filter(d => d.status === 'completed')
+                      return (
+                        <div className="flex items-center gap-1 mt-2">
+                          {dots.map(dot => (
+                            <div key={dot.key} title={dot.key} className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                              dot.status === 'completed'     ? 'bg-emerald-500' :
+                              dot.status === 'missed'        ? 'bg-red-400' :
+                              'bg-gray-200'
+                            }`} />
+                          ))}
+                          <span className="text-[10px] text-gray-400 ml-0.5">
+                            {scheduled.length > 0
+                              ? `${completed.length}/${scheduled.length} this week`
+                              : 'No scheduled days this week'}
+                          </span>
+                        </div>
+                      )
+                    })()}
                   </div>
                   <div className="flex gap-2 shrink-0">
                     <button onClick={() => startEdit(h)}
