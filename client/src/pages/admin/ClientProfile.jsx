@@ -1822,6 +1822,14 @@ function ProgressTab({ clientId, getToken }) {
   const [data,    setData]    = useState(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  // Weight logging form
+  const [showWeightForm, setShowWeightForm] = useState(false)
+  const [weightDate,     setWeightDate]     = useState(today)
+  const [weightLbs,      setWeightLbs]      = useState('')
+  const [weightSaving,   setWeightSaving]   = useState(false)
+  const [weightError,    setWeightError]    = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -1846,7 +1854,28 @@ function ProgressTab({ clientId, getToken }) {
     }
     load()
     return () => { cancelled = true }
-  }, [clientId, getToken, range, startDate, endDate])
+  }, [clientId, getToken, range, startDate, endDate, refreshKey])
+
+  async function logWeight() {
+    if (!weightLbs || isNaN(Number(weightLbs))) return
+    setWeightSaving(true); setWeightError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/weight`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: weightDate, weight_lbs: Number(weightLbs) }),
+      })
+      if (!res.ok) throw new Error('Failed to save weight')
+      setShowWeightForm(false)
+      setWeightLbs('')
+      setRefreshKey(k => k + 1)
+    } catch (e) {
+      setWeightError(e.message)
+    } finally {
+      setWeightSaving(false)
+    }
+  }
 
   const s      = data?.summary        ?? {}
   const wt     = data?.weight_series  ?? []
@@ -1901,7 +1930,14 @@ function ProgressTab({ clientId, getToken }) {
     <div className="space-y-5">
       {/* Header + range toggle */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h2 className="text-lg font-bold text-gray-900">Progress</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-bold text-gray-900">Progress</h2>
+          <button
+            onClick={() => setShowWeightForm(s => !s)}
+            className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white border border-gray-200 text-gray-600 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors">
+            + Log Weight
+          </button>
+        </div>
         <div className="flex flex-col sm:flex-row sm:items-center gap-2">
           <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-semibold">
             {['daily','weekly','monthly','custom'].map(r => (
@@ -1938,6 +1974,52 @@ function ProgressTab({ clientId, getToken }) {
           </div>
         </div>
       </div>
+
+      {/* Inline weight logging form */}
+      {showWeightForm && (
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-sm font-semibold text-gray-700 mb-3">Log Weight</p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
+              <input
+                type="date"
+                value={weightDate}
+                max={today}
+                onChange={e => setWeightDate(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Weight (lbs)</label>
+              <input
+                type="number"
+                step="0.1"
+                min="50"
+                max="700"
+                value={weightLbs}
+                onChange={e => setWeightLbs(e.target.value)}
+                placeholder="e.g. 185.5"
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-32 focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={logWeight}
+                disabled={weightSaving || !weightLbs}
+                className="bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 min-h-[40px]">
+                {weightSaving ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                onClick={() => { setShowWeightForm(false); setWeightError(null); setWeightLbs('') }}
+                className="text-sm text-gray-500 px-3 py-2">
+                Cancel
+              </button>
+            </div>
+          </div>
+          {weightError && <p className="text-xs text-red-500 mt-2">{weightError}</p>}
+        </div>
+      )}
 
       {loading && <p className="text-sm text-gray-400 text-center py-10">Loading…</p>}
       {error   && <p className="text-sm text-red-500 text-center py-10">Failed to load progress data.</p>}
@@ -2590,6 +2672,9 @@ function NotesTab({ clientId, role, getToken }) {
   const [body, setBody] = useState('')
   const [visibility, setVisibility] = useState('shared_staff')
   const [saving, setSaving] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [editBody, setEditBody] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
 
   const load = useCallback(async () => {
     const token = await getToken()
@@ -2625,6 +2710,23 @@ function NotesTab({ clientId, role, getToken }) {
       headers: { Authorization: `Bearer ${token}` },
     })
     if (res.ok) setNotes(n => n.filter(x => x.id !== id))
+  }
+
+  async function saveEdit(id) {
+    if (!editBody.trim()) return
+    setEditSaving(true)
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/coach-admin/notes/${id}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note_body: editBody }),
+    })
+    setEditSaving(false)
+    if (res.ok) {
+      const updated = await res.json()
+      setNotes(prev => prev.map(n => n.id === id ? { ...n, note_body: updated.note_body } : n))
+      setEditingId(null)
+    }
   }
 
   return (
@@ -2674,9 +2776,42 @@ function NotesTab({ clientId, role, getToken }) {
                   <span className="text-[10px] font-bold text-amber-700 bg-amber-100 rounded-full px-2 py-0.5">🔒 Admin only</span>
                 )}
               </div>
-              <button onClick={() => deleteNote(n.id)} className="text-[10px] text-gray-400 hover:text-red-500 shrink-0">Delete</button>
+              <div className="flex items-center gap-2 shrink-0">
+                {editingId !== n.id && (
+                  <button
+                    onClick={() => { setEditingId(n.id); setEditBody(n.note_body) }}
+                    className="text-[10px] text-gray-400 hover:text-[#E8670A]">
+                    Edit
+                  </button>
+                )}
+                <button onClick={() => deleteNote(n.id)} className="text-[10px] text-gray-400 hover:text-red-500">Delete</button>
+              </div>
             </div>
-            <p className="text-sm text-gray-800 whitespace-pre-wrap">{n.note_body}</p>
+            {editingId === n.id ? (
+              <div className="space-y-2 mt-1">
+                <textarea
+                  value={editBody}
+                  onChange={e => setEditBody(e.target.value)}
+                  rows={3}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => saveEdit(n.id)}
+                    disabled={editSaving || !editBody.trim()}
+                    className="bg-[#E8670A] text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-[#c45e09] disabled:opacity-40">
+                    {editSaving ? 'Saving…' : 'Save'}
+                  </button>
+                  <button
+                    onClick={() => setEditingId(null)}
+                    className="text-xs text-gray-500 px-3 py-1.5 hover:text-gray-700">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-800 whitespace-pre-wrap">{n.note_body}</p>
+            )}
           </div>
         ))}
       </div>
@@ -3080,7 +3215,7 @@ function EngagementTab({ clientId, getToken }) {
   }, [clientId, getToken])
 
   const foodLogs = Number(stats?.food_logs_week) || 0
-  const workouts = Number(stats?.workouts_week) || 0
+  const movement = Number(stats?.movement_week) || 0
   const waterLogs = Number(stats?.water_logs_week) || 0
   const stepLogs = Number(stats?.step_logs_week) || 0
   const habitsComplete = Number(stats?.habits_complete_week) || 0
@@ -3092,7 +3227,7 @@ function EngagementTab({ clientId, getToken }) {
     [lastMealDays, lastDailyLogDays].filter(v => v !== null).sort((a, b) => a - b)[0] ?? null
   const hasActivity =
     foodLogs > 0 ||
-    workouts > 0 ||
+    movement > 0 ||
     waterLogs > 0 ||
     stepLogs > 0 ||
     habitsComplete > 0 ||
@@ -3132,7 +3267,7 @@ function EngagementTab({ clientId, getToken }) {
   if (lastActivityDays === null) followUps.push('No activity logged yet. Consider a first check-in or onboarding nudge.')
   else if (lastActivityDays >= 3) followUps.push('No recent activity in the last few days. A quick follow-up may help.')
   if (foodLogs === 0) followUps.push('No food logs this week.')
-  if (workouts === 0) followUps.push('No workouts logged this week.')
+  if (movement === 0) followUps.push('No movement logged this week.')
   if (habitsMissed > habitsComplete) followUps.push('More missed habit days than completed days this week.')
 
   return (
@@ -3165,18 +3300,8 @@ function EngagementTab({ clientId, getToken }) {
               tone={lastActivityDays !== null && lastActivityDays <= 1 ? 'positive' : 'attention'}
             />
             <Stat label="Food logs" value={foodLogs} sub="this week" />
-            <Stat label="Workouts" value={workouts} sub="this week" />
+            <Stat label="Movement" value={movement} sub="workouts + activity this week" />
             <Stat label="Habits" value={`${habitsComplete}/${habitsComplete + habitsMissed}`} sub="completed this week" />
-          </div>
-
-          <div>
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">What they logged recently</p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <Stat label="Food" value={foodLogs || '—'} sub={foodLogs > 0 ? 'logs this week' : 'Not logged yet'} />
-              <Stat label="Workouts" value={workouts || '—'} sub={workouts > 0 ? 'this week' : 'Not logged yet'} />
-              <Stat label="Water" value={waterLogs || '—'} sub={waterLogs > 0 ? 'logs this week' : 'Not logged yet'} />
-              <Stat label="Steps" value={stepLogs || '—'} sub={stepLogs > 0 ? 'logs this week' : 'Not logged yet'} />
-            </div>
           </div>
 
           <div className="grid sm:grid-cols-2 gap-3">

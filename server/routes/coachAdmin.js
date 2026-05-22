@@ -853,7 +853,8 @@ router.get('/clients/:id/engagement', requireAuth(), async (req, res, next) => {
     const { rows: [stats] } = await pool.query(`
       SELECT
         (SELECT COUNT(*) FROM meals WHERE user_id = $1 AND COALESCE(log_date, logged_at::date) >= ${wk}) AS food_logs_week,
-        (SELECT COUNT(*) FROM workout_logs WHERE user_id = $1 AND completed_at >= ${wk}) AS workouts_week,
+        (SELECT COUNT(*) FROM workout_logs WHERE user_id = $1 AND completed_at >= ${wk})
+          + (SELECT COUNT(*) FROM activity_logs WHERE user_id = $1 AND logged_at >= ${wk}) AS movement_week,
         (SELECT COUNT(*) FROM daily_logs WHERE user_id = $1 AND logged_date >= CURRENT_DATE - 7 AND water_oz IS NOT NULL) AS water_logs_week,
         (SELECT COUNT(*) FROM daily_logs WHERE user_id = $1 AND logged_date >= CURRENT_DATE - 7 AND steps IS NOT NULL) AS step_logs_week,
         (SELECT MAX(logged_at) FROM meals WHERE user_id = $1) AS last_meal_at,
@@ -1221,6 +1222,32 @@ router.get('/clients/:id/nutrition', requireAuth(), async (req, res, next) => {
       `, [id, date]),
     ])
     res.json({ ...macros.rows[0], ...(daily.rows[0] ?? { water_oz: null, steps: null, weight_lbs: null }) })
+  } catch (err) { next(err) }
+})
+
+// POST /api/coach-admin/clients/:id/weight
+// Upserts weight_lbs for a given date, preserving all other daily_log fields.
+router.post('/clients/:id/weight', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+
+    const { date, weight_lbs } = req.body
+    if (!date || weight_lbs == null || isNaN(Number(weight_lbs))) {
+      return res.status(400).json({ error: 'date and weight_lbs are required' })
+    }
+    const w = Math.round(Number(weight_lbs) * 10) / 10
+
+    const { rows } = await pool.query(`
+      INSERT INTO daily_logs (user_id, logged_date, weight_lbs)
+      VALUES ($1, $2::date, $3)
+      ON CONFLICT (user_id, logged_date)
+      DO UPDATE SET weight_lbs = EXCLUDED.weight_lbs
+      RETURNING logged_date, weight_lbs
+    `, [id, date, w])
+
+    res.json(rows[0])
   } catch (err) { next(err) }
 })
 
@@ -1760,6 +1787,39 @@ router.delete('/notes/:noteId', requireAuth(), async (req, res, next) => {
 
     await pool.query('DELETE FROM client_notes WHERE id = $1', [noteId])
     res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
+// PATCH /api/coach-admin/notes/:noteId
+router.patch('/notes/:noteId', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const noteId = parseInt(req.params.noteId, 10)
+
+    const { rows: nRows } = await pool.query(
+      'SELECT client_id, author_id, visibility FROM client_notes WHERE id = $1', [noteId]
+    )
+    if (!nRows.length) return res.status(404).json({ error: 'Note not found' })
+
+    if (ctx.role !== 'admin' && nRows[0].author_id !== ctx.dbUserId) {
+      return res.status(403).json({ error: 'Cannot edit this note' })
+    }
+    if (nRows[0].visibility === 'admin_private' && ctx.role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+
+    const { note_body } = req.body
+    if (!note_body || !note_body.trim()) {
+      return res.status(400).json({ error: 'note_body is required' })
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE client_notes SET note_body = $1
+       WHERE id = $2
+       RETURNING id, client_id, author_id, note_body, visibility, created_at`,
+      [note_body.trim(), noteId]
+    )
+    res.json(rows[0])
   } catch (err) { next(err) }
 })
 
