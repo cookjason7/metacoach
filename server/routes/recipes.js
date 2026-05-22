@@ -4,6 +4,7 @@ import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 import { parseRecipeWithAI, parseRecipeFromImageWithAI } from '../services/recipeParser.js'
 import { recipeImportLimit } from '../middleware/rateLimits.js'
+import { trackEvent } from '../services/usageTracker.js'
 
 const router = Router()
 
@@ -102,7 +103,20 @@ router.post('/import', requireAuth(), recipeImportLimit, async (req, res, next) 
     if (!recipe_text || typeof recipe_text !== 'string' || !recipe_text.trim()) {
       return res.status(400).json({ error: 'recipe_text is required' })
     }
+    const { userId } = getAuth(req)
+    const dbUserId = await getOrCreateUser(userId)
+    const t0 = Date.now()
     const draft = await parseRecipeWithAI(recipe_text.trim())
+    trackEvent({
+      actorUserId: dbUserId,
+      feature:     'recipe_parse',
+      action:      'ai_call',
+      provider:    'anthropic',
+      providerOp:  'messages.create',
+      model:       'claude-sonnet-4-6',
+      durationMs:  Date.now() - t0,
+      metadata:    { input_type: 'text', note: 'token_count_via_recipeParser' },
+    })
     res.json(draft)
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message, code: err.code || undefined })
@@ -116,7 +130,22 @@ router.post('/import-image', requireAuth(), recipeImportLimit, uploadRecipeImage
     if (!req.file) {
       return res.status(400).json({ error: 'No image provided. Upload a JPG, PNG, or WEBP file.' })
     }
+    const { userId } = getAuth(req)
+    const dbUserId = await getOrCreateUser(userId)
+    const t0 = Date.now()
     const draft = await parseRecipeFromImageWithAI(req.file.buffer, req.file.mimetype)
+    trackEvent({
+      actorUserId: dbUserId,
+      feature:     'recipe_parse',
+      action:      'ai_call',
+      provider:    'anthropic',
+      providerOp:  'messages.create',
+      model:       'claude-sonnet-4-6',
+      fileCount:   1,
+      bytesIn:     req.file.size,
+      durationMs:  Date.now() - t0,
+      metadata:    { input_type: 'image', mime_type: req.file.mimetype, note: 'token_count_via_recipeParser' },
+    })
     res.json(draft)
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message, code: err.code || undefined })

@@ -6,6 +6,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 import { bloodworkUploadLimit } from '../middleware/rateLimits.js'
+import { trackEvent } from '../services/usageTracker.js'
 
 // createRequire is set up at module level but pdf-parse is loaded lazily inside extractText
 // so a missing package can never crash startup.
@@ -97,6 +98,7 @@ async function extractText(buffer, mimetype) {
   if (mimetype.startsWith('image/')) {
     try {
       const safeType = mimetype === 'image/jpg' ? 'image/jpeg' : mimetype
+      const ocrT0 = Date.now()
       const msg = await anthropic.messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 2000,
@@ -114,12 +116,29 @@ async function extractText(buffer, mimetype) {
           ],
         }],
       })
+      // Track OCR call — actorUserId unknown here, will be set by caller wrapper
+      _lastOcrEvent = {
+        feature:      'bloodwork_ocr',
+        action:       'ai_call',
+        provider:     'anthropic',
+        providerOp:   'messages.create',
+        model:        'claude-haiku-4-5-20251001',
+        inputTokens:  msg.usage?.input_tokens,
+        outputTokens: msg.usage?.output_tokens,
+        fileCount:    1,
+        bytesIn:      buffer.length,
+        durationMs:   Date.now() - ocrT0,
+        metadata:     { mime_type: mimetype },
+      }
       const text = msg.content[0]?.text?.trim()
       return text?.length > 30 ? text : null
-    } catch { return null }
+    } catch { _lastOcrEvent = null; return null }
   }
+  _lastOcrEvent = null
   return null
 }
+// Temp holder so the route handler can pick up OCR tracking data
+let _lastOcrEvent = null
 
 const SUMMARY_PROMPT = `You are a functional-health and longevity lab interpretation assistant. You use systems-level thinking and root-cause pattern recognition to help clients understand their labs in context. You respect conventional lab reference ranges and also discuss functional/optimal ranges where meaningful — always labeling which is which. You do not diagnose, prescribe, or replace medical care.
 
@@ -408,6 +427,22 @@ router.post('/', requireAuth(), bloodworkUploadLimit, upload.single('file'), asy
       [ctx.dbUserId, cloud.public_id, req.file.originalname, req.file.mimetype,
        lab_date || null, notes?.trim() || null, extracted || null],
     )
+    // Track upload (non-blocking)
+    trackEvent({
+      actorUserId: ctx.dbUserId,
+      feature:     'bloodwork_upload',
+      action:      'upload',
+      provider:    'cloudinary',
+      providerOp:  'upload_stream',
+      fileCount:   1,
+      bytesIn:     req.file.size,
+      metadata:    { mime_type: req.file.mimetype },
+    })
+    // Track OCR if it ran
+    if (_lastOcrEvent) {
+      trackEvent({ ..._lastOcrEvent, actorUserId: ctx.dbUserId })
+      _lastOcrEvent = null
+    }
     res.status(201).json(rows[0])
   } catch (err) { next(err) }
 })
@@ -674,6 +709,22 @@ router.post('/staff/:clientId', requireAuth(), bloodworkUploadLimit, upload.sing
       [clientId, cloud.public_id, req.file.originalname, req.file.mimetype,
        lab_date || null, notes?.trim() || null, extracted || null],
     )
+    // Track staff upload (actor = staff, target = client)
+    trackEvent({
+      actorUserId:  ctx.dbUserId,
+      targetUserId: clientId,
+      feature:      'bloodwork_upload',
+      action:       'upload',
+      provider:     'cloudinary',
+      providerOp:   'upload_stream',
+      fileCount:    1,
+      bytesIn:      req.file.size,
+      metadata:     { mime_type: req.file.mimetype, uploaded_by: 'staff' },
+    })
+    if (_lastOcrEvent) {
+      trackEvent({ ..._lastOcrEvent, actorUserId: ctx.dbUserId, targetUserId: clientId })
+      _lastOcrEvent = null
+    }
     res.status(201).json(rows[0])
   } catch (err) { next(err) }
 })
@@ -788,10 +839,24 @@ router.post('/:id/summarize', requireAuth(), async (req, res, next) => {
       ? `\n\n══════════════════════════════════════════════════\nCLIENT CONTEXT (provided by their coaching program):\n══════════════════════════════════════════════════\n${clientContext}\n\n`
       : ''
     const labBlock = `\n\n══════════════════════════════════════════════════\nLAB RESULTS TO INTERPRET:\n══════════════════════════════════════════════════\n${rows[0].extracted_text}`
+    const sumT0 = Date.now()
     const msg = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 8000,
       messages: [{ role: 'user', content: SUMMARY_PROMPT + contextBlock + labBlock }],
+    })
+    // Track AI summary call — actor=staff, target=client (non-blocking)
+    trackEvent({
+      actorUserId:  ctx.dbUserId,
+      targetUserId: rows[0].user_id,
+      feature:      'bloodwork_summary',
+      action:       'ai_call',
+      provider:     'anthropic',
+      providerOp:   'messages.create',
+      model:        'claude-sonnet-4-6',
+      inputTokens:  msg.usage?.input_tokens,
+      outputTokens: msg.usage?.output_tokens,
+      durationMs:   Date.now() - sumT0,
     })
     const summary = msg.content[0]?.text?.trim()
     if (!summary) return res.status(500).json({ error: 'AI did not return a summary.' })

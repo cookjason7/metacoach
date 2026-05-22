@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 import { chatLimit } from '../middleware/rateLimits.js'
+import { trackEvent } from '../services/usageTracker.js'
 
 const router = Router()
 const anthropic = new Anthropic()
@@ -396,6 +397,7 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection', 'keep-alive')
 
+    const chatT0 = Date.now()
     const stream = anthropic.messages.stream({
       model: 'claude-sonnet-4-6',
       max_tokens: 1024,
@@ -410,7 +412,7 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
       res.write(`data: ${JSON.stringify({ text })}\n\n`)
     })
 
-    stream.on('finalMessage', async () => {
+    stream.on('finalMessage', async (finalMsg) => {
       try {
         await pool.query(
           `INSERT INTO coaching_conversations (user_id, role, message) VALUES ($1, 'assistant', $2)`,
@@ -419,12 +421,36 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
       } catch (dbErr) {
         console.error('[coach] failed to save response:', dbErr.message)
       }
+      // Track usage after stream completes (non-blocking)
+      trackEvent({
+        actorUserId:  dbUserId,
+        feature:      'katie_chat',
+        action:       'ai_call',
+        provider:     'anthropic',
+        providerOp:   'messages.stream',
+        model:        'claude-sonnet-4-6',
+        inputTokens:  finalMsg.usage?.input_tokens,
+        outputTokens: finalMsg.usage?.output_tokens,
+        durationMs:   Date.now() - chatT0,
+        metadata:     { coaching_type: user.coaching_type ?? 'vip' },
+      })
       res.write('data: [DONE]\n\n')
       res.end()
     })
 
     stream.on('error', (err) => {
       console.error('[coach stream error]', err.message)
+      trackEvent({
+        actorUserId: dbUserId,
+        feature:     'katie_chat',
+        action:      'ai_call',
+        provider:    'anthropic',
+        providerOp:  'messages.stream',
+        model:       'claude-sonnet-4-6',
+        status:      'error',
+        durationMs:  Date.now() - chatT0,
+        metadata:    { error: err.message },
+      })
       if (!res.writableEnded) {
         res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`)
         res.end()
@@ -600,11 +626,25 @@ router.post('/check-proactive', requireAuth(), async (req, res, next) => {
     // ── Generate proactive message via Claude ─────────────────────────────────
     const prompt = buildTriggerPrompt(trigger, triggerCtx)
 
+    const proT0 = Date.now()
     const claudeMsg = await anthropic.messages.create({
       model:      'claude-sonnet-4-6',
       max_tokens: 200,
       system:     `${KATIE_BASE_PROMPT}\n\nClient name: ${user.first_name ?? 'there'}. Identity anchors: ${user.identity_anchors?.join(', ') ?? 'not set yet'}.`,
       messages:   [{ role: 'user', content: prompt }],
+    })
+    // Track proactive AI call (non-blocking)
+    trackEvent({
+      actorUserId:  dbUserId,
+      feature:      'proactive_katie',
+      action:       'ai_call',
+      provider:     'anthropic',
+      providerOp:   'messages.create',
+      model:        'claude-sonnet-4-6',
+      inputTokens:  claudeMsg.usage?.input_tokens,
+      outputTokens: claudeMsg.usage?.output_tokens,
+      durationMs:   Date.now() - proT0,
+      metadata:     { trigger },
     })
 
     const katieMsgText = claudeMsg.content[0].text.trim()

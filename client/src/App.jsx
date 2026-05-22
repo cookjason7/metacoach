@@ -22,6 +22,7 @@ import HealthAssessment from './pages/HealthAssessment'
 import Messages from './pages/Messages'
 import ClientList from './pages/admin/ClientList'
 import ClientProfile from './pages/admin/ClientProfile'
+import UsageAnalytics from './pages/admin/UsageAnalytics'
 import InviteAccept from './pages/InviteAccept'
 import AiWelcome from './pages/AiWelcome'
 import FormsList from './pages/admin/FormsList'
@@ -177,6 +178,7 @@ export default function App() {
           <Route path="/admin/clients/:id"   element={<ClientProfile />} />
           <Route path="/admin/forms"         element={<FormsList />} />
           <Route path="/admin/forms/:id/edit" element={<FormBuilder />} />
+          <Route path="/admin/usage"         element={<UsageAnalytics />} />
           <Route path="/terms"   element={<Terms />} />
           <Route path="/privacy" element={<Privacy />} />
         </Route>

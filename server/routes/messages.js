@@ -3,6 +3,7 @@ import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 import multer from 'multer'
 import { v2 as cloudinary } from 'cloudinary'
+import { trackEvent } from '../services/usageTracker.js'
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -83,7 +84,20 @@ async function listThreadsForClient(dbUserId, coachingType) {
 router.post('/upload', requireAuth(), upload.single('image'), async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No image file received' })
+    const { userId } = getAuth(req)
+    const dbUserId = await getOrCreateUser(userId)
     const result = await uploadToCloudinary(req.file.buffer)
+    // Track upload (non-blocking)
+    trackEvent({
+      actorUserId: dbUserId,
+      feature:     'message_upload',
+      action:      'upload',
+      provider:    'cloudinary',
+      providerOp:  'upload_stream',
+      fileCount:   1,
+      bytesIn:     req.file.size,
+      metadata:    { mime_type: req.file.mimetype },
+    })
     res.json({ url: result.secure_url })
   } catch (err) { next(err) }
 })

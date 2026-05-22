@@ -1085,6 +1085,67 @@ export async function migrate() {
     )
   `)
 
+  // ── Usage analytics ──────────────────────────────────────────────────────────
+
+  // Cost rate table — editable without a deploy. Seeded with Anthropic prices.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS usage_cost_rates (
+      id          SERIAL PRIMARY KEY,
+      rate_key    TEXT          NOT NULL UNIQUE,
+      rate_usd    NUMERIC(16,8) NOT NULL,
+      description TEXT,
+      active      BOOLEAN       NOT NULL DEFAULT TRUE,
+      updated_at  TIMESTAMPTZ   DEFAULT NOW()
+    )
+  `)
+  // Seed default rates (idempotent via ON CONFLICT DO NOTHING)
+  await pool.query(`
+    INSERT INTO usage_cost_rates (rate_key, rate_usd, description) VALUES
+      ('claude-sonnet-4-6:input_per_1m',            3.00,     'Claude Sonnet 4.6 input — per 1M tokens'),
+      ('claude-sonnet-4-6:output_per_1m',           15.00,    'Claude Sonnet 4.6 output — per 1M tokens'),
+      ('claude-3-5-sonnet-20241022:input_per_1m',   3.00,     'Claude 3.5 Sonnet input — per 1M tokens'),
+      ('claude-3-5-sonnet-20241022:output_per_1m',  15.00,    'Claude 3.5 Sonnet output — per 1M tokens'),
+      ('claude-haiku-4-5-20251001:input_per_1m',    0.80,     'Claude Haiku 4.5 input — per 1M tokens'),
+      ('claude-haiku-4-5-20251001:output_per_1m',   4.00,     'Claude Haiku 4.5 output — per 1M tokens'),
+      ('claude-3-haiku-20240307:input_per_1m',      0.25,     'Claude 3 Haiku input — per 1M tokens'),
+      ('claude-3-haiku-20240307:output_per_1m',     1.25,     'Claude 3 Haiku output — per 1M tokens'),
+      ('claude-3-5-haiku-20241022:input_per_1m',    0.80,     'Claude 3.5 Haiku input — per 1M tokens'),
+      ('claude-3-5-haiku-20241022:output_per_1m',   4.00,     'Claude 3.5 Haiku output — per 1M tokens'),
+      ('cloudinary:image_upload_per_mb',            0.00025,  'Cloudinary image storage/bandwidth per MB')
+    ON CONFLICT (rate_key) DO NOTHING
+  `)
+
+  // Append-only usage events — one row per tracked action.
+  // company_id is nullable for future SaaS multi-tenancy.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS usage_events (
+      id                  BIGSERIAL    PRIMARY KEY,
+      occurred_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      actor_user_id       INTEGER      REFERENCES users(id) ON DELETE SET NULL,
+      target_user_id      INTEGER      REFERENCES users(id) ON DELETE SET NULL,
+      company_id          INTEGER,
+      feature             TEXT         NOT NULL,
+      action              TEXT         NOT NULL,
+      provider            TEXT,
+      provider_operation  TEXT,
+      model               TEXT,
+      input_tokens        INTEGER,
+      output_tokens       INTEGER,
+      file_count          INTEGER,
+      bytes_in            BIGINT,
+      estimated_cost_usd  NUMERIC(16,8),
+      unit_cost_snapshot  JSONB,
+      status              TEXT         NOT NULL DEFAULT 'success',
+      duration_ms         INTEGER,
+      metadata            JSONB,
+      created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_usage_events_actor    ON usage_events (actor_user_id,  occurred_at DESC)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_usage_events_target   ON usage_events (target_user_id, occurred_at DESC)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_usage_events_time     ON usage_events (occurred_at DESC)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_usage_events_feature  ON usage_events (feature, occurred_at DESC)`)
+
   // ── Remove old onboarding gate — mark all users as onboarding_complete ──────
   // The multi-step onboarding form (name/gender/age/height/weight) is removed.
   // New post-signup flow is: Health Assessment → Identity Traits → Enter app.

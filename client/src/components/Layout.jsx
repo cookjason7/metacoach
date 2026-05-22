@@ -253,7 +253,12 @@ export default function Layout() {
     return () => clearInterval(id)
   }, [fetchMsgUnread])
 
-  const navItems = isStaff ? STAFF_NAV_ITEMS : CLIENT_NAV_ITEMS
+  // Super-admin gets an extra "Usage Analytics" nav entry
+  const navItems = isStaff
+    ? isAdmin
+      ? [...STAFF_NAV_ITEMS, { to: '/admin/usage', label: 'Usage Analytics' }]
+      : STAFF_NAV_ITEMS
+    : CLIENT_NAV_ITEMS
 
   // Mobile drawer hides items that already live in the client bottom nav
   const MOBILE_BOTTOM_NAV = new Set(['Coach Katie', 'Messages', 'Community'])

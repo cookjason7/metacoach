@@ -7,6 +7,7 @@ import { pool, getOrCreateUser } from '../db.js'
 import { awardAction, checkFullDay, checkProteinGoal } from '../gamification.js'
 import { normalizeMealPayload } from '../mealValidation.js'
 import { mealAnalyzeLimit, mealTextLimit } from '../middleware/rateLimits.js'
+import { trackEvent } from '../services/usageTracker.js'
 
 // Fire gamification hooks non-blocking so they never fail the main request
 function fireGamification(pool, dbUserId, dateStr) {
@@ -109,6 +110,7 @@ router.post('/analyze', requireAuth(), mealAnalyzeLimit, upload.single('photo'),
     const base64    = req.file.buffer.toString('base64')
     const mediaType = req.file.mimetype
 
+    const t0 = Date.now()
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 1024,
@@ -121,6 +123,22 @@ router.post('/analyze', requireAuth(), mealAnalyzeLimit, upload.single('photo'),
           ],
         },
       ],
+    })
+
+    // Track AI call (non-blocking)
+    trackEvent({
+      actorUserId:  dbUserId,
+      feature:      'meal_photo',
+      action:       'ai_call',
+      provider:     'anthropic',
+      providerOp:   'messages.create',
+      model:        'claude-sonnet-4-6',
+      inputTokens:  message.usage?.input_tokens,
+      outputTokens: message.usage?.output_tokens,
+      fileCount:    1,
+      bytesIn:      req.file.size,
+      durationMs:   Date.now() - t0,
+      metadata:     { mime_type: mediaType, phase },
     })
 
     let text = message.content[0].text.trim()
@@ -171,6 +189,7 @@ router.post('/text-log', requireAuth(), mealTextLimit, async (req, res, next) =>
 
     if (!text?.trim()) return res.status(400).json({ error: 'Text required' })
 
+    const t0 = Date.now()
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 512,
@@ -189,6 +208,19 @@ router.post('/text-log', requireAuth(), mealTextLimit, async (req, res, next) =>
 Food: "${text.trim()}"
 Return only valid JSON, no markdown.`,
       }],
+    })
+
+    // Track AI call (non-blocking)
+    trackEvent({
+      actorUserId:  dbUserId,
+      feature:      'text_food_log',
+      action:       'ai_call',
+      provider:     'anthropic',
+      providerOp:   'messages.create',
+      model:        'claude-sonnet-4-6',
+      inputTokens:  message.usage?.input_tokens,
+      outputTokens: message.usage?.output_tokens,
+      durationMs:   Date.now() - t0,
     })
 
     let txt = message.content[0].text.trim()

@@ -4,6 +4,7 @@ import { v2 as cloudinary } from 'cloudinary'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 import { photoUploadLimit } from '../middleware/rateLimits.js'
+import { trackEvent } from '../services/usageTracker.js'
 
 const router = Router()
 
@@ -99,6 +100,17 @@ router.post('/', requireAuth(), photoUploadLimit, upload.single('photo'), async 
        RETURNING id, photo_url, angle, taken_at, photo_session_id AS session_id`,
       [dbUserId, result.secure_url, angle, sessionId],
     )
+    // Track upload (non-blocking)
+    trackEvent({
+      actorUserId: dbUserId,
+      feature:     'progress_photo',
+      action:      'upload',
+      provider:    'cloudinary',
+      providerOp:  'upload_stream',
+      fileCount:   1,
+      bytesIn:     req.file.size,
+      metadata:    { angle, mime_type: req.file.mimetype },
+    })
     res.status(201).json(rows[0])
   } catch (err) {
     next(err)

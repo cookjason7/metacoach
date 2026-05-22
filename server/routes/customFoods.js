@@ -4,6 +4,7 @@ import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 import { parseLabelFromImageWithAI } from '../services/labelParser.js'
 import { labelScanLimit } from '../middleware/rateLimits.js'
+import { trackEvent } from '../services/usageTracker.js'
 
 const router = Router()
 
@@ -81,7 +82,24 @@ router.post('/scan-label', requireAuth(), labelScanLimit, uploadLabelImage.singl
     if (!req.file) {
       return res.status(400).json({ error: 'No image provided. Upload a JPG, PNG, or WEBP file.' })
     }
+    const { userId } = getAuth(req)
+    const dbUserId = await getOrCreateUser(userId)
+    const t0 = Date.now()
     const draft = await parseLabelFromImageWithAI(req.file.buffer, req.file.mimetype)
+    // Track label scan AI call (non-blocking) — token counts not available from labelParser,
+    // so we log a null-cost event to record the call happened
+    trackEvent({
+      actorUserId: dbUserId,
+      feature:     'label_scan',
+      action:      'ai_call',
+      provider:    'anthropic',
+      providerOp:  'messages.create',
+      model:       'claude-sonnet-4-6',
+      fileCount:   1,
+      bytesIn:     req.file.size,
+      durationMs:  Date.now() - t0,
+      metadata:    { mime_type: req.file.mimetype, note: 'token_count_via_labelParser' },
+    })
     res.json(draft)
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message, code: err.code || undefined })

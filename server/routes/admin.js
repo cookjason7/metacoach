@@ -287,4 +287,242 @@ router.patch('/assessments/:userId', requireAuth(), async (req, res, next) => {
   }
 })
 
+// ── Usage Analytics ───────────────────────────────────────────────────────────
+// GET /api/admin/usage-analytics?start=YYYY-MM-DD&end=YYYY-MM-DD
+// Super-admin only. Default: last 30 days.
+
+router.get('/usage-analytics', requireAuth(), async (req, res, next) => {
+  try {
+    if (await requireAdmin(req, res) === null) return
+
+    const now    = new Date()
+    const defEnd = now.toISOString().slice(0, 10)
+    const defStart = new Date(now - 30 * 86_400_000).toISOString().slice(0, 10)
+
+    const start = req.query.start || defStart
+    const end   = req.query.end   || defEnd
+
+    // Validate date format
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/
+    if (!dateRe.test(start) || !dateRe.test(end)) {
+      return res.status(400).json({ error: 'start and end must be YYYY-MM-DD' })
+    }
+
+    const startTs = `${start}T00:00:00Z`
+    const endTs   = `${end}T23:59:59Z`
+
+    // Run all aggregation queries in parallel
+    const [
+      totalsResult,
+      byFeatureResult,
+      byProviderResult,
+      highCostClientsResult,
+      recentExpensiveResult,
+      dailyTrendResult,
+      engagementResult,
+      clientCountResult,
+    ] = await Promise.all([
+
+      // 1. Overall totals
+      pool.query(`
+        SELECT
+          COALESCE(SUM(estimated_cost_usd), 0)                                        AS total_cost,
+          COALESCE(SUM(CASE WHEN action = 'ai_call' THEN estimated_cost_usd ELSE 0 END), 0) AS ai_cost,
+          COALESCE(SUM(CASE WHEN action = 'upload'  THEN estimated_cost_usd ELSE 0 END), 0) AS upload_cost,
+          COUNT(*)::int                                                                AS event_count,
+          COUNT(CASE WHEN status = 'error' THEN 1 END)::int                          AS error_count
+        FROM usage_events
+        WHERE occurred_at BETWEEN $1 AND $2
+      `, [startTs, endTs]),
+
+      // 2. Cost by feature
+      pool.query(`
+        SELECT feature,
+               COALESCE(SUM(estimated_cost_usd), 0) AS cost,
+               COUNT(*)::int AS events,
+               COUNT(CASE WHEN status = 'error' THEN 1 END)::int AS errors
+        FROM usage_events
+        WHERE occurred_at BETWEEN $1 AND $2
+        GROUP BY feature
+        ORDER BY cost DESC
+      `, [startTs, endTs]),
+
+      // 3. Cost by provider
+      pool.query(`
+        SELECT COALESCE(provider, 'unknown') AS provider,
+               COALESCE(SUM(estimated_cost_usd), 0) AS cost,
+               COUNT(*)::int AS events
+        FROM usage_events
+        WHERE occurred_at BETWEEN $1 AND $2
+        GROUP BY provider
+        ORDER BY cost DESC
+      `, [startTs, endTs]),
+
+      // 4. High-cost clients — cost attributed to target_user_id (if set) else actor_user_id
+      pool.query(`
+        SELECT
+          COALESCE(ue.target_user_id, ue.actor_user_id)      AS user_id,
+          u.first_name,
+          u.email,
+          u.role,
+          COALESCE(SUM(ue.estimated_cost_usd), 0)            AS total_cost,
+          COUNT(*)::int                                       AS events,
+          COUNT(CASE WHEN ue.action = 'ai_call' THEN 1 END)::int AS ai_calls,
+          COUNT(CASE WHEN ue.action = 'upload'  THEN 1 END)::int AS uploads
+        FROM usage_events ue
+        LEFT JOIN users u ON u.id = COALESCE(ue.target_user_id, ue.actor_user_id)
+        WHERE ue.occurred_at BETWEEN $1 AND $2
+          AND COALESCE(ue.target_user_id, ue.actor_user_id) IS NOT NULL
+        GROUP BY 1, 2, 3, 4
+        ORDER BY total_cost DESC
+        LIMIT 25
+      `, [startTs, endTs]),
+
+      // 5. Recent expensive or error events
+      pool.query(`
+        SELECT
+          ue.id, ue.occurred_at, ue.feature, ue.action, ue.provider,
+          ue.model, ue.input_tokens, ue.output_tokens,
+          ue.estimated_cost_usd, ue.status, ue.duration_ms,
+          u.first_name AS user_name, u.email AS user_email
+        FROM usage_events ue
+        LEFT JOIN users u ON u.id = COALESCE(ue.target_user_id, ue.actor_user_id)
+        WHERE ue.occurred_at BETWEEN $1 AND $2
+          AND (ue.estimated_cost_usd > 0 OR ue.status = 'error')
+        ORDER BY ue.estimated_cost_usd DESC NULLS LAST, ue.occurred_at DESC
+        LIMIT 30
+      `, [startTs, endTs]),
+
+      // 6. Daily cost trend
+      pool.query(`
+        SELECT
+          DATE(occurred_at AT TIME ZONE 'UTC')                                        AS date,
+          COALESCE(SUM(estimated_cost_usd), 0)                                        AS total_cost,
+          COALESCE(SUM(CASE WHEN action = 'ai_call' THEN estimated_cost_usd ELSE 0 END), 0) AS ai_cost,
+          COALESCE(SUM(CASE WHEN action = 'upload'  THEN estimated_cost_usd ELSE 0 END), 0) AS upload_cost,
+          COUNT(*)::int                                                                AS events
+        FROM usage_events
+        WHERE occurred_at BETWEEN $1 AND $2
+        GROUP BY DATE(occurred_at AT TIME ZONE 'UTC')
+        ORDER BY date ASC
+      `, [startTs, endTs]),
+
+      // 7. Client engagement status
+      // Rules:
+      //   never_logged_in : last_login_at IS NULL
+      //   inactive        : last_login_at < 30 days ago AND no meal/log activity in 30 days
+      //   at_risk         : has activity in 30 days but < 2 active days in last 14 days
+      //   moderate        : 2-4 active days in last 14 days
+      //   high_usage      : 5+ active days in last 14 days
+      pool.query(`
+        WITH active_days_14 AS (
+          SELECT user_id, COUNT(DISTINCT COALESCE(log_date, logged_at::date)) AS meal_days
+          FROM meals
+          WHERE COALESCE(log_date, logged_at::date) >= CURRENT_DATE - 14
+          GROUP BY user_id
+        ),
+        active_days_30 AS (
+          SELECT user_id, COUNT(DISTINCT COALESCE(log_date, logged_at::date)) AS meal_days
+          FROM meals
+          WHERE COALESCE(log_date, logged_at::date) >= CURRENT_DATE - 30
+          GROUP BY user_id
+        ),
+        katie_msgs_14 AS (
+          SELECT user_id, COUNT(*) AS msg_count
+          FROM coaching_conversations
+          WHERE role = 'user' AND created_at >= NOW() - INTERVAL '14 days'
+          GROUP BY user_id
+        )
+        SELECT
+          u.id, u.first_name, u.email, u.role, u.coaching_type,
+          u.last_login_at, u.created_at,
+          COALESCE(a14.meal_days, 0) AS active_days_14,
+          COALESCE(a30.meal_days, 0) AS active_days_30,
+          COALESCE(km.msg_count,  0) AS katie_msgs_14,
+          CASE
+            WHEN u.last_login_at IS NULL THEN 'never_logged_in'
+            WHEN u.last_login_at < NOW() - INTERVAL '30 days'
+              AND COALESCE(a30.meal_days, 0) = 0                THEN 'inactive'
+            WHEN COALESCE(a14.meal_days, 0) >= 5
+              OR  COALESCE(km.msg_count,  0) >= 10              THEN 'high_usage'
+            WHEN COALESCE(a14.meal_days, 0) >= 2               THEN 'moderate'
+            WHEN COALESCE(a30.meal_days, 0) >= 1               THEN 'at_risk'
+            ELSE 'inactive'
+          END AS engagement_status
+        FROM users u
+        LEFT JOIN active_days_14 a14 ON a14.user_id = u.id
+        LEFT JOIN active_days_30 a30 ON a30.user_id = u.id
+        LEFT JOIN katie_msgs_14  km  ON km.user_id  = u.id
+        WHERE u.role = 'client'
+          AND u.client_status = 'active'
+        ORDER BY active_days_14 DESC, u.first_name ASC
+      `),
+
+      // 8. Total client counts
+      pool.query(`
+        SELECT
+          COUNT(*)::int AS total_clients,
+          COUNT(CASE WHEN last_login_at >= NOW() - INTERVAL '30 days' THEN 1 END)::int AS active_30d
+        FROM users
+        WHERE role = 'client' AND client_status = 'active'
+      `),
+    ])
+
+    const totals       = totalsResult.rows[0]
+    const counts       = clientCountResult.rows[0]
+    const totalCost    = Number(totals.total_cost)
+    const totalClients = counts.total_clients
+    const activeClients = counts.active_30d
+
+    // Low/no usage clients = clients with at_risk or inactive or never_logged_in status
+    const engagementRows = engagementResult.rows
+    const lowUsage = engagementRows.filter(r =>
+      ['inactive', 'never_logged_in', 'at_risk'].includes(r.engagement_status),
+    )
+
+    res.json({
+      range: { start, end },
+      totals: {
+        total_cost:         totalCost,
+        ai_cost:            Number(totals.ai_cost),
+        upload_cost:        Number(totals.upload_cost),
+        event_count:        totals.event_count,
+        error_count:        totals.error_count,
+        cost_per_active_client:   activeClients  > 0 ? totalCost / activeClients  : null,
+        cost_per_total_client:    totalClients   > 0 ? totalCost / totalClients    : null,
+        total_clients,
+        active_clients_30d: activeClients,
+      },
+      by_feature:  byFeatureResult.rows.map(r => ({ ...r, cost: Number(r.cost) })),
+      by_provider: byProviderResult.rows.map(r => ({ ...r, cost: Number(r.cost) })),
+      high_cost_clients: highCostClientsResult.rows.map(r => ({
+        ...r,
+        total_cost: Number(r.total_cost),
+      })),
+      low_usage_clients: lowUsage,
+      engagement_summary: {
+        never_logged_in: engagementRows.filter(r => r.engagement_status === 'never_logged_in').length,
+        inactive:        engagementRows.filter(r => r.engagement_status === 'inactive').length,
+        at_risk:         engagementRows.filter(r => r.engagement_status === 'at_risk').length,
+        moderate:        engagementRows.filter(r => r.engagement_status === 'moderate').length,
+        high_usage:      engagementRows.filter(r => r.engagement_status === 'high_usage').length,
+      },
+      engagement_per_client: engagementRows,
+      recent_events:   recentExpensiveResult.rows.map(r => ({
+        ...r,
+        estimated_cost_usd: r.estimated_cost_usd != null ? Number(r.estimated_cost_usd) : null,
+      })),
+      daily_trend: dailyTrendResult.rows.map(r => ({
+        date:        r.date,
+        total_cost:  Number(r.total_cost),
+        ai_cost:     Number(r.ai_cost),
+        upload_cost: Number(r.upload_cost),
+        events:      r.events,
+      })),
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
 export default router
