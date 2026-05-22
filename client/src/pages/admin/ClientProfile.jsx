@@ -45,6 +45,27 @@ function fmtDob(iso) {
   return `${m}/${d}/${y}`
 }
 
+// Client status tag — mirrors computeStatusTag in coachAdmin.js (no API call needed)
+function computeClientStatusTag(client) {
+  if (client.client_status === 'invited') return 'Invited'
+  if (!client.onboarding_complete || !client.assessment_complete) return 'New Client'
+  const adh7  = Number(client.adherence_7d  || 0)
+  const adh30 = Number(client.adherence_30d || 0)
+  if (adh7 >= 80) return 'Consistent'
+  if (adh7 >= 50) return 'Building Momentum'
+  if (adh30 >= 50 && adh7 < 30) return 'Needs Attention'
+  if (adh7 > adh30) return 'Rebuilding Momentum'
+  return 'Building Momentum'
+}
+
+// Chip styles per status tag
+function statusTagStyle(tag) {
+  if (tag === 'Consistent')                               return 'bg-emerald-50 border-emerald-200 text-emerald-700'
+  if (tag === 'Building Momentum' || tag === 'Rebuilding Momentum') return 'bg-orange-50 border-orange-200 text-[#E8670A]'
+  if (tag === 'Needs Attention')                         return 'bg-amber-50 border-amber-200 text-amber-700'
+  return 'bg-gray-50 border-gray-200 text-gray-600'
+}
+
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
 function OverviewTab({ client, role, getToken, onUpdate }) {
@@ -3519,12 +3540,50 @@ export default function ClientProfile() {
       </button>
 
       {/* Header */}
-      <div className="mb-5">
+      <div className="mb-3">
         <h1 className="text-2xl font-bold text-gray-900">
           {[client.display_first_name || client.first_name, client.display_last_name || client.last_name].filter(Boolean).join(' ') || client.email?.split('@')[0] || 'Client'}
         </h1>
         <p className="text-sm text-gray-500">{client.email}</p>
       </div>
+
+      {/* ── Client snapshot bar ── */}
+      {(() => {
+        const statusTag  = computeClientStatusTag(client)
+        const tagStyle   = statusTagStyle(statusTag)
+        const coachLabel = client.assigned_coach_name || client.assigned_coach_email || '—'
+        const typeLabel  = client.coaching_type
+          ? client.coaching_type.charAt(0).toUpperCase() + client.coaching_type.slice(1)
+          : '—'
+        const startLabel = client.start_date ? fmtDate(client.start_date) : '—'
+        const rawDays    = client.start_date ? daysSince(client.start_date) : null
+        const daysLabel  = rawDays != null ? `${Math.max(0, rawDays)} days` : '—'
+        const weightLabel = client.weight_lbs ? `${client.weight_lbs} lbs` : '—'
+
+        function Chip({ label, value, extra = '' }) {
+          return (
+            <div className={`flex flex-col gap-0.5 rounded-lg border px-3 py-2 ${extra || 'bg-gray-50 border-gray-200'}`}>
+              <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide leading-none">{label}</span>
+              <span className={`text-sm font-semibold leading-snug ${extra ? '' : 'text-gray-900'}`}>{value}</span>
+            </div>
+          )
+        }
+
+        return (
+          <div className="flex flex-wrap gap-2 mb-5">
+            <Chip label="Coach"    value={coachLabel} />
+            <Chip label="Type"     value={typeLabel} />
+            <Chip label="Started"  value={startLabel} />
+            <Chip label="Active"   value={daysLabel} />
+            <Chip label="Weight"   value={weightLabel} />
+            {/* Status chip — colored border + text via tagStyle */}
+            <div className={`flex flex-col gap-0.5 rounded-lg border px-3 py-2 ${tagStyle}`}>
+              <span className="text-[10px] font-semibold uppercase tracking-wide leading-none opacity-70">Status</span>
+              <span className="text-sm font-semibold leading-snug">{statusTag}</span>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Tabs — primary tabs scroll on mobile; More button sits outside overflow so its dropdown isn't clipped */}
       <div className="border-b border-gray-200 mb-5 flex items-stretch">
