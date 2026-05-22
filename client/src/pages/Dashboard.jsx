@@ -658,7 +658,6 @@ function CoachDashboard({ getToken, userRole }) {
             >
               <option value="all">All statuses</option>
               <option value="active">Active</option>
-              <option value="invited">Invited</option>
               <option value="inactive">Inactive</option>
             </select>
           </div>

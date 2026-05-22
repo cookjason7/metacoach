@@ -983,13 +983,25 @@ function PlaceholderTab({ title, description }) {
 
 // ── Pending Invite Row ────────────────────────────────────────────────────────
 
-function PendingInviteRow({ invite }) {
-  const [copied, setCopied] = useState(false)
-  const name = [invite.first_name, invite.last_name].filter(Boolean).join(' ') || invite.email
+const COACHING_TYPE_BADGE = {
+  vip:    'bg-orange-50 text-[#E8670A] border-orange-200',
+  ai:     'bg-blue-50 text-blue-700 border-blue-200',
+  hybrid: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+}
+
+function PendingInviteRow({ invite, onResend, onCancel }) {
+  const [copied,     setCopied]     = useState(false)
+  const [resending,  setResending]  = useState(false)
+  const [resentMsg,  setResentMsg]  = useState(null)   // null | 'sent' | string (error)
+  const [cancelling, setCancelling] = useState(false)
+
+  const name        = [invite.first_name, invite.last_name].filter(Boolean).join(' ') || invite.email
   const sentDaysAgo = Math.floor((Date.now() - new Date(invite.created_at)) / 86400_000)
   const daysLeft    = invite.expires_at
     ? Math.max(0, Math.ceil((new Date(invite.expires_at) - Date.now()) / 86400_000))
     : null
+  const coachBadge  = COACHING_TYPE_BADGE[invite.coaching_type] ?? COACHING_TYPE_BADGE.vip
+  const typeLabel   = invite.coaching_type === 'ai' ? 'AI' : invite.coaching_type === 'hybrid' ? 'Hybrid' : 'VIP'
 
   async function copy() {
     try {
@@ -999,37 +1011,90 @@ function PendingInviteRow({ invite }) {
     } catch { /* ignore */ }
   }
 
+  async function resend() {
+    setResending(true); setResentMsg(null)
+    try {
+      const result = await onResend()
+      setResentMsg(result?.email_sent ? 'sent' : result?.email_note ?? 'Email not configured — copy the link instead.')
+    } catch { setResentMsg('Resend failed.') }
+    finally { setResending(false) }
+    setTimeout(() => setResentMsg(null), 5000)
+  }
+
+  async function cancel() {
+    if (!confirm(`Cancel the invite for ${name}? The invite link will stop working.`)) return
+    setCancelling(true)
+    try { await onCancel() } catch { /* parent handles */ }
+    finally { setCancelling(false) }
+  }
+
   return (
-    <div className="px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
-      <div className="min-w-0">
-        <p className="text-sm font-semibold text-gray-900">{name}</p>
-        <p className="text-xs text-gray-500 truncate">{invite.email}</p>
-        <p className="text-[11px] text-purple-600 mt-0.5">
-          Sent {sentDaysAgo === 0 ? 'today' : `${sentDaysAgo}d ago`}
-          {daysLeft !== null && ` · ${daysLeft}d left`}
-          {invite.invited_by_name && ` · by ${invite.invited_by_name}`}
-        </p>
+    <div className="px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        {/* Left: info */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-gray-900">{name}</p>
+            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${coachBadge}`}>
+              {typeLabel}
+            </span>
+          </div>
+          <p className="text-xs text-gray-500 mt-0.5 truncate">{invite.email}</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">
+            Sent {sentDaysAgo === 0 ? 'today' : `${sentDaysAgo}d ago`}
+            {daysLeft !== null && (
+              <span className={daysLeft <= 3 ? ' text-amber-600 font-medium' : ''}>
+                {' '}· {daysLeft}d remaining
+              </span>
+            )}
+            {invite.assigned_coach_name && ` · Coach: ${invite.assigned_coach_name}`}
+          </p>
+          {resentMsg && (
+            <p className={`text-[11px] mt-1 font-medium ${resentMsg === 'sent' ? 'text-emerald-600' : 'text-amber-600'}`}>
+              {resentMsg === 'sent' ? '✓ Email resent!' : `⚠ ${resentMsg}`}
+            </p>
+          )}
+        </div>
+        {/* Right: actions */}
+        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+          <button
+            onClick={copy}
+            className="text-xs font-semibold text-purple-700 border border-purple-200 rounded-lg px-2.5 py-1.5 hover:bg-purple-50 transition-colors min-h-[36px]"
+          >
+            {copied ? '✓ Copied' : 'Copy Link'}
+          </button>
+          <button
+            onClick={resend} disabled={resending}
+            className="text-xs font-semibold text-gray-600 border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 transition-colors disabled:opacity-40 min-h-[36px]"
+          >
+            {resending ? '…' : 'Resend'}
+          </button>
+          <button
+            onClick={cancel} disabled={cancelling}
+            title="Cancel invite"
+            className="text-xs font-semibold text-red-400 border border-red-100 rounded-lg px-2.5 py-1.5 hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-40 min-h-[36px]"
+          >
+            {cancelling ? '…' : 'Cancel'}
+          </button>
+        </div>
       </div>
-      <button
-        onClick={copy}
-        className="shrink-0 text-xs font-semibold text-purple-700 hover:text-purple-900 border border-purple-200 rounded-lg px-3 py-2 hover:bg-purple-50 transition-colors min-h-[36px]"
-      >
-        {copied ? '✓ Copied!' : 'Copy Link'}
-      </button>
     </div>
   )
 }
 
-// ── Invite Client modal ───────────────────────────────────────────────────────
+// ── Add Client modal ──────────────────────────────────────────────────────────
 
-const EMPTY_INVITE = { first_name: '', last_name: '', email: '', phone: '', notes: '' }
+const EMPTY_INVITE = {
+  first_name: '', last_name: '', email: '',
+  coaching_type: 'vip', assigned_coach_id: '', notes: '',
+}
 
-function InviteModal({ getToken, onClose, onSuccess }) {
+function InviteModal({ getToken, coaches = [], onClose, onSuccess }) {
   const [form,       setForm]       = useState(EMPTY_INVITE)
   const [saving,     setSaving]     = useState(false)
   const [error,      setError]      = useState(null)
-  const [isArchived, setIsArchived] = useState(false)   // true when 409 is an archived-client conflict
-  const [result,     setResult]     = useState(null)    // { invite_url, email_sent, email_note, first_name }
+  const [isArchived, setIsArchived] = useState(false)
+  const [result,     setResult]     = useState(null) // success payload
   const [copied,     setCopied]     = useState(false)
 
   function setF(e) { setForm(f => ({ ...f, [e.target.name]: e.target.value })) }
@@ -1043,11 +1108,12 @@ function InviteModal({ getToken, onClose, onSuccess }) {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body:    JSON.stringify({
-          first_name: form.first_name.trim(),
-          last_name:  form.last_name.trim() || undefined,
-          email:      form.email.trim(),
-          phone:      form.phone.trim()  || undefined,
-          notes:      form.notes.trim()  || undefined,
+          first_name:        form.first_name.trim(),
+          last_name:         form.last_name.trim()  || undefined,
+          email:             form.email.trim(),
+          coaching_type:     form.coaching_type || 'vip',
+          assigned_coach_id: form.assigned_coach_id || undefined,
+          notes:             form.notes.trim()   || undefined,
         }),
       })
       const data = await res.json()
@@ -1069,6 +1135,8 @@ function InviteModal({ getToken, onClose, onSuccess }) {
     } catch { /* ignore */ }
   }
 
+  const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white'
+
   return (
     <div className="mobile-modal-backdrop" onClick={onClose}>
       <div
@@ -1078,43 +1146,43 @@ function InviteModal({ getToken, onClose, onSuccess }) {
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-[#fff7ed] flex items-center justify-center text-[#E8670A] text-lg shrink-0">✉️</div>
+            <div className="w-10 h-10 rounded-full bg-[#fff7ed] flex items-center justify-center text-[#E8670A] text-lg shrink-0">👤</div>
             <div>
               <p className="text-base font-bold text-gray-900">Add Client</p>
-              <p className="text-xs text-gray-400">They'll receive a secure sign-up link</p>
+              <p className="text-xs text-gray-400">Send a secure sign-up link by email</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none shrink-0">×</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none shrink-0 p-1">×</button>
         </div>
 
         {/* ── Success state ── */}
         {result ? (
           <div>
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-4">
-              <p className="text-sm font-semibold text-emerald-800 mb-1">
-                ✓ Invite created for {result.first_name}!
+            <div className={`rounded-xl p-4 mb-4 border ${result.email_sent ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
+              <p className={`text-sm font-semibold mb-1 ${result.email_sent ? 'text-emerald-800' : 'text-amber-800'}`}>
+                {result.email_sent ? `✓ Invite sent to ${result.first_name}!` : `✓ Invite created for ${result.first_name}`}
               </p>
               {result.email_sent ? (
-                <p className="text-xs text-emerald-700">Email sent to <strong>{form.email}</strong>.</p>
+                <p className="text-xs text-emerald-700">Email delivered to <strong>{form.email}</strong>.</p>
               ) : (
                 <p className="text-xs text-amber-700">
-                  ⚠ Email not sent{result.email_note ? `: ${result.email_note}` : '.'} Copy and share the link below manually.
+                  Email not sent{result.email_note ? ` — ${result.email_note}` : '.'} Share the link below manually.
                 </p>
               )}
             </div>
-            <div className="mb-4">
-              <label className="block text-xs font-medium text-gray-600 mb-1">Invite link</label>
+            <div className="mb-5">
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Invite link</label>
               <div className="flex gap-2">
                 <input
                   readOnly value={result.invite_url}
-                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-xs text-gray-700 bg-gray-50 select-all"
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-xs text-gray-700 bg-gray-50"
                   onClick={e => e.target.select()}
                 />
                 <button
                   onClick={copyLink}
                   className="shrink-0 bg-[#E8670A] text-white px-3 py-2 rounded-lg text-xs font-semibold hover:bg-[#c45e09] transition-colors min-w-[70px]"
                 >
-                  {copied ? 'Copied!' : 'Copy'}
+                  {copied ? '✓ Copied' : 'Copy'}
                 </button>
               </div>
             </div>
@@ -1123,7 +1191,7 @@ function InviteModal({ getToken, onClose, onSuccess }) {
                 onClick={() => { setResult(null); setForm(EMPTY_INVITE); setCopied(false) }}
                 className="flex-1 border border-gray-300 text-gray-700 py-2.5 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors"
               >
-                Invite Another
+                Add Another
               </button>
               <button
                 onClick={onSuccess}
@@ -1136,75 +1204,81 @@ function InviteModal({ getToken, onClose, onSuccess }) {
         ) : (
           /* ── Form state ── */
           <form onSubmit={submit} className="space-y-4">
+            {/* Name row */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">First name *</label>
-                <input
-                  name="first_name" value={form.first_name} onChange={setF} required
-                  placeholder="Jane"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-                />
+                <input name="first_name" value={form.first_name} onChange={setF} required
+                  placeholder="Jane" className={inputCls} />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Last name</label>
-                <input
-                  name="last_name" value={form.last_name} onChange={setF}
-                  placeholder="Smith"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-                />
+                <input name="last_name" value={form.last_name} onChange={setF}
+                  placeholder="Smith" className={inputCls} />
               </div>
             </div>
+
+            {/* Email */}
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Email *</label>
-              <input
-                type="email" name="email" value={form.email} onChange={setF} required
-                placeholder="jane@example.com"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-              />
+              <input type="email" name="email" value={form.email} onChange={setF} required
+                placeholder="jane@example.com" className={inputCls} />
               <p className="text-[10px] text-gray-400 mt-0.5">Client must sign up with this exact email.</p>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Phone (optional)</label>
-              <input
-                type="tel" name="phone" value={form.phone} onChange={setF}
-                placeholder="+1 (555) 000-0000"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-              />
+
+            {/* Coaching type + Assigned coach */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Coaching type</label>
+                <select name="coaching_type" value={form.coaching_type} onChange={setF} className={inputCls}>
+                  <option value="vip">VIP</option>
+                  <option value="ai">AI</option>
+                  <option value="hybrid">Hybrid</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Assign coach</label>
+                <select name="assigned_coach_id" value={form.assigned_coach_id} onChange={setF} className={inputCls}>
+                  <option value="">Unassigned</option>
+                  {coaches.map(c => (
+                    <option key={c.id} value={String(c.id)}>
+                      {c.first_name || c.email}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
+
+            {/* Notes */}
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Notes (optional)</label>
-              <textarea
-                name="notes" value={form.notes} onChange={setF} rows={2}
+              <label className="block text-xs font-medium text-gray-600 mb-1">Notes <span className="text-gray-400 font-normal">(optional)</span></label>
+              <textarea name="notes" value={form.notes} onChange={setF} rows={2}
                 placeholder="e.g. Referred by John, interested in weight loss"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none"
-              />
+                className={`${inputCls} resize-none`} />
             </div>
+
+            {/* Error */}
             {error && (
-              <div className="bg-red-50 rounded-lg px-3 py-2">
-                <p className="text-xs text-red-600">{error}</p>
+              <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
+                <p className="text-xs text-red-700">{error}</p>
                 {isArchived && (
-                  <button
-                    type="button"
-                    onClick={() => { onClose(); /* caller navigates to archived tab */ }}
-                    className="text-xs text-[#E8670A] underline mt-1 block"
-                  >
-                    Go to Archived Clients → Reactivate, then reinvite
+                  <button type="button" onClick={onClose}
+                    className="text-xs text-[#E8670A] underline mt-1 block">
+                    View Archived Clients → Reactivate, then reinvite
                   </button>
                 )}
               </div>
             )}
+
+            {/* Actions */}
             <div className="flex gap-2 pt-1">
-              <button
-                type="button" onClick={onClose}
-                className="flex-1 border border-gray-300 text-gray-700 py-2.5 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors"
-              >
+              <button type="button" onClick={onClose}
+                className="flex-1 border border-gray-300 text-gray-700 py-2.5 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors min-h-[44px]">
                 Cancel
               </button>
-              <button
-                type="submit" disabled={saving}
-                className="flex-1 bg-[#E8670A] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-50 transition-colors"
-              >
-                {saving ? 'Sending…' : 'Send Invite'}
+              <button type="submit" disabled={saving}
+                className="flex-1 bg-[#E8670A] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-50 transition-colors min-h-[44px]">
+                {saving ? 'Creating…' : 'Send Invite'}
               </button>
             </div>
           </form>
@@ -1287,6 +1361,28 @@ export default function ClientList() {
   }, [getToken])
 
   useEffect(() => { loadPendingInvites() }, [loadPendingInvites])
+
+  // Resend invite email — returns result object for PendingInviteRow feedback
+  async function handleResendInvite(id) {
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/coach-admin/clients/pending-invites/${id}/resend`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` },
+    })
+    return res.ok ? res.json() : { email_sent: false, email_note: 'Server error.' }
+  }
+
+  // Cancel (delete) a pending invite
+  async function handleCancelInvite(id) {
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/coach-admin/clients/pending-invites/${id}`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+    })
+    if (res.ok) loadPendingInvites()
+    else {
+      const data = await res.json().catch(() => ({}))
+      alert(data.error ?? 'Could not cancel invite.')
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1390,10 +1486,11 @@ const filtered = useMemo(() => {
         )}
       </div>
 
-      {/* Add Client / Invite modal */}
+      {/* Add Client modal */}
       {inviteOpen && (
         <InviteModal
           getToken={getToken}
+          coaches={coaches}
           onClose={() => setInviteOpen(false)}
           onSuccess={() => { setInviteOpen(false); load(); loadPendingInvites() }}
         />
@@ -1445,7 +1542,12 @@ const filtered = useMemo(() => {
               ) : (
                 <div className="divide-y divide-purple-100">
                   {pendingInvites.map(inv => (
-                    <PendingInviteRow key={inv.id} invite={inv} />
+                    <PendingInviteRow
+                      key={inv.id}
+                      invite={inv}
+                      onResend={() => handleResendInvite(inv.id)}
+                      onCancel={() => handleCancelInvite(inv.id)}
+                    />
                   ))}
                 </div>
               )}
@@ -1490,7 +1592,7 @@ const filtered = useMemo(() => {
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
                 <option value="all">All statuses</option>
                 <option value="active">Active</option>
-                <option value="invited">Invited</option>
+                <option value="invited">Awaiting Setup</option>
                 <option value="inactive">Inactive</option>
               </select>
               <select value={sortBy} onChange={e => setSortBy(e.target.value)}
@@ -1522,9 +1624,17 @@ const filtered = useMemo(() => {
           {loading && <p className="text-center text-gray-400 py-12 text-sm">Loading clients…</p>}
           {error   && <p className="text-center text-red-500 py-8 text-sm">{error}</p>}
           {!loading && !error && filtered.length === 0 && (
-            <div className="bg-white border border-gray-200 rounded-xl p-12 text-center">
+            <div className="bg-white border border-gray-200 rounded-xl p-10 text-center">
               <p className="text-2xl mb-2">👥</p>
-              <p className="text-sm text-gray-500">No clients match your filters yet.</p>
+              <p className="text-sm text-gray-700 font-medium mb-1">No clients match your filters.</p>
+              {statusFilter === 'invited' && pendingInvites.length > 0 ? (
+                <p className="text-xs text-gray-500 max-w-xs mx-auto">
+                  <strong>Awaiting Setup</strong> shows clients who signed up via invite but haven't completed health assessment yet.
+                  Clients who haven't signed up yet are shown above in <strong>Pending Invites</strong>.
+                </p>
+              ) : (
+                <p className="text-xs text-gray-400">Try changing your filters or adding a new client.</p>
+              )}
             </div>
           )}
 

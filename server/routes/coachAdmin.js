@@ -439,10 +439,13 @@ router.post('/clients/invite', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireStaff(req, res); if (!ctx) return
 
-    const { first_name, last_name, email, phone, assigned_coach_id, notes } = req.body
+    const { first_name, last_name, email, phone, assigned_coach_id, coaching_type, notes } = req.body
 
     if (!first_name?.trim()) return res.status(400).json({ error: 'First name is required.' })
     if (!email?.trim())      return res.status(400).json({ error: 'Email is required.' })
+
+    const validCoachingTypes = ['vip', 'ai', 'hybrid']
+    const resolvedType = validCoachingTypes.includes(coaching_type) ? coaching_type : 'vip'
 
     const normalizedEmail = email.trim().toLowerCase()
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
@@ -482,15 +485,16 @@ router.post('/clients/invite', requireAuth(), async (req, res, next) => {
 
     const { rows: [invite] } = await pool.query(
       `INSERT INTO client_invites
-         (email, first_name, last_name, phone, assigned_coach_id, notes, invited_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING token, email, first_name, last_name, created_at, expires_at`,
+         (email, first_name, last_name, phone, assigned_coach_id, coaching_type, notes, invited_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING token, email, first_name, last_name, coaching_type, created_at, expires_at`,
       [
         normalizedEmail,
         first_name.trim(),
         last_name?.trim() || null,
         phone?.trim() || null,
         coachId,
+        resolvedType,
         notes?.trim() || null,
         ctx.dbUserId,
       ],
@@ -526,6 +530,7 @@ router.post('/clients/invite', requireAuth(), async (req, res, next) => {
       first_name:    invite.first_name,
       last_name:     invite.last_name,
       email:         invite.email,
+      coaching_type: invite.coaching_type,
     })
   } catch (err) { next(err) }
 })
@@ -547,7 +552,8 @@ router.get('/clients/pending-invites', requireAuth(), async (req, res, next) => 
     const { rows } = await pool.query(`
       SELECT ci.id, ci.email, ci.first_name, ci.last_name, ci.coaching_type,
              ci.created_at, ci.expires_at, ci.token,
-             (SELECT first_name FROM users WHERE id = ci.invited_by) AS invited_by_name
+             (SELECT first_name FROM users WHERE id = ci.invited_by)      AS invited_by_name,
+             (SELECT first_name FROM users WHERE id = ci.assigned_coach_id) AS assigned_coach_name
       FROM client_invites ci
       WHERE ci.accepted_at IS NULL
         AND (ci.expires_at IS NULL OR ci.expires_at > NOW())
@@ -556,6 +562,67 @@ router.get('/clients/pending-invites', requireAuth(), async (req, res, next) => 
     `, params)
 
     res.json(rows.map(r => ({ ...r, invite_url: `${appUrl}/invite/${r.token}` })))
+  } catch (err) { next(err) }
+})
+
+// POST /api/coach-admin/clients/pending-invites/:id/resend — resend invite email
+router.post('/clients/pending-invites/:id/resend', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+
+    const { rows } = await pool.query(
+      `SELECT * FROM client_invites WHERE id = $1 AND accepted_at IS NULL`,
+      [id],
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Invite not found or already accepted.' })
+
+    const invite  = rows[0]
+    const appUrl  = process.env.APP_BASE_URL ?? process.env.APP_URL ?? 'https://app.lwcvip.com'
+    const inviteUrl = `${appUrl}/invite/${invite.token}`
+
+    let emailResult = { sent: false, reason: 'Email send skipped' }
+    try {
+      emailResult = await Promise.race([
+        sendInviteEmail({ to: invite.email, firstName: invite.first_name, inviteUrl }),
+        new Promise(resolve => setTimeout(() => resolve({ sent: false, reason: 'Email timed out' }), 12_000)),
+      ])
+    } catch (emailErr) {
+      emailResult = { sent: false, reason: emailErr.message ?? 'Email send failed' }
+    }
+
+    res.json({
+      ok:         true,
+      email_sent: emailResult.sent,
+      email_note: emailResult.sent ? null : emailResult.reason,
+      invite_url: inviteUrl,
+    })
+  } catch (err) { next(err) }
+})
+
+// DELETE /api/coach-admin/clients/pending-invites/:id — cancel a pending invite
+router.delete('/clients/pending-invites/:id', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+
+    // Admins cancel any invite; coaches only ones they created or are assigned to
+    const params = [id]
+    let extra = ''
+    if (ctx.role === 'coach') {
+      params.push(ctx.dbUserId)
+      extra = `AND (assigned_coach_id = $2 OR invited_by = $2)`
+    }
+
+    const { rows } = await pool.query(
+      `DELETE FROM client_invites
+       WHERE id = $1 AND accepted_at IS NULL ${extra}
+       RETURNING id`,
+      params,
+    )
+
+    if (!rows.length) return res.status(404).json({ error: 'Invite not found, already accepted, or you do not have permission.' })
+    res.json({ ok: true })
   } catch (err) { next(err) }
 })
 
