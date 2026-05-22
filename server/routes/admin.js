@@ -490,7 +490,7 @@ router.get('/usage-analytics', requireAuth(), async (req, res, next) => {
         error_count:        totals.error_count,
         cost_per_active_client:   activeClients  > 0 ? totalCost / activeClients  : null,
         cost_per_total_client:    totalClients   > 0 ? totalCost / totalClients    : null,
-        total_clients,
+        total_clients:    totalClients,
         active_clients_30d: activeClients,
       },
       by_feature:  byFeatureResult.rows.map(r => ({ ...r, cost: Number(r.cost) })),
@@ -521,6 +521,7 @@ router.get('/usage-analytics', requireAuth(), async (req, res, next) => {
       })),
     })
   } catch (err) {
+    console.error('[usage-analytics]', err.message, err.stack)
     next(err)
   }
 })
