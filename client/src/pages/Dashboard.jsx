@@ -438,7 +438,7 @@ function SessionSetView({ session, weight }) {
                   rel="noopener noreferrer"
                   className="block w-full aspect-[3/4] rounded-xl overflow-hidden bg-gray-100 hover:opacity-85 transition-opacity"
                 >
-                  <img src={p.photo_url} alt={a} className="w-full h-full object-cover" />
+                  <img src={p.photo_url} alt={a} className="w-full h-full object-contain" />
                 </a>
               ) : (
                 <div className="w-full aspect-[3/4] rounded-xl bg-gray-50 border border-dashed border-gray-200 flex items-center justify-center">
@@ -470,7 +470,7 @@ function UploadPhotoSlot({ angle, photo, sessionId, uploading, onFileSelected })
         }`}
       >
         {photo ? (
-          <img src={photo.photo_url} alt={angle} className="w-full h-full object-cover" />
+          <img src={photo.photo_url} alt={angle} className="w-full h-full object-contain" />
         ) : isUploading ? (
           <span className="text-[10px] text-gray-400">Uploading…</span>
         ) : (
@@ -738,7 +738,7 @@ function NewSessionModal({ sessionId, getToken, onUploaded, onClose }) {
                 >
                   {preview ? (
                     <>
-                      <img src={preview} alt={angle} className="w-full h-full object-cover" />
+                      <img src={preview} alt={angle} className="w-full h-full object-contain" />
                       {isUploading && (
                         <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
                           <span className="text-[10px] font-semibold text-white">Uploading…</span>

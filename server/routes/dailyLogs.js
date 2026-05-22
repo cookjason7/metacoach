@@ -48,13 +48,30 @@ router.get('/week', requireAuth(), async (req, res, next) => {
   }
 })
 
-// GET /api/daily-logs/progress?range=30d|90d|6m
+// GET /api/daily-logs/progress?range=30d|90d|6m|custom&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
 router.get('/progress', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const dbUserId   = await getOrCreateUser(userId)
-    const rangeParam = req.query.range
+    const rangeParam = ['30d', '90d', '6m', 'custom'].includes(req.query.range) ? req.query.range : '30d'
+    const validDate = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)
+    const isoDate = d => d.toISOString().slice(0, 10)
     const days       = rangeParam === '90d' ? 90 : rangeParam === '6m' ? 180 : 30
+    let startDate
+    let endDate = isoDate(new Date())
+
+    if (rangeParam === 'custom') {
+      if (!validDate(req.query.start_date) || !validDate(req.query.end_date)) {
+        return res.status(400).json({ error: 'Custom range requires start_date and end_date in YYYY-MM-DD format.' })
+      }
+      startDate = req.query.start_date
+      endDate   = req.query.end_date
+      if (startDate > endDate) return res.status(400).json({ error: 'start_date must be on or before end_date.' })
+    } else {
+      const d = new Date()
+      d.setDate(d.getDate() - days)
+      startDate = isoDate(d)
+    }
 
     const md = `COALESCE(log_date, logged_at::date)`
 
@@ -62,64 +79,64 @@ router.get('/progress', requireAuth(), async (req, res, next) => {
       pool.query(`
         SELECT
           (SELECT ROUND(weight_lbs::numeric,1) FROM daily_logs WHERE user_id=$1
-             AND weight_lbs IS NOT NULL AND logged_date >= CURRENT_DATE-$2
+             AND weight_lbs IS NOT NULL AND logged_date BETWEEN $2::date AND $3::date
              ORDER BY logged_date ASC LIMIT 1) AS weight_start,
           (SELECT ROUND(weight_lbs::numeric,1) FROM daily_logs WHERE user_id=$1
-             AND weight_lbs IS NOT NULL
+             AND weight_lbs IS NOT NULL AND logged_date BETWEEN $2::date AND $3::date
              ORDER BY logged_date DESC LIMIT 1) AS weight_current,
           (SELECT goal_calories    FROM users WHERE id=$1) AS goal_calories,
           (SELECT goal_protein     FROM users WHERE id=$1) AS goal_protein,
           (SELECT starting_weight_lbs FROM users WHERE id=$1) AS starting_weight_lbs,
           (SELECT ROUND(AVG(dc)) FROM
              (SELECT SUM(calories) dc FROM meals WHERE user_id=$1
-                AND ${md} >= CURRENT_DATE-$2 GROUP BY ${md}) t) AS avg_calories,
+                AND ${md} BETWEEN $2::date AND $3::date GROUP BY ${md}) t) AS avg_calories,
           (SELECT ROUND(AVG(dp)::numeric,1) FROM
              (SELECT SUM(protein) dp FROM meals WHERE user_id=$1
-                AND ${md} >= CURRENT_DATE-$2 GROUP BY ${md}) t) AS avg_protein,
+                AND ${md} BETWEEN $2::date AND $3::date GROUP BY ${md}) t) AS avg_protein,
           (SELECT ROUND(AVG(steps)) FROM daily_logs WHERE user_id=$1
-             AND steps IS NOT NULL AND logged_date >= CURRENT_DATE-$2) AS avg_steps,
+             AND steps IS NOT NULL AND logged_date BETWEEN $2::date AND $3::date) AS avg_steps,
           (SELECT ROUND(AVG(sleep_minutes)) FROM daily_logs WHERE user_id=$1
-             AND sleep_minutes IS NOT NULL AND logged_date >= CURRENT_DATE-$2) AS avg_sleep_minutes,
+             AND sleep_minutes IS NOT NULL AND logged_date BETWEEN $2::date AND $3::date) AS avg_sleep_minutes,
           (SELECT COUNT(*)::int FROM workout_logs WHERE user_id=$1
-             AND completed_at >= NOW()-$2*INTERVAL '1 day') AS workouts_completed,
+             AND completed_at::date BETWEEN $2::date AND $3::date) AS workouts_completed,
           (SELECT COUNT(*)::int FROM activity_logs WHERE user_id=$1
-             AND logged_at >= NOW()-$2*INTERVAL '1 day') AS activities_completed,
+             AND logged_at::date BETWEEN $2::date AND $3::date) AS activities_completed,
           (SELECT ROUND(COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0))
-             FROM meals WHERE user_id=$1 AND ${md} >= CURRENT_DATE-$2) AS total_sodium_mg,
+             FROM meals WHERE user_id=$1 AND ${md} BETWEEN $2::date AND $3::date) AS total_sodium_mg,
           (SELECT ROUND(AVG(dns)) FROM
              (SELECT SUM((micronutrients->>'sodium_mg')::numeric) dns FROM meals WHERE user_id=$1
-                AND ${md} >= CURRENT_DATE-7 GROUP BY ${md}) t) AS avg_sodium_7d
-      `, [dbUserId, days]),
+                AND ${md} BETWEEN GREATEST($2::date, $3::date - INTERVAL '6 days') AND $3::date GROUP BY ${md}) t) AS avg_sodium_7d
+      `, [dbUserId, startDate, endDate]),
 
       pool.query(`
         SELECT logged_date AS date, ROUND(weight_lbs::numeric,1) AS value
         FROM daily_logs WHERE user_id=$1 AND weight_lbs IS NOT NULL
-          AND logged_date >= CURRENT_DATE-$2
+          AND logged_date BETWEEN $2::date AND $3::date
         ORDER BY logged_date
-      `, [dbUserId, days]),
+      `, [dbUserId, startDate, endDate]),
 
       pool.query(`
         SELECT logged_date AS date, steps AS value
         FROM daily_logs WHERE user_id=$1 AND steps IS NOT NULL
-          AND logged_date >= CURRENT_DATE-$2
+          AND logged_date BETWEEN $2::date AND $3::date
         ORDER BY logged_date
-      `, [dbUserId, days]),
+      `, [dbUserId, startDate, endDate]),
 
       pool.query(`
         SELECT logged_date AS date, sleep_minutes AS value
         FROM daily_logs WHERE user_id=$1 AND sleep_minutes IS NOT NULL
-          AND logged_date >= CURRENT_DATE-$2
+          AND logged_date BETWEEN $2::date AND $3::date
         ORDER BY logged_date
-      `, [dbUserId, days]),
+      `, [dbUserId, startDate, endDate]),
 
       pool.query(`
         SELECT ${md} AS date,
           ROUND(SUM(calories)) AS calories,
           ROUND(SUM(protein)::numeric,1) AS protein,
           ROUND(COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0)) AS sodium_mg
-        FROM meals WHERE user_id=$1 AND ${md} >= CURRENT_DATE-$2
+        FROM meals WHERE user_id=$1 AND ${md} BETWEEN $2::date AND $3::date
         GROUP BY ${md} ORDER BY ${md}
-      `, [dbUserId, days]),
+      `, [dbUserId, startDate, endDate]),
 
       pool.query(`
         SELECT photo_session_id AS session_id, MIN(taken_at) AS session_date,
@@ -127,10 +144,11 @@ router.get('/progress', requireAuth(), async (req, res, next) => {
             'id', id, 'photo_url', photo_url, 'angle', angle, 'taken_at', taken_at
           ) ORDER BY taken_at) AS photos
         FROM progress_photos WHERE user_id=$1
+          AND taken_at::date BETWEEN $2::date AND $3::date
         GROUP BY photo_session_id
         ORDER BY MIN(taken_at) DESC
         LIMIT 20
-      `, [dbUserId]),
+      `, [dbUserId, startDate, endDate]),
     ])
 
     const summary = { ...sumR.rows[0] }
@@ -148,8 +166,10 @@ router.get('/progress', requireAuth(), async (req, res, next) => {
     })
 
     res.json({
-      range: rangeParam || '30d',
+      range: rangeParam,
       days,
+      start_date: startDate,
+      end_date: endDate,
       summary,
       weight_series: wtR.rows,
       step_series:   stpR.rows,

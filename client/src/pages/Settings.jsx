@@ -155,7 +155,7 @@ function ProgressPhotoPanel({ angle, photos, getToken, onUploaded }) {
         }`}
       >
         {latest ? (
-          <img src={latest.photo_url} alt={angle} className="w-full h-full object-cover" />
+          <img src={latest.photo_url} alt={angle} className="w-full h-full object-contain" />
         ) : uploading ? (
           <span className="text-[10px] sm:text-xs text-gray-400">Uploading…</span>
         ) : (
