@@ -1450,6 +1450,7 @@ function MeasurementsSection({ clientId, getToken, startDate, endDate }) {
   })
   const [mSaving, setMSaving] = useState(false)
   const [mError,  setMError]  = useState(null)
+  const [editingId, setEditingId] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -1484,7 +1485,7 @@ function MeasurementsSection({ clientId, getToken, startDate, endDate }) {
       })
       if (res.ok) {
         const m = await res.json()
-        setMeasurements(prev => [m, ...prev])
+        setMeasurements(prev => [m, ...prev].sort((a, b) => String(b.measurement_date).localeCompare(String(a.measurement_date))))
         setMForm({ measurement_date: new Date().toISOString().slice(0, 10), chest: '', waist: '', hips: '' })
         setShowForm(false)
       } else {
@@ -1492,6 +1493,55 @@ function MeasurementsSection({ clientId, getToken, startDate, endDate }) {
       }
     } catch { setMError('Failed to save. Please try again.') }
     finally  { setMSaving(false) }
+  }
+
+  function startEdit(m) {
+    setEditingId(m.id)
+    setShowForm(true)
+    setMError(null)
+    setMForm({
+      measurement_date: String(m.measurement_date).slice(0, 10),
+      chest: m.chest ?? '',
+      waist: m.waist ?? '',
+      hips: m.hips ?? '',
+    })
+  }
+
+  async function updateMeasurement(e) {
+    e.preventDefault()
+    setMSaving(true); setMError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/measurements/${editingId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          measurement_date: mForm.measurement_date,
+          chest: mForm.chest !== '' ? Number(mForm.chest) : null,
+          waist: mForm.waist !== '' ? Number(mForm.waist) : null,
+          hips:  mForm.hips  !== '' ? Number(mForm.hips)  : null,
+        }),
+      })
+      if (!res.ok) throw new Error()
+      const updated = await res.json()
+      setMeasurements(prev => prev
+        .map(m => m.id === editingId ? updated : m)
+        .sort((a, b) => String(b.measurement_date).localeCompare(String(a.measurement_date))))
+      setEditingId(null)
+      setShowForm(false)
+      setMForm({ measurement_date: new Date().toISOString().slice(0, 10), chest: '', waist: '', hips: '' })
+    } catch { setMError('Failed to save. Please try again.') }
+    finally  { setMSaving(false) }
+  }
+
+  async function deleteMeasurement(id) {
+    if (!window.confirm('Delete this measurement entry? This cannot be undone.')) return
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/measurements/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (res.ok) setMeasurements(prev => prev.filter(m => m.id !== id))
   }
 
   const latest = measurements[0] ?? null
@@ -1516,7 +1566,7 @@ function MeasurementsSection({ clientId, getToken, startDate, endDate }) {
       </div>
 
       {showForm && (
-        <form onSubmit={addMeasurement} className="bg-gray-50 rounded-xl border border-gray-200 p-4 mb-4 space-y-3">
+        <form onSubmit={editingId ? updateMeasurement : addMeasurement} className="bg-gray-50 rounded-xl border border-gray-200 p-4 mb-4 space-y-3">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
             <input type="date" value={mForm.measurement_date}
@@ -1585,15 +1635,20 @@ function MeasurementsSection({ clientId, getToken, startDate, endDate }) {
                   <th className="px-3 py-2 text-right font-semibold">Chest</th>
                   <th className="px-3 py-2 text-right font-semibold">Waist</th>
                   <th className="px-3 py-2 text-right font-semibold">Hips</th>
+                  <th className="px-3 py-2 text-right font-semibold">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {measurements.map((m, i) => (
                   <tr key={m.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}>
                     <td className="px-3 py-2 text-gray-700 font-medium whitespace-nowrap">{String(m.measurement_date).slice(0, 10)}</td>
-                    <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.chest ? `${Number(m.chest).toFixed(1)}"` : '—'}</td>
-                    <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.waist ? `${Number(m.waist).toFixed(1)}"` : '—'}</td>
-                    <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.hips  ? `${Number(m.hips).toFixed(1)}"` : '—'}</td>
+                    <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.chest ? `${Number(m.chest).toFixed(1)}"` : '-'}</td>
+                    <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.waist ? `${Number(m.waist).toFixed(1)}"` : '-'}</td>
+                    <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.hips  ? `${Number(m.hips).toFixed(1)}"` : '-'}</td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                      <button type="button" onClick={() => startEdit(m)} className="text-[#E8670A] font-semibold mr-3">Edit</button>
+                      <button type="button" onClick={() => deleteMeasurement(m.id)} className="text-red-500 font-semibold">Delete</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1721,6 +1776,29 @@ function ProgressTab({ clientId, getToken }) {
   }
   // Convert sleep series minutes → hours for chart display
   const slpHrs = slp.map(d => ({ date: d.date, value: d.value ? +(Number(d.value) / 60).toFixed(1) : 0 }))
+
+  async function deleteProgressPhoto(photoId) {
+    if (!window.confirm('Delete this progress photo? This cannot be undone.')) return
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/progress-photos/${photoId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) return
+    setData(prev => {
+      if (!prev) return prev
+      const progress_photos = (prev.progress_photos ?? [])
+        .map(session => {
+          const photos = { ...session.photos }
+          for (const angle of ['front', 'side', 'back']) {
+            if (photos[angle]?.id === photoId) photos[angle] = null
+          }
+          return { ...session, photos }
+        })
+        .filter(session => ['front', 'side', 'back'].some(angle => session.photos[angle]))
+      return { ...prev, progress_photos }
+    })
+  }
 
   return (
     <div className="space-y-5">
@@ -1885,21 +1963,30 @@ function ProgressTab({ clientId, getToken }) {
                             <div key={angle} className="text-center">
                               <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider mb-1 capitalize">{angle}</p>
                               {p ? (
-                                <a
-                                  href={p.photo_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="block rounded-lg overflow-hidden bg-gray-50 border border-gray-100 hover:opacity-85 transition-opacity"
-                                >
-                                  {/* Compact on desktop, full image visible */}
-                                  <div className="h-40 sm:h-36 lg:h-32 xl:h-28 flex items-center justify-center">
-                                    <img
-                                      src={p.photo_url}
-                                      alt={angle}
-                                      className="w-full h-full object-contain"
-                                    />
-                                  </div>
-                                </a>
+                                <>
+                                  <a
+                                    href={p.photo_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="block rounded-lg overflow-hidden bg-gray-50 border border-gray-100 hover:opacity-85 transition-opacity"
+                                  >
+                                    {/* Compact on desktop, full image visible */}
+                                    <div className="h-40 sm:h-36 lg:h-32 xl:h-28 flex items-center justify-center">
+                                      <img
+                                        src={p.photo_url}
+                                        alt={angle}
+                                        className="w-full h-full object-contain"
+                                      />
+                                    </div>
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteProgressPhoto(p.id)}
+                                    className="mt-1 min-h-8 w-full rounded-lg border border-red-100 text-[10px] font-semibold text-red-600"
+                                  >
+                                    Delete
+                                  </button>
+                                </>
                               ) : (
                                 <div className="h-40 sm:h-36 lg:h-32 xl:h-28 rounded-lg bg-gray-50 border border-dashed border-gray-200 flex items-center justify-center">
                                   <span className="text-[9px] text-gray-300">—</span>
@@ -3513,3 +3600,4 @@ export default function ClientProfile() {
     </div>
   )
 }
+

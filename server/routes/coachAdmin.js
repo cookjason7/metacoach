@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { requireAuth, getAuth } from '@clerk/express'
+import { v2 as cloudinary } from 'cloudinary'
 import { pool, getOrCreateUser } from '../db.js'
 import { sendInviteEmail } from '../services/email.js'
 
@@ -40,6 +41,20 @@ async function canAccessClient(ctx, clientId) {
     [clientId, ctx.dbUserId],
   )
   return rows.length > 0
+}
+
+function publicIdFromCloudinaryUrl(url) {
+  try {
+    const parsed = new URL(url)
+    const parts = parsed.pathname.split('/').filter(Boolean)
+    const uploadIdx = parts.indexOf('upload')
+    if (uploadIdx === -1) return null
+    const assetParts = parts.slice(uploadIdx + 1).filter(p => !/^v\d+$/.test(p))
+    const joined = assetParts.join('/')
+    return joined.replace(/\.[a-zA-Z0-9]+$/, '') || null
+  } catch {
+    return null
+  }
 }
 
 // Internal supportive status tag — never use shame words
@@ -1100,6 +1115,70 @@ router.post('/clients/:id/measurements', requireAuth(), async (req, res, next) =
 })
 
 // ─── Nutrition data for coaches ───────────────────────────────────────────────
+
+// PATCH /api/coach-admin/clients/:id/measurements/:measurementId
+router.patch('/clients/:id/measurements/:measurementId', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    const measurementId = parseInt(req.params.measurementId, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+    const { measurement_date, chest, waist, hips } = req.body
+    const { rows } = await pool.query(
+      `UPDATE client_measurements SET
+         measurement_date = COALESCE($1::date, measurement_date),
+         chest            = $2,
+         waist            = $3,
+         hips             = $4,
+         updated_at       = NOW()
+       WHERE id = $5 AND user_id = $6
+       RETURNING id, user_id, measurement_date, chest, waist, hips, created_at`,
+      [measurement_date || null, chest ?? null, waist ?? null, hips ?? null, measurementId, id],
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Measurement not found' })
+    res.json(rows[0])
+  } catch (err) { next(err) }
+})
+
+// DELETE /api/coach-admin/clients/:id/measurements/:measurementId
+router.delete('/clients/:id/measurements/:measurementId', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    const measurementId = parseInt(req.params.measurementId, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+    const { rowCount } = await pool.query(
+      'DELETE FROM client_measurements WHERE id = $1 AND user_id = $2',
+      [measurementId, id],
+    )
+    if (!rowCount) return res.status(404).json({ error: 'Measurement not found' })
+    res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
+// DELETE /api/coach-admin/clients/:id/progress-photos/:photoId
+router.delete('/clients/:id/progress-photos/:photoId', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    const photoId = parseInt(req.params.photoId, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+    const { rows } = await pool.query(
+      `DELETE FROM progress_photos
+       WHERE id = $1 AND user_id = $2
+       RETURNING id, photo_url`,
+      [photoId, id],
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Photo not found' })
+    const publicId = publicIdFromCloudinaryUrl(rows[0].photo_url)
+    if (publicId) {
+      cloudinary.uploader.destroy(publicId).catch(err => {
+        console.warn('[staff progress photo delete] Cloudinary cleanup skipped:', err.message)
+      })
+    }
+    res.json({ ok: true, id: photoId })
+  } catch (err) { next(err) }
+})
 
 // GET /api/coach-admin/clients/:id/nutrition?date=YYYY-MM-DD
 router.get('/clients/:id/nutrition', requireAuth(), async (req, res, next) => {

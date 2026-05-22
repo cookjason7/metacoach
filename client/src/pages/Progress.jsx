@@ -165,7 +165,42 @@ function MeasurementCard({ field, measurements }) {
   )
 }
 
-function MeasurementsSection({ measurements, rangeLabel }) {
+function MeasurementsSection({ measurements, rangeLabel, onUpdate, onDelete }) {
+  const [editing, setEditing] = useState(null)
+  const [form, setForm] = useState({ measurement_date: '', chest: '', waist: '', hips: '' })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  function startEdit(m) {
+    setEditing(m.id)
+    setError('')
+    setForm({
+      measurement_date: String(m.measurement_date).slice(0, 10),
+      chest: m.chest ?? '',
+      waist: m.waist ?? '',
+      hips: m.hips ?? '',
+    })
+  }
+
+  async function saveEdit(e) {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+    try {
+      await onUpdate(editing, {
+        measurement_date: form.measurement_date,
+        chest: form.chest !== '' ? Number(form.chest) : null,
+        waist: form.waist !== '' ? Number(form.waist) : null,
+        hips:  form.hips  !== '' ? Number(form.hips)  : null,
+      })
+      setEditing(null)
+    } catch {
+      setError('Could not save measurement.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (!measurements.length) {
     return (
       <div className="mb-6">
@@ -188,6 +223,71 @@ function MeasurementsSection({ measurements, rangeLabel }) {
         {MEASUREMENT_FIELDS.map(field => (
           <MeasurementCard key={field.key} field={field} measurements={measurements} />
         ))}
+      </div>
+      <div className="bg-white rounded-2xl border border-gray-200 mt-3 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100">
+          <p className="text-sm font-semibold text-gray-800">Measurement History</p>
+        </div>
+        <div className="divide-y divide-gray-100">
+          {measurements
+            .slice()
+            .sort((a, b) => String(b.measurement_date).localeCompare(String(a.measurement_date)))
+            .map(m => (
+              <div key={m.id} className="p-4">
+                {editing === m.id ? (
+                  <form onSubmit={saveEdit} className="space-y-3">
+                    <input
+                      type="date"
+                      value={form.measurement_date}
+                      onChange={e => setForm(f => ({ ...f, measurement_date: e.target.value }))}
+                      className="min-h-10 rounded-lg border border-gray-200 px-3 text-sm"
+                    />
+                    <div className="grid grid-cols-3 gap-2">
+                      {MEASUREMENT_FIELDS.map(field => (
+                        <label key={field.key} className="text-xs text-gray-500">
+                          {field.label}
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            value={form[field.key]}
+                            onChange={e => setForm(f => ({ ...f, [field.key]: e.target.value }))}
+                            className="mt-1 w-full min-h-10 rounded-lg border border-gray-200 px-2 text-sm text-gray-800"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    {error && <p className="text-xs text-red-500">{error}</p>}
+                    <div className="flex gap-2">
+                      <button type="submit" disabled={saving} className="min-h-10 px-4 rounded-lg bg-[#E8670A] text-white text-xs font-semibold disabled:opacity-60">
+                        {saving ? 'Saving...' : 'Save'}
+                      </button>
+                      <button type="button" onClick={() => setEditing(null)} className="min-h-10 px-4 rounded-lg border border-gray-200 text-xs font-semibold text-gray-600">
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">{fmtDate(m.measurement_date)}</p>
+                      <p className="text-xs text-gray-500">
+                        Chest {m.chest ? `${Number(m.chest).toFixed(1)}"` : '-'} · Waist {m.waist ? `${Number(m.waist).toFixed(1)}"` : '-'} · Hips {m.hips ? `${Number(m.hips).toFixed(1)}"` : '-'}
+                      </p>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <button type="button" onClick={() => startEdit(m)} className="min-h-9 px-3 rounded-lg border border-gray-200 text-xs font-semibold text-gray-600">
+                        Edit
+                      </button>
+                      <button type="button" onClick={() => onDelete(m.id)} className="min-h-9 px-3 rounded-lg border border-red-100 text-xs font-semibold text-red-600">
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+        </div>
       </div>
     </div>
   )
@@ -258,6 +358,53 @@ export default function Progress() {
   const sodiumSeries = data?.macro_series?.some(d => Number(d.sodium_mg) > 0)
     ? data.macro_series.map(d => ({ date: d.date, value: d.sodium_mg }))
     : null
+
+  async function updateMeasurement(id, payload) {
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/measurements/${id}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) throw new Error('Failed to update measurement')
+    const updated = await res.json()
+    setMeasurements(prev => prev
+      .map(m => m.id === id ? updated : m)
+      .sort((a, b) => String(b.measurement_date).localeCompare(String(a.measurement_date))))
+  }
+
+  async function deleteMeasurement(id) {
+    if (!window.confirm('Delete this measurement entry? This cannot be undone.')) return
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/measurements/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (res.ok) setMeasurements(prev => prev.filter(m => m.id !== id))
+  }
+
+  async function deleteProgressPhoto(photoId) {
+    if (!window.confirm('Delete this progress photo? This cannot be undone.')) return
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/progress-photos/${photoId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) return
+    setData(prev => {
+      if (!prev) return prev
+      const progress_photos = (prev.progress_photos ?? [])
+        .map(session => {
+          const photos = { ...session.photos }
+          for (const angle of ['front', 'side', 'back']) {
+            if (photos[angle]?.id === photoId) photos[angle] = null
+          }
+          return { ...session, photos }
+        })
+        .filter(session => ['front', 'side', 'back'].some(angle => session.photos[angle]))
+      return { ...prev, progress_photos }
+    })
+  }
 
   return (
     <div className="w-full max-w-2xl mx-auto pb-8">
@@ -406,7 +553,12 @@ export default function Progress() {
             )}
           </div>
 
-          <MeasurementsSection measurements={selectedMeasurements} rangeLabel={rangeLabel} />
+          <MeasurementsSection
+            measurements={selectedMeasurements}
+            rangeLabel={rangeLabel}
+            onUpdate={updateMeasurement}
+            onDelete={deleteMeasurement}
+          />
 
           <div>
             <h2 className="text-base font-semibold text-gray-800 mb-3">Progress Photos</h2>
@@ -443,6 +595,13 @@ export default function Progress() {
                             ) : null
                           )}
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => deleteProgressPhoto(photo.id)}
+                          className="mt-2 min-h-8 w-full rounded-lg border border-red-100 text-[10px] font-semibold text-red-600"
+                        >
+                          Delete Photo
+                        </button>
                       </div>
                     </div>
                   )

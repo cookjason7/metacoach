@@ -120,7 +120,7 @@ function roleLabel(role) {
   return role.charAt(0).toUpperCase() + role.slice(1)
 }
 
-function ProgressPhotoPanel({ angle, photos, getToken, onUploaded }) {
+function ProgressPhotoPanel({ angle, photos, getToken, onUploaded, onDeleted }) {
   const inputRef = useRef(null)
   const [uploading, setUploading] = useState(false)
   const latest = photos[0] ?? null
@@ -163,7 +163,16 @@ function ProgressPhotoPanel({ angle, photos, getToken, onUploaded }) {
         )}
       </div>
       {latest && (
-        <p className="text-[10px] sm:text-xs text-gray-400 mt-1">{new Date(latest.taken_at).toLocaleDateString()}</p>
+        <div className="mt-1">
+          <p className="text-[10px] sm:text-xs text-gray-400">{new Date(latest.taken_at).toLocaleDateString()}</p>
+          <button
+            type="button"
+            onClick={() => onDeleted(latest.id, angle)}
+            className="text-[11px] sm:text-xs text-red-500 hover:text-red-600 transition-colors"
+          >
+            Delete
+          </button>
+        </div>
       )}
       {photos.length > 1 && (
         <p className="text-[10px] sm:text-xs text-gray-400">{photos.length} photos</p>
@@ -413,6 +422,7 @@ export default function Settings() {
   const [mSaving, setMSaving] = useState(false)
   const [mSaved,  setMSaved]  = useState(false)
   const [mError,  setMError]  = useState(null)
+  const [editingMeasurementId, setEditingMeasurementId] = useState(null)
   const [fitbitStatus, setFitbitStatus] = useState({ connected: false, last_synced_at: null, fitbit_user_id: null })
   const [fitbitLoading, setFitbitLoading] = useState(false)
   const [fitbitSyncing, setFitbitSyncing] = useState(false)
@@ -638,13 +648,45 @@ export default function Settings() {
     }))
   }
 
+  async function deleteProgressPhoto(photoId, angle) {
+    if (!window.confirm('Delete this progress photo? This cannot be undone.')) return
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/progress-photos/${photoId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (res.ok) {
+      setPhotos(prev => ({
+        ...prev,
+        [angle]: (prev[angle] ?? []).filter(p => p.id !== photoId),
+      }))
+    }
+  }
+
+  function editMeasurement(m) {
+    setEditingMeasurementId(m.id)
+    setMError(null)
+    setMSaved(false)
+    setMForm({
+      measurement_date: String(m.measurement_date).slice(0, 10),
+      chest: m.chest ?? '',
+      waist: m.waist ?? '',
+      hips: m.hips ?? '',
+    })
+  }
+
+  function resetMeasurementForm() {
+    setEditingMeasurementId(null)
+    setMForm({ measurement_date: new Date().toISOString().slice(0, 10), chest: '', waist: '', hips: '' })
+  }
+
   async function saveMeasurement(e) {
     e.preventDefault()
     setMSaving(true); setMError(null); setMSaved(false)
     try {
       const token = await getToken()
-      const res = await fetch(`${API_URL}/api/measurements`, {
-        method: 'POST',
+      const res = await fetch(`${API_URL}/api/measurements${editingMeasurementId ? `/${editingMeasurementId}` : ''}`, {
+        method: editingMeasurementId ? 'PATCH' : 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           measurement_date: mForm.measurement_date,
@@ -655,14 +697,32 @@ export default function Settings() {
       })
       if (!res.ok) throw new Error('Failed to save')
       const m = await res.json()
-      setMeasurements(prev => [m, ...prev])
-      setMForm({ measurement_date: new Date().toISOString().slice(0, 10), chest: '', waist: '', hips: '' })
+      setMeasurements(prev => {
+        const next = editingMeasurementId
+          ? prev.map(item => item.id === editingMeasurementId ? m : item)
+          : [m, ...prev]
+        return next.sort((a, b) => String(b.measurement_date).localeCompare(String(a.measurement_date)))
+      })
+      resetMeasurementForm()
       setMSaved(true)
       setTimeout(() => setMSaved(false), 3000)
     } catch (err) {
       setMError('Failed to save. Please try again.')
     } finally {
       setMSaving(false)
+    }
+  }
+
+  async function deleteMeasurement(id) {
+    if (!window.confirm('Delete this measurement entry? This cannot be undone.')) return
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/measurements/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (res.ok) {
+      setMeasurements(prev => prev.filter(m => m.id !== id))
+      if (editingMeasurementId === id) resetMeasurementForm()
     }
   }
 
@@ -1227,15 +1287,20 @@ export default function Settings() {
                       <th className="px-3 py-2 text-right font-semibold">Chest</th>
                       <th className="px-3 py-2 text-right font-semibold">Waist</th>
                       <th className="px-3 py-2 text-right font-semibold">Hips</th>
+                      <th className="px-3 py-2 text-right font-semibold">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {measurements.slice(0, 5).map((m, i) => (
                       <tr key={m.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}>
                         <td className="px-3 py-2 text-gray-700 font-medium whitespace-nowrap">{String(m.measurement_date).slice(0, 10)}</td>
-                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.chest ? `${Number(m.chest).toFixed(1)}"` : '—'}</td>
-                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.waist ? `${Number(m.waist).toFixed(1)}"` : '—'}</td>
-                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.hips  ? `${Number(m.hips).toFixed(1)}"` : '—'}</td>
+                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.chest ? `${Number(m.chest).toFixed(1)}"` : '-'}</td>
+                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.waist ? `${Number(m.waist).toFixed(1)}"` : '-'}</td>
+                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.hips  ? `${Number(m.hips).toFixed(1)}"` : '-'}</td>
+                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                          <button type="button" onClick={() => editMeasurement(m)} className="text-[#E8670A] font-semibold mr-3">Edit</button>
+                          <button type="button" onClick={() => deleteMeasurement(m.id)} className="text-red-500 font-semibold">Delete</button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1368,3 +1433,4 @@ export default function Settings() {
     </div>
   )
 }
+

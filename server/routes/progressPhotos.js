@@ -30,6 +30,20 @@ function uploadToCloudinary(buffer) {
   })
 }
 
+function publicIdFromCloudinaryUrl(url) {
+  try {
+    const parsed = new URL(url)
+    const parts = parsed.pathname.split('/').filter(Boolean)
+    const uploadIdx = parts.indexOf('upload')
+    if (uploadIdx === -1) return null
+    const assetParts = parts.slice(uploadIdx + 1).filter(p => !/^v\d+$/.test(p))
+    const joined = assetParts.join('/')
+    return joined.replace(/\.[a-zA-Z0-9]+$/, '') || null
+  } catch {
+    return null
+  }
+}
+
 // GET /api/progress-photos
 // Returns sessions grouped by photo_session_id, most-recent session first.
 // Each session: { session_id, session_date, photos: { front, side, back } }
@@ -112,6 +126,44 @@ router.post('/', requireAuth(), photoUploadLimit, upload.single('photo'), async 
       metadata:    { angle, mime_type: req.file.mimetype },
     })
     res.status(201).json(rows[0])
+  } catch (err) {
+    next(err)
+  }
+})
+
+// DELETE /api/progress-photos/:id
+router.delete('/:id', requireAuth(), async (req, res, next) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId   = await getOrCreateUser(userId)
+    const id         = parseInt(req.params.id, 10)
+
+    const { rows } = await pool.query(
+      `DELETE FROM progress_photos
+       WHERE id = $1 AND user_id = $2
+       RETURNING id, photo_url, angle`,
+      [id, dbUserId],
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Photo not found' })
+
+    const publicId = publicIdFromCloudinaryUrl(rows[0].photo_url)
+    if (publicId) {
+      cloudinary.uploader.destroy(publicId).catch(err => {
+        console.warn('[progress photo delete] Cloudinary cleanup skipped:', err.message)
+      })
+    }
+
+    trackEvent({
+      actorUserId: dbUserId,
+      feature:     'progress_photo',
+      action:      'delete',
+      provider:    'cloudinary',
+      providerOp:  'destroy',
+      fileCount:   1,
+      metadata:    { angle: rows[0].angle, cloudinary_cleanup_attempted: Boolean(publicId) },
+    })
+
+    res.json({ ok: true, id })
   } catch (err) {
     next(err)
   }
