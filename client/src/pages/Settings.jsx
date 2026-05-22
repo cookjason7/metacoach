@@ -367,7 +367,10 @@ function BloodworkSection({ getToken, profile }) {
 export default function Settings() {
   const { getToken }   = useAuth()
   const { user }       = useUser()
-  const [profile, setProfile] = useState(null)
+  const [profile, setProfile]             = useState(null)
+  const [profileLoading, setProfileLoading] = useState(true)
+  const [profileError, setProfileError]   = useState(null)
+  const [profileLoadKey, setProfileLoadKey] = useState(0)
   const [form, setForm]       = useState({
     first_name: '', last_name: '', age: '', feet: '', inches: '', activity_level: '',
     gender: '', phone_number: '',
@@ -419,13 +422,18 @@ export default function Settings() {
   const email = user?.primaryEmailAddress?.emailAddress ?? ''
 
   useEffect(() => {
+    let cancelled = false
     async function load() {
-      const token = await getToken()
-      const profileRes = await fetch(`${API_URL}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
-      let loadedProfile = null
-      if (profileRes.ok) {
+      setProfileLoading(true)
+      setProfileError(null)
+      try {
+        const token = await getToken()
+        const profileRes = await fetch(`${API_URL}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
+        if (!profileRes.ok) throw new Error(`Could not load profile (${profileRes.status})`)
+        let loadedProfile = null
         const data = await profileRes.json()
         loadedProfile = data
+        if (cancelled) return
         setProfile(data)
         setForm({
           first_name:     data.first_name     ?? '',
@@ -437,65 +445,72 @@ export default function Settings() {
           gender:         data.gender         ?? '',
           phone_number:   data.phone_number   ?? '',
         })
-      }
-      if (loadedProfile?.role === 'admin' || loadedProfile?.role === 'coach') {
-        loadTeam(token, false)
-        return
-      }
 
-      const [photosRes, assessmentRes, measurementsRes, fitbitRes] = await Promise.all([
-        fetch(`${API_URL}/api/progress-photos`,       { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/health-assessment/me`,  { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/measurements`,          { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/fitbit/status`,         { headers: { Authorization: `Bearer ${token}` } }),
-      ])
-      if (photosRes.ok) {
-        const list = await photosRes.json()
-        // Group by angle, newest first (API returns newest-first already)
-        const byAngle = { front: [], back: [], side: [] }
-        for (const p of list) {
-          if (byAngle[p.angle]) byAngle[p.angle].push(p)
+        if (loadedProfile?.role === 'admin' || loadedProfile?.role === 'coach') {
+          loadTeam(token, false)
+          return
         }
-        setPhotos(byAngle)
-      }
-      if (measurementsRes.ok) setMeasurements(await measurementsRes.json())
-      if (fitbitRes.ok) setFitbitStatus(await fitbitRes.json())
-      if (assessmentRes.ok) {
-        const data = await assessmentRes.json()
-        if (data) {
-          setAssessment(data)
-          setAForm({
-            first_name:     data.first_name     ?? '',
-            last_name:      data.last_name      ?? '',
-            phone:          data.phone          ?? '',
-            street_address: data.street_address ?? '',
-            city:           data.city           ?? '',
-            state:          data.state          ?? '',
-            zip_code:       data.zip_code       ?? '',
-            country:        data.country        ?? 'United States',
-            date_of_birth:  data.date_of_birth  ? data.date_of_birth.slice(0, 10) : '',
-            shirt_size:           data.shirt_size           ?? '',
-            supplements:          data.supplements          ?? '',
-            goals_6_months:       data.goals_6_months       ?? '',
-            injuries_limitations: data.injuries_limitations ?? '',
-            num_kids:             data.num_kids             != null ? String(data.num_kids) : '',
-            occupation:           data.occupation           ?? '',
-            energy_level:         data.energy_level         ?? null,
-            sleep_hours:          data.sleep_hours          ?? '',
-            stress_management:    data.stress_management    ?? null,
-            sleep_quality:        data.sleep_quality        ?? null,
-            daily_water:          data.daily_water          ?? '',
-            alcohol_weekdays:     data.alcohol_weekdays     != null ? String(data.alcohol_weekdays) : '0',
-            alcohol_weekends:     data.alcohol_weekends     != null ? String(data.alcohol_weekends) : '0',
-            happiness_level:      data.happiness_level      ?? null,
-            confidence_level:     data.confidence_level     ?? null,
-            activity_level:       data.activity_level       ?? '',
-          })
+
+        const [photosRes, assessmentRes, measurementsRes, fitbitRes] = await Promise.all([
+          fetch(`${API_URL}/api/progress-photos`,       { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_URL}/api/health-assessment/me`,  { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_URL}/api/measurements`,          { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_URL}/api/fitbit/status`,         { headers: { Authorization: `Bearer ${token}` } }),
+        ])
+        if (cancelled) return
+        if (photosRes.ok) {
+          const list = await photosRes.json()
+          // Group by angle, newest first (API returns newest-first already)
+          const byAngle = { front: [], back: [], side: [] }
+          for (const p of list) {
+            if (byAngle[p.angle]) byAngle[p.angle].push(p)
+          }
+          setPhotos(byAngle)
         }
+        if (measurementsRes.ok) setMeasurements(await measurementsRes.json())
+        if (fitbitRes.ok) setFitbitStatus(await fitbitRes.json())
+        if (assessmentRes.ok) {
+          const aData = await assessmentRes.json()
+          if (aData) {
+            setAssessment(aData)
+            setAForm({
+              first_name:     aData.first_name     ?? '',
+              last_name:      aData.last_name      ?? '',
+              phone:          aData.phone          ?? '',
+              street_address: aData.street_address ?? '',
+              city:           aData.city           ?? '',
+              state:          aData.state          ?? '',
+              zip_code:       aData.zip_code       ?? '',
+              country:        aData.country        ?? 'United States',
+              date_of_birth:  aData.date_of_birth  ? aData.date_of_birth.slice(0, 10) : '',
+              shirt_size:           aData.shirt_size           ?? '',
+              supplements:          aData.supplements          ?? '',
+              goals_6_months:       aData.goals_6_months       ?? '',
+              injuries_limitations: aData.injuries_limitations ?? '',
+              num_kids:             aData.num_kids             != null ? String(aData.num_kids) : '',
+              occupation:           aData.occupation           ?? '',
+              energy_level:         aData.energy_level         ?? null,
+              sleep_hours:          aData.sleep_hours          ?? '',
+              stress_management:    aData.stress_management    ?? null,
+              sleep_quality:        aData.sleep_quality        ?? null,
+              daily_water:          aData.daily_water          ?? '',
+              alcohol_weekdays:     aData.alcohol_weekdays     != null ? String(aData.alcohol_weekdays) : '0',
+              alcohol_weekends:     aData.alcohol_weekends     != null ? String(aData.alcohol_weekends) : '0',
+              happiness_level:      aData.happiness_level      ?? null,
+              confidence_level:     aData.confidence_level     ?? null,
+              activity_level:       aData.activity_level       ?? '',
+            })
+          }
+        }
+      } catch (err) {
+        if (!cancelled) setProfileError('Could not load your settings. Please check your connection and try again.')
+      } finally {
+        if (!cancelled) setProfileLoading(false)
       }
     }
     load()
-  }, [getToken])
+    return () => { cancelled = true }
+  }, [getToken, profileLoadKey])
 
   function set(e) {
     const { name, value } = e.target
@@ -856,6 +871,38 @@ export default function Settings() {
     <div className="w-full max-w-lg mx-auto pb-6">
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Settings</h1>
       <p className="text-sm text-gray-500 mb-8">Account and preferences</p>
+
+      {/* Profile loading skeleton */}
+      {profileLoading && (
+        <div className="animate-pulse space-y-4 mb-8">
+          <div className="h-5 bg-gray-100 rounded w-24" />
+          <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+            <div className="h-9 bg-gray-100 rounded-lg" />
+            <div className="h-9 bg-gray-100 rounded-lg" />
+            <div className="h-9 bg-gray-100 rounded-lg" />
+          </div>
+        </div>
+      )}
+
+      {/* Profile error */}
+      {profileError && !profileLoading && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-6 mb-8 text-center">
+          <p className="text-2xl mb-2">⚠️</p>
+          <p className="text-sm font-semibold text-gray-700 mb-1">Could not load settings</p>
+          <p className="text-xs text-gray-500 mb-4">{profileError}</p>
+          <button
+            type="button"
+            onClick={() => setProfileLoadKey(k => k + 1)}
+            className="inline-flex items-center gap-1.5 bg-[#E8670A] text-white text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-[#c45e09] transition-colors"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {/* Account (shown once profile loads) */}
+      {!profileLoading && !profileError && (
+      <>
 
       {/* Account */}
       <div className="flex items-center justify-between mb-3">
@@ -1314,6 +1361,9 @@ export default function Settings() {
             </Link>
           </div>
         </>
+      )}
+
+      </>
       )}
     </div>
   )

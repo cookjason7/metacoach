@@ -50,7 +50,8 @@ export default function Layout() {
   const [quickPhotoAngle,     setQuickPhotoAngle]     = useState('front')
   const [quickPhotoFile,      setQuickPhotoFile]      = useState(null)
   const [quickPhotoPreview,   setQuickPhotoPreview]   = useState(null)
-  const quickPhotoInputRef = useRef(null)
+  const quickPhotoInputRef    = useRef(null)
+  const quickPhotoGalleryRef  = useRef(null)
 
   function resetQuickExtras() {
     setQuickActivityType(''); setQuickActivityDur(''); setQuickActivityNotes('')
@@ -473,6 +474,7 @@ export default function Layout() {
                   { id: 'steps',    emoji: '👟', label: 'Steps' },
                   { id: 'sleep',    emoji: '😴', label: 'Sleep' },
                   { id: 'activity', emoji: '🏃', label: 'Activity' },
+                  { id: 'photo',    emoji: '📸', label: 'Progress Photo' },
                 ].map(({ id, emoji, label }) => (
                   <button
                     key={id}
@@ -663,25 +665,55 @@ export default function Layout() {
                     </div>
                     {quickPhotoPreview ? (
                       <div className="relative mb-4">
-                        <img src={quickPhotoPreview} alt="Preview" className="w-full max-h-44 object-cover rounded-xl" />
+                        <img src={quickPhotoPreview} alt="Preview" className="w-full max-h-44 object-contain rounded-xl bg-gray-100" />
                         <button
                           onClick={() => { URL.revokeObjectURL(quickPhotoPreview); setQuickPhotoPreview(null); setQuickPhotoFile(null) }}
                           className="absolute top-2 right-2 w-7 h-7 bg-white rounded-full flex items-center justify-center shadow text-gray-600 font-bold"
                         >×</button>
                       </div>
                     ) : (
-                      <button
-                        onClick={() => quickPhotoInputRef.current?.click()}
-                        className="w-full border-2 border-dashed border-gray-300 rounded-xl py-7 text-sm text-gray-400 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors mb-4"
-                      >
-                        📷 Tap to select photo
-                      </button>
+                      <div className="flex gap-2 mb-4">
+                        <button
+                          onClick={() => quickPhotoInputRef.current?.click()}
+                          className="flex-1 flex flex-col items-center justify-center gap-1.5 border-2 border-gray-200 rounded-xl py-5 text-sm text-gray-600 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors"
+                        >
+                          <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                          </svg>
+                          <span className="text-xs font-semibold">Camera</span>
+                        </button>
+                        <button
+                          onClick={() => quickPhotoGalleryRef.current?.click()}
+                          className="flex-1 flex flex-col items-center justify-center gap-1.5 border-2 border-gray-200 rounded-xl py-5 text-sm text-gray-600 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors"
+                        >
+                          <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                          <span className="text-xs font-semibold">Gallery</span>
+                        </button>
+                      </div>
                     )}
+                    {/* Camera input */}
                     <input
                       ref={quickPhotoInputRef}
                       type="file"
                       accept="image/*"
                       capture="environment"
+                      className="hidden"
+                      onChange={e => {
+                        const f = e.target.files?.[0]
+                        if (!f) return
+                        if (quickPhotoPreview) URL.revokeObjectURL(quickPhotoPreview)
+                        setQuickPhotoFile(f)
+                        setQuickPhotoPreview(URL.createObjectURL(f))
+                      }}
+                    />
+                    {/* Gallery input */}
+                    <input
+                      ref={quickPhotoGalleryRef}
+                      type="file"
+                      accept="image/*"
                       className="hidden"
                       onChange={e => {
                         const f = e.target.files?.[0]

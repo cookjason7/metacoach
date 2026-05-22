@@ -718,6 +718,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
   const [loadingOlder,   setLoadingOlder]  = useState(false)
   const [loading,        setLoading]       = useState(true)
   const [error,          setError]         = useState(null)
+  const [retryKey,       setRetryKey]      = useState(0)
   const [newPost,        setNewPost]       = useState('')
   const [category,       setCategory]      = useState('General Discussion')
   const [poll,           setPoll]          = useState(null)
@@ -728,6 +729,8 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
   const [activeCategory, setActiveCategory]= useState('All')
 
   useEffect(() => {
+    setLoading(true)
+    setError(null)
     async function load() {
       try {
         const token = await getToken()
@@ -741,7 +744,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
       finally { setLoading(false) }
     }
     load()
-  }, [getToken, channel])
+  }, [getToken, channel, retryKey])
 
   const visiblePosts = posts.filter(p => {
     const matchSearch = !search.trim() || p.content.toLowerCase().includes(search.toLowerCase())
@@ -975,7 +978,19 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
           </div>
         </form>
 
-        {error && <p className="text-sm text-red-500 text-center mb-4">{error}</p>}
+        {error && !loading && (
+          <div className="bg-red-50 border border-red-200 rounded-2xl px-5 py-8 text-center mb-4">
+            <p className="text-2xl mb-2">⚠️</p>
+            <p className="text-sm font-semibold text-gray-700 mb-1">Could not load posts</p>
+            <p className="text-xs text-gray-500 mb-4">There was a problem connecting to the community. Check your connection and try again.</p>
+            <button
+              onClick={() => setRetryKey(k => k + 1)}
+              className="inline-flex items-center gap-1.5 bg-[#E8670A] text-white text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-[#c45e09] transition-colors"
+            >
+              Try again
+            </button>
+          </div>
+        )}
         {loading && <p className="text-sm text-gray-400 text-center py-16">Loading…</p>}
 
         {!loading && visiblePosts.length === 0 && (
@@ -2105,34 +2120,44 @@ export default function Community() {
   const [currentUserId,  setCurrentUserId] = useState(null)
   const [members,        setMembers]       = useState([])
   const [tab,            setTab]           = useState(null) // set after user loads
+  const [initLoading,    setInitLoading]   = useState(true)
+  const [initError,      setInitError]     = useState(false)
+
+  const runInit = useCallback(async () => {
+    setInitLoading(true)
+    setInitError(false)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
+      if (!res.ok) throw new Error(`Server error ${res.status}`)
+      const data = await res.json()
+      const staff = data.role === 'admin' || data.role === 'coach'
+      const ch    = normalizeChannel(data.coaching_type)
+      setIsAdmin(data.role === 'admin')
+      setIsStaff(staff)
+      setClientChannel(ch)
+      setCurrentUserId(data.id)
+      // Default tab: staff → vip chat, clients → their channel
+      setTab(staff ? 'vip' : ch)
+    } catch {
+      setInitError(true)
+      setTab('vip') // still attempt to show the community
+    } finally {
+      setInitLoading(false)
+    }
+
+    try {
+      const token = await getToken()
+      await fetch(`${API_URL}/api/community/notifications/read`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    } catch {}
+  }, [getToken])
 
   useEffect(() => {
-    async function init() {
-      try {
-        const token = await getToken()
-        const res = await fetch(`${API_URL}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
-        if (!res.ok) return
-        const data = await res.json()
-        const staff = data.role === 'admin' || data.role === 'coach'
-        const ch    = normalizeChannel(data.coaching_type)
-        setIsAdmin(data.role === 'admin')
-        setIsStaff(staff)
-        setClientChannel(ch)
-        setCurrentUserId(data.id)
-        // Default tab: staff → vip chat, clients → their channel
-        setTab(staff ? 'vip' : ch)
-      } catch { setTab('vip') }
-
-      try {
-        const token = await getToken()
-        await fetch(`${API_URL}/api/community/notifications/read`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-        })
-      } catch {}
-    }
-    init()
-  }, [getToken])
+    runInit()
+  }, [runInit])
 
   useEffect(() => {
     async function loadMembers() {
@@ -2155,7 +2180,17 @@ export default function Community() {
     { id: 'resources', label: 'Resources' },
   ]
 
-  if (tab === null) return null // wait for user load
+  if (initLoading && tab === null) {
+    return (
+      <div className="max-w-5xl">
+        <h1 className="text-2xl font-bold text-gray-900 mb-1">Community</h1>
+        <p className="text-sm text-gray-500 mb-6">Connect with your Life Warrior community</p>
+        <div className="flex justify-center py-16">
+          <span className="text-sm text-gray-400">Loading…</span>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="max-w-5xl">

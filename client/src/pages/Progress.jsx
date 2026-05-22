@@ -287,16 +287,16 @@ export default function Progress() {
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                 {data.progress_photos.map(session => {
                   const photo = session.photos.front ?? session.photos.side ?? session.photos.back
                   if (!photo) return null
                   return (
-                    <div key={session.session_id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                    <div key={session.session_id} className="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden">
                       <img
                         src={photo.photo_url}
                         alt="Progress"
-                        className="w-full aspect-[3/4] object-cover"
+                        className="w-full aspect-[3/4] object-contain bg-gray-50"
                         loading="lazy"
                       />
                       <div className="px-2 py-2">
