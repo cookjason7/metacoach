@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
-import { useParams } from 'react-router-dom'
-import { useAuth, useClerk, SignInButton, SignUpButton } from '@clerk/clerk-react'
+import { useParams, useNavigate } from 'react-router-dom'
+import { useAuth, useClerk } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 
 export default function InviteAccept() {
   const { token }             = useParams()
+  const navigate              = useNavigate()
   const { isSignedIn, isLoaded, getToken } = useAuth()
   const { signOut }           = useClerk()
 
@@ -202,25 +203,29 @@ export default function InviteAccept() {
             {/* ── Not signed in — show auth buttons ── */}
             {isLoaded && !isSignedIn && !accepted && !accepting && (
               <div className="space-y-3">
-                <SignUpButton
-                  mode="redirect"
-                  forceRedirectUrl={currentUrl}
-                  initialValues={{ emailAddress: invite.email }}
+                <button
+                  onClick={() => {
+                    const params = new URLSearchParams({
+                      redirect_url: currentUrl,
+                      ...(invite.email ? { email: invite.email } : {}),
+                    })
+                    navigate(`/sign-up?${params.toString()}`)
+                  }}
+                  className="w-full bg-[#E8670A] text-white py-3 rounded-xl text-sm font-bold
+                             hover:bg-[#c45e09] transition-colors"
                 >
-                  <button className="w-full bg-[#E8670A] text-white py-3 rounded-xl text-sm font-bold
-                                     hover:bg-[#c45e09] transition-colors">
-                    Create Account &amp; Accept
-                  </button>
-                </SignUpButton>
-                <SignInButton
-                  mode="redirect"
-                  forceRedirectUrl={currentUrl}
+                  Create Account &amp; Accept
+                </button>
+                <button
+                  onClick={() => {
+                    const params = new URLSearchParams({ redirect_url: currentUrl })
+                    navigate(`/sign-in?${params.toString()}`)
+                  }}
+                  className="w-full border border-gray-300 text-gray-700 py-3 rounded-xl
+                             text-sm font-semibold hover:bg-gray-50 transition-colors"
                 >
-                  <button className="w-full border border-gray-300 text-gray-700 py-3 rounded-xl
-                                     text-sm font-semibold hover:bg-gray-50 transition-colors">
-                    I already have an account
-                  </button>
-                </SignInButton>
+                  I already have an account
+                </button>
                 <p className="text-[10px] text-gray-400 pt-1">
                   You must sign up with <strong>{invite.email}</strong> to accept this invite.
                 </p>

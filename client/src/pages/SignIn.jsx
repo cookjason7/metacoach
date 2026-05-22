@@ -1,6 +1,10 @@
+import { useSearchParams } from 'react-router-dom'
 import { SignIn } from '@clerk/clerk-react'
 
 export default function SignInPage() {
+  const [searchParams] = useSearchParams()
+  const redirectUrl    = searchParams.get('redirect_url') || '/dashboard'
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center gap-4 p-6">
       {/* Logo */}
@@ -17,7 +21,7 @@ export default function SignInPage() {
         routing="path"
         path="/sign-in"
         signUpUrl="/sign-up"
-        forceRedirectUrl="/dashboard"
+        forceRedirectUrl={redirectUrl}
         appearance={{
           elements: {
             socialButtonsRoot: { display: 'none' },
