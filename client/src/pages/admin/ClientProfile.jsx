@@ -1756,7 +1756,7 @@ function ProgressTab({ clientId, getToken }) {
   const mac    = data?.macro_series   ?? []
   const stp    = data?.step_series    ?? []
   const slp    = data?.sleep_series   ?? []
-  const wko    = data?.workout_series ?? []
+  const mov    = data?.movement_series ?? []
   const rows   = data?.table_rows     ?? []
   const photoSessions = data?.progress_photos ?? []
   const effectiveStart = data?.start_date ?? startDate
@@ -1876,9 +1876,9 @@ function ProgressTab({ clientId, getToken }) {
               sub="per night with data"
             />
             <SummaryCard
-              label="Workouts"
-              value={s.workouts_completed ?? '—'}
-              sub={rangeLabel}
+              label="Movement"
+              value={s.total_movement ?? '—'}
+              sub="workouts + activity"
             />
           </div>
 
@@ -1893,7 +1893,7 @@ function ProgressTab({ clientId, getToken }) {
             />
             <ChartCard title="Daily Steps" series={stp} valueKey="value" />
             <ChartCard title="Sleep (hrs)" series={slpHrs} valueKey="value" color="#6366f1" />
-            <ChartCard title="Workouts per Period" series={wko} valueKey="count" />
+            <ChartCard title="Movement per Period" series={mov} valueKey="count" />
           </div>
 
           {/* Averages table */}
@@ -1909,7 +1909,7 @@ function ProgressTab({ clientId, getToken }) {
                       <th className="px-3 py-2 text-right font-semibold">Protein</th>
                       <th className="px-3 py-2 text-right font-semibold">Weight</th>
                       <th className="px-3 py-2 text-right font-semibold">Steps</th>
-                      <th className="px-3 py-2 text-right font-semibold">Workouts</th>
+                      <th className="px-3 py-2 text-right font-semibold">Movement</th>
                       <th className="px-3 py-2 text-right font-semibold">Sleep 😴</th>
                     </tr>
                   </thead>
@@ -1921,7 +1921,7 @@ function ProgressTab({ clientId, getToken }) {
                         <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.protein  ? `${r.protein}g`                          : '—'}</td>
                         <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.weight   ? `${r.weight} lbs`                         : '—'}</td>
                         <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.steps    ? Number(r.steps).toLocaleString()           : '—'}</td>
-                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.workouts != null ? r.workouts                         : '—'}</td>
+                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.movement != null ? r.movement                         : '—'}</td>
                         <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.sleep_minutes != null ? fmtSleep(r.sleep_minutes) : '—'}</td>
                       </tr>
                     ))}

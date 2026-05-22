@@ -895,10 +895,10 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
     }
     const md    = `COALESCE(log_date, logged_at::date)` // meal date expression
     const group = range === 'monthly'
-      ? { exprLog: `DATE_TRUNC('month', logged_date)::date`, exprMeal: `DATE_TRUNC('month', d)::date`, exprWorkout: `DATE_TRUNC('month', completed_at)::date`, exprCheckin: `DATE_TRUNC('month', week_start)::date` }
+      ? { exprLog: `DATE_TRUNC('month', logged_date)::date`, exprMeal: `DATE_TRUNC('month', d)::date`, exprWorkout: `DATE_TRUNC('month', completed_at)::date`, exprActivity: `DATE_TRUNC('month', logged_at)::date`, exprCheckin: `DATE_TRUNC('month', week_start)::date` }
       : range === 'weekly'
-        ? { exprLog: `DATE_TRUNC('week', logged_date)::date`, exprMeal: `DATE_TRUNC('week', d)::date`, exprWorkout: `DATE_TRUNC('week', completed_at)::date`, exprCheckin: `DATE_TRUNC('week', week_start)::date` }
-        : { exprLog: `logged_date`, exprMeal: `d`, exprWorkout: `completed_at::date`, exprCheckin: `DATE_TRUNC('week', week_start)::date` }
+        ? { exprLog: `DATE_TRUNC('week', logged_date)::date`, exprMeal: `DATE_TRUNC('week', d)::date`, exprWorkout: `DATE_TRUNC('week', completed_at)::date`, exprActivity: `DATE_TRUNC('week', logged_at)::date`, exprCheckin: `DATE_TRUNC('week', week_start)::date` }
+        : { exprLog: `logged_date`, exprMeal: `d`, exprWorkout: `completed_at::date`, exprActivity: `logged_at::date`, exprCheckin: `DATE_TRUNC('week', week_start)::date` }
     const isDailyLike = range === 'daily' || range === 'custom'
 
     // ── Per-range series queries ──────────────────────────────────────────────
@@ -942,9 +942,20 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
          FROM daily_logs WHERE user_id=$1 AND sleep_minutes IS NOT NULL
            AND logged_date BETWEEN $2::date AND $3::date
          GROUP BY 1 ORDER BY 1`
-    const wko_q = `SELECT ${group.exprWorkout} AS date, COUNT(*)::int AS count
-                   FROM workout_logs WHERE user_id=$1 AND completed_at::date BETWEEN $2::date AND $3::date
-                   GROUP BY 1 ORDER BY 1`
+    // Movement = workout_logs (completed workouts) + activity_logs (quick logs)
+    // Same definition as the client-facing /api/daily-logs/progress endpoint.
+    const mov_q = `
+      SELECT t.date, SUM(t.cnt)::int AS count FROM (
+        SELECT ${group.exprWorkout} AS date, COUNT(*)::int AS cnt
+        FROM workout_logs
+        WHERE user_id=$1 AND completed_at::date BETWEEN $2::date AND $3::date
+        GROUP BY 1
+        UNION ALL
+        SELECT ${group.exprActivity} AS date, COUNT(*)::int AS cnt
+        FROM activity_logs
+        WHERE user_id=$1 AND logged_at::date BETWEEN $2::date AND $3::date
+        GROUP BY 1
+      ) t GROUP BY t.date ORDER BY t.date`
     const chk_q = range === 'monthly'
       ? `SELECT ${group.exprCheckin} AS date,
            ROUND(AVG(sleep_quality)::numeric,1) AS sleep_quality,
@@ -980,6 +991,8 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
            AND sleep_minutes IS NOT NULL AND logged_date BETWEEN $2::date AND $3::date) AS avg_sleep_minutes,
         (SELECT COUNT(*)::int FROM workout_logs WHERE user_id=$1
            AND completed_at::date BETWEEN $2::date AND $3::date) AS workouts_completed,
+        (SELECT COUNT(*)::int FROM activity_logs WHERE user_id=$1
+           AND logged_at::date BETWEEN $2::date AND $3::date) AS activities_completed,
         (SELECT COUNT(DISTINCT ${md})::int FROM meals WHERE user_id=$1
            AND ${md} BETWEEN $2::date AND $3::date) AS logged_day_count,
         (SELECT ROUND(COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0))
@@ -988,13 +1001,13 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
            (SELECT SUM((micronutrients->>'sodium_mg')::numeric) dns FROM meals WHERE user_id=$1
               AND ${md} BETWEEN $2::date AND $3::date GROUP BY ${md}) t) AS avg_sodium_mg`
 
-    const [sumR, wtR, macR, stpR, slpR, wkoR, chkR, photoR] = await Promise.all([
+    const [sumR, wtR, macR, stpR, slpR, movR, chkR, photoR] = await Promise.all([
       pool.query(sum_q, [id, startDate, endDate]),
       pool.query(wt_q,  [id, startDate, endDate]),
       pool.query(mac_q, [id, startDate, endDate]),
       pool.query(stp_q, [id, startDate, endDate]),
       pool.query(slp_q, [id, startDate, endDate]),
-      pool.query(wko_q, [id, startDate, endDate]),
+      pool.query(mov_q, [id, startDate, endDate]),
       pool.query(chk_q, [id, startDate, endDate]),
       pool.query(
         `SELECT
@@ -1018,11 +1031,13 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
       ),
     ])
 
-    // ── Summary: compute weight change ────────────────────────────────────────
+    // ── Summary: compute weight change + unified movement total ──────────────
     const summary = { ...sumR.rows[0] }
     summary.weight_change = (summary.weight_start != null && summary.weight_end != null)
       ? Math.round((Number(summary.weight_end) - Number(summary.weight_start)) * 10) / 10
       : null
+    // total_movement mirrors the client-side definition: workout_logs + activity_logs
+    summary.total_movement = (Number(summary.workouts_completed) || 0) + (Number(summary.activities_completed) || 0)
 
     // ── Merge series into table_rows by date key ──────────────────────────────
     const tmap = new Map()
@@ -1035,7 +1050,7 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
     for (const r of macR.rows) { const o = row(r.date); o.calories = r.calories; o.protein = r.protein; o.carbs = r.carbs; o.fat = r.fat }
     for (const r of stpR.rows) { const o = row(r.date); o.steps         = r.value }
     for (const r of slpR.rows) { const o = row(r.date); o.sleep_minutes = r.value }
-    for (const r of wkoR.rows) { const o = row(r.date); o.workouts      = r.count }
+    for (const r of movR.rows) { const o = row(r.date); o.movement      = r.count }
     for (const r of chkR.rows) {
       const o = row(r.date)
       if (r.sleep_quality  != null) o.sleep_quality = r.sleep_quality
@@ -1067,7 +1082,7 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
     })
 
     res.json({ range, start_date: startDate, end_date: endDate, summary, weight_series: wtR.rows, macro_series: macR.rows,
-               step_series: stpR.rows, sleep_series: slpR.rows, workout_series: wkoR.rows,
+               step_series: stpR.rows, sleep_series: slpR.rows, movement_series: movR.rows,
                checkin_series: chkR.rows, table_rows, progress_photos: photoSessions })
   } catch (err) { next(err) }
 })
