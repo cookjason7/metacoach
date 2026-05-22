@@ -1888,6 +1888,11 @@ function ProgressTab({ clientId, getToken }) {
   const effectiveStart = data?.start_date ?? startDate
   const effectiveEnd   = data?.end_date ?? endDate
 
+  // Photo comparison state
+  const [showCompare, setShowCompare] = useState(false)
+  const [sessionAIdx, setSessionAIdx] = useState(0)
+  const [sessionBIdx, setSessionBIdx] = useState(1)
+
   const wc = s.weight_change
   const wtColor = wc == null ? 'text-gray-900' : wc < 0 ? 'text-emerald-600' : wc > 0 ? 'text-red-500' : 'text-gray-900'
   const rangeLabel = range === 'custom'
@@ -2115,12 +2120,82 @@ function ProgressTab({ clientId, getToken }) {
 
           {/* Progress photos — grouped by session */}
           <div className="bg-white border border-gray-200 rounded-xl p-4">
-            <p className="text-sm font-semibold text-gray-900 mb-3">Progress Photos</p>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-gray-900">Progress Photos</p>
+              {photoSessions.length >= 2 && (
+                <button
+                  onClick={() => setShowCompare(s => !s)}
+                  className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors">
+                  {showCompare ? 'Show All' : 'Compare Sessions'}
+                </button>
+              )}
+            </div>
+
+            {/* ── Compare mode ── */}
+            {showCompare && photoSessions.length >= 2 && (() => {
+              const fmtDate = d => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+              const sessionA = photoSessions[Math.min(sessionAIdx, photoSessions.length - 1)]
+              const sessionB = photoSessions[Math.min(sessionBIdx, photoSessions.length - 1)]
+              return (
+                <div className="space-y-4">
+                  {/* Selectors */}
+                  <div className="grid grid-cols-2 gap-3">
+                    {[['A', sessionAIdx, setSessionAIdx], ['B', sessionBIdx, setSessionBIdx]].map(([label, idx, setIdx]) => (
+                      <div key={label}>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Session {label}</p>
+                        <select
+                          value={idx}
+                          onChange={e => setIdx(Number(e.target.value))}
+                          className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+                          {photoSessions.map((s, i) => (
+                            <option key={i} value={i}>{fmtDate(s.session_date)}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Side-by-side comparison */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {['front', 'side', 'back'].map(angle => {
+                      const pA = sessionA?.photos?.[angle]
+                      const pB = sessionB?.photos?.[angle]
+                      return (
+                        <div key={angle}>
+                          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider text-center mb-2 capitalize">{angle}</p>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {[pA, pB].map((p, pi) => (
+                              <div key={pi} className="relative">
+                                <p className="text-[8px] font-semibold text-center text-gray-400 mb-0.5">{pi === 0 ? 'A' : 'B'}</p>
+                                {p ? (
+                                  <a href={p.photo_url} target="_blank" rel="noopener noreferrer"
+                                    className="block rounded-lg overflow-hidden bg-gray-50 border border-gray-100 hover:opacity-85 transition-opacity">
+                                    <div className="h-36 flex items-center justify-center">
+                                      <img src={p.photo_url} alt={`${angle} ${pi === 0 ? 'A' : 'B'}`}
+                                        className="w-full h-full object-contain" />
+                                    </div>
+                                  </a>
+                                ) : (
+                                  <div className="h-36 rounded-lg bg-gray-50 border border-dashed border-gray-200 flex items-center justify-center">
+                                    <span className="text-[9px] text-gray-300">—</span>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <p className="text-[10px] text-gray-400 italic">Click a photo to open full size.</p>
+                </div>
+              )
+            })()}
+
             {photoSessions.length === 0 ? (
               <p className="text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg px-3 py-2">
                 No progress photos yet.
               </p>
-            ) : (
+            ) : !showCompare && (
               <div className="space-y-5">
                 {photoSessions.map((session, si) => {
                   const photoCount = ['front', 'side', 'back'].filter(a => session.photos[a]).length
@@ -2192,6 +2267,81 @@ function ProgressTab({ clientId, getToken }) {
 }
 
 // ─── Assessment Tab ───────────────────────────────────────────────────────────
+
+// Compact form-send control for the Assessment tab
+function FormSendSection({ clientId, getToken }) {
+  const [templates, setTemplates] = useState([])
+  const [tplLoading, setTplLoading] = useState(true)
+  const [selectedId, setSelectedId] = useState('')
+  const [sending, setSending] = useState(false)
+  const [result, setResult] = useState(null) // { ok: bool, msg: string }
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/forms`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.ok) {
+          const all = await res.json()
+          const published = all.filter(f => f.status === 'published')
+          setTemplates(published)
+          if (published.length > 0) setSelectedId(String(published[0].id))
+        }
+      } finally { setTplLoading(false) }
+    }
+    load()
+  }, [getToken])
+
+  async function sendForm() {
+    if (!selectedId) return
+    setSending(true); setResult(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/forms/${selectedId}/send`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_ids: [clientId] }),
+      })
+      const data = await res.json()
+      if (res.ok) setResult({ ok: true, msg: 'Form sent successfully.' })
+      else setResult({ ok: false, msg: data.error ?? 'Failed to send form.' })
+    } catch { setResult({ ok: false, msg: 'Failed to send form.' }) }
+    finally { setSending(false) }
+  }
+
+  if (tplLoading) return null
+  if (templates.length === 0) return null
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-4">
+      <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider mb-3">Send Form</p>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex-1 min-w-[160px]">
+          <label className="block text-xs font-medium text-gray-600 mb-1">Form template</label>
+          <select
+            value={selectedId}
+            onChange={e => { setSelectedId(e.target.value); setResult(null) }}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+            {templates.map(t => (
+              <option key={t.id} value={t.id}>{t.title}</option>
+            ))}
+          </select>
+        </div>
+        <button
+          onClick={sendForm}
+          disabled={sending || !selectedId}
+          className="bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 min-h-[40px]">
+          {sending ? 'Sending…' : 'Send'}
+        </button>
+      </div>
+      {result && (
+        <p className={`text-xs mt-2 ${result.ok ? 'text-emerald-600' : 'text-red-500'}`}>{result.msg}</p>
+      )}
+    </div>
+  )
+}
 
 // ─── Form Submissions section (inside Forms tab) ──────────────────────────────
 
@@ -2568,6 +2718,9 @@ function AssessmentTab({ clientId, getToken }) {
 
   return (
     <div className="space-y-6">
+
+      {/* ── Send a form to this client ── */}
+      <FormSendSection clientId={clientId} getToken={getToken} />
 
       {/* ── Form Submissions: Check-Ins + Other Forms ── */}
       <FormSubmissionsSection clientId={clientId} getToken={getToken} />
@@ -3372,6 +3525,7 @@ function BloodworkTab({ clientId, getToken, bloodworkEnabled = false, onClientUp
   const [notes, setNotes] = useState('')
   const [togglingAccess, setTogglingAccess] = useState(false)
   const [intakeSaved, setIntakeSaved] = useState(null) // null=unknown, false=missing, true=saved
+  const [showIntake, setShowIntake] = useState(false)
   const fileRef = useRef(null)
 
   useEffect(() => {
@@ -3513,18 +3667,37 @@ function BloodworkTab({ clientId, getToken, bloodworkEnabled = false, onClientUp
         </button>
       </div>
 
-      {/* ── Intake questionnaire ── */}
-      <BloodworkIntakeForm
-        intakeUrl={`${API_URL}/api/bloodwork/staff/${clientId}/intake`}
-        getToken={getToken}
-        defaults={{
-          age:          client?.age,
-          sex:          client?.gender,
-          height_inches: client?.height_inches,
-          weight_lbs:   client?.starting_weight_lbs,
-        }}
-        onIntakeChange={data => setIntakeSaved(data !== null)}
-      />
+      {/* ── Intake questionnaire (collapsible) ── */}
+      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <button
+          onClick={() => setShowIntake(s => !s)}
+          className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-gray-50 transition-colors">
+          <div>
+            <p className="text-sm font-semibold text-gray-800">Client Health Context</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {intakeSaved === false ? 'Missing — add context to improve AI summaries' :
+               intakeSaved === true  ? 'Saved — AI will use this context' :
+               'Age, sex, height, weight context for AI summaries'}
+            </p>
+          </div>
+          <span className="text-gray-400 text-sm ml-3">{showIntake ? '▲' : '▼'}</span>
+        </button>
+        {showIntake && (
+          <div className="border-t border-gray-100 px-5 pb-5 pt-3">
+            <BloodworkIntakeForm
+              intakeUrl={`${API_URL}/api/bloodwork/staff/${clientId}/intake`}
+              getToken={getToken}
+              defaults={{
+                age:           client?.age,
+                sex:           client?.gender,
+                height_inches: client?.height_inches,
+                weight_lbs:    client?.starting_weight_lbs,
+              }}
+              onIntakeChange={data => setIntakeSaved(data !== null)}
+            />
+          </div>
+        )}
+      </div>
 
       {/* ── Upload form ── */}
       <div className="bg-white border border-gray-200 rounded-xl p-5">
@@ -3703,6 +3876,7 @@ export default function ClientProfile() {
   const [error, setError] = useState(null)
   const [tab, setTab] = useState('overview')
   const [moreOpen, setMoreOpen] = useState(false)
+  const [unreadMsg, setUnreadMsg] = useState(0)
 
   useEffect(() => {
     const requestedTab = searchParams.get('tab')
@@ -3728,6 +3902,20 @@ export default function ClientProfile() {
     }
     load()
   }, [id, getToken, navigate])
+
+  useEffect(() => {
+    if (!id) return
+    async function fetchUnread() {
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/coach-admin/clients/${id}/messages/unread`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.ok) { const d = await res.json(); setUnreadMsg(d.unread ?? 0) }
+      } catch { /* silent */ }
+    }
+    fetchUnread()
+  }, [id, getToken])
 
   if (loading) return <p className="text-center text-gray-400 py-12 text-sm">Loading client…</p>
   if (error)   return <p className="text-center text-red-500 py-8 text-sm">{error}</p>
@@ -3793,18 +3981,24 @@ export default function ClientProfile() {
             {PRIMARY_TABS.map(t => (
               <button key={t.id} onClick={() => {
                 setTab(t.id)
+                if (t.id === 'messaging') setUnreadMsg(0)
                 setMoreOpen(false)
                 const next = new URLSearchParams(searchParams)
                 if (t.id === 'overview') next.delete('tab')
                 else next.set('tab', t.id)
                 setSearchParams(next, { replace: true })
               }}
-                className={`px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-semibold transition-colors border-b-2 whitespace-nowrap ${
+                className={`relative px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-semibold transition-colors border-b-2 whitespace-nowrap ${
                   tab === t.id
                     ? 'border-[#E8670A] text-[#E8670A]'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
                 }`}>
                 <span className="mr-1">{t.icon}</span>{t.label}
+                {t.id === 'messaging' && unreadMsg > 0 && (
+                  <span className="ml-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
+                    {unreadMsg > 9 ? '9+' : unreadMsg}
+                  </span>
+                )}
               </button>
             ))}
           </div>

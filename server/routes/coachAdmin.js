@@ -1860,6 +1860,24 @@ router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// GET /api/coach-admin/clients/:id/messages/unread — count unread client messages (staff-side only)
+router.get('/clients/:id/messages/unread', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+
+    let where = `client_id = $1 AND sender_role = 'client' AND read_at IS NULL`
+    const params = [id]
+    if (ctx.role !== 'admin') where += ` AND thread_type = 'coach_thread'`
+
+    const { rows: [row] } = await pool.query(
+      `SELECT COUNT(*)::int AS unread FROM client_messages WHERE ${where}`, params
+    )
+    res.json({ unread: row.unread })
+  } catch (err) { next(err) }
+})
+
 // GET /api/coach-admin/clients/:id/messages?thread=coach_thread|admin_private|ai_admin
 router.get('/clients/:id/messages', requireAuth(), async (req, res, next) => {
   try {
