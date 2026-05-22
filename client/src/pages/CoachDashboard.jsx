@@ -1,4 +1,4 @@
-// CoachDashboard.jsx — unified staff dashboard
+﻿// CoachDashboard.jsx — unified staff dashboard
 // Rendered at /dashboard for admin/coach roles.
 // /admin/clients and /admin both redirect here.
 
@@ -820,7 +820,7 @@ function CoachFoodsTab({ getToken }) {
   )
 }
 
-// ── Dev Tools tab (admin only) ────────────────────────────────────────────────
+// ── Admin Tools panel (admin only) ──────────────────────────────────────────
 
 function StatusPill({ label, value }) {
   return (
@@ -832,26 +832,15 @@ function StatusPill({ label, value }) {
   )
 }
 
-function DevToolsTab({ getToken }) {
-  const [clients,   setClients]   = useState([])
-  const [loading,   setLoading]   = useState(true)
-  const [resetting, setResetting] = useState({})
-  const [overrides, setOverrides] = useState({})
+// AdminToolsPanel: compact onboarding/assessment status checker + reset tool.
+// Uses the already-loaded `clients` list so no extra fetch is needed.
+// Admin-only: only rendered when isAdmin === true.
+function AdminToolsPanel({ clients, getToken }) {
+  const [resetting,   setResetting]   = useState({})  // { [id]: 'loading' | 'done' | null }
+  const [overrides,   setOverrides]   = useState({})  // { [id]: { onboarding_complete, assessment_complete } }
+  const [adminSearch, setAdminSearch] = useState('')
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const token = await getToken()
-        const res = await fetch(`${API_URL}/api/admin/users`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (res.ok) setClients(await res.json())
-      } finally { setLoading(false) }
-    }
-    load()
-  }, [getToken])
-
-  async function reset(clientId, opts) {
+  async function resetFlags(clientId, opts) {
     setResetting(r => ({ ...r, [clientId]: 'loading' }))
     try {
       const token = await getToken()
@@ -860,7 +849,7 @@ function DevToolsTab({ getToken }) {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body:    JSON.stringify(opts),
       })
-      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed')
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Reset failed')
       const data = await res.json()
       setOverrides(o => ({ ...o, [clientId]: data.user }))
       setResetting(r => ({ ...r, [clientId]: 'done' }))
@@ -870,72 +859,170 @@ function DevToolsTab({ getToken }) {
     }
   }
 
-  if (loading) return <p className="text-sm text-gray-400 py-8 text-center">Loading…</p>
+  const q = adminSearch.trim().toLowerCase()
+  const rows = [...clients]
+    .filter(c => !q || `${clientName(c)} ${c.email ?? ''}`.toLowerCase().includes(q))
+    .sort((a, b) => {
+      const aC = overrides[a.id] ?? a
+      const bC = overrides[b.id] ?? b
+      const aOk = Boolean(aC.onboarding_complete) && Boolean(aC.assessment_complete)
+      const bOk = Boolean(bC.onboarding_complete) && Boolean(bC.assessment_complete)
+      if (aOk !== bOk) return aOk ? 1 : -1       // incomplete first
+      return clientName(a).localeCompare(clientName(b))
+    })
+
+  const incompleteCount = clients.filter(c => {
+    const cur = overrides[c.id] ?? c
+    return !cur.assessment_complete || !cur.onboarding_complete
+  }).length
 
   return (
-    <div>
-      <div className="bg-yellow-50 border-2 border-yellow-300 rounded-xl p-4 mb-5 flex gap-3">
-        <span className="text-xl shrink-0">⚠️</span>
+    <div className="space-y-4">
+
+      {/* Warning banner */}
+      <div className="flex gap-2.5 items-start bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+        <span className="text-base shrink-0 mt-0.5">⚠️</span>
         <div>
-          <p className="text-sm font-bold text-yellow-800">DEV TOOLS — Testing Only</p>
-          <p className="text-xs text-yellow-700 mt-1">
-            Resets <code className="bg-yellow-100 px-0.5 rounded">assessment_complete</code> flags.
-            No meals, workouts, or data are affected.
+          <p className="text-xs font-bold text-amber-800">Admin Tools — Use with care</p>
+          <p className="text-xs text-amber-700 mt-0.5">
+            Resets <code className="bg-amber-100 rounded px-0.5">onboarding_complete</code> /
+            {' '}<code className="bg-amber-100 rounded px-0.5">assessment_complete</code> flags only.
+            No meals, logs, or data are deleted.
           </p>
         </div>
       </div>
-      <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-5">
-        <p className="text-xs font-bold text-gray-700 mb-2">How to test the assessment flow:</p>
-        <ol className="text-xs text-gray-600 space-y-1.5 list-decimal list-inside">
-          <li>Find your own account below and click <strong>Reset Assessment</strong>.</li>
-          <li>Click <strong>Reload &amp; Test →</strong> — redirects to health assessment.</li>
-          <li>Complete the flow normally. Return here to reset again.</li>
+
+      {/* How-to — collapsed by default */}
+      <details className="bg-white border border-gray-200 rounded-xl overflow-hidden text-xs">
+        <summary className="px-4 py-2.5 cursor-pointer font-semibold text-gray-600 hover:bg-gray-50
+                            select-none list-none flex items-center justify-between">
+          <span>How to test the assessment flow</span>
+          <span className="text-gray-400 text-sm">▸</span>
+        </summary>
+        <ol className="px-4 pb-3 pt-1 text-gray-600 space-y-1 list-decimal list-inside leading-relaxed">
+          <li>Find your own account and click <strong>Reset Assess</strong>.</li>
+          <li>Click <strong>Test →</strong> — reloads the page and redirects you to health assessment.</li>
+          <li>Complete the flow normally, then return here to reset again.</li>
         </ol>
-      </div>
-      {!clients.length && <p className="text-sm text-gray-400 text-center py-8">No users yet.</p>}
-      <div className="space-y-2">
-        {clients.map(client => {
-          const busy    = resetting[client.id] === 'loading'
-          const done    = resetting[client.id] === 'done'
-          const current = overrides[client.id] ?? client
-          return (
-            <div key={client.id} className="bg-white border border-gray-200 rounded-xl p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">
-                    {[client.first_name, client.display_last_name].filter(Boolean).join(' ') || client.email || 'Unknown'}
-                    {client.email && <span className="text-xs text-gray-400 font-normal ml-2">{client.email}</span>}
-                  </p>
-                  <div className="flex gap-2 mt-1.5 flex-wrap">
-                    <StatusPill label="Onboarding" value={current.onboarding_complete} />
-                    <StatusPill label="Assessment"  value={current.assessment_complete} />
-                  </div>
+      </details>
+
+      {/* Client status table */}
+      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Client Onboarding Status</p>
+            <p className="text-xs mt-0.5">
+              {incompleteCount > 0
+                ? <span className="text-amber-600 font-medium">{incompleteCount} client{incompleteCount !== 1 ? 's' : ''} with incomplete setup</span>
+                : <span className="text-emerald-600 font-medium">All clients fully onboarded ✓</span>
+              }
+            </p>
+          </div>
+          <input
+            type="text"
+            value={adminSearch}
+            onChange={e => setAdminSearch(e.target.value)}
+            placeholder="Filter by name or email…"
+            className="w-full sm:w-52 border border-gray-200 rounded-lg px-3 py-1.5 text-xs
+                       focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+          />
+        </div>
+
+        {rows.length === 0 && (
+          <p className="text-sm text-gray-400 text-center py-8">
+            {adminSearch ? 'No clients match your search.' : 'No clients yet.'}
+          </p>
+        )}
+
+        <div className="divide-y divide-gray-100">
+          {rows.map(client => {
+            const busy  = resetting[client.id] === 'loading'
+            const done  = resetting[client.id] === 'done'
+            const cur   = overrides[client.id] ?? client
+            const allOk = Boolean(cur.onboarding_complete) && Boolean(cur.assessment_complete)
+
+            return (
+              <div key={client.id}
+                className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2.5 ${allOk ? '' : 'bg-amber-50/40'}`}
+              >
+                {/* Name + email */}
+                <div className="flex-1 min-w-[140px]">
+                  <Link
+                    to={`/admin/clients/${client.id}`}
+                    onClick={e => e.stopPropagation()}
+                    className="text-sm font-medium text-gray-900 hover:text-[#E8670A] truncate block leading-tight"
+                  >
+                    {clientName(client)}
+                  </Link>
+                  <p className="text-[11px] text-gray-400 truncate">{client.email}</p>
                 </div>
-                <div className="flex flex-wrap gap-2 items-center">
-                  <button onClick={() => reset(client.id, { reset_assessment: true })} disabled={busy}
-                    className="px-3 py-2 text-xs font-semibold rounded-lg border-2 border-yellow-400 text-yellow-700 hover:bg-yellow-50 disabled:opacity-40 transition-colors min-h-[36px]">
-                    {busy ? '…' : 'Reset Assessment'}
-                  </button>
-                  <button onClick={() => reset(client.id, { reset_onboarding: true, reset_assessment: true })} disabled={busy}
-                    className="px-3 py-2 text-xs font-semibold rounded-lg border-2 border-red-300 text-red-600 hover:bg-red-50 disabled:opacity-40 transition-colors min-h-[36px]">
-                    {busy ? '…' : 'Reset Both'}
-                  </button>
+
+                {/* Status pills */}
+                <div className="flex gap-1 shrink-0">
+                  <StatusPill label="Onboard" value={Boolean(cur.onboarding_complete)} />
+                  <StatusPill label="Assess"  value={Boolean(cur.assessment_complete)} />
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex gap-1.5 shrink-0 flex-wrap">
+                  {/* Assess-only reset: show when assessment is incomplete */}
+                  {!cur.assessment_complete && (
+                    <button
+                      onClick={() => resetFlags(client.id, { reset_assessment: true })}
+                      disabled={busy}
+                      title="Reset assessment_complete — client will be redirected to health assessment on next login"
+                      className="px-2.5 py-1 text-[11px] font-semibold rounded-md border border-yellow-300
+                                 bg-yellow-50 text-yellow-700 hover:bg-yellow-100 disabled:opacity-40
+                                 transition-colors min-h-[28px]"
+                    >
+                      {busy ? '…' : '↺ Assess'}
+                    </button>
+                  )}
+                  {/* Both reset: show when onboarding or assessment is incomplete */}
+                  {(!cur.onboarding_complete || !cur.assessment_complete) && (
+                    <button
+                      onClick={() => resetFlags(client.id, { reset_onboarding: true, reset_assessment: true })}
+                      disabled={busy}
+                      title="Reset both onboarding_complete and assessment_complete"
+                      className="px-2.5 py-1 text-[11px] font-semibold rounded-md border border-red-200
+                                 bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-40
+                                 transition-colors min-h-[28px]"
+                    >
+                      {busy ? '…' : '↺ Both'}
+                    </button>
+                  )}
+                  {/* Fully complete clients: offer assessment reset for testing */}
+                  {allOk && !done && (
+                    <button
+                      onClick={() => resetFlags(client.id, { reset_assessment: true })}
+                      disabled={busy}
+                      title="Reset assessment to re-test the onboarding flow"
+                      className="px-2.5 py-1 text-[11px] font-semibold rounded-md border border-gray-200
+                                 text-gray-500 hover:bg-gray-50 disabled:opacity-40
+                                 transition-colors min-h-[28px]"
+                    >
+                      {busy ? '…' : 'Reset Assess'}
+                    </button>
+                  )}
+                  {/* Post-reset test button */}
                   {done && (
-                    <button onClick={() => { window.location.href = '/dashboard' }}
-                      className="px-3 py-2 text-xs font-semibold rounded-lg bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors min-h-[36px]">
-                      Reload &amp; Test →
+                    <button
+                      onClick={() => window.location.replace('/dashboard')}
+                      className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-[#E8670A] text-white
+                                 hover:bg-[#c45e09] transition-colors min-h-[28px]"
+                    >
+                      Test →
                     </button>
                   )}
                 </div>
               </div>
-            </div>
-          )
-        })}
+            )
+          })}
+        </div>
       </div>
     </div>
   )
 }
-
 // ── Messaging tab ─────────────────────────────────────────────────────────────
 
 function AdminMessagingTab({ getToken }) {
@@ -1386,7 +1473,7 @@ export default function CoachDashboard({ getToken, userRole }) {
     { id: 'food-macros', label: 'Food & Macros' },
     { id: 'messaging',   label: 'Messaging' },
     { id: 'coach-foods', label: 'Coach Foods' },
-    ...(isAdmin ? [{ id: 'dev-tools', label: '🛠 Dev Tools' }] : []),
+    ...(isAdmin ? [{ id: 'admin-tools', label: '🛠 Admin Tools' }] : []),
   ]
 
   // ── Render ────────────────────────────────────────────────────────────────────
@@ -1818,8 +1905,10 @@ export default function CoachDashboard({ getToken, userRole }) {
       {/* Coach Foods tab */}
       {activeTab === 'coach-foods' && <CoachFoodsTab getToken={getToken} />}
 
-      {/* Dev Tools tab (admin only) */}
-      {activeTab === 'dev-tools' && isAdmin && <DevToolsTab getToken={getToken} />}
+      {/* Admin Tools tab (admin only) */}
+      {activeTab === 'admin-tools' && isAdmin && (
+        <AdminToolsPanel clients={clients} getToken={getToken} />
+      )}
 
     </div>
   )
