@@ -120,10 +120,10 @@ function adherenceColor(v) {
 
 function CoachStatCard({ label, value, sub, accent = false, href }) {
   const inner = (
-    <div className={`bg-white rounded-xl border p-4 h-full ${accent ? 'border-[#E8670A]' : 'border-gray-200'}`}>
-      <p className="text-xs text-gray-500 mb-1">{label}</p>
-      <p className={`text-2xl font-bold ${accent ? 'text-[#E8670A]' : 'text-gray-900'}`}>{value}</p>
-      {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+    <div className={`bg-white rounded-xl border p-3 ${accent ? 'border-[#E8670A]' : 'border-gray-200'}`}>
+      <p className="text-[11px] text-gray-500 mb-0.5">{label}</p>
+      <p className={`text-xl font-bold leading-tight ${accent ? 'text-[#E8670A]' : 'text-gray-900'}`}>{value}</p>
+      {sub && <p className="text-[11px] text-gray-400 mt-0.5">{sub}</p>}
     </div>
   )
   return href
@@ -139,6 +139,46 @@ function StatusBadge({ status }) {
     <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold whitespace-nowrap ${style}`}>
       {status}
     </span>
+  )
+}
+
+// ── RecentActivityRail ────────────────────────────────────────────────────────
+// Compact activity feed used in both the right rail (desktop) and below tabs (mobile).
+
+function RecentActivityRail({ loading, activity }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      {/* Header */}
+      <div className="px-3 py-2.5 border-b border-gray-100 flex items-center justify-between">
+        <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Recent Activity</p>
+      </div>
+
+      {loading && (
+        <p className="text-xs text-gray-400 text-center py-6">Loading…</p>
+      )}
+
+      {!loading && activity.length === 0 && (
+        <p className="text-xs text-gray-400 text-center py-6">No recent activity yet.</p>
+      )}
+
+      {!loading && activity.length > 0 && (
+        <div className="divide-y divide-gray-100 overflow-y-auto max-h-[62vh]">
+          {activity.map((event, idx) => (
+            <Link
+              key={`${event.type}-${event.client_id}-${event.occurred_at}-${idx}`}
+              to={`/admin/clients/${event.client_id}`}
+              className="flex items-start justify-between gap-2 px-3 py-2 hover:bg-orange-50/50 transition-colors"
+            >
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-gray-900 truncate leading-tight">{event.client_name}</p>
+                <p className="text-[11px] text-gray-400 truncate leading-tight mt-0.5">{event.label}</p>
+              </div>
+              <p className="text-[10px] text-gray-400 shrink-0 mt-0.5 whitespace-nowrap">{fmtShortDate(event.occurred_at)}</p>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -1478,10 +1518,10 @@ export default function CoachDashboard({ getToken, userRole }) {
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
-    <div className="max-w-7xl space-y-6">
+    <div className="max-w-7xl">
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-3 mb-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Coaching Dashboard</h1>
           <p className="text-sm text-gray-500 mt-0.5">What needs your attention today.</p>
@@ -1503,6 +1543,12 @@ export default function CoachDashboard({ getToken, userRole }) {
           onSuccess={() => { setInviteOpen(false); reloadClients(); loadPendingInvites() }}
         />
       )}
+
+      {/* ── Two-column body: main content + right rail ── */}
+      <div className="flex gap-5 items-start">
+
+      {/* ── Main column ── */}
+      <div className="flex-1 min-w-0 space-y-4">
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -1618,72 +1664,42 @@ export default function CoachDashboard({ getToken, userRole }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Check-ins */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-semibold text-gray-700">Check-ins Needing Review</p>
-            <Link to="/admin/forms" className="text-xs text-[#E8670A] hover:text-[#c45e09] font-medium">Forms →</Link>
+      {/* Check-ins */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm font-semibold text-gray-700">Check-ins Needing Review</p>
+          <Link to="/admin/forms" className="text-xs text-[#E8670A] hover:text-[#c45e09] font-medium">Forms →</Link>
+        </div>
+        {dataLoading ? (
+          <div className="bg-white border border-gray-200 rounded-xl px-4 py-6 text-center">
+            <p className="text-sm text-gray-400">Loading…</p>
           </div>
-          {dataLoading ? (
-            <div className="bg-white border border-gray-200 rounded-xl px-4 py-6 text-center">
-              <p className="text-sm text-gray-400">Loading…</p>
-            </div>
-          ) : checkins.length === 0 ? (
-            <div className="bg-white border border-gray-200 rounded-xl px-4 py-4 text-center">
-              <p className="text-sm text-gray-500">No check-ins need review right now.</p>
-            </div>
-          ) : (
-            <div className="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100 overflow-hidden">
-              {checkins.map(item => (
-                <Link key={item.submission_id} to={`/admin/clients/${item.client_id}?tab=assessment`}
-                  className="block px-4 py-3 hover:bg-orange-50/50 transition-colors">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-gray-900 truncate">{item.client_name}</p>
-                      <p className="text-xs text-gray-500 truncate">{item.form_title}</p>
-                      <p className="text-[11px] text-gray-400 mt-0.5">
-                        Submitted {fmtDateTime(item.submitted_at)}
-                        {item.due_at ? ` · Due ${fmtShortDate(item.due_at)}` : ''}
-                      </p>
-                    </div>
-                    <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
-                      {item.status}
-                    </span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Recent Activity */}
-        <div>
-          <p className="text-sm font-semibold text-gray-700 mb-2">Recent Client Activity</p>
-          {dataLoading ? (
-            <div className="bg-white border border-gray-200 rounded-xl px-4 py-6 text-center">
-              <p className="text-sm text-gray-400">Loading…</p>
-            </div>
-          ) : activity.length === 0 ? (
-            <div className="bg-white border border-gray-200 rounded-xl px-4 py-4 text-center">
-              <p className="text-sm text-gray-500">No recent client activity yet.</p>
-            </div>
-          ) : (
-            <div className="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100 overflow-hidden">
-              {activity.map((event, idx) => (
-                <Link key={`${event.type}-${event.client_id}-${event.occurred_at}-${idx}`}
-                  to={`/admin/clients/${event.client_id}`}
-                  className="flex items-start justify-between gap-3 px-4 py-3 hover:bg-orange-50/50 transition-colors">
+        ) : checkins.length === 0 ? (
+          <div className="bg-white border border-gray-200 rounded-xl px-4 py-4 text-center">
+            <p className="text-sm text-gray-500">No check-ins need review right now.</p>
+          </div>
+        ) : (
+          <div className="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100 overflow-hidden">
+            {checkins.map(item => (
+              <Link key={item.submission_id} to={`/admin/clients/${item.client_id}?tab=assessment`}
+                className="block px-4 py-3 hover:bg-orange-50/50 transition-colors">
+                <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{event.client_name}</p>
-                    <p className="text-xs text-gray-500 truncate">{event.label}</p>
+                    <p className="text-sm font-semibold text-gray-900 truncate">{item.client_name}</p>
+                    <p className="text-xs text-gray-500 truncate">{item.form_title}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">
+                      Submitted {fmtDateTime(item.submitted_at)}
+                      {item.due_at ? ` · Due ${fmtShortDate(item.due_at)}` : ''}
+                    </p>
                   </div>
-                  <p className="text-[11px] text-gray-400 shrink-0">{fmtShortDate(event.occurred_at)}</p>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
+                  <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                    {item.status}
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Tab bar */}
@@ -1909,6 +1925,20 @@ export default function CoachDashboard({ getToken, userRole }) {
       {activeTab === 'admin-tools' && isAdmin && (
         <AdminToolsPanel clients={clients} getToken={getToken} />
       )}
+
+      {/* Recent Activity — mobile only (stacks below tabs on small screens) */}
+      <div className="xl:hidden pt-2">
+        <RecentActivityRail loading={dataLoading} activity={activity} />
+      </div>
+
+      </div>{/* ── end main column ── */}
+
+      {/* ── Right rail: Recent Activity (desktop only) ── */}
+      <aside className="hidden xl:flex flex-col w-[300px] flex-shrink-0 self-start sticky top-4 gap-0">
+        <RecentActivityRail loading={dataLoading} activity={activity} />
+      </aside>
+
+      </div>{/* ── end flex body ── */}
 
     </div>
   )
