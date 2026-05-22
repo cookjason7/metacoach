@@ -1271,7 +1271,6 @@ function InviteModal({ getToken, coaches = [], onClose, onSuccess }) {
                 <select name="coaching_type" value={form.coaching_type} onChange={setF} className={inputCls}>
                   <option value="vip">VIP</option>
                   <option value="ai">AI</option>
-                  <option value="hybrid">Hybrid</option>
                 </select>
               </div>
               <div>
@@ -1483,12 +1482,17 @@ export default function CoachDashboard({ getToken, userRole }) {
 
   const coachOptions = useMemo(() => {
     const seen = new Map()
+    // Primary source: all active coaches from API (includes coaches with no clients yet)
+    coaches.forEach(c => {
+      if (c.id) seen.set(String(c.id), c.first_name || c.email || 'Coach')
+    })
+    // Supplement: catch any assigned coaches not in the coaches API list
     clients.forEach(c => {
-      if (c.assigned_coach_id)
+      if (c.assigned_coach_id && !seen.has(String(c.assigned_coach_id)))
         seen.set(String(c.assigned_coach_id), c.assigned_coach_name || c.assigned_coach_email || 'Assigned coach')
     })
     return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]))
-  }, [clients])
+  }, [clients, coaches])
 
   const filteredClients = useMemo(() => {
     const q = clientSearch.trim().toLowerCase()
@@ -1745,7 +1749,6 @@ export default function CoachDashboard({ getToken, userRole }) {
                 <option value="all">All coaching</option>
                 <option value="vip">VIP</option>
                 <option value="ai">AI</option>
-                <option value="hybrid">Hybrid</option>
               </select>
               <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
@@ -1926,15 +1929,15 @@ export default function CoachDashboard({ getToken, userRole }) {
         <AdminToolsPanel clients={clients} getToken={getToken} />
       )}
 
-      {/* Recent Activity — mobile only (stacks below tabs on small screens) */}
-      <div className="xl:hidden pt-2">
+      {/* Recent Activity — stacks below tabs on screens narrower than 2xl */}
+      <div className="2xl:hidden pt-2">
         <RecentActivityRail loading={dataLoading} activity={activity} />
       </div>
 
       </div>{/* ── end main column ── */}
 
-      {/* ── Right rail: Recent Activity (desktop only) ── */}
-      <aside className="hidden xl:flex flex-col w-[300px] flex-shrink-0 self-start sticky top-4 gap-0">
+      {/* ── Right rail: Recent Activity (2xl+ only) ── */}
+      <aside className="hidden 2xl:flex flex-col w-64 flex-shrink-0 self-start sticky top-4 gap-0">
         <RecentActivityRail loading={dataLoading} activity={activity} />
       </aside>
 
