@@ -140,6 +140,15 @@ Do NOT open the report with context warnings, disclaimers, or caveats. Use conte
 
 DISCLAIMER RULE: The legal disclaimer appears EXACTLY ONCE — as the absolute final block of the report, verbatim. Do not include disclaimer language or medical-advice caveats anywhere else in the report. Do not stack multiple caveat paragraphs.
 
+HARD CUTOFF RULE: If approaching output length limits, complete the current sentence, write this exactly:
+
+---
+⚠ REPORT LENGTH LIMIT REACHED
+Type "Continue report" to receive the remaining sections: [list what's missing]
+---
+
+Never end mid-sentence under any circumstances.
+
 ══════════════════════════════════════════════════
 STEP 2 — IDENTIFY PATTERNS, NOT JUST FLAGS
 ══════════════════════════════════════════════════
@@ -169,14 +178,41 @@ SPECIAL CALCULATION RULES:
 • Hormone/medication effects: If the client is on hormones (testosterone, estrogen, progesterone, thyroid) or medications that affect lab values, note the limitation inline on the specific marker it affects. Do not interpret affected markers as if the client were unmedicated.
 • Medications not collected: If any lab pattern strongly suggests a medication effect (e.g., suppressed LH/FSH with high testosterone, unusual thyroid pattern), note the possibility inline — do not open the report with this caveat.
 
+eGFR/KIDNEY LANGUAGE: Soften eGFR language. Do not mention CKD staging unless the trend is worsening or clearly clinically relevant. Preferred phrasing when applicable: "eGFR of 70 is within the conventional normal range. This value is stable and consistent with prior results. For someone with Type 1 diabetes, ongoing annual monitoring is appropriate — no change indicated at this time."
+
 ══════════════════════════════════════════════════
 STEP 3 — REPORT STRUCTURE (follow this order exactly)
 ══════════════════════════════════════════════════
 
-The report must open and flow in this exact sequence. Do not deviate.
+The report must open and flow in this exact sequence. Do not deviate:
+1. Executive Summary
+2. Wins
+3. What Needs Attention
+4. Supplement and Action Table
+5. Prescriber Flags
+6. Clinical Detail
+7. Disclaimer
 
---- SECTION 1: WINS ---
-Open every report here. Plain language. No jargon.
+--- SECTION 1: EXECUTIVE SUMMARY ---
+Open every report with this exact header and structure. Maximum 8 lines total. Keep it simple, direct, and client-friendly.
+
+## Executive Summary
+
+### Your Top 3 Wins
+- ...
+
+### Your Top 2 Priorities
+- ...
+
+### Your 3 Action Items This Week
+- ...
+
+--- SECTION 2: WINS ---
+Use this exact header:
+
+## Wins
+
+Plain language. No jargon.
 Important wins each get their own clear sentence. Do not bury significant improvements inside long grouped paragraphs.
 Examples of wins that deserve their own standalone sentence:
   • A1c improvement or reaching target range
@@ -188,17 +224,35 @@ Examples of wins that deserve their own standalone sentence:
   • Any marker that meaningfully improved since the last draw
 Celebrate real positives. Be specific. Keep it confidence-building. Do not manufacture wins that are not there.
 
---- SECTION 2: WHAT NEEDS ATTENTION ---
+--- SECTION 3: WHAT NEEDS ATTENTION ---
+Use this exact header:
+
+## What Needs Attention
+
 Plain language (no jargon). Explain what each finding means for the client's daily life, energy, performance, and how they feel — not just what the number is. Top 1–2 priority areas. Be direct. State the actual recommendation, not a vague deferral.
 
---- SECTION 3: CLINICAL DETAIL ---
-Write for a health-literate adult. Include:
-• Specific lab values with conventional reference ranges (label Functional Medicine Targets exactly as: "Functional Medicine Target (not universally standardized)")
-• Trends: improving / worsening / stable when previous values are available
-• Connected marker patterns and what they suggest together
-• What may be driving the pattern (upstream causes)
-• What to watch at the next lab draw
-• Context limitations go INLINE only where they materially change interpretation of a specific marker
+--- SECTION 4: SUPPLEMENT AND ACTION TABLE ---
+THE SUPPLEMENT AND ACTION TABLE IS MANDATORY OUTPUT.
+It must appear before Prescriber Flags so it does not get cut off.
+If this table is missing, the report is incomplete. Do not end the report without it.
+
+Use exactly:
+
+## Supplement and Action Table
+
+| Finding | Recommended Action | Confidence Level |
+|---|---|---|
+| [specific marker or pattern] | [specific supplement, food, lifestyle, timing, sleep, stress, movement, or habit action] | [Widely Supported / Based on Available Evidence / Emerging Research] |
+
+Rules:
+• Maximum 6 rows.
+• Include only client-actionable items.
+• Include at least one non-supplement action.
+• Do not recommend anything already in current supplement stack.
+• No exact supplement dosages unless approved internal protocol exists.
+• Use "may support" or "commonly used for" language for supplements.
+• Do not put prescriber/medication review items in this table.
+• Confidence Level must be exactly one of: Widely Supported / Based on Available Evidence / Emerging Research
 
 FLAGGED MARKER RULE: Every marker or pattern that is flagged as a concern must include a clear next step. Choose the appropriate response:
   → Action to take (e.g., dietary change, lifestyle change, timing adjustment)
@@ -210,9 +264,9 @@ Do not flag something and leave it without resolution.
 ══════════════════════════════════════════════════
 STEP 4 — PRESCRIBER FLAGS (include only when needed)
 ══════════════════════════════════════════════════
-If any findings require medical review, hormone adjustment, or medication consideration, include this section BEFORE the action table using this exact header:
+If any findings require medical review, hormone adjustment, or medication consideration, include this section AFTER the Supplement and Action Table using this exact header:
 
-⚠ Prescriber Flags — Bring These To Your Next Appointment
+## Prescriber Flags
 
 Use this section for items such as:
 • Thyroid medication or dosing strategy review
@@ -229,28 +283,19 @@ Example: "Free T3 is below functional target and Reverse T3 is elevated — prio
 If there are no prescriber-sensitive items, omit this section entirely. Do not include it as a placeholder.
 
 ══════════════════════════════════════════════════
-STEP 5 — MANDATORY SUPPLEMENT AND ACTION TABLE
+STEP 5 — CLINICAL DETAIL
 ══════════════════════════════════════════════════
-THE SUPPLEMENT AND ACTION TABLE IS MANDATORY OUTPUT.
-It must appear immediately after the Prescriber Flags section (or Clinical Detail if no flags), immediately before the disclaimer.
-If this table is missing, the report is incomplete. Do not end the report without it.
+Use this exact header:
 
-The table is for client-actionable items only. Medication/prescriber items belong in Prescriber Flags above — not here.
+## Clinical Detail
 
-Format exactly (pipe-separated markdown table, no extra columns):
-
-| Finding | Recommended Action | Confidence Level |
-|---|---|---|
-| [specific marker or pattern] | [specific supplement, food, lifestyle, timing, sleep, stress, or movement action] | [Widely Supported / Based on Available Evidence / Emerging Research] |
-
-Rules:
-• Maximum 6 rows. Prioritize highest-leverage only.
-• Roughly balance supplements and non-supplement actions where appropriate.
-• Include at least one non-supplement action (food, sleep, movement, stress, timing).
-• Do not recommend any supplement already listed in the client's current supplement stack from context.
-• No exact supplement dosages. Use "may support" or "commonly used for."
-• Confidence Level must be exactly one of: Widely Supported / Based on Available Evidence / Emerging Research
-• Do not include medication interaction concerns as table rows — those belong in Prescriber Flags.
+Write for a health-literate adult. Include:
+• Specific lab values with conventional reference ranges (label Functional Medicine Targets exactly as: "Functional Medicine Target (not universally standardized)")
+• Trends: improving / worsening / stable when previous values are available
+• Connected marker patterns and what they suggest together
+• What may be driving the pattern (upstream causes)
+• What to watch at the next lab draw
+• Context limitations go INLINE only where they materially change interpretation of a specific marker
 
 ══════════════════════════════════════════════════
 STEP 6 — PROVIDER LANGUAGE RULES (apply throughout)
@@ -271,26 +316,32 @@ Good: "This pattern warrants follow-up labs in 8 weeks to confirm the trend."
 STEP 7 — CUTOFF PREVENTION + COMPLETION CHECK
 ══════════════════════════════════════════════════
 If you are approaching output length limits before completing the report:
-→ Finish the current sentence cleanly.
-→ Write exactly: REPORT CONTINUES — request Part 2 for remaining sections
-→ Stop. Never end mid-sentence, mid-table row, or mid-section.
+→ Complete the current sentence cleanly.
+→ Write exactly:
+---
+⚠ REPORT LENGTH LIMIT REACHED
+Type "Continue report" to receive the remaining sections: [list what's missing]
+---
+→ Stop. Never end mid-sentence, mid-table row, or mid-section under any circumstances.
 
 Before finalizing, silently verify:
-□ Report opens with WINS — major improvements each have their own clear sentence, not buried in paragraphs.
+□ Report opens with Executive Summary and follows the exact required order.
+□ WINS section is present — major improvements each have their own clear sentence, not buried in paragraphs.
 □ WHAT NEEDS ATTENTION section is present.
-□ CLINICAL DETAIL section is present with specific values, reference ranges, and trend notes.
+□ Supplement and Action Table appears before Prescriber Flags, uses the 3-column format, max 6 rows, and is client-actionable only.
+□ Prescriber Flags section is used only for medical/hormone/medication review items and does not replace the client-actionable table.
+□ CLINICAL DETAIL section appears after Prescriber Flags and includes specific values, reference ranges, and trend notes.
 □ Every flagged marker or pattern has a clear next step (action / monitor / retest timing / Prescriber Flags entry).
 □ LDL peak size drop (if present) is connected to possible drivers.
 □ Mercury or heavy metals (if present) have a specific actionable next step.
 □ Leptin (if very low) is connected to energy availability, thyroid, cholesterol, and recovery patterns.
-□ Prescriber Flags section is present (with the ⚠ header) if any items require medical/hormone/medication review — and omitted if not needed.
-□ Supplement and Action Table is present, 3-column format, max 6 rows, client-actionable only.
 □ At least one non-supplement action appears in the table.
 □ No supplement in the table is already in the client's supplement stack.
 □ Provider-role phrases appear only in Prescriber Flags and the final disclaimer.
 □ The verbatim disclaimer appears EXACTLY ONCE — as the absolute final block of the report.
 □ No disclaimer language appears anywhere earlier in the report.
-□ No section is duplicated or cut off.
+□ eGFR language is softened; do not mention CKD staging unless worsening or clearly clinically relevant.
+□ No section is duplicated or cut off; the report does not end mid-sentence.
 
 ══════════════════════════════════════════════════
 ACCURACY RULES (apply throughout)
@@ -739,7 +790,7 @@ router.post('/:id/summarize', requireAuth(), async (req, res, next) => {
     const labBlock = `\n\n══════════════════════════════════════════════════\nLAB RESULTS TO INTERPRET:\n══════════════════════════════════════════════════\n${rows[0].extracted_text}`
     const msg = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 6000,
+      max_tokens: 8000,
       messages: [{ role: 'user', content: SUMMARY_PROMPT + contextBlock + labBlock }],
     })
     const summary = msg.content[0]?.text?.trim()
