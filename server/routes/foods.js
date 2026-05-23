@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 import { searchUSDA, lookupFdcId, isBarcode } from '../services/usdaApi.js'
+import { searchOFF }                          from '../services/offApi.js'
 
 const router = Router()
 
@@ -37,6 +38,51 @@ function parseNutrientNumbers(food) {
     vitamin_d_mcg: food.vitamin_d_mcg != null ? parseFloat(food.vitamin_d_mcg) : null,
     magnesium_mg: food.magnesium_mg != null ? parseFloat(food.magnesium_mg) : null,
   }
+}
+
+// ── Supplement helpers ────────────────────────────────────────────────────────
+
+/**
+ * Relevance score for a single supplement result (USDA or OFO) against the
+ * user's query tokens.  Higher = better match.
+ *
+ * Bonuses:
+ *   +3  each query token found in the brand name
+ *   +2  each query token found in the food name
+ *
+ * Contextual penalties — keeps chips/candy out of bar searches, etc.:
+ *   −4  result name contains "chip(s)" when user typed "bar"/"bars"
+ *   −4  result name contains "candy" or "egg hunt" when user typed "bar"
+ *   −3  result name contains "morsels" or "baking" when user typed "bar"
+ *   −2  result name contains "cracker" when user typed "bar"
+ */
+function supplementScore(food, queryTokens) {
+  const nameLower  = (food.name  || '').toLowerCase()
+  const brandLower = (food.brand || '').toLowerCase()
+  let score = 0
+
+  for (const t of queryTokens) {
+    if (brandLower.includes(t)) score += 3
+    if (nameLower.includes(t))  score += 2
+  }
+
+  const wantsBar = queryTokens.includes('bar') || queryTokens.includes('bars')
+  if (wantsBar) {
+    if (/chips?/.test(nameLower))              score -= 4
+    if (/cracker/.test(nameLower))             score -= 2
+    if (/egg.?hunt|candy|lollipop/.test(nameLower)) score -= 8
+    if (/morsels|baking/.test(nameLower))      score -= 3
+  }
+
+  return score
+}
+
+/**
+ * Normalise a food name for near-duplicate detection across USDA + OFO.
+ * Strip punctuation/spaces, lowercase, keep first 40 chars.
+ */
+function normName(s) {
+  return (s || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40)
 }
 
 // ── Local search ──────────────────────────────────────────────────────────────
@@ -203,47 +249,74 @@ router.get('/search', requireAuth(), async (req, res, next) => {
     // Local results always come first: custom foods, then DB whole foods.
     const combined = [...customResults, ...localResults]
 
-    // ── USDA supplement ──────────────────────────────────────────────────────
-    // Always append live USDA results for queries ≥ 2 chars so branded and
-    // packaged foods surface even when the local SR Legacy DB has many hits.
-    // For multi-word queries (e.g. "quest bar", "whey protein"), a parallel
-    // Branded-only search runs alongside the generic search so brand-named
-    // packaged foods rank first among USDA results. Both searches are deduped
-    // against local FDC IDs; branded results are merged first.
+    // ── External supplement ───────────────────────────────────────────────────
+    // For queries ≥ 2 chars we supplement local DB results with external data:
+    //
+    //   Single-word queries  → USDA all-types only
+    //   Multi-word queries   → USDA all-types + USDA Branded + Open Food Facts
+    //
+    // Open Food Facts is added because USDA is missing many popular fitness
+    // brands entirely (e.g. Quest protein bars, Optimum Nutrition, Premier
+    // Protein shakes, Orgain).
+    //
+    // All three pools are merged, deduplicated by fdc_id and normalised name,
+    // then re-ranked by relevance to the query tokens before appending to the
+    // local result list.  Contextual penalties keep chips/candy out of bar
+    // searches and other cross-contamination from USDA's loose full-text match.
     if (q.length >= 2) {
       const localFdcIds = new Set(localResults.map(f => f.fdc_id).filter(Boolean))
       const needed      = Math.max(limit - combined.length, 10)
+      const queryTokens = tokens.map(t => t.toLowerCase())
+      const isMulti     = tokens.length >= 2
 
-      let usdaResults = []
+      let supplementResults = []
       try {
-        const fetchAll     = searchUSDA(q, { pageSize: needed + 10 })
-        const fetchBranded = tokens.length >= 2
-          ? searchUSDA(q, { pageSize: 15, dataType: 'Branded' })
-          : Promise.resolve([])
+        // Fire all relevant searches in parallel; tolerate individual failures
+        const [allRes, brandedRes, offRes] = await Promise.allSettled([
+          searchUSDA(q, { pageSize: needed + 10 }),
+          isMulti ? searchUSDA(q, { pageSize: 15, dataType: 'Branded' }) : Promise.resolve([]),
+          isMulti ? searchOFF(q, { pageSize: 10 })                       : Promise.resolve([]),
+        ])
 
-        const [allRaw, brandedRaw] = await Promise.all([fetchAll, fetchBranded])
+        const allRaw     = allRes.status     === 'fulfilled' ? allRes.value     : []
+        const brandedRaw = brandedRes.status === 'fulfilled' ? brandedRes.value : []
+        const offRaw     = offRes.status     === 'fulfilled' ? offRes.value     : []
 
-        // Branded first so brand-specific searches rank correctly
-        const seen   = new Set(localFdcIds)
+        if (allRes.status     === 'rejected') console.warn('[foods] USDA all failed:',     allRes.reason?.message)
+        if (brandedRes.status === 'rejected') console.warn('[foods] USDA branded failed:', brandedRes.reason?.message)
+        if (offRes.status     === 'rejected') console.warn('[foods] OFO failed:',          offRes.reason?.message)
+
+        // Dedup sets seeded from results already in `combined`
+        const seenFdcIds = new Set(localFdcIds)
+        const seenNames  = new Set(
+          [...customResults, ...localResults].map(f => normName(f.name))
+        )
+
+        const addIfNew = (list, f) => {
+          if (f.fdc_id && seenFdcIds.has(f.fdc_id)) return
+          const nn = normName(f.name)
+          if (seenNames.has(nn)) return
+          if (f.fdc_id) seenFdcIds.add(f.fdc_id)
+          seenNames.add(nn)
+          list.push(f)
+        }
+
         const merged = []
-        for (const f of brandedRaw) {
-          if (f.fdc_id && !seen.has(f.fdc_id)) {
-            seen.add(f.fdc_id)
-            merged.push(f)
-          }
-        }
-        for (const f of allRaw) {
-          if (!f.fdc_id || !seen.has(f.fdc_id)) {
-            if (f.fdc_id) seen.add(f.fdc_id)
-            merged.push(f)
-          }
-        }
-        usdaResults = merged.slice(0, needed)
+        for (const f of brandedRaw) addIfNew(merged, f)  // USDA Branded first pass
+        for (const f of offRaw)     addIfNew(merged, f)  // Open Food Facts
+        for (const f of allRaw)     addIfNew(merged, f)  // USDA all-types fill-in
+
+        // Re-rank the supplement pool by relevance to query tokens.
+        // This pushes correct Quest bars (OFO) above chips (USDA) for "quest bar",
+        // and pushes Sea Quest Egg Hunt candy to the very bottom.
+        merged.sort((a, b) => supplementScore(b, queryTokens) - supplementScore(a, queryTokens))
+
+        supplementResults = merged.slice(0, needed)
       } catch (err) {
-        console.warn('[foods] USDA supplement failed:', err.message)
+        console.warn('[foods] supplement failed:', err.message)
       }
 
-      return res.json([...combined, ...usdaResults].slice(0, limit))
+      return res.json([...combined, ...supplementResults].slice(0, limit))
     }
 
     res.json(combined.slice(0, limit))

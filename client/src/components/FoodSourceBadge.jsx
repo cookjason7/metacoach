@@ -37,6 +37,14 @@ function getBadge(food) {
       className: 'border-sky-200 bg-sky-50 text-sky-700',
     }
   }
+  // Open Food Facts text-search result (branded packaged food supplement)
+  if (food._source === 'off') {
+    return {
+      label: 'Open Food Facts',
+      title: 'Branded food from Open Food Facts database',
+      className: 'border-sky-200 bg-sky-50 text-sky-700',
+    }
+  }
   if (food.source_label) {
     return {
       label: food.source_label,
