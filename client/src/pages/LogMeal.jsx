@@ -1422,7 +1422,31 @@ function BarcodeNotFoundForm({ barcode, slot, logDate, getToken, onSave, onCance
     setSaving(true); setError(null)
     try {
       const token = await getToken()
-      const res   = await fetch(`${API_URL}/api/meals/manual`, {
+
+      // 1. Save food to custom_foods with the barcode so future scans find it
+      if (barcode) {
+        try {
+          await fetch(`${API_URL}/api/custom-foods`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              food_name:            form.meal_name.trim(),
+              calories_per_serving: form.calories  !== '' ? Number(form.calories)  : null,
+              protein:              form.protein_g !== '' ? Number(form.protein_g) : null,
+              carbs:                form.carbs_g   !== '' ? Number(form.carbs_g)   : null,
+              fat:                  form.fat_g     !== '' ? Number(form.fat_g)     : null,
+              fiber:                form.fiber_g   !== '' ? Number(form.fiber_g)   : null,
+              serving_size:         100,
+              serving_unit:         'g',
+              barcode,
+            }),
+          })
+          // Non-critical — if this fails, still log the meal
+        } catch {}
+      }
+
+      // 2. Log the meal to the food diary
+      const res = await fetch(`${API_URL}/api/meals/manual`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1451,7 +1475,10 @@ function BarcodeNotFoundForm({ barcode, slot, logDate, getToken, onSave, onCance
     <form onSubmit={save} className="space-y-3">
       <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Add Food Manually</p>
       {barcode && (
-        <p className="text-xs text-gray-400">Barcode: <span className="font-mono bg-gray-100 px-1 py-0.5 rounded">{barcode}</span></p>
+        <p className="text-xs text-gray-400">
+          Barcode: <span className="font-mono bg-gray-100 px-1 py-0.5 rounded">{barcode}</span>
+          <span className="ml-2 text-gray-300">· saved for next scan</span>
+        </p>
       )}
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-1">Food Name <span className="text-red-400">*</span></label>
@@ -1476,7 +1503,7 @@ function BarcodeNotFoundForm({ barcode, slot, logDate, getToken, onSave, onCance
       <div className="flex gap-2 pt-1">
         <button type="submit" disabled={saving || !form.meal_name.trim()}
           className="flex-1 bg-[#E8670A] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
-          {saving ? 'Saving…' : 'Save Meal'}
+          {saving ? 'Saving…' : 'Save & Log'}
         </button>
         <button type="button" onClick={onCancel}
           className="px-4 py-2.5 rounded-lg text-sm font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
@@ -1682,7 +1709,7 @@ function BarcodeMode({ slot, logDate }) {
                   <p className="text-xs text-gray-400 font-mono mt-1">{scannedBarcode}</p>
                 )}
                 <p className="text-sm text-gray-500 mt-2 max-w-xs mx-auto">
-                  We couldn't find this barcode in our database yet. You can add it manually and it'll be saved to your log.
+                  We couldn't find this barcode yet. You can add it manually and save it for next time.
                 </p>
               </div>
               <div className="flex flex-col gap-2">

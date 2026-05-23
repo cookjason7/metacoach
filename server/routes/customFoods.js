@@ -40,7 +40,7 @@ router.post('/', requireAuth(), async (req, res, next) => {
     const dbUserId = await getOrCreateUser(userId)
     const {
       is_global, food_name, calories_per_serving, protein, carbs, fat, fiber,
-      serving_size, serving_unit,
+      serving_size, serving_unit, barcode,
     } = req.body
 
     if (!food_name?.trim()) return res.status(400).json({ error: 'Food name required' })
@@ -52,10 +52,23 @@ router.post('/', requireAuth(), async (req, res, next) => {
       }
     }
 
+    const cleanBarcode = barcode?.toString().replace(/\D/g, '').trim() || null
+
+    // If this barcode already exists for this user (or globally), return the existing entry
+    if (cleanBarcode) {
+      const { rows: [existing] } = await pool.query(
+        `SELECT * FROM custom_foods
+         WHERE barcode = $1 AND (is_global = TRUE OR user_id = $2)
+         LIMIT 1`,
+        [cleanBarcode, dbUserId],
+      )
+      if (existing) return res.status(200).json(existing)
+    }
+
     const { rows } = await pool.query(
       `INSERT INTO custom_foods
-         (user_id, is_global, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         (user_id, is_global, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit, barcode)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
       [
         is_global ? null : dbUserId,
@@ -68,6 +81,7 @@ router.post('/', requireAuth(), async (req, res, next) => {
         fiber    ?? null,
         serving_size  ?? 100,
         serving_unit  ?? 'g',
+        cleanBarcode,
       ],
     )
     res.status(201).json(rows[0])

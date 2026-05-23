@@ -171,7 +171,7 @@ router.get('/search', requireAuth(), async (req, res, next) => {
          cf.serving_unit AS custom_serving_unit
        FROM custom_foods cf
        WHERE (cf.is_global = TRUE OR cf.user_id = $1)
-         AND cf.food_name ILIKE $2
+         AND (cf.food_name ILIKE $2 OR cf.notes ILIKE $2)
          AND COALESCE(cf.is_active, TRUE) = TRUE
        ORDER BY cf.is_coach_food DESC, cf.food_name`,
       [dbUserId, `%${q}%`],
@@ -245,6 +245,52 @@ router.get('/barcode/:code', requireAuth(), async (req, res, next) => {
   try {
     const code = req.params.code.replace(/\D/g, '')
     if (!code) return res.status(400).json({ error: 'Invalid barcode' })
+
+    // ── 0. Custom foods — user-saved barcode entries (highest priority) ────────
+    // If the user (or any global food) previously saved this barcode manually,
+    // return it immediately without hitting any external API.
+    try {
+      const { userId } = getAuth(req)
+      const dbUserId = await getOrCreateUser(userId)
+      const { rows: [cfMatch] } = await pool.query(
+        `SELECT *
+         FROM custom_foods
+         WHERE barcode = $1
+           AND (is_global = TRUE OR user_id = $2)
+           AND COALESCE(is_active, TRUE) = TRUE
+         ORDER BY (user_id = $2) DESC, id DESC
+         LIMIT 1`,
+        [code, dbUserId],
+      )
+      if (cfMatch) {
+        return res.json({
+          barcode:              code,
+          name:                 cfMatch.food_name,
+          brand:                '',
+          serving_size:         '1 serving',
+          image_url:            null,
+          is_per_serving:       false,
+          calories:             cfMatch.calories_per_serving != null ? parseFloat(cfMatch.calories_per_serving) : 0,
+          protein_g:            cfMatch.protein != null ? parseFloat(cfMatch.protein) : null,
+          carbs_g:              cfMatch.carbs   != null ? parseFloat(cfMatch.carbs)   : null,
+          fat_g:                cfMatch.fat     != null ? parseFloat(cfMatch.fat)     : null,
+          fiber_g:              cfMatch.fiber   != null ? parseFloat(cfMatch.fiber)   : null,
+          sugar_g:              null,
+          sodium_mg:            null,
+          potassium_mg:         null,
+          calcium_mg:           null,
+          iron_mg:              null,
+          vitamin_d_mcg:        null,
+          magnesium_mg:         null,
+          _source:              cfMatch.is_global ? 'global' : 'custom',
+          is_verified:          false,
+          verification_source:  null,
+          source_label:         cfMatch.is_global ? 'Food database' : 'My food',
+        })
+      }
+    } catch (cfErr) {
+      console.warn('[barcode] Custom food lookup error:', cfErr.message)
+    }
 
     // ── 1. Open Food Facts ────────────────────────────────────────────────────
     let offData = null

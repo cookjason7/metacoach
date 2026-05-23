@@ -593,7 +593,7 @@ export async function migrate() {
     SELECT TRUE, TRUE, 'Egg, whole, large', 72, 6.3, 0.4, 4.8, 0, 50, 'g'
     WHERE NOT EXISTS (SELECT 1 FROM custom_foods WHERE food_name = 'Egg, whole, large' AND is_global = TRUE)
   `)
-  // Ensure any existing row has the correct macros and coach-food priority
+  // Ensure any existing row has the correct macros, coach-food priority, and notes for alias search
   await pool.query(`
     UPDATE custom_foods
     SET is_coach_food          = TRUE,
@@ -603,16 +603,23 @@ export async function migrate() {
         fat                    = 4.8,
         fiber                  = 0,
         serving_size           = 50,
-        serving_unit           = 'g'
+        serving_unit           = 'g',
+        notes                  = 'whole egg large egg per egg one egg egg white'
     WHERE food_name = 'Egg, whole, large' AND is_global = TRUE
-      AND (is_coach_food IS DISTINCT FROM TRUE
-           OR calories_per_serving IS DISTINCT FROM 72
-           OR protein IS DISTINCT FROM 6.3)
   `)
   await pool.query(`
     INSERT INTO custom_foods (is_global, is_coach_food, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit)
     SELECT TRUE, FALSE, 'Protein Bar', 200, 20, 21, 7, 2, 60, 'g'
     WHERE NOT EXISTS (SELECT 1 FROM custom_foods WHERE food_name = 'Protein Bar' AND is_global = TRUE)
+  `)
+
+  // ── Barcode persistence: add barcode column to custom_foods ───────────────────
+  // Allows manually-added barcode foods to be found on future scans.
+  await pool.query(`ALTER TABLE custom_foods ADD COLUMN IF NOT EXISTS barcode TEXT`)
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_foods_barcode
+    ON custom_foods (barcode)
+    WHERE barcode IS NOT NULL
   `)
 
   // ── Health Assessment ────────────────────────────────────────────────────────
