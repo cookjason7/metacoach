@@ -584,11 +584,30 @@ export async function migrate() {
     WHERE NOT EXISTS (SELECT 1 FROM custom_foods WHERE food_name = 'Fairlife Whole Milk' AND is_global = TRUE)
   `)
 
-  // Per-egg entry (50 g = 1 large egg) and generic protein bar placeholder
+  // ── Egg, whole, large — verified per-egg entry (50 g = 1 large egg) ─────────
+  // is_coach_food=TRUE so it ranks first in search results (ORDER BY is_coach_food DESC)
+  // above generic "Whole Egg" (per-100g) and USDA results.
+  // Macros from USDA FoodData Central Foundation Foods (FDC 748967).
   await pool.query(`
     INSERT INTO custom_foods (is_global, is_coach_food, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit)
-    SELECT TRUE, FALSE, 'Egg, whole, large', 72, 6.3, 0.4, 4.8, 0, 50, 'g'
+    SELECT TRUE, TRUE, 'Egg, whole, large', 72, 6.3, 0.4, 4.8, 0, 50, 'g'
     WHERE NOT EXISTS (SELECT 1 FROM custom_foods WHERE food_name = 'Egg, whole, large' AND is_global = TRUE)
+  `)
+  // Ensure any existing row has the correct macros and coach-food priority
+  await pool.query(`
+    UPDATE custom_foods
+    SET is_coach_food          = TRUE,
+        calories_per_serving   = 72,
+        protein                = 6.3,
+        carbs                  = 0.4,
+        fat                    = 4.8,
+        fiber                  = 0,
+        serving_size           = 50,
+        serving_unit           = 'g'
+    WHERE food_name = 'Egg, whole, large' AND is_global = TRUE
+      AND (is_coach_food IS DISTINCT FROM TRUE
+           OR calories_per_serving IS DISTINCT FROM 72
+           OR protein IS DISTINCT FROM 6.3)
   `)
   await pool.query(`
     INSERT INTO custom_foods (is_global, is_coach_food, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit)

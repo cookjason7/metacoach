@@ -1402,6 +1402,91 @@ function MyFoodsMode() {
 
 // ── Barcode Scanner mode ──────────────────────────────────────────────────────
 
+/**
+ * Inline manual-entry form shown when a barcode scan returns "not found".
+ * Saves directly to /api/meals/manual, tagging the entry with the barcode.
+ */
+function BarcodeNotFoundForm({ barcode, slot, logDate, getToken, onSave, onCancel }) {
+  const [form,   setForm]   = useState({ meal_name: '', calories: '', protein_g: '', carbs_g: '', fat_g: '', fiber_g: '' })
+  const [saving, setSaving] = useState(false)
+  const [error,  setError]  = useState(null)
+
+  function set(e) {
+    const { name, value } = e.target
+    setForm(f => ({ ...f, [name]: value }))
+  }
+
+  async function save(e) {
+    e.preventDefault()
+    if (!form.meal_name.trim()) return
+    setSaving(true); setError(null)
+    try {
+      const token = await getToken()
+      const res   = await fetch(`${API_URL}/api/meals/manual`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          meal_name:   form.meal_name.trim(),
+          calories:    form.calories  !== '' ? Number(form.calories)  : null,
+          protein_g:   form.protein_g !== '' ? Number(form.protein_g) : null,
+          carbs_g:     form.carbs_g   !== '' ? Number(form.carbs_g)   : null,
+          fat_g:       form.fat_g     !== '' ? Number(form.fat_g)     : null,
+          fiber_g:     form.fiber_g   !== '' ? Number(form.fiber_g)   : null,
+          meal_slot:   slot,
+          log_date:    logDate,
+          source_type:  'barcode_manual',
+          source_label: barcode ? `Barcode ${barcode}` : 'Manual entry',
+        }),
+      })
+      if (!res.ok) throw new Error(`Save failed (${res.status})`)
+      onSave(form.meal_name.trim())
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <form onSubmit={save} className="space-y-3">
+      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Add Food Manually</p>
+      {barcode && (
+        <p className="text-xs text-gray-400">Barcode: <span className="font-mono bg-gray-100 px-1 py-0.5 rounded">{barcode}</span></p>
+      )}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Food Name <span className="text-red-400">*</span></label>
+        <input
+          type="text" name="meal_name" value={form.meal_name} onChange={set} required
+          placeholder="e.g. Quest Chocolate Chip Cookie Bar"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {[['Calories', 'calories', '200'], ['Protein (g)', 'protein_g', '20'],
+          ['Carbs (g)',  'carbs_g',   '25'], ['Fat (g)',     'fat_g',    '8'],
+          ['Fiber (g)',  'fiber_g',    '3']].map(([lbl, nm, ph]) => (
+          <div key={nm}>
+            <label className="block text-xs font-medium text-gray-600 mb-1">{lbl}</label>
+            <input type="number" name={nm} value={form[nm]} onChange={set} min="0" placeholder={ph}
+              className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+          </div>
+        ))}
+      </div>
+      {error && <p className="text-xs text-red-500">{error}</p>}
+      <div className="flex gap-2 pt-1">
+        <button type="submit" disabled={saving || !form.meal_name.trim()}
+          className="flex-1 bg-[#E8670A] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
+          {saving ? 'Saving…' : 'Save Meal'}
+        </button>
+        <button type="button" onClick={onCancel}
+          className="px-4 py-2.5 rounded-lg text-sm font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
+          Cancel
+        </button>
+      </div>
+    </form>
+  )
+}
+
 // Extract gram weight from serving_size strings like "30g", "2 cookies (30g)"
 function parseServingGrams(s) {
   if (!s) return null
@@ -1435,15 +1520,20 @@ function normaliseFoodTo100g(food) {
 
 function BarcodeMode({ slot, logDate }) {
   const { getToken } = useAuth()
-  const [scanning, setScanning] = useState(true)
-  const [loading,  setLoading]  = useState(false)
-  const [food,     setFood]     = useState(null)
-  const [base,     setBase]     = useState(null)
-  const [amount,   setAmount]   = useState('100')
-  const [unit,     setUnit]     = useState('g')
-  const [saving,   setSaving]   = useState(false)
-  const [saved,    setSaved]    = useState(false)
-  const [error,    setError]    = useState(null)
+  const [scanning,        setScanning]        = useState(true)
+  const [loading,         setLoading]         = useState(false)
+  const [food,            setFood]            = useState(null)
+  const [base,            setBase]            = useState(null)
+  const [amount,          setAmount]          = useState('100')
+  const [unit,            setUnit]            = useState('g')
+  const [saving,          setSaving]          = useState(false)
+  const [saved,           setSaved]           = useState(false)
+  const [savedName,       setSavedName]       = useState(null)
+  const [error,           setError]           = useState(null)
+  // "not found" flow — barcode was scanned but not in any database
+  const [notFound,        setNotFound]        = useState(false)
+  const [scannedBarcode,  setScannedBarcode]  = useState(null)
+  const [showManualForm,  setShowManualForm]  = useState(false)
 
   function handleUnitChange(newUnit) {
     const g = toGrams(parseFloat(amount) || 0, unit)
@@ -1455,18 +1545,38 @@ function BarcodeMode({ slot, logDate }) {
     setScanning(false)
     setLoading(true)
     setError(null)
+    setNotFound(false)
+    setScannedBarcode(barcode)
     try {
       const token = await getToken()
-      const res = await fetch(`${API_URL}/api/foods/barcode/${barcode}`, {
+      const res   = await fetch(`${API_URL}/api/foods/barcode/${barcode}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-      if (!res.ok) {
-        const { error: msg } = await res.json().catch(() => ({}))
-        throw new Error(msg || 'Product not found. Try logging manually.')
+
+      // Always parse JSON defensively — avoid raw parse errors shown to the user
+      let data
+      try {
+        data = await res.json()
+      } catch {
+        // Response wasn't JSON (e.g. HTML error page from a proxy)
+        if (res.status === 404) {
+          setNotFound(true)
+          return
+        }
+        throw new Error('Unexpected server response. Try again or log manually.')
       }
-      const f = await res.json()
-      const { base: b, defaultGrams } = normaliseFoodTo100g(f)
-      setFood(f)
+
+      if (!res.ok) {
+        // Structured 404 from our backend — show the friendly not-found card
+        if (res.status === 404 || data?.not_found) {
+          setNotFound(true)
+          return
+        }
+        throw new Error(data?.error || `Server error (${res.status})`)
+      }
+
+      const { base: b, defaultGrams } = normaliseFoodTo100g(data)
+      setFood(data)
       setBase(b)
       setAmount(String(defaultGrams))
       setUnit('g')
@@ -1483,13 +1593,17 @@ function BarcodeMode({ slot, logDate }) {
     if (g <= 0) return null
     const r = g / 100
     return {
-      calories:  Math.round((base.calories  ?? 0) * r),
-      protein:   +((base.protein_g ?? 0) * r).toFixed(1),
-      carbs:     +((base.carbs_g   ?? 0) * r).toFixed(1),
-      fat:       +((base.fat_g     ?? 0) * r).toFixed(1),
-      fiber:     base.fiber_g   != null ? +((base.fiber_g   * r).toFixed(1)) : null,
-      sugar:     food?.sugar_g  != null ? +((food.sugar_g   * (g / (food.is_per_serving ? (parseServingGrams(food.serving_size) ?? 100) : 100))).toFixed(1)) : null,
-      sodium:    food?.sodium_mg != null ? Math.round(food.sodium_mg * (g / (food.is_per_serving ? (parseServingGrams(food.serving_size) ?? 100) : 100))) : null,
+      calories: Math.round((base.calories  ?? 0) * r),
+      protein:  +((base.protein_g ?? 0) * r).toFixed(1),
+      carbs:    +((base.carbs_g   ?? 0) * r).toFixed(1),
+      fat:      +((base.fat_g     ?? 0) * r).toFixed(1),
+      fiber:    base.fiber_g  != null ? +((base.fiber_g  * r).toFixed(1)) : null,
+      sugar:    food?.sugar_g != null
+        ? +((food.sugar_g * (g / (food.is_per_serving ? (parseServingGrams(food.serving_size) ?? 100) : 100))).toFixed(1))
+        : null,
+      sodium:   food?.sodium_mg != null
+        ? Math.round(food.sodium_mg * (g / (food.is_per_serving ? (parseServingGrams(food.serving_size) ?? 100) : 100)))
+        : null,
     }
   }
 
@@ -1501,27 +1615,29 @@ function BarcodeMode({ slot, logDate }) {
       const token = await getToken()
       const grams = toGrams(parseFloat(amount) || 0, unit)
       const micronutrients = scaledMicronutrients(base, grams)
+      const mealName = food.brand ? `${food.name} (${food.brand})` : food.name
       const res = await fetch(`${API_URL}/api/meals/manual`, {
         method:  'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          meal_name: food.brand ? `${food.name} (${food.brand})` : food.name,
-          calories:  preview.calories,
-          protein_g: preview.protein,
-          carbs_g:   preview.carbs,
-          fat_g:     preview.fat,
-          fiber_g:   preview.fiber,
-          meal_slot: slot,
-          log_date:  logDate,
+          meal_name:    mealName,
+          calories:     preview.calories,
+          protein_g:    preview.protein,
+          carbs_g:      preview.carbs,
+          fat_g:        preview.fat,
+          fiber_g:      preview.fiber,
+          meal_slot:    slot,
+          log_date:     logDate,
           serving_size: parseFloat(amount) || null,
           serving_unit: unit,
-          source_type: food._source,
+          source_type:  food._source,
           source_label: food.source_label,
-          is_verified: !!food.is_verified,
+          is_verified:  !!food.is_verified,
           micronutrients,
         }),
       })
       if (!res.ok) throw new Error('Failed to save')
+      setSavedName(mealName)
       setSaved(true)
     } catch (err) {
       setError(err.message)
@@ -1532,10 +1648,11 @@ function BarcodeMode({ slot, logDate }) {
 
   function reset() {
     setScanning(false); setFood(null); setBase(null)
-    setAmount('100'); setUnit('g'); setSaved(false); setError(null)
+    setAmount('100'); setUnit('g'); setSaved(false); setSavedName(null)
+    setError(null); setNotFound(false); setScannedBarcode(null); setShowManualForm(false)
   }
 
-  if (saved) return <SavedState name={food?.name || 'Scanned food'} onReset={reset} resetLabel="Scan Another" />
+  if (saved) return <SavedState name={savedName || food?.name || 'Meal'} onReset={reset} resetLabel="Scan Another" />
 
   if (scanning) {
     return (
@@ -1552,8 +1669,52 @@ function BarcodeMode({ slot, logDate }) {
 
   return (
     <div className="max-w-lg space-y-5">
-      {/* Prompt to open camera */}
-      {!food && !loading && (
+
+      {/* ── Food not found ──────────────────────────────────────────────────── */}
+      {notFound && !food && !loading && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+          {!showManualForm ? (
+            <>
+              <div className="text-center">
+                <div className="text-4xl mb-2">🏷️</div>
+                <p className="text-base font-semibold text-gray-900">Food not found</p>
+                {scannedBarcode && (
+                  <p className="text-xs text-gray-400 font-mono mt-1">{scannedBarcode}</p>
+                )}
+                <p className="text-sm text-gray-500 mt-2 max-w-xs mx-auto">
+                  We couldn't find this barcode in our database yet. You can add it manually and it'll be saved to your log.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => setShowManualForm(true)}
+                  className="w-full bg-[#E8670A] text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-[#c45e09] transition-colors"
+                >
+                  Add Food Manually
+                </button>
+                <button
+                  onClick={() => { setNotFound(false); setError(null); setScanning(true) }}
+                  className="w-full py-2.5 rounded-xl text-sm font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors"
+                >
+                  Scan Another
+                </button>
+              </div>
+            </>
+          ) : (
+            <BarcodeNotFoundForm
+              barcode={scannedBarcode}
+              slot={slot}
+              logDate={logDate}
+              getToken={getToken}
+              onSave={(name) => { setSavedName(name); setSaved(true) }}
+              onCancel={() => setShowManualForm(false)}
+            />
+          )}
+        </div>
+      )}
+
+      {/* ── Prompt to open camera (generic, non-not-found state) ────────────── */}
+      {!notFound && !food && !loading && (
         <div className="bg-white rounded-xl border-2 border-dashed border-gray-300 p-10 text-center">
           <div className="text-4xl mb-3">🏷️</div>
           <p className="text-sm font-medium text-gray-700 mb-1">Scan a product barcode</p>
@@ -1564,11 +1725,13 @@ function BarcodeMode({ slot, logDate }) {
           >
             Open Camera
           </button>
-          {error && <p className="text-sm text-red-500 mt-3">{error}</p>}
+          {error && (
+            <p className="text-sm text-red-500 mt-4">{error}</p>
+          )}
         </div>
       )}
 
-      {/* Looking up product */}
+      {/* ── Lookup in progress ───────────────────────────────────────────────── */}
       {loading && (
         <div className="flex items-center justify-center gap-2 py-10">
           <span className="animate-spin inline-block w-5 h-5 border-2 border-[#E8670A] border-t-transparent rounded-full" />
@@ -1576,7 +1739,7 @@ function BarcodeMode({ slot, logDate }) {
         </div>
       )}
 
-      {/* Food card */}
+      {/* ── Found food card ──────────────────────────────────────────────────── */}
       {food && base && (
         <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
           {food.image_url && (
@@ -1593,8 +1756,7 @@ function BarcodeMode({ slot, logDate }) {
               {food.brand && <p className="text-xs text-gray-400 mt-0.5">{food.brand}</p>}
               <p className="text-xs text-gray-500 mt-1">Serving size: {food.serving_size}</p>
             </div>
-            <button onClick={reset}
-              className="text-xs text-gray-400 hover:text-gray-600 shrink-0">Scan Again</button>
+            <button onClick={reset} className="text-xs text-gray-400 hover:text-gray-600 shrink-0">Scan Again</button>
           </div>
 
           {/* Portion + unit selector */}
@@ -1613,14 +1775,14 @@ function BarcodeMode({ slot, logDate }) {
             </div>
           </div>
 
-          {/* Macro cards */}
+          {/* Macro preview */}
           {preview && (
             <>
               <div className="grid grid-cols-4 gap-2">
-                <MacroCard label="Calories" value={preview.calories}           unit="kcal"   color="text-orange-500" />
-                <MacroCard label="Protein"  value={`${preview.protein}g`}      unit="protein" color="text-blue-600" />
-                <MacroCard label="Carbs"    value={`${preview.carbs}g`}        unit="carbs"   color="text-yellow-500" />
-                <MacroCard label="Fat"      value={`${preview.fat}g`}          unit="fat"     color="text-pink-500" />
+                <MacroCard label="Calories" value={preview.calories}      unit="kcal"    color="text-orange-500" />
+                <MacroCard label="Protein"  value={`${preview.protein}g`} unit="protein" color="text-blue-600" />
+                <MacroCard label="Carbs"    value={`${preview.carbs}g`}   unit="carbs"   color="text-yellow-500" />
+                <MacroCard label="Fat"      value={`${preview.fat}g`}     unit="fat"     color="text-pink-500" />
               </div>
               {preview.sugar != null && (
                 <p className="text-xs text-gray-500">Sugar: <span className="font-medium text-gray-700">{preview.sugar}g</span></p>

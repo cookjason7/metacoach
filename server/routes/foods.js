@@ -233,79 +233,132 @@ router.get('/search', requireAuth(), async (req, res, next) => {
 /**
  * GET /api/foods/barcode/:code
  *
- * Proxy for Open Food Facts API. Returns per-serving macros when available,
- * otherwise per-100g values. Tagged with is_per_serving so the client knows.
+ * Lookup order:
+ *   1. Open Food Facts  — best for consumer packaged goods with photos
+ *   2. USDA Branded     — fallback for items not in OFO
+ *   3. 404 with not_found:true so the client can offer manual entry
+ *
+ * Per-serving macros are returned when available; otherwise per-100g.
+ * Tagged with is_per_serving so the client knows which scale to use.
  */
 router.get('/barcode/:code', requireAuth(), async (req, res, next) => {
   try {
     const code = req.params.code.replace(/\D/g, '')
     if (!code) return res.status(400).json({ error: 'Invalid barcode' })
 
-    const response = await fetch(`https://world.openfoodfacts.org/api/v0/product/${code}.json`)
-    if (!response.ok) return res.status(502).json({ error: 'Could not reach Open Food Facts' })
+    // ── 1. Open Food Facts ────────────────────────────────────────────────────
+    let offData = null
+    try {
+      const r1 = await fetch(`https://world.openfoodfacts.org/api/v0/product/${code}.json`)
+      if (r1.ok) {
+        let d = await r1.json().catch(() => null)
 
-    let data = await response.json()
+        // Retry with EAN-13 (prepend leading zero) for 12-digit UPC-A barcodes
+        if (d && (d.status !== 1 || !d.product) && code.length === 12) {
+          try {
+            const r2 = await fetch(`https://world.openfoodfacts.org/api/v0/product/0${code}.json`)
+            if (r2.ok) d = await r2.json().catch(() => d)
+          } catch {}
+        }
 
-    // Retry with EAN-13 (prepend leading zero) for 12-digit UPC-A barcodes
-    if ((data.status !== 1 || !data.product) && code.length === 12) {
-      try {
-        const response2 = await fetch(`https://world.openfoodfacts.org/api/v0/product/0${code}.json`)
-        if (response2.ok) data = await response2.json()
-      } catch {}
+        if (d && d.status === 1 && d.product) offData = d.product
+      }
+    } catch (offErr) {
+      console.warn('[barcode] OFO fetch error:', offErr.message)
     }
 
-    if (data.status !== 1 || !data.product) {
-      return res.status(404).json({ error: 'Product not found in Open Food Facts' })
-    }
+    if (offData) {
+      const p = offData
+      const n = p.nutriments || {}
+      const hasSrv = n['energy-kcal_serving'] != null
 
-    const p = data.product
-    const n = p.nutriments || {}
-
-    const hasSrv = n['energy-kcal_serving'] != null
-
-    function srv(key100, keySrv) {
-      const v = hasSrv ? n[keySrv] : n[key100]
-      return v != null ? +parseFloat(v).toFixed(1) : null
-    }
-
-    function mg(key100, keySrv) {
-      const v = hasSrv ? n[keySrv] : n[key100]
-      return v != null ? Math.round(parseFloat(v) * 1000) : null
-    }
-
-    res.json({
-      barcode:         code,
-      name:            p.product_name || p.product_name_en || 'Unknown Product',
-      brand:           p.brands || '',
-      serving_size:    p.serving_size || '100g',
-      image_url:       p.image_url || null,
-      is_per_serving:  hasSrv,
-      calories:        hasSrv ? Math.round(n['energy-kcal_serving'] ?? 0) : Math.round(n['energy-kcal_100g'] ?? 0),
-      protein_g:       srv('proteins_100g',       'proteins_serving'),
-      carbs_g:         srv('carbohydrates_100g',   'carbohydrates_serving'),
-      fat_g:           srv('fat_100g',             'fat_serving'),
-      saturated_fat_g: srv('saturated-fat_100g',   'saturated-fat_serving'),
-      fiber_g:         srv('fiber_100g',           'fiber_serving'),
-      sugar_g:         srv('sugars_100g',          'sugars_serving'),
-      sodium_mg:       (() => {
-        const v = hasSrv ? n.sodium_serving : n.sodium_100g
-        return v != null ? Math.round(parseFloat(v) * 1000) : null
-      })(),
-      potassium_mg:    mg('potassium_100g', 'potassium_serving'),
-      calcium_mg:      mg('calcium_100g',   'calcium_serving'),
-      iron_mg:         (() => {
-        const v = hasSrv ? n.iron_serving : n.iron_100g
-        return v != null ? +((parseFloat(v) * 1000).toFixed(1)) : null
-      })(),
-      vitamin_d_mcg:   (() => {
-        const v = hasSrv ? n['vitamin-d_serving'] : n['vitamin-d_100g']
+      const srv = (key100, keySrv) => {
+        const v = hasSrv ? n[keySrv] : n[key100]
         return v != null ? +parseFloat(v).toFixed(1) : null
-      })(),
-      magnesium_mg:    mg('magnesium_100g', 'magnesium_serving'),
-      _source: 'barcode',
-      is_verified: false,
-      verification_source: 'Open Food Facts',
-      source_label: 'Open Food Facts',
+      }
+      const mg = (key100, keySrv) => {
+        const v = hasSrv ? n[keySrv] : n[key100]
+        return v != null ? Math.round(parseFloat(v) * 1000) : null
+      }
+
+      return res.json({
+        barcode:         code,
+        name:            p.product_name || p.product_name_en || 'Unknown Product',
+        brand:           p.brands || '',
+        serving_size:    p.serving_size || '100g',
+        image_url:       p.image_url || null,
+        is_per_serving:  hasSrv,
+        calories:        hasSrv ? Math.round(n['energy-kcal_serving'] ?? 0) : Math.round(n['energy-kcal_100g'] ?? 0),
+        protein_g:       srv('proteins_100g',      'proteins_serving'),
+        carbs_g:         srv('carbohydrates_100g', 'carbohydrates_serving'),
+        fat_g:           srv('fat_100g',           'fat_serving'),
+        saturated_fat_g: srv('saturated-fat_100g', 'saturated-fat_serving'),
+        fiber_g:         srv('fiber_100g',         'fiber_serving'),
+        sugar_g:         srv('sugars_100g',        'sugars_serving'),
+        sodium_mg:       (() => {
+          const v = hasSrv ? n.sodium_serving : n.sodium_100g
+          return v != null ? Math.round(parseFloat(v) * 1000) : null
+        })(),
+        potassium_mg:    mg('potassium_100g', 'potassium_serving'),
+        calcium_mg:      mg('calcium_100g',   'calcium_serving'),
+        iron_mg:         (() => {
+          const v = hasSrv ? n.iron_serving : n.iron_100g
+          return v != null ? +((parseFloat(v) * 1000).toFixed(1)) : null
+        })(),
+        vitamin_d_mcg:   (() => {
+          const v = hasSrv ? n['vitamin-d_serving'] : n['vitamin-d_100g']
+          return v != null ? +parseFloat(v).toFixed(1) : null
+        })(),
+        magnesium_mg:    mg('magnesium_100g', 'magnesium_serving'),
+        _source:              'barcode',
+        is_verified:          false,
+        verification_source:  'Open Food Facts',
+        source_label:         'Open Food Facts',
+      })
+    }
+
+    // ── 2. USDA Branded fallback ───────────────────────────────────────────────
+    // OFO didn't have it — try USDA's Branded database. USDA stores GTIN/UPC in
+    // the product description and supports numeric-string queries against it.
+    try {
+      const usdaHits = await searchUSDA(code, { dataType: 'Branded', pageSize: 3 })
+      if (usdaHits.length > 0) {
+        const u = usdaHits[0]
+        return res.json({
+          barcode:             code,
+          name:                u.name,
+          brand:               '',
+          serving_size:        '100g',
+          image_url:           null,
+          is_per_serving:      false,
+          calories:            u.calories    ?? 0,
+          protein_g:           u.protein_g   ?? null,
+          carbs_g:             u.carbs_g     ?? null,
+          fat_g:               u.fat_g       ?? null,
+          saturated_fat_g:     null,
+          fiber_g:             u.fiber_g     ?? null,
+          sugar_g:             null,
+          sodium_mg:           u.sodium_mg   ?? null,
+          potassium_mg:        u.potassium_mg ?? null,
+          calcium_mg:          u.calcium_mg  ?? null,
+          iron_mg:             u.iron_mg     ?? null,
+          vitamin_d_mcg:       u.vitamin_d_mcg ?? null,
+          magnesium_mg:        u.magnesium_mg ?? null,
+          _source:             'usda',
+          is_verified:         true,
+          verification_source: 'USDA',
+          source_label:        'USDA Branded',
+        })
+      }
+    } catch (usdaErr) {
+      console.warn('[barcode] USDA fallback error:', usdaErr.message)
+    }
+
+    // ── 3. Not found — return structured JSON so the client can offer manual entry
+    return res.status(404).json({
+      error:     'Product not found',
+      not_found: true,
+      barcode:   code,
     })
   } catch (err) {
     next(err)
