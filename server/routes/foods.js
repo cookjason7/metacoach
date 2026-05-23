@@ -206,17 +206,39 @@ router.get('/search', requireAuth(), async (req, res, next) => {
     // ── USDA supplement ──────────────────────────────────────────────────────
     // Always append live USDA results for queries ≥ 2 chars so branded and
     // packaged foods surface even when the local SR Legacy DB has many hits.
-    // Local FDC IDs are deduped so the same food never appears twice.
+    // For multi-word queries (e.g. "quest bar", "whey protein"), a parallel
+    // Branded-only search runs alongside the generic search so brand-named
+    // packaged foods rank first among USDA results. Both searches are deduped
+    // against local FDC IDs; branded results are merged first.
     if (q.length >= 2) {
       const localFdcIds = new Set(localResults.map(f => f.fdc_id).filter(Boolean))
       const needed      = Math.max(limit - combined.length, 10)
 
       let usdaResults = []
       try {
-        const raw = await searchUSDA(q, { pageSize: needed + 10 })
-        usdaResults = raw
-          .filter(f => !localFdcIds.has(f.fdc_id))
-          .slice(0, needed)
+        const fetchAll     = searchUSDA(q, { pageSize: needed + 10 })
+        const fetchBranded = tokens.length >= 2
+          ? searchUSDA(q, { pageSize: 15, dataType: 'Branded' })
+          : Promise.resolve([])
+
+        const [allRaw, brandedRaw] = await Promise.all([fetchAll, fetchBranded])
+
+        // Branded first so brand-specific searches rank correctly
+        const seen   = new Set(localFdcIds)
+        const merged = []
+        for (const f of brandedRaw) {
+          if (f.fdc_id && !seen.has(f.fdc_id)) {
+            seen.add(f.fdc_id)
+            merged.push(f)
+          }
+        }
+        for (const f of allRaw) {
+          if (!f.fdc_id || !seen.has(f.fdc_id)) {
+            if (f.fdc_id) seen.add(f.fdc_id)
+            merged.push(f)
+          }
+        }
+        usdaResults = merged.slice(0, needed)
       } catch (err) {
         console.warn('[foods] USDA supplement failed:', err.message)
       }

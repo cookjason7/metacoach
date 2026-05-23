@@ -123,6 +123,7 @@ function formatFood(raw) {
     id:         null,               // no local UUID — USDA-only result
     fdc_id:     raw.fdcId,
     name:       raw.description,
+    brand:      raw.brandOwner || raw.brandName || null,
     data_type:  raw.dataType ?? 'Branded',
     calories:   macros.calories  ?? null,
     protein_g:  macros.protein_g ?? null,

@@ -636,8 +636,11 @@ function SearchMode({ slot, logDate }) {
               className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors"
             >
               <div className="flex items-start justify-between gap-2">
-                <p className="text-sm font-medium text-gray-900 leading-snug">{food.name}</p>
-                <FoodSourceBadge food={food} className="mt-0.5" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900 leading-snug">{food.name}</p>
+                  {food.brand && <p className="text-xs text-gray-500 leading-snug truncate">{food.brand}</p>}
+                </div>
+                <FoodSourceBadge food={food} className="mt-0.5 shrink-0" />
               </div>
               <p className="text-xs text-gray-500 mt-0.5">
                 {Math.round(food.calories)} cal · {(food.protein_g ?? 0).toFixed(1)}g protein · {(food.carbs_g ?? 0).toFixed(1)}g carbs · {(food.fat_g ?? 0).toFixed(1)}g fat
@@ -656,6 +659,7 @@ function SearchMode({ slot, logDate }) {
                 <p className="text-sm font-semibold text-gray-900 leading-snug">{selected.name}</p>
                 <FoodSourceBadge food={selected} />
               </div>
+              {selected.brand && <p className="text-xs text-gray-500 mt-0.5">{selected.brand}</p>}
               <p className="text-xs text-gray-400 mt-0.5">
                 Per 100g: {Math.round(selected.calories)} cal · {(selected.protein_g ?? 0).toFixed(1)}g P · {(selected.carbs_g ?? 0).toFixed(1)}g C · {(selected.fat_g ?? 0).toFixed(1)}g F
               </p>
