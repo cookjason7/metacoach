@@ -151,6 +151,17 @@ export async function migrate() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS goal_fiber    INTEGER`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS goal_water    INTEGER`)
   await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS portion_notes TEXT`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_complete BOOLEAN DEFAULT FALSE`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS age INTEGER`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS height_inches INTEGER`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS starting_weight_lbs NUMERIC(6,1)`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS goal_weight_lbs NUMERIC(6,1)`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS activity_level TEXT`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS tried_before TEXT`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS why_joined TEXT`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS identity_anchors TEXT[]`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS gender       TEXT`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number TEXT`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS role         TEXT DEFAULT 'client'`)
@@ -587,6 +598,40 @@ export async function migrate() {
 
   // ── Health Assessment ────────────────────────────────────────────────────────
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS assessment_complete BOOLEAN DEFAULT FALSE`)
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS health_assessments (
+      id                   SERIAL PRIMARY KEY,
+      user_id              INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      first_name           TEXT,
+      last_name            TEXT,
+      email                TEXT,
+      phone                TEXT,
+      address              TEXT,
+      date_of_birth        DATE,
+      shirt_size           TEXT,
+      coach_name           TEXT,
+      supplements          TEXT,
+      goals_6_months       TEXT,
+      injuries_limitations TEXT,
+      num_kids             INTEGER,
+      occupation           TEXT,
+      energy_level         INTEGER CHECK (energy_level BETWEEN 1 AND 5),
+      sleep_hours          TEXT,
+      stress_management    INTEGER CHECK (stress_management BETWEEN 1 AND 5),
+      sleep_quality        INTEGER CHECK (sleep_quality BETWEEN 1 AND 5),
+      daily_water          TEXT,
+      alcohol_weekdays     INTEGER DEFAULT 0,
+      alcohol_weekends     INTEGER DEFAULT 0,
+      happiness_level      INTEGER CHECK (happiness_level BETWEEN 1 AND 5),
+      confidence_level     INTEGER CHECK (confidence_level BETWEEN 1 AND 5),
+      activity_level       TEXT,
+      completed_at         TIMESTAMPTZ,
+      created_at           TIMESTAMPTZ DEFAULT NOW(),
+      updated_at           TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (user_id)
+    )
+  `)
 
   // ── Structured address fields (added after initial assessment launch) ────────
   // Keep the old `address` TEXT column — existing data is preserved.
