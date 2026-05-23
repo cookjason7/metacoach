@@ -120,6 +120,10 @@ migrate()
   .finally(() => {
     app.listen(PORT, () => {
       console.log(`MetaCoach server running on http://localhost:${PORT}`)
+      if (process.env.DISABLE_BACKGROUND_JOBS === 'true') {
+        console.log('Background jobs disabled by DISABLE_BACKGROUND_JOBS=true')
+        return
+      }
       // Run inactivity check at startup, then every 24 hours
       runInactivityAlert()
       setInterval(runInactivityAlert, 24 * 60 * 60 * 1000)
