@@ -84,6 +84,14 @@ app.use('/api/community-resources',   clerkMiddleware(), communityResourcesRoute
 app.use('/api/fitbit',                fitbitRouter)
 app.use('/api/bloodwork',             clerkMiddleware(), bloodworkRouter)
 
+// Demo seed endpoint — only mounted on staging / when explicitly allowed
+if (process.env.NODE_ENV !== 'production' || process.env.ALLOW_DEMO_SEED === 'true') {
+  import('./routes/demoSeed.js').then(({ default: demoSeedRouter }) => {
+    app.use('/api/demo', demoSeedRouter)
+    console.log('🌱 Demo seed endpoint mounted at /api/demo/seed')
+  }).catch(err => console.error('Failed to load demoSeed router:', err.message))
+}
+
 // Admin backup status — admin-only, no sensitive data exposed
 app.get('/api/admin/backup/status', clerkMiddleware(), async (req, res) => {
   try {
