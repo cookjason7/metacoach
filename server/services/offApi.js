@@ -14,7 +14,12 @@
  *   GET https://world.openfoodfacts.org/cgi/search.pl?...
  */
 
-const OFF_BASE    = 'https://world.openfoodfacts.org'
+// search.openfoodfacts.org is the dedicated full-text search service.
+// The legacy /cgi/search.pl endpoint returns 503 reliably as of 2025.
+// The v2 API at world.openfoodfacts.org/api/v2/search ignores the query
+// and returns locale-based noise. search.openfoodfacts.org returns
+// { hits: [...] } (not { products: [...] }) and brands as an array.
+const OFF_SEARCH  = 'https://search.openfoodfacts.org/search'
 const OFF_TIMEOUT = 6000   // ms — independent timeout from USDA
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -24,7 +29,7 @@ async function fetchOFF(url) {
   const timer      = setTimeout(() => controller.abort(), OFF_TIMEOUT)
   try {
     const res = await fetch(url, { signal: controller.signal })
-    if (!res.ok) throw new Error(`OFO API ${res.status}: ${url}`)
+    if (!res.ok) throw new Error(`OFO ${res.status}: ${url}`)
     return res.json()
   } finally {
     clearTimeout(timer)
@@ -50,10 +55,10 @@ function formatOFFFood(p) {
   // Some OFO products have clearly bogus values; skip anything over 950 kcal/100g
   if (cal != null && parseFloat(cal) > 950) return null
 
-  // Take first brand from the comma-separated list and clean it up
-  const brand = p.brands
-    ? (p.brands.split(',')[0].trim() || null)
-    : null
+  // brands is an array on search.openfoodfacts.org; a comma-string on older endpoints.
+  // Normalise to the first non-empty entry either way.
+  const rawBrand = Array.isArray(p.brands) ? p.brands[0] : p.brands
+  const brand    = rawBrand ? (String(rawBrand).split(',')[0].trim() || null) : null
 
   const n1 = (v, digits = 1) => v != null ? +parseFloat(v).toFixed(digits)           : null
   const mg  = (v)             => v != null ? Math.round(parseFloat(v) * 1000)         : null
@@ -96,15 +101,15 @@ function formatOFFFood(p) {
  * @returns {Array}  Array of food objects in our schema shape (nulls removed)
  */
 export async function searchOFF(query, { pageSize = 10 } = {}) {
+  // search.openfoodfacts.org uses `q` and returns { hits: [...] }.
   const params = new URLSearchParams({
-    search_terms:  query,
-    search_simple: '1',
-    action:        'process',
-    json:          '1',
-    page_size:     String(pageSize),
-    fields:        'code,product_name,product_name_en,brands,nutriments',
+    q:         query,
+    page_size: String(pageSize),
+    fields:    'code,product_name,product_name_en,brands,nutriments',
   })
 
-  const data = await fetchOFF(`${OFF_BASE}/cgi/search.pl?${params}`)
-  return (data.products ?? []).map(formatOFFFood).filter(Boolean)
+  const data = await fetchOFF(`${OFF_SEARCH}?${params}`)
+  // Defensive: fall back to `products` in case the endpoint shape ever changes
+  const items = data.hits ?? data.products ?? []
+  return items.map(formatOFFFood).filter(Boolean)
 }
