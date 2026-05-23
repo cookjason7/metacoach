@@ -996,13 +996,15 @@ export async function migrate() {
       invited_by            INTEGER REFERENCES users(id) ON DELETE SET NULL,
       coaching_type         TEXT NOT NULL DEFAULT 'vip',
       created_at            TIMESTAMPTZ DEFAULT NOW(),
-      expires_at            TIMESTAMPTZ DEFAULT NOW() + INTERVAL '30 days',
+      expires_at            TIMESTAMPTZ DEFAULT NOW() + INTERVAL '24 hours',
       accepted_at           TIMESTAMPTZ,
       accepted_by_user_id   INTEGER REFERENCES users(id) ON DELETE SET NULL
     )
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_invites_email ON client_invites (LOWER(email))`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_invites_token ON client_invites (token)`)
+  // Migration: shorten invite expiry from 30 days to 24 hours (idempotent)
+  await pool.query(`ALTER TABLE client_invites ALTER COLUMN expires_at SET DEFAULT NOW() + INTERVAL '24 hours'`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT`)
   await pool.query(`ALTER TABLE community_posts ADD COLUMN IF NOT EXISTS channel TEXT DEFAULT 'vip'`)
   await pool.query(`

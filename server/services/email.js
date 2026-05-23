@@ -117,6 +117,9 @@ export async function sendInviteEmail({ to, firstName, inviteUrl }) {
 
   const resend = new Resend(apiKey)
 
+  // Derive logo URL from the invite URL origin so it always points to the right environment
+  const logoUrl = new URL(inviteUrl).origin + '/logo.png'
+
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -125,10 +128,9 @@ export async function sendInviteEmail({ to, firstName, inviteUrl }) {
     <tr><td align="center">
       <table width="100%" style="max-width:520px;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;">
         <tr>
-          <td style="background:#1e2a3a;padding:28px 32px;">
-            <p style="margin:0;color:#f97316;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;">
-              Life Warrior Coaching
-            </p>
+          <td style="background:#1e2a3a;padding:24px 32px;text-align:center;">
+            <img src="${logoUrl}" alt="Life Warrior Coaching"
+                 style="height:48px;width:auto;display:inline-block;" />
           </td>
         </tr>
         <tr>
@@ -152,7 +154,7 @@ export async function sendInviteEmail({ to, firstName, inviteUrl }) {
               </tr>
             </table>
             <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.6;">
-              This invite expires in 30 days. If the button doesn't work, copy this link:<br>
+              This invite expires in 24 hours. If the button doesn't work, copy this link:<br>
               <a href="${inviteUrl}" style="color:#f97316;word-break:break-all;">${inviteUrl}</a>
             </p>
           </td>
@@ -170,7 +172,7 @@ export async function sendInviteEmail({ to, firstName, inviteUrl }) {
 </body>
 </html>`
 
-  const text = `Welcome to Life Warrior Coaching, ${firstName}!\n\nYou've been personally invited to join as a VIP coaching client.\n\nSet up your account here:\n${inviteUrl}\n\nThis invite expires in 30 days.`
+  const text = `Welcome to Life Warrior Coaching, ${firstName}!\n\nYou've been personally invited to join as a VIP coaching client.\n\nSet up your account here:\n${inviteUrl}\n\nThis invite expires in 24 hours.`
 
   try {
     const { error } = await resend.emails.send({

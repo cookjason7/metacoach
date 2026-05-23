@@ -3,6 +3,7 @@ import { Router } from 'express'
 import Stripe from 'stripe'
 import { pool } from '../db.js'
 import { sendAiSetupEmail } from '../services/email.js'
+import { getAppBaseUrl } from '../services/appUrl.js'
 
 const router = Router()
 
@@ -77,7 +78,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
       [email],
     )
 
-    const appUrl  = process.env.APP_BASE_URL ?? 'https://app.lwcvip.com'
+    const appUrl  = getAppBaseUrl()
     const setupUrl = `${appUrl}/invite/${invite.token}`
 
     const emailResult = await sendAiSetupEmail({
@@ -163,7 +164,7 @@ router.get('/session-setup-link', async (req, res, next) => {
       [email],
     )
 
-    const appUrl = process.env.APP_BASE_URL ?? 'https://app.lwcvip.com'
+    const appUrl = getAppBaseUrl()
     res.json({ setupUrl: `${appUrl}/invite/${token}` })
   } catch (err) { next(err) }
 })

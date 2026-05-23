@@ -3,6 +3,7 @@ import { requireAuth, getAuth } from '@clerk/express'
 import crypto from 'crypto'
 import { pool, getOrCreateUser } from '../db.js'
 import { syncUser, exchangeToken } from '../services/googleHealthSync.js'
+import { getAppBaseUrl } from '../services/appUrl.js'
 
 const router = Router()
 
@@ -23,7 +24,7 @@ function googleHealthConfig() {
 }
 
 function frontendUrl(path, params = {}) {
-  const base = (process.env.APP_BASE_URL || 'https://app.lwcvip.com').replace(/\/+$/, '')
+  const base = getAppBaseUrl()
   const url = new URL(path, `${base}/`)
   for (const [key, value] of Object.entries(params)) {
     if (value != null && value !== '') url.searchParams.set(key, String(value))

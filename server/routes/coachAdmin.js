@@ -3,6 +3,7 @@ import { requireAuth, getAuth } from '@clerk/express'
 import { v2 as cloudinary } from 'cloudinary'
 import { pool, getOrCreateUser } from '../db.js'
 import { sendInviteEmail } from '../services/email.js'
+import { getAppBaseUrl } from '../services/appUrl.js'
 
 const router = Router()
 
@@ -515,7 +516,7 @@ router.post('/clients/invite', requireAuth(), async (req, res, next) => {
       ],
     )
 
-    const appUrl    = process.env.APP_BASE_URL ?? process.env.APP_URL ?? 'https://app.lwcvip.com'
+    const appUrl    = getAppBaseUrl()
     const inviteUrl = `${appUrl}/invite/${invite.token}`
 
     // Attempt email — never let it block or delay the response.
@@ -555,7 +556,7 @@ router.post('/clients/invite', requireAuth(), async (req, res, next) => {
 router.get('/clients/pending-invites', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireStaff(req, res); if (!ctx) return
-    const appUrl = process.env.APP_BASE_URL ?? process.env.APP_URL ?? 'https://app.lwcvip.com'
+    const appUrl = getAppBaseUrl()
 
     const params = []
     let extra = ''
@@ -593,7 +594,7 @@ router.post('/clients/pending-invites/:id/resend', requireAuth(), async (req, re
     if (!rows.length) return res.status(404).json({ error: 'Invite not found or already accepted.' })
 
     const invite  = rows[0]
-    const appUrl  = process.env.APP_BASE_URL ?? process.env.APP_URL ?? 'https://app.lwcvip.com'
+    const appUrl  = getAppBaseUrl()
     const inviteUrl = `${appUrl}/invite/${invite.token}`
 
     let emailResult = { sent: false, reason: 'Email send skipped' }
