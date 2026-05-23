@@ -1538,13 +1538,28 @@ function SearchLogger({ slotName, onSaved, logDate }) {
       {results.length > 0 && !selected && (
         <div className="border border-gray-200 rounded-xl divide-y divide-gray-100 max-h-60 overflow-y-auto bg-white">
           {results.map((food, i) => (
-            <button key={food.id ?? i} onClick={() => { setSelected(food); setResults([]); setQty('1') }}
+            <button key={food.id ?? i} onClick={() => {
+              setSelected(food)
+              setResults([])
+              setQty('1')
+              if (food.custom_serving_size) {
+                setAmount(String(food.custom_serving_size))
+                setUnit(food.custom_serving_unit || 'g')
+              } else {
+                setAmount('100')
+                setUnit('g')
+              }
+            }}
               className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors">
               <div className="flex items-start justify-between gap-2">
                 <p className="text-sm font-medium text-gray-900 leading-snug">{food.name}</p>
                 <FoodSourceBadge food={food} className="mt-0.5" />
               </div>
-              <p className="text-xs text-gray-500">{Math.round(food.calories)} cal · {(food.protein_g ?? 0).toFixed(1)}g P per 100g</p>
+              <p className="text-xs text-gray-500">
+                {food.custom_serving_size
+                  ? `${Math.round(food.calories * food.custom_serving_size / 100)} cal · ${((food.protein_g ?? 0) * food.custom_serving_size / 100).toFixed(1)}g P per ${food.custom_serving_size}${food.custom_serving_unit || 'g'}`
+                  : `${Math.round(food.calories)} cal · ${(food.protein_g ?? 0).toFixed(1)}g P per 100g`}
+              </p>
             </button>
           ))}
         </div>
@@ -1772,6 +1787,118 @@ function ManualLogger({ slotName, onSaved, logDate }) {
   )
 }
 
+// ── Barcode Manual Form ────────────────────────────────────────────────────────
+// Shown inside BarcodeLogger when a barcode scan returns "not found".
+// Saves the food to custom-foods (with barcode) for future scans,
+// then logs the meal immediately.
+
+function BarcodeManualForm({ barcode, slotName, logDate, getToken, onSaved, onCancel }) {
+  const [form,   setForm]   = useState({ meal_name: '', calories: '', protein_g: '', carbs_g: '', fat_g: '', fiber_g: '' })
+  const [saving, setSaving] = useState(false)
+  const [error,  setError]  = useState(null)
+
+  function set(e) { setForm(f => ({ ...f, [e.target.name]: e.target.value })) }
+
+  async function save(e) {
+    e.preventDefault()
+    if (!form.meal_name.trim()) return
+    setSaving(true); setError(null)
+    try {
+      const token = await getToken()
+
+      // Best-effort: save food to custom-foods with barcode so future scans find it
+      if (barcode) {
+        try {
+          await fetch(`${API_URL}/api/custom-foods`, {
+            method:  'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              food_name:            form.meal_name.trim(),
+              calories_per_serving: form.calories  !== '' ? Number(form.calories)  : null,
+              protein:              form.protein_g !== '' ? Number(form.protein_g) : null,
+              carbs:                form.carbs_g   !== '' ? Number(form.carbs_g)   : null,
+              fat:                  form.fat_g     !== '' ? Number(form.fat_g)     : null,
+              fiber:                form.fiber_g   !== '' ? Number(form.fiber_g)   : null,
+              serving_size:         100,
+              serving_unit:         'g',
+              barcode,
+            }),
+          })
+        } catch {} // non-critical — don't block meal logging if food save fails
+      }
+
+      // Log the meal to the diary
+      const res = await fetch(`${API_URL}/api/meals/manual`, {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          meal_name:   form.meal_name.trim(),
+          calories:    form.calories  !== '' ? Number(form.calories)  : null,
+          protein_g:   form.protein_g !== '' ? Number(form.protein_g) : null,
+          carbs_g:     form.carbs_g   !== '' ? Number(form.carbs_g)   : null,
+          fat_g:       form.fat_g     !== '' ? Number(form.fat_g)     : null,
+          fiber_g:     form.fiber_g   !== '' ? Number(form.fiber_g)   : null,
+          meal_slot:   slotName,
+          log_date:    logDate,
+          source_type:  'barcode_manual',
+          source_label: barcode ? `Barcode ${barcode}` : 'Manual entry',
+        }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || `Save failed (${res.status})`)
+      }
+      const meal = await res.json()
+      onSaved(meal, form.meal_name.trim())
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const inputCls = 'w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]'
+
+  return (
+    <form onSubmit={save} className="space-y-3">
+      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Add Food Manually</p>
+      {barcode && (
+        <p className="text-xs text-gray-400">
+          Barcode: <span className="font-mono bg-gray-100 px-1 py-0.5 rounded">{barcode}</span>
+          <span className="ml-1 text-gray-300">· saved for next scan</span>
+        </p>
+      )}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Food Name <span className="text-red-400">*</span></label>
+        <input type="text" name="meal_name" value={form.meal_name} onChange={set} required
+          placeholder="e.g. Quest Chocolate Chip Cookie Bar"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {[['Calories', 'calories', '200'], ['Protein (g)', 'protein_g', '20'],
+          ['Carbs (g)', 'carbs_g', '25'], ['Fat (g)', 'fat_g', '8'],
+          ['Fiber (g)', 'fiber_g', '3']].map(([lbl, nm, ph]) => (
+          <div key={nm}>
+            <label className="block text-xs font-medium text-gray-600 mb-1">{lbl}</label>
+            <input type="number" name={nm} value={form[nm]} onChange={set} min="0" placeholder={ph} className={inputCls} />
+          </div>
+        ))}
+      </div>
+      {error && <p className="text-xs text-red-500">{error}</p>}
+      <div className="flex gap-2 pt-1">
+        <button type="submit" disabled={saving || !form.meal_name.trim()}
+          className="flex-1 bg-[#E8670A] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
+          {saving ? 'Saving…' : 'Save & Log'}
+        </button>
+        <button type="button" onClick={onCancel}
+          className="px-4 py-2.5 rounded-lg text-sm font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
+          Cancel
+        </button>
+      </div>
+    </form>
+  )
+}
+
 // ── Barcode Logger ─────────────────────────────────────────────────────────────
 
 // Extract gram weight from strings like "30g", "2 cookies (30g)", "1/4 cup (28 g)"
@@ -1808,15 +1935,19 @@ function normaliseFoodTo100g(food) {
 
 function BarcodeLogger({ slotName, onSaved, logDate }) {
   const { getToken } = useAuth()
-  const [scanning, setScanning] = useState(true)
-  const [loading,  setLoading]  = useState(false)
-  const [food,     setFood]     = useState(null)   // raw food from API
-  const [base,     setBase]     = useState(null)   // per-100g normalised macros
-  const [amount,   setAmount]   = useState('100')
-  const [unit,     setUnit]     = useState('g')
-  const [saving,   setSaving]   = useState(false)
-  const [saved,    setSaved]    = useState(false)
-  const [error,    setError]    = useState(null)
+  const [scanning,       setScanning]       = useState(true)
+  const [loading,        setLoading]        = useState(false)
+  const [food,           setFood]           = useState(null)   // raw food from API
+  const [base,           setBase]           = useState(null)   // per-100g normalised macros
+  const [amount,         setAmount]         = useState('100')
+  const [unit,           setUnit]           = useState('g')
+  const [saving,         setSaving]         = useState(false)
+  const [saved,          setSaved]          = useState(false)
+  const [error,          setError]          = useState(null)
+  const [notFound,       setNotFound]       = useState(false)
+  const [scannedBarcode, setScannedBarcode] = useState(null)
+  const [showManualForm, setShowManualForm] = useState(false)
+  const [savedFoodName,  setSavedFoodName]  = useState(null)
 
   function handleUnitChange(newUnit) {
     const g = toGrams(parseFloat(amount) || 0, unit)
@@ -1828,16 +1959,27 @@ function BarcodeLogger({ slotName, onSaved, logDate }) {
     setScanning(false)
     setLoading(true)
     setError(null)
+    setNotFound(false)
+    setScannedBarcode(barcode)
+    setShowManualForm(false)
     try {
       const token = await getToken()
       const res = await fetch(`${API_URL}/api/foods/barcode/${barcode}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok) {
-        const { error: msg } = await res.json().catch(() => ({}))
-        throw new Error(msg || 'Product not found. Try logging manually.')
+        // 404 → show manual-entry card; other errors → generic message
+        if (res.status === 404) { setNotFound(true); return }
+        let msg = 'Lookup failed. Try again or log manually.'
+        try { const d = await res.json(); msg = d.error || msg } catch {}
+        throw new Error(msg)
       }
-      const f = await res.json()
+      // Defensive parse — Railway proxy / SPA fallback can return HTML on network errors
+      let f
+      try { f = await res.json() } catch {
+        setNotFound(true)
+        return
+      }
       const { base: b, defaultGrams } = normaliseFoodTo100g(f)
       setFood(f)
       setBase(b)
@@ -1902,13 +2044,14 @@ function BarcodeLogger({ slotName, onSaved, logDate }) {
   function reset() {
     setScanning(false); setFood(null); setBase(null)
     setAmount('100'); setUnit('g'); setSaved(false); setError(null)
+    setNotFound(false); setScannedBarcode(null); setShowManualForm(false); setSavedFoodName(null)
   }
 
   if (saved) return (
     <div className="space-y-4">
       <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
         <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0">✓</div>
-        <p className="text-sm font-semibold text-gray-900">{food?.name}</p>
+        <p className="text-sm font-semibold text-gray-900">{food?.name ?? savedFoodName ?? 'Food logged'}</p>
       </div>
       <button onClick={reset}
         className="w-full py-2.5 rounded-xl text-sm font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
@@ -1930,7 +2073,7 @@ function BarcodeLogger({ slotName, onSaved, logDate }) {
 
   return (
     <div className="space-y-4">
-      {!food && !loading && (
+      {!food && !loading && !notFound && (
         <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center space-y-3">
           <p className="text-3xl">🏷️</p>
           <p className="text-sm font-medium text-gray-700">Scan a product barcode</p>
@@ -1942,6 +2085,44 @@ function BarcodeLogger({ slotName, onSaved, logDate }) {
             Open Camera
           </button>
           {error && <p className="text-sm text-red-500 mt-1">{error}</p>}
+        </div>
+      )}
+
+      {notFound && (
+        <div className="border-2 border-dashed border-orange-200 rounded-xl p-6 bg-orange-50 space-y-4">
+          <div className="text-center space-y-1">
+            <p className="text-2xl">🔍</p>
+            <p className="text-sm font-semibold text-gray-800">Product not found</p>
+            {scannedBarcode && (
+              <p className="text-xs font-mono text-gray-400 bg-white rounded px-2 py-0.5 inline-block">{scannedBarcode}</p>
+            )}
+            <p className="text-xs text-gray-500">This barcode isn't in our database yet.</p>
+          </div>
+          {showManualForm ? (
+            <BarcodeManualForm
+              barcode={scannedBarcode}
+              slotName={slotName}
+              logDate={logDate}
+              getToken={getToken}
+              onSaved={(meal, name) => { setSavedFoodName(name); setSaved(true); onSaved(meal) }}
+              onCancel={() => setShowManualForm(false)}
+            />
+          ) : (
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => setShowManualForm(true)}
+                className="w-full bg-[#E8670A] text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors"
+              >
+                Add Food Manually
+              </button>
+              <button
+                onClick={() => { setNotFound(false); setScannedBarcode(null); setScanning(true) }}
+                className="w-full py-2.5 rounded-lg text-sm font-medium text-gray-600 border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
+              >
+                Scan Another
+              </button>
+            </div>
+          )}
         </div>
       )}
 
