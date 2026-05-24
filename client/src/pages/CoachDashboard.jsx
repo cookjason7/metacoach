@@ -1376,7 +1376,13 @@ export default function CoachDashboard({ getToken, userRole }) {
           if (r1.ok) setClients(await r1.json())
           if (r2.ok) { const d = await r2.json(); setMsgUnread(d.unread ?? 0) }
           if (r3.ok) { const d = await r3.json(); setCheckins(d.checkins ?? []); setActivity(d.activity ?? []) }
-          if (r4.ok) { const d = await r4.json(); setIsAdmin(d.role === 'admin') }
+          if (r4.ok) {
+            const d = await r4.json()
+            const admin = d.role === 'admin'
+            setIsAdmin(admin)
+            // Non-admin coaches default to seeing only their own clients
+            if (!admin) setCoachFilter(String(d.id))
+          }
         }
       } catch {} finally {
         if (!cancelled) setDataLoading(false)
@@ -1626,6 +1632,13 @@ export default function CoachDashboard({ getToken, userRole }) {
                     <span className={`text-xs font-bold ${adherenceColor(c.adherence_7d)}`}>
                       {Math.round(Number(c.adherence_7d) || 0)}% 7d
                     </span>
+                    <Link
+                      to={`/admin/clients/${c.id}?tab=food`}
+                      onClick={e => e.stopPropagation()}
+                      className="text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] whitespace-nowrap"
+                    >
+                      Food Log →
+                    </Link>
                     <svg className="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                     </svg>
@@ -1658,9 +1671,18 @@ export default function CoachDashboard({ getToken, userRole }) {
                 <Link key={c.id} to={`/admin/clients/${c.id}`}
                   className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-orange-50/50 transition-colors">
                   <p className="text-sm font-medium text-gray-900 min-w-0 truncate">{clientName(c)}</p>
-                  <p className="text-xs text-gray-400 shrink-0">
-                    {c.last_meal_at ? `Last logged ${fmtShortDate(c.last_meal_at)}` : 'Never logged'}
-                  </p>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <p className="text-xs text-gray-400">
+                      {c.last_meal_at ? `Last logged ${fmtShortDate(c.last_meal_at)}` : 'Never logged'}
+                    </p>
+                    <Link
+                      to={`/admin/clients/${c.id}?tab=food`}
+                      onClick={e => e.stopPropagation()}
+                      className="text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] whitespace-nowrap"
+                    >
+                      Food Log →
+                    </Link>
+                  </div>
                 </Link>
               ))}
             </div>

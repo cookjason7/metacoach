@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { UserButton, useUser, useAuth, useClerk } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 
@@ -13,6 +13,7 @@ const CLIENT_NAV_ITEMS = [
   { to: '/messages',     label: 'Messages' },
   { to: '/food-list',    label: 'Food List' },
   { to: '/community',    label: 'Community' },
+  { to: '/community?tab=mindset', label: 'Brain Mapping', matchPath: '/community', matchSearch: 'tab=mindset' },
   { to: '/settings',     label: 'Settings' },
 ]
 
@@ -33,6 +34,7 @@ export default function Layout() {
   const { getToken }       = useAuth()
   const { signOut }        = useClerk()
   const navigate           = useNavigate()
+  const location           = useLocation()
   const [isAdmin,      setIsAdmin]      = useState(false)
   const [isStaff,      setIsStaff]      = useState(false)
   const [notifCount,   setNotifCount]   = useState(0)
@@ -263,7 +265,7 @@ export default function Layout() {
     : CLIENT_NAV_ITEMS
 
   // Mobile drawer hides items that already live in the client bottom nav
-  const MOBILE_BOTTOM_NAV = new Set(['Coach Katie', 'Messages', 'Community'])
+  const MOBILE_BOTTOM_NAV = new Set(['Food Log', 'Messages', 'Community'])
   const mobileNavItems = isStaff ? navItems : navItems.filter(i => !MOBILE_BOTTOM_NAV.has(i.label))
 
   function buildSidebarContent(items) { return (
@@ -281,7 +283,7 @@ export default function Layout() {
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto px-3 space-y-0.5">
-        {items.map(({ to, href, label }) =>
+        {items.map(({ to, href, label, matchPath, matchSearch }) =>
           href ? (
             <a
               key={href}
@@ -298,13 +300,17 @@ export default function Layout() {
               key={to}
               to={to}
               onClick={() => setSidebarOpen(false)}
-              className={({ isActive }) =>
-                `flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive
+              className={({ isActive }) => {
+                // For items with matchSearch (e.g. Brain Mapping), active only when search param matches
+                const active = matchSearch
+                  ? location.pathname === matchPath && location.search.includes(matchSearch)
+                  : isActive && !(matchPath === undefined && label === 'Community' && location.search.includes('tab=mindset'))
+                return `flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  active
                     ? 'bg-[#E8670A] text-white'
                     : 'text-white/70 hover:bg-white/10 hover:text-white'
                 }`
-              }
+              }}
             >
               {label}
               {label === 'Community' && notifCount > 0 && (
@@ -397,13 +403,13 @@ export default function Layout() {
           { to: '/messages',      label: 'Messages',  badge: msgUnread > 0,  icon: <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /> },
           { to: '/community',     label: 'Community', badge: notifCount > 0, icon: <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /> },
         ] : [
-          // Client bottom nav
+          // Client bottom nav: Home | Food Log | [Log+] | Messages | Community
           { to: '/dashboard', label: 'Home',      badge: false,           icon: <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /> },
-          { to: '/ai-coach',  label: 'Katie',     badge: katieUnread > 0, icon: <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /> },
+          { to: '/journal',   label: 'Food Log',  badge: false,           icon: <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /> },
           { to: '/messages',  label: 'Messages',  badge: msgUnread > 0,   icon: <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /> },
           { to: '/community', label: 'Community', badge: notifCount > 0,  icon: <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /> },
         ]).reduce((acc, { to, label, icon, badge }, i) => {
-          // Inject the plus button in the middle (after Home)
+          // Inject the plus button in the middle (after Food Log, index 1)
           if (i === 1 && !isStaff) acc.push(
             <button
               key="quick-log"

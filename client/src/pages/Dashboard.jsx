@@ -343,15 +343,8 @@ function FoundationRing({ label, value, goal, color, unit }) {
 }
 
 function WomensHealthFoundation({ meals, waterOz, onAddWater }) {
-  const [addingWater, setAddingWater] = useState(false)
-  const [oz, setOz] = useState('8')
   const micros = calculateMicronutrientTotals(meals)
   const getMicro = (key) => micros.find(m => m.key === key)?.value ?? 0
-
-  function handleAddWater() {
-    const amount = parseFloat(oz)
-    if (!isNaN(amount) && amount > 0) { onAddWater(amount); setAddingWater(false); setOz('8') }
-  }
 
   const rings = [
     { label: 'Water',     value: waterOz ?? 0,             goal: 64,   unit: 'oz',  color: '#60A5FA' },
@@ -377,23 +370,19 @@ function WomensHealthFoundation({ meals, waterOz, onAddWater }) {
       <div className="grid grid-cols-4 gap-y-4 gap-x-2 mb-3">
         {rings.map(r => <FoundationRing key={r.label} {...r} />)}
       </div>
-      <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
-        <span className="text-[11px] text-gray-400">Log water</span>
-        {!addingWater ? (
-          <button
-            onClick={() => setAddingWater(true)}
-            className="w-5 h-5 bg-blue-100 text-blue-600 rounded-full text-xs font-bold flex items-center justify-center hover:bg-blue-200 transition-colors"
-          >+</button>
-        ) : (
-          <span className="flex items-center gap-1">
-            <input type="number" value={oz} onChange={e => setOz(e.target.value)}
-              className="w-12 border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
-              min="1" />
-            <span className="text-xs text-gray-400">oz</span>
-            <button onClick={handleAddWater} className="text-xs text-blue-600 font-semibold hover:text-blue-800">Add</button>
-            <button onClick={() => setAddingWater(false)} className="text-xs text-gray-400 hover:text-gray-600">✕</button>
-          </span>
-        )}
+      <div className="pt-3 border-t border-gray-100">
+        <p className="text-[11px] text-gray-400 mb-2">Log water</p>
+        <div className="flex gap-2">
+          {[8, 16, 32].map(oz => (
+            <button
+              key={oz}
+              onClick={() => onAddWater(oz)}
+              className="flex-1 py-2.5 rounded-xl text-xs font-bold border-2 border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:border-blue-300 active:bg-blue-200 transition-colors min-h-[44px]"
+            >
+              +{oz} oz
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   )

@@ -484,6 +484,7 @@ function MealEntry({ meal, onEdit, onDelete, onCopy, onMove }) {
 // ── Meal Card Quick Actions ────────────────────────────────────────────────────
 
 const SLOT_QUICK_ACTIONS = [
+  { mode: 'recent',  icon: '🕐', label: 'Recent' },
   { mode: 'search',  icon: '🔍', label: 'Search' },
   { mode: 'barcode', icon: '🏷️', label: 'Scan'   },
   { mode: 'photo',   icon: '📷', label: 'Photo'  },
@@ -3527,8 +3528,8 @@ const ADD_OPTIONS = [
   { id: 'recipes', icon: '📋', label: 'My Foods & Recipes' },
 ]
 
-const MODE_TITLES = { photo: 'Photo', text: 'Text Entry', search: 'Search Foods', manual: 'Manual Entry', barcode: 'Scan Barcode', recipes: 'My Foods & Recipes' }
-const LOGGERS = { photo: PhotoLogger, text: TextLogger, search: SearchLogger, manual: ManualLogger, barcode: BarcodeLogger, recipes: RecipesLogger }
+const MODE_TITLES = { photo: 'Photo', text: 'Text Entry', search: 'Search Foods', recent: 'Recent Foods', manual: 'Manual Entry', barcode: 'Scan Barcode', recipes: 'My Foods & Recipes' }
+const LOGGERS = { photo: PhotoLogger, text: TextLogger, search: SearchLogger, recent: SearchLogger, manual: ManualLogger, barcode: BarcodeLogger, recipes: RecipesLogger }
 
 const SNACK_TIMING_OPTIONS = [
   { value: 'AM Snack',   label: 'Morning',   emoji: '🌅' },
@@ -3564,7 +3565,9 @@ function AddFoodDrawer({ slotName, onClose, onSaved, logDate, initialMode = null
     onClose()
   }
 
-  const showTimingPicker = isSnack && snackTiming === null
+  // When initialMode is set (opened from a quick-action chip), skip the timing
+  // picker entirely and use the time-based default — saves one tap.
+  const showTimingPicker = isSnack && snackTiming === null && !initialMode
   const showModePicker   = !showTimingPicker && !mode
 
   return (
@@ -3594,14 +3597,22 @@ function AddFoodDrawer({ slotName, onClose, onSaved, logDate, initialMode = null
         <div className="mobile-sheet-body px-5 pt-5">
           {/* Step 1 (snack only): pick timing */}
           {showTimingPicker && (
-            <div className="grid grid-cols-3 gap-3">
-              {SNACK_TIMING_OPTIONS.map(opt => (
-                <button key={opt.value} onClick={() => setSnackTiming(opt.value)}
-                  className="flex flex-col items-center gap-2 bg-gray-50 hover:bg-orange-50 hover:border-[#E8670A] border border-gray-200 rounded-2xl py-5 transition-all">
-                  <span className="text-2xl">{opt.emoji}</span>
-                  <span className="text-xs font-semibold text-gray-700">{opt.label}</span>
-                </button>
-              ))}
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-3">
+                {SNACK_TIMING_OPTIONS.map(opt => (
+                  <button key={opt.value} onClick={() => setSnackTiming(opt.value)}
+                    className="flex flex-col items-center gap-2 bg-gray-50 hover:bg-orange-50 hover:border-[#E8670A] border border-gray-200 rounded-2xl py-5 transition-all">
+                    <span className="text-2xl">{opt.emoji}</span>
+                    <span className="text-xs font-semibold text-gray-700">{opt.label}</span>
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setSnackTiming(defaultSnackTiming())}
+                className="w-full py-2.5 text-sm text-gray-400 hover:text-gray-600 font-medium transition-colors"
+              >
+                Skip → use current time
+              </button>
             </div>
           )}
 
