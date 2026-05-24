@@ -471,17 +471,21 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
       return result
     }
 
-    let anthropicMessages = normalizeMessages(
-      history.map(h => ({ role: h.role, content: h.message }))
-    )
+    // Build the full message sequence: history + current message (if any), then
+    // normalise in a single pass.  Including the new message here — rather than
+    // pushing it afterwards — ensures that a dangling user message left by a
+    // prior failed request (saved before the assistant reply) gets merged with
+    // the new user message instead of creating two consecutive user turns, which
+    // Anthropic rejects with "roles must alternate".
+    const rawMsgs = history.map(h => ({ role: h.role, content: h.message }))
+    if (message) rawMsgs.push({ role: 'user', content: message })
+    let anthropicMessages = normalizeMessages(rawMsgs)
 
     if (anthropicMessages.length > 0 && anthropicMessages[0].role === 'assistant') {
       anthropicMessages = [{ role: 'user', content: '[session start]' }, ...anthropicMessages]
     }
 
-    if (message) {
-      anthropicMessages.push({ role: 'user', content: message })
-    } else if (anthropicMessages.length === 0) {
+    if (!message && anthropicMessages.length === 0) {
       // Opening: no history, no user message — return hardcoded welcome (no LLM call)
       const firstName   = user.first_name ?? 'there'
       const welcomeMsg  = `Hey ${firstName}, welcome to Meta Coach. Your Health Profile is set, and this is where we start building momentum, self-trust, and consistency. Start simple: log your first meal or plan tomorrow's food. Small wins stack.`
