@@ -22,16 +22,23 @@ export default function BarcodeScanner({ onScan, onCancel }) {
     setReady(false)
     setError(null)
 
+    console.log('[BarcodeScanner] starting camera, attempt', retry + 1,
+      navigator?.userAgent?.slice(0, 100))
+
     const reader = new BrowserMultiFormatReader()
+    // 20 s — some Android/iOS devices take 10-15 s to initialise the camera
+    // system on first use; the previous 10 s limit was too tight.
     const startTimer = setTimeout(() => {
       if (!activeRef.current || startedRef.current) return
       activeRef.current = false
+      console.error('[BarcodeScanner] camera start timeout (20 s) — no start signal received')
       try { controlsRef.current?.stop() } catch {}
       setError('The camera did not start. Try again, or use manual food search if your browser is blocking camera access.')
-    }, 10000)
+    }, 20000)
 
     function setCameraError(err) {
       const name = err?.name ?? ''
+      console.error('[BarcodeScanner] camera error:', name, err?.message)
       if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
         setError('Camera permission denied. Go to your browser settings, allow camera access for this site, then try again.')
       } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
@@ -54,6 +61,7 @@ export default function BarcodeScanner({ onScan, onCancel }) {
       try {
         let controls
         try {
+          // Attempt 1: rear camera + ideal resolution
           controls = await reader.decodeFromConstraints(
             {
               video: {
@@ -69,11 +77,24 @@ export default function BarcodeScanner({ onScan, onCancel }) {
           if (err?.name !== 'OverconstrainedError' && err?.name !== 'ConstraintNotSatisfiedError') {
             throw err
           }
-          controls = await reader.decodeFromConstraints(
-            { video: { facingMode: 'environment' } },
-            videoRef.current,
-            callback,
-          )
+          console.warn('[BarcodeScanner] resolution constraints rejected, dropping to environment-only fallback:', err?.name)
+          try {
+            // Attempt 2: rear camera, no resolution constraints
+            controls = await reader.decodeFromConstraints(
+              { video: { facingMode: 'environment' } },
+              videoRef.current,
+              callback,
+            )
+          } catch {
+            // Attempt 3: bare constraints — any available camera
+            // Handles tablets/devices where facingMode:'environment' hangs or errors
+            console.warn('[BarcodeScanner] environment facingMode failed, falling back to { video: true }')
+            controls = await reader.decodeFromConstraints(
+              { video: true },
+              videoRef.current,
+              callback,
+            )
+          }
         }
 
         if (!activeRef.current) {
@@ -104,6 +125,11 @@ export default function BarcodeScanner({ onScan, onCancel }) {
   function retryCamera() {
     try { controlsRef.current?.stop() } catch {}
     controlsRef.current = null
+    // Clear error BEFORE incrementing retry so the <video> element is back
+    // in the DOM when the useEffect re-runs.  Without this, videoRef.current
+    // is null (error branch has no <video>) and decodeFromConstraints silently
+    // fails, triggering the timeout again every time.
+    setError(null)
     setRetry(r => r + 1)
   }
 
