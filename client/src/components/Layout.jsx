@@ -52,11 +52,13 @@ export default function Layout() {
   const [quickPhotoPreview,   setQuickPhotoPreview]   = useState(null)
   const quickPhotoInputRef    = useRef(null)
   const quickPhotoGalleryRef  = useRef(null)
+  const [quickFoodMode, setQuickFoodMode] = useState(null) // 'search'|'barcode'|'photo'|'manual'
 
   function resetQuickExtras() {
     setQuickActivityType(''); setQuickActivityDur(''); setQuickActivityNotes('')
     setQuickPhotoAngle('front'); setQuickPhotoFile(null)
     setQuickPhotoPreview(p => { if (p) URL.revokeObjectURL(p); return null })
+    setQuickFoodMode(null)
   }
 
   function openQuickMenu() {
@@ -451,9 +453,12 @@ export default function Layout() {
             </div>
             {/* header */}
             <div className="flex items-center justify-between px-5 py-3">
-              {quickAction ? (
+              {(quickAction || quickFoodMode) ? (
                 <button
-                  onClick={() => { setQuickAction(null); setQuickValue(''); setQuickDone(false); resetQuickExtras() }}
+                  onClick={() => {
+                    if (quickAction) { setQuickAction(null); setQuickValue(''); setQuickDone(false); resetQuickExtras() }
+                    else setQuickFoodMode(null)
+                  }}
                   className="flex items-center gap-1 text-sm font-medium text-gray-500 hover:text-gray-800"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -469,30 +474,81 @@ export default function Layout() {
               </button>
             </div>
 
-            {/* tile grid */}
-            {!quickAction && (
-              <div className="px-4 pb-10 pt-1 grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {[
-                  { id: 'food',     emoji: '🍽️', label: 'Log Food' },
-                  { id: 'water',    emoji: '💧', label: 'Water' },
-                  { id: 'weight',   emoji: '⚖️', label: 'Weight' },
-                  { id: 'steps',    emoji: '👟', label: 'Steps' },
-                  { id: 'sleep',    emoji: '😴', label: 'Sleep' },
-                  { id: 'activity', emoji: '🏃', label: 'Activity' },
-                  { id: 'photo',    emoji: '📸', label: 'Progress Photo' },
-                ].map(({ id, emoji, label }) => (
-                  <button
-                    key={id}
-                    onClick={() => {
-                      if (id === 'food') { closeQuickMenu(); navigate('/journal') }
-                      else setQuickAction(id)
-                    }}
-                    className="flex flex-col items-center justify-center gap-2 bg-gray-50 hover:bg-[#fde8c8] active:bg-[#fcd9b0] rounded-2xl py-4 px-2 transition-colors min-h-[84px]"
-                  >
-                    <span className="text-2xl leading-none">{emoji}</span>
-                    <span className="text-xs font-semibold text-gray-700 text-center leading-tight">{label}</span>
-                  </button>
-                ))}
+            {/* ── Main tile grid (food + quick logs) ───────────────────── */}
+            {!quickAction && !quickFoodMode && (
+              <div className="px-4 pb-10 pt-1 space-y-4">
+                {/* Food section */}
+                <div>
+                  <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2 px-0.5">Food</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {[
+                      { id: 'search',  emoji: '🔍', label: 'Search Food'  },
+                      { id: 'barcode', emoji: '🏷️', label: 'Scan Barcode' },
+                      { id: 'photo',   emoji: '📷', label: 'Food Photo'   },
+                      { id: 'manual',  emoji: '✏️', label: 'Quick Add'    },
+                    ].map(({ id, emoji, label }) => (
+                      <button
+                        key={id}
+                        onClick={() => setQuickFoodMode(id)}
+                        className="flex flex-col items-center justify-center gap-2 bg-orange-50 hover:bg-[#fcd9b0] active:bg-[#fbc090] border border-orange-100 rounded-2xl py-4 px-2 transition-colors min-h-[84px]"
+                      >
+                        <span className="text-2xl leading-none">{emoji}</span>
+                        <span className="text-xs font-semibold text-gray-700 text-center leading-tight">{label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Quick Logs section */}
+                <div>
+                  <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2 px-0.5">Quick Logs</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {[
+                      { id: 'weight',   emoji: '⚖️', label: 'Log Weight'     },
+                      { id: 'water',    emoji: '💧', label: 'Log Water'      },
+                      { id: 'steps',    emoji: '👟', label: 'Log Steps'      },
+                      { id: 'photo',    emoji: '📸', label: 'Progress Photo' },
+                      { id: 'sleep',    emoji: '😴', label: 'Sleep'          },
+                      { id: 'activity', emoji: '🏃', label: 'Activity'       },
+                    ].map(({ id, emoji, label }) => (
+                      <button
+                        key={id}
+                        onClick={() => setQuickAction(id)}
+                        className="flex flex-col items-center justify-center gap-2 bg-gray-50 hover:bg-[#fde8c8] active:bg-[#fcd9b0] rounded-2xl py-4 px-2 transition-colors min-h-[84px]"
+                      >
+                        <span className="text-2xl leading-none">{emoji}</span>
+                        <span className="text-xs font-semibold text-gray-700 text-center leading-tight">{label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Meal picker (shown after tapping a food action) ───────── */}
+            {quickFoodMode && !quickAction && !quickDone && (
+              <div className="px-4 pb-10 pt-2">
+                <p className="text-sm text-gray-500 mb-4">Which meal?</p>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { slot: 'Breakfast', emoji: '🌅', label: 'Breakfast' },
+                    { slot: 'Lunch',     emoji: '☀️', label: 'Lunch'     },
+                    { slot: 'Dinner',    emoji: '🌙', label: 'Dinner'    },
+                    { slot: 'Snack',     emoji: '🍎', label: 'Snack'     },
+                  ].map(({ slot, emoji, label }) => (
+                    <button
+                      key={slot}
+                      onClick={() => {
+                        closeQuickMenu()
+                        navigate('/journal', { state: { openSlot: slot, openMode: quickFoodMode } })
+                      }}
+                      className="flex items-center gap-3 bg-gray-50 hover:bg-orange-50 hover:border-[#E8670A] border border-gray-200 rounded-2xl px-4 py-4 transition-all min-h-[60px]"
+                    >
+                      <span className="text-2xl">{emoji}</span>
+                      <span className="text-sm font-semibold text-gray-700">{label}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 

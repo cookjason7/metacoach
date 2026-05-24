@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 import BarcodeScannerWidget from '../components/BarcodeScanner.jsx'
@@ -480,6 +481,36 @@ function MealEntry({ meal, onEdit, onDelete, onCopy, onMove }) {
 
 // ── Slot Section ───────────────────────────────────────────────────────────────
 
+// ── Meal Card Quick Actions ────────────────────────────────────────────────────
+
+const SLOT_QUICK_ACTIONS = [
+  { mode: 'search',  icon: '🔍', label: 'Search' },
+  { mode: 'barcode', icon: '🏷️', label: 'Scan'   },
+  { mode: 'photo',   icon: '📷', label: 'Photo'  },
+  { mode: 'manual',  icon: '✏️', label: 'Add'    },
+]
+
+function MealCardQuickActions({ name, onAddWithMode }) {
+  return (
+    <div
+      className="flex gap-1.5 px-4 pb-3 pt-1"
+      onClick={e => e.stopPropagation()}
+    >
+      {SLOT_QUICK_ACTIONS.map(({ mode, icon, label }) => (
+        <button
+          key={mode}
+          onClick={() => onAddWithMode(mode)}
+          aria-label={`${label} food for ${name}`}
+          className="flex-1 flex items-center justify-center gap-1 rounded-lg bg-gray-50 hover:bg-orange-50 hover:text-[#E8670A] hover:border-[#E8670A] border border-gray-200 text-[11px] font-semibold text-gray-600 transition-colors min-h-[44px]"
+        >
+          <span className="text-sm leading-none">{icon}</span>
+          <span>{label}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function SlotSection({ name, meals, onAddClick, onEdit, onDelete, onCopy, onMove, onCopySlot }) {
   const lsKey = `journal_slot_${name.toLowerCase().replace(/\s+/g, '_')}`
   const [open,     setOpen]     = useState(() => {
@@ -581,6 +612,9 @@ function SlotSection({ name, meals, onAddClick, onEdit, onDelete, onCopy, onMove
           </svg>
         </div>
       </div>
+
+      {/* ── Compact quick-add action row ─────────────────────────────────────── */}
+      <MealCardQuickActions name={name} onAddWithMode={mode => onAddClick(mode)} />
 
       {/* ── Animated content area ────────────────────────────────────────────── */}
       <div
@@ -3502,8 +3536,8 @@ const SNACK_TIMING_OPTIONS = [
   { value: 'Late Snack', label: 'Evening',   emoji: '🌙' },
 ]
 
-function AddFoodDrawer({ slotName, onClose, onSaved, logDate }) {
-  const [mode, setMode] = useState(null)
+function AddFoodDrawer({ slotName, onClose, onSaved, logDate, initialMode = null }) {
+  const [mode, setMode] = useState(initialMode)
   const isSnack = slotName === 'Snack'
   // For snack slots, user picks a timing before choosing a logger
   const [snackTiming, setSnackTiming] = useState(null)
@@ -3522,8 +3556,9 @@ function AddFoodDrawer({ slotName, onClose, onSaved, logDate }) {
 
   const Logger = mode ? LOGGERS[mode] : null
 
-  // Step back: from mode → timing (snack) or close
+  // Step back: from mode → timing (snack) or mode picker; mode picker → close
   function handleBack() {
+    if (mode && initialMode) { onClose(); return }  // direct-open: back = close
     if (mode) { setMode(null); setPhotoFile(null); return }
     if (isSnack && snackTiming) { setSnackTiming(null); return }
     onClose()
@@ -3616,6 +3651,8 @@ function AddFoodDrawer({ slotName, onClose, onSaved, logDate }) {
 
 export default function Journal() {
   const { getToken } = useAuth()
+  const navigate     = useNavigate()
+  const location     = useLocation()
 
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date(); d.setHours(0, 0, 0, 0); return d
@@ -3626,6 +3663,7 @@ export default function Journal() {
   const [waterOz,     setWaterOz]     = useState(0)
   const [loading,     setLoading]     = useState(true)
   const [activeDates, setActiveDates] = useState(new Set())
+  // addSlot is { slot: string, mode: string|null } | null
   const [addSlot,     setAddSlot]     = useState(null)
   const [editingMeal,  setEditingMeal]  = useState(null)
   const [copyingMeal,  setCopyingMeal]  = useState(null)
@@ -3649,6 +3687,19 @@ export default function Journal() {
   }, [selectedDate, getToken])
 
   useEffect(() => { loadMeals() }, [loadMeals])
+
+  // Auto-open drawer when arriving from the quick-log bottom sheet
+  useEffect(() => {
+    const state = location.state
+    if (!state?.openSlot || !state?.openMode) return
+    const validSlots = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
+    const validModes = ['search', 'barcode', 'photo', 'manual']
+    if (validSlots.includes(state.openSlot) && validModes.includes(state.openMode)) {
+      setAddSlot({ slot: state.openSlot, mode: state.openMode })
+    }
+    // Clear state so back-navigation doesn't re-open the drawer
+    navigate('/journal', { replace: true, state: {} })
+  }, [location.state]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load goals once
   useEffect(() => {
@@ -3839,7 +3890,7 @@ export default function Journal() {
             key={slot}
             name={slot}
             meals={slotMeals[slot] || []}
-            onAddClick={() => setAddSlot(slot)}
+            onAddClick={mode => setAddSlot({ slot, mode: mode ?? null })}
             onEdit={setEditingMeal}
             onDelete={handleMealDeleted}
             onCopy={setCopyingMeal}
@@ -3855,7 +3906,8 @@ export default function Journal() {
       {/* Add food drawer */}
       {addSlot && (
         <AddFoodDrawer
-          slotName={addSlot}
+          slotName={addSlot.slot}
+          initialMode={addSlot.mode}
           logDate={toDateStr(selectedDate)}
           onClose={() => setAddSlot(null)}
           onSaved={handleMealSaved}
