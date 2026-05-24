@@ -238,7 +238,7 @@ export default function AICoach() {
             style={{ minHeight: '42px', maxHeight: '120px' }}
           />
           <button
-            onClick={send}
+            onClick={() => send()}
             disabled={!input.trim() || streaming || loading}
             className="bg-[#E8670A] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
           >
