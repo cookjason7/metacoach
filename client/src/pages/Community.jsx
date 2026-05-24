@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@clerk/clerk-react'
+import { useSearchParams } from 'react-router-dom'
 import { linkify } from '../utils/linkify'
 import { API_URL } from '../config.js'
 
@@ -710,7 +711,7 @@ function Leaderboard({ getToken }) {
 
 // ── HybridTab ─────────────────────────────────────────────────────────────────
 
-function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members }) {
+function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members, initialCategory = 'All' }) {
   const photoInputRef = useRef(null)
   const [posts,          setPosts]         = useState([])
   const [hasMore,        setHasMore]       = useState(false)
@@ -720,13 +721,13 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
   const [error,          setError]         = useState(null)
   const [retryKey,       setRetryKey]      = useState(0)
   const [newPost,        setNewPost]       = useState('')
-  const [category,       setCategory]      = useState('General Discussion')
+  const [category,       setCategory]      = useState(initialCategory === 'All' ? 'General Discussion' : initialCategory)
   const [poll,           setPoll]          = useState(null)
   const [photo,          setPhoto]         = useState(null)
   const [preview,        setPreview]       = useState(null)
   const [posting,        setPosting]       = useState(false)
   const [search,         setSearch]        = useState('')
-  const [activeCategory, setActiveCategory]= useState('All')
+  const [activeCategory, setActiveCategory]= useState(initialCategory)
 
   useEffect(() => {
     setLoading(true)
@@ -2112,8 +2113,12 @@ function ResourcesTab({ getToken, isStaff }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+// Tab IDs that can be driven by the ?tab= URL param
+const VALID_URL_TABS = ['vip', 'ai', 'mindset', 'resources', 'nsv']
+
 export default function Community() {
   const { getToken }                       = useAuth()
+  const [searchParams]                     = useSearchParams()
   const [isAdmin,        setIsAdmin]       = useState(false)
   const [isStaff,        setIsStaff]       = useState(false)
   const [clientChannel,  setClientChannel] = useState('vip')
@@ -2137,8 +2142,12 @@ export default function Community() {
       setIsStaff(staff)
       setClientChannel(ch)
       setCurrentUserId(data.id)
-      // Default tab: staff → vip chat, clients → their channel
-      setTab(staff ? 'vip' : ch)
+      // Respect ?tab= URL param (e.g. Brain Mapping sidebar link → ?tab=mindset)
+      // Read window.location.search directly to avoid adding searchParams as a
+      // callback dependency (which would cause unnecessary re-fetches).
+      const urlTab = new URLSearchParams(window.location.search).get('tab')
+      const defaultTab = staff ? 'vip' : ch
+      setTab((urlTab && VALID_URL_TABS.includes(urlTab)) ? urlTab : defaultTab)
     } catch {
       setInitError(true)
       setTab('vip') // still attempt to show the community
@@ -2154,6 +2163,17 @@ export default function Community() {
       })
     } catch {}
   }, [getToken])
+
+  // Handle sidebar navigation to ?tab=mindset (or any valid tab) while
+  // Community is already mounted — React Router won't remount the component,
+  // it only updates searchParams.
+  useEffect(() => {
+    if (tab === null) return // wait for init
+    const urlTab = searchParams.get('tab')
+    if (urlTab && VALID_URL_TABS.includes(urlTab) && tab !== urlTab) {
+      setTab(urlTab)
+    }
+  }, [searchParams]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     runInit()
@@ -2172,12 +2192,19 @@ export default function Community() {
     loadMembers()
   }, [getToken])
 
-  // Build tab list: staff see both chats; clients see only their own
-  const TABS = [
-    ...(isStaff || clientChannel === 'vip' ? [{ id: 'vip', label: 'VIP Chat' }] : []),
-    ...(isStaff || clientChannel === 'ai'  ? [{ id: 'ai',  label: 'AI/Hybrid Chat' }] : []),
+  // Build tab list:
+  //   Staff/admin — full list: both chat channels, Brain Mapping, Resources
+  //   Clients     — simplified: Group Chat (routes to their channel) + NSV
+  //                 Brain Mapping and Resources are accessible via sidebar nav /
+  //                 ?tab= URL param but are NOT shown as tab buttons to clients
+  const TABS = isStaff ? [
+    { id: 'vip',       label: 'VIP Chat' },
+    { id: 'ai',        label: 'AI/Hybrid Chat' },
     { id: 'mindset',   label: 'Brain Mapping' },
     { id: 'resources', label: 'Resources' },
+  ] : [
+    { id: clientChannel, label: 'Group Chat' },
+    { id: 'nsv',         label: 'Non-Scale Victories' },
   ]
 
   if (initLoading && tab === null) {
@@ -2192,25 +2219,47 @@ export default function Community() {
     )
   }
 
+  // When a client lands on mindset/resources via ?tab= URL (sidebar nav),
+  // those tabs aren't in their TABS list. Show a simple back button so they
+  // can return to the chat without confusion.
+  const clientOnHiddenTab = !isStaff && (tab === 'mindset' || tab === 'resources')
+
   return (
     <div className="max-w-5xl">
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Community</h1>
       <p className="text-sm text-gray-500 mb-6">Connect with your Life Warrior community</p>
 
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6 overflow-x-auto">
-        {TABS.map(t => (
+      {clientOnHiddenTab ? (
+        // Minimal nav when showing Brain Mapping or Resources via sidebar link —
+        // just a back-to-chat button so the user isn't stranded
+        <div className="mb-6">
           <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`shrink-0 sm:flex-1 py-2 px-3 rounded-lg text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
-              tab === t.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-            }`}
+            onClick={() => setTab(clientChannel)}
+            className="flex items-center gap-1.5 text-sm font-medium text-[#E8670A] hover:text-[#c45e09] transition-colors"
           >
-            {t.label}
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+            Back to Group Chat
           </button>
-        ))}
-      </div>
+        </div>
+      ) : (
+        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6">
+          {TABS.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`flex-1 py-2 px-3 rounded-lg text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
+                tab === t.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
 
+      {/* Group Chat — VIP or AI channel feed */}
       {(tab === 'vip' || tab === 'ai') && (
         <HybridTab
           key={tab}
@@ -2222,7 +2271,25 @@ export default function Community() {
           members={members}
         />
       )}
+
+      {/* Non-Scale Victories — same feed as Group Chat, pre-filtered to NSV category */}
+      {tab === 'nsv' && (
+        <HybridTab
+          key="nsv"
+          channel={clientChannel}
+          initialCategory="Non-Scale Victories"
+          getToken={getToken}
+          isAdmin={isAdmin}
+          isStaff={isStaff}
+          currentUserId={currentUserId}
+          members={members}
+        />
+      )}
+
+      {/* Brain Mapping — accessible via sidebar ?tab=mindset link for all users */}
       {tab === 'mindset'   && <MindsetTab getToken={getToken} isStaff={isStaff} />}
+
+      {/* Resources — staff tab + URL-accessible for direct links */}
       {tab === 'resources' && <ResourcesTab getToken={getToken} isStaff={isStaff} />}
     </div>
   )
