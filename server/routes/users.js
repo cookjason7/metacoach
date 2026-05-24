@@ -137,7 +137,7 @@ router.patch('/me', requireAuth(), async (req, res, next) => {
        WHERE id = $18
        RETURNING *`,
       [
-        first_name ?? null, last_name ?? null, age ?? null, height_inches ?? null,
+        first_name || null, last_name || null, age ?? null, height_inches ?? null,
         starting_weight_lbs ?? null, goal_weight_lbs ?? null,
         activity_level ?? null, tried_before ?? null, why_joined ?? null,
         identity_anchors ?? null, onboarding_complete ?? null,

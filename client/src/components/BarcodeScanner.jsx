@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { BrowserMultiFormatReader } from '@zxing/browser'
+import { BarcodeFormat, DecodeHintType } from '@zxing/library'
 
 export default function BarcodeScanner({ onScan, onCancel }) {
   const videoRef = useRef(null)
@@ -25,7 +26,20 @@ export default function BarcodeScanner({ onScan, onCancel }) {
     console.log('[BarcodeScanner] starting camera, attempt', retry + 1,
       navigator?.userAgent?.slice(0, 100))
 
-    const reader = new BrowserMultiFormatReader()
+    // Hint-map: focus on grocery/retail formats, try harder for blurry/low-res cameras
+    const hints = new Map()
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+      BarcodeFormat.UPC_A,
+      BarcodeFormat.UPC_E,
+      BarcodeFormat.EAN_13,
+      BarcodeFormat.EAN_8,
+      BarcodeFormat.CODE_128,
+      BarcodeFormat.CODE_39,
+      BarcodeFormat.QR_CODE,
+    ])
+    hints.set(DecodeHintType.TRY_HARDER, true)
+
+    const reader = new BrowserMultiFormatReader(hints)
     // 20 s — some Android/iOS devices take 10-15 s to initialise the camera
     // system on first use; the previous 10 s limit was too tight.
     const startTimer = setTimeout(() => {
@@ -51,8 +65,18 @@ export default function BarcodeScanner({ onScan, onCancel }) {
     }
 
     async function start() {
-      const callback = (result, _err, scanControls) => {
-        if (!activeRef.current || !result) return
+      let decodeAttempts = 0
+      const callback = (result, err, scanControls) => {
+        if (!activeRef.current) return
+        if (!result) {
+          decodeAttempts++
+          // Log decode errors periodically to help diagnose scanning issues
+          if (decodeAttempts % 30 === 1 && err && err.name !== 'NotFoundException') {
+            console.warn('[BarcodeScanner] decode error (sample):', err?.name, err?.message)
+          }
+          return
+        }
+        console.log('[BarcodeScanner] decoded:', result.getText(), result.getBarcodeFormat())
         activeRef.current = false
         try { (scanControls ?? controlsRef.current)?.stop() } catch {}
         onScanRef.current(result.getText())

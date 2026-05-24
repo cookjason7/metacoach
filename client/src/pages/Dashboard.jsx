@@ -373,7 +373,13 @@ function WomensHealthFoundation({ meals, waterOz, onAddWater }) {
       <div className="pt-3 border-t border-gray-100">
         <p className="text-[11px] text-gray-400 mb-2">Log water</p>
         <div className="flex gap-2">
-          {[8, 16, 32].map(oz => (
+          <button
+            onClick={() => onAddWater(-8)}
+            className="flex-1 py-2.5 rounded-xl text-xs font-bold border-2 border-gray-100 bg-gray-50 text-gray-500 hover:bg-gray-100 hover:border-gray-300 active:bg-gray-200 transition-colors min-h-[44px]"
+          >
+            −8 oz
+          </button>
+          {[8, 16, 24].map(oz => (
             <button
               key={oz}
               onClick={() => onAddWater(oz)}
@@ -977,7 +983,6 @@ export default function Dashboard() {
   ]
 
   const trackers = [
-    { label: 'Water',  unit: 'oz',    field: 'water_oz',   currentValue: todayLog?.water_oz },
     { label: 'Steps',  unit: 'steps', field: 'steps',      currentValue: todayLog?.steps,      clearable: true },
     { label: 'Weight', unit: 'lbs',   field: 'weight_lbs', currentValue: todayLog?.weight_lbs },
   ]
@@ -1036,7 +1041,11 @@ export default function Dashboard() {
       <WomensHealthFoundation
         meals={mealRows}
         waterOz={todayLog?.water_oz}
-        onAddWater={async (v) => { await saveTracker('water_oz', (todayLog?.water_oz ?? 0) + v) }}
+        onAddWater={async (v) => {
+          const current = Math.round(parseFloat(todayLog?.water_oz) || 0)
+          const next = Math.max(0, current + v)
+          await saveTracker('water_oz', next)
+        }}
       />
 
       {!loading && todayMeals?.meal_count === 0 && (

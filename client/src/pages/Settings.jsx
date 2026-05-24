@@ -1440,11 +1440,10 @@ export default function Settings() {
                       ) : (
                         <button
                           type="button"
-                          onClick={connectFitbit}
-                          disabled={fitbitLoading}
-                          className="px-3 py-2 rounded-lg bg-[#1e2a3a] text-white text-xs font-semibold hover:bg-[#111827] disabled:opacity-60 transition-colors"
+                          disabled
+                          className="px-3 py-2 rounded-lg bg-gray-100 text-gray-400 text-xs font-semibold cursor-not-allowed"
                         >
-                          Connect Google Health
+                          Coming soon
                         </button>
                       )}
                       <button
