@@ -2194,9 +2194,8 @@ export default function Community() {
 
   // Build tab list:
   //   Staff/admin — full list: both chat channels, Brain Mapping, Resources
-  //   Clients     — simplified: Group Chat (routes to their channel) + NSV
-  //                 Brain Mapping and Resources are accessible via sidebar nav /
-  //                 ?tab= URL param but are NOT shown as tab buttons to clients
+  //   Clients     — simplified: Group Chat · Resources · Non-Scale Victories
+  //                 Brain Mapping is sidebar-only (?tab=mindset); not a client tab
   const TABS = isStaff ? [
     { id: 'vip',       label: 'VIP Chat' },
     { id: 'ai',        label: 'AI/Hybrid Chat' },
@@ -2204,6 +2203,7 @@ export default function Community() {
     { id: 'resources', label: 'Resources' },
   ] : [
     { id: clientChannel, label: 'Group Chat' },
+    { id: 'resources',   label: 'Resources' },
     { id: 'nsv',         label: 'Non-Scale Victories' },
   ]
 
@@ -2219,10 +2219,10 @@ export default function Community() {
     )
   }
 
-  // When a client lands on mindset/resources via ?tab= URL (sidebar nav),
-  // those tabs aren't in their TABS list. Show a simple back button so they
-  // can return to the chat without confusion.
-  const clientOnHiddenTab = !isStaff && (tab === 'mindset' || tab === 'resources')
+  // When a client lands on mindset via ?tab=mindset URL (Brain Mapping sidebar nav),
+  // that tab is not in their TABS list. Show a back button so they're not stranded.
+  // Resources IS a client tab now, so it is NOT hidden.
+  const clientOnHiddenTab = !isStaff && tab === 'mindset'
 
   return (
     <div className="max-w-5xl">
@@ -2249,7 +2249,7 @@ export default function Community() {
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`flex-1 py-2 px-3 rounded-lg text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
+              className={`flex-1 py-2 px-2 rounded-lg text-xs sm:text-sm font-medium transition-colors text-center leading-tight ${
                 tab === t.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
