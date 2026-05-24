@@ -215,6 +215,38 @@ Identity first. Anchors second. Behavior last.
 Don't quit. Become.`
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Appended to all clients when a meal plan is requested
+const KATIE_MEAL_PLAN_ADDENDUM = `
+
+MEAL PLANNING GUIDELINES
+
+When a client asks for a meal plan, "what should I eat today," or any request for a full day of eating, use the following format. For simpler one-off requests (snack idea, protein option, quick meal), stay in your normal concise answer format.
+
+FULL-DAY MEAL PLAN FORMAT:
+
+Generate one day of meals with:
+- Breakfast: 2 options
+- Lunch: 2 options
+- Dinner: 2 options
+- Snacks: 1-2 options
+
+For each option include:
+- Food name and rough serving size
+- Estimated calories and protein in parentheses, e.g. (~420 cal, ~38g protein)
+- One sentence of simple prep or assembly (optional if obvious)
+
+After the plan, always add this exact line on its own:
+"Macros are estimates. Log what you eat and adjust as you go."
+
+MEAL PLANNING RULES:
+- Build from the Warrior Food List first. Add other whole foods as needed.
+- Always respect listed allergies and dislikes from the client profile. Never include a food she has flagged.
+- Target her stated calorie and protein goals. If goals are not set, default to 1,400-1,600 calories and 100-120g protein as a reasonable starting range.
+- Keep prep simple. Most clients are busy. Never list more than 3 prep steps.
+- Do not tell her you will log the meals. Do not make medical claims. Do not reference lab values or prescribe supplements.
+- Offer a grocery list only if she specifically asks for one.
+- After delivering the plan, offer one brief coaching observation or one question, not a lecture.`
+
 // Appended for VIP (human-coached) clients only
 const KATIE_VIP_ADDENDUM = `
 
@@ -249,7 +281,7 @@ When a client asks for something beyond what MetaCoach provides, deeper customiz
 Never say "there is a link in your profile." Always give the real URL.
 Never pushy. Never salesy. Plant the seed consistently.`
 
-function buildContextBlock(user, meals, logs) {
+function buildContextBlock(user, meals, logs, recentFoods = []) {
   const h = user.height_inches
   const heightStr = h ? `${Math.floor(h / 12)}'${h % 12}"` : 'not set'
 
@@ -265,6 +297,16 @@ function buildContextBlock(user, meals, logs) {
       ).join('\n')
     : '  None logged in the last 7 days'
 
+  const goalsLines = [
+    user.goal_calories ? `- Calorie target: ${user.goal_calories} cal/day` : null,
+    user.goal_protein  ? `- Protein target: ${user.goal_protein}g/day`     : null,
+  ].filter(Boolean)
+  const goalsText = goalsLines.length ? goalsLines.join('\n') : '  Not yet set'
+
+  const recentFoodsText = recentFoods.length
+    ? recentFoods.map(f => `  - ${f}`).join('\n')
+    : '  None logged yet'
+
   return `
 USER PROFILE:
 - Name: ${user.first_name ?? 'Unknown'}
@@ -275,6 +317,16 @@ USER PROFILE:
 - What they've tried before: ${user.tried_before ?? 'Not provided'}
 - Identity anchors: ${user.identity_anchors?.join(' | ') ?? 'Not yet selected'}
 - Current phase: Phase 1 — Awareness
+
+NUTRITION GOALS:
+${goalsText}
+
+FOOD PREFERENCES:
+- Dislikes: ${user.food_dislikes?.trim() || 'None listed'}
+- Allergies / intolerances: ${user.food_allergies?.trim() || 'None listed'}
+
+FOODS SHE ACTUALLY EATS (last 30 days, use these as meal-plan foundation):
+${recentFoodsText}
 
 RECENT MEALS (last 7 days):
 ${mealsText}
@@ -316,14 +368,15 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     // Load user profile
     const { rows: userRows } = await pool.query(
       `SELECT first_name, age, height_inches, starting_weight_lbs, goal_weight_lbs,
-              activity_level, tried_before, why_joined, identity_anchors, coaching_type
+              activity_level, tried_before, why_joined, identity_anchors, coaching_type,
+              goal_calories, goal_protein, food_dislikes, food_allergies
        FROM users WHERE id = $1`,
       [dbUserId],
     )
     const user = userRows[0] ?? {}
 
-    // Load recent meals and daily logs in parallel
-    const [{ rows: meals }, { rows: logs }] = await Promise.all([
+    // Load recent meals, daily logs, and distinct recent foods in parallel
+    const [{ rows: meals }, { rows: logs }, { rows: recentFoodRows }] = await Promise.all([
       pool.query(
         `SELECT meal_name, calories, protein, logged_at
          FROM meals
@@ -338,7 +391,18 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
          ORDER BY logged_date DESC`,
         [dbUserId],
       ),
+      pool.query(
+        `SELECT DISTINCT meal_name
+         FROM meals
+         WHERE user_id = $1
+           AND logged_at >= NOW() - INTERVAL '30 days'
+           AND meal_name IS NOT NULL
+         ORDER BY meal_name
+         LIMIT 20`,
+        [dbUserId],
+      ),
     ])
+    const recentFoods = recentFoodRows.map(r => r.meal_name)
 
     // Load conversation history (last 40 messages)
     const { rows: history } = await pool.query(
@@ -390,7 +454,7 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     const katiPrompt = user.coaching_type === 'vip'
       ? `${KATIE_BASE_PROMPT}${KATIE_VIP_ADDENDUM}`
       : `${KATIE_BASE_PROMPT}${KATIE_AI_ADDENDUM}`
-    const systemPrompt = `${katiPrompt}\n\n${buildContextBlock(user, meals, logs)}`
+    const systemPrompt = `${katiPrompt}${KATIE_MEAL_PLAN_ADDENDUM}\n\n${buildContextBlock(user, meals, logs, recentFoods)}`
 
     // Stream SSE response
     res.setHeader('Content-Type', 'text/event-stream')
@@ -400,7 +464,7 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     const chatT0 = Date.now()
     const stream = anthropic.messages.stream({
       model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
+      max_tokens: 2048,
       system: systemPrompt,
       messages: anthropicMessages,
     })

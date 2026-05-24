@@ -142,8 +142,8 @@ export default function AICoach() {
     init()
   }, [getToken, streamResponse])
 
-  async function send() {
-    const text = input.trim()
+  async function send(overrideText) {
+    const text = (overrideText ?? input).trim()
     if (!text || streaming) return
     setInput('')
     setMessages(prev => [...prev, { id: Date.now(), role: 'user', content: text }])
@@ -191,6 +191,24 @@ export default function AICoach() {
 
       {/* Input bar */}
       <div className="px-6 pb-6 pt-3 border-t border-gray-100 shrink-0">
+        {/* Quick-action chips */}
+        {!streaming && !loading && (
+          <div className="flex gap-2 flex-wrap mb-3">
+            {[
+              { label: '🥗 Meal plan', prompt: 'Can you make me a 1-day meal plan?' },
+              { label: '🍎 Snack ideas', prompt: 'What are some good snack options for me?' },
+              { label: '💪 High-protein meal', prompt: 'Give me a high-protein meal idea.' },
+            ].map(({ label, prompt }) => (
+              <button
+                key={label}
+                onClick={() => send(prompt)}
+                className="text-xs font-semibold px-3 py-1.5 rounded-full border border-[#E8670A] text-[#E8670A] hover:bg-[#fde8c8] transition-colors min-h-[32px]"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex gap-3 items-end">
           <textarea
             ref={inputRef}

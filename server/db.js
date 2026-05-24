@@ -1219,6 +1219,10 @@ export async function migrate() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_usage_events_time     ON usage_events (occurred_at DESC)`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_usage_events_feature  ON usage_events (feature, occurred_at DESC)`)
 
+  // ── Meal planning preferences ─────────────────────────────────────────────
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS food_dislikes  TEXT`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS food_allergies TEXT`)
+
   // ── Remove old onboarding gate — mark all users as onboarding_complete ──────
   // The multi-step onboarding form (name/gender/age/height/weight) is removed.
   // New post-signup flow is: Health Assessment → Identity Traits → Enter app.
