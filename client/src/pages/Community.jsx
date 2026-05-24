@@ -1364,14 +1364,12 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
   // Reset fallback when video collapses so next expansion tries the API again
   useEffect(() => { if (!expanded) setYtFailed(false) }, [expanded])
 
-  const statusLabel = !isStaff && progress
-    ? progress.completed
+  const statusLabel = !isStaff
+    ? progress?.completed
       ? { text: '✓ Completed', cls: 'bg-emerald-100 text-emerald-700' }
-      : progress.highest_pct >= 50
-        ? { text: '50% watched', cls: 'bg-[#fde8c8] text-[#c45e09]' }
-        : progress.started
-          ? { text: 'Started', cls: 'bg-gray-100 text-gray-500' }
-          : null
+      : progress?.started
+        ? { text: `In progress · ${Math.round(progress.highest_pct ?? 0)}%`, cls: 'bg-[#fde8c8] text-[#c45e09]' }
+        : { text: 'Not started', cls: 'bg-gray-100 text-gray-400' }
     : null
 
   return (
@@ -1410,13 +1408,26 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
               alt={video.title}
               className="w-full h-full object-cover"
             />
-            <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/30 transition-colors">
-              <div className="w-14 h-14 bg-[#E8670A] rounded-full flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
-                <svg className="w-6 h-6 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
+            {/* Completed overlay */}
+            {!isStaff && progress?.completed && (
+              <div className="absolute inset-0 flex items-center justify-center bg-emerald-900/50">
+                <div className="w-14 h-14 bg-emerald-500 rounded-full flex items-center justify-center shadow-lg">
+                  <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
               </div>
-            </div>
+            )}
+            {/* Play button (hidden when completed) */}
+            {!((!isStaff) && progress?.completed) && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/30 transition-colors">
+                <div className="w-14 h-14 bg-[#E8670A] rounded-full flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                  <svg className="w-6 h-6 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </div>
+              </div>
+            )}
           </button>
         ) : (
           <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">No valid YouTube URL</div>
@@ -1497,13 +1508,85 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
         </div>
 
         {!isStaff && (
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <button
+              onClick={onToggleExpand}
+              className="inline-flex items-center gap-1.5 bg-[#E8670A] text-white text-xs font-bold px-4 py-2 rounded-xl hover:bg-[#c45e09] transition-colors min-h-[36px]"
+            >
+              {expanded
+                ? 'Close'
+                : progress?.completed
+                  ? 'Watch again →'
+                  : progress?.started
+                    ? 'Continue →'
+                    : 'Watch →'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── FeaturedVideoCard (Continue Watching / Start Here) ───────────────────────
+
+function FeaturedVideoCard({ video, progress, label, onWatch }) {
+  const vid = ytVideoId(video.youtube_url)
+  const pct = Math.min(Math.round(progress?.highest_pct ?? 0), 100)
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-5" style={{ borderTop: '3px solid #E8670A' }}>
+      <div className="flex gap-3 p-4">
+        {/* Thumbnail */}
+        {vid && (
           <button
-            onClick={onToggleExpand}
-            className="mt-2 text-xs font-semibold text-[#E8670A] hover:underline"
+            onClick={onWatch}
+            className="relative rounded-xl overflow-hidden shrink-0 group"
+            style={{ width: 112, minHeight: 63 }}
+            aria-label={`Play ${video.title}`}
           >
-            {expanded ? 'Close video' : 'Watch video →'}
+            <img
+              src={`https://img.youtube.com/vi/${vid}/mqdefault.jpg`}
+              alt={video.title}
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 flex items-center justify-center bg-black/25 group-hover:bg-black/35 transition-colors">
+              <div className="w-9 h-9 bg-[#E8670A] rounded-full flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
+                <svg className="w-4 h-4 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </div>
+            </div>
           </button>
         )}
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] font-bold text-[#E8670A] uppercase tracking-widest mb-0.5">{label}</p>
+          {video.module_name && (
+            <p className="text-[11px] text-gray-400 mb-0.5">{video.module_name}</p>
+          )}
+          <p className="text-sm font-bold text-gray-900 leading-snug line-clamp-2">{video.title}</p>
+
+          {pct > 0 && (
+            <div className="mt-2 mb-1">
+              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                <div className="h-full bg-[#E8670A] rounded-full" style={{ width: `${pct}%` }} />
+              </div>
+              <p className="text-[10px] text-gray-400 mt-0.5">{pct}% watched</p>
+            </div>
+          )}
+
+          <button
+            onClick={onWatch}
+            className="mt-2 inline-flex items-center gap-1.5 bg-[#E8670A] text-white text-xs font-bold px-4 py-2 rounded-xl hover:bg-[#c45e09] transition-colors min-h-[36px]"
+          >
+            {label === 'Continue Watching' ? 'Continue' : 'Start watching'}
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -1521,6 +1604,7 @@ function MindsetTab({ getToken, isStaff }) {
   const [expandedId,   setExpandedId]  = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting,     setDeleting]    = useState(false)
+  const videoRefs                       = useRef({})
 
   async function load() {
     try {
@@ -1624,99 +1708,178 @@ function MindsetTab({ getToken, isStaff }) {
     finally { setDeleting(false) }
   }
 
-  // Group videos by module_name for client view
-  const grouped = videos.reduce((acc, v) => {
+  // Published videos sorted by display_order (client view)
+  const publishedVideos = videos
+    .filter(v => v.published)
+    .sort((a, b) => (a.display_order ?? 999) - (b.display_order ?? 999))
+
+  // Progress summary
+  const completedCount = publishedVideos.filter(v => myProgress[v.id]?.completed).length
+  const totalCount     = publishedVideos.length
+  const progressPct    = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0
+
+  // Continue Watching: started-but-not-completed, highest pct first (most recent proxy)
+  const continueVideo = !isStaff
+    ? publishedVideos
+        .filter(v => myProgress[v.id]?.started && !myProgress[v.id]?.completed)
+        .sort((a, b) => (myProgress[b.id]?.highest_pct ?? 0) - (myProgress[a.id]?.highest_pct ?? 0))[0] ?? null
+    : null
+
+  // Start Here: first published uncompleted video when nothing is in progress
+  const startHereVideo = (!isStaff && !continueVideo)
+    ? publishedVideos.find(v => !myProgress[v.id]?.completed) ?? null
+    : null
+
+  const featuredVideo = continueVideo ?? startHereVideo
+
+  // Group published videos by module_name, order preserved from sort above
+  const grouped = publishedVideos.reduce((acc, v) => {
     const key = v.module_name || 'General'
     if (!acc[key]) acc[key] = []
     acc[key].push(v)
     return acc
   }, {})
 
+  function watchFeatured(videoId) {
+    setExpandedId(videoId)
+    setTimeout(() => {
+      videoRefs.current[videoId]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 80)
+  }
+
   return (
     <div className="max-w-2xl">
-      {/* Staff toolbar */}
+      {/* ── Staff view ──────────────────────────────────────────────────────── */}
       {isStaff && (
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
-          <div>
-            <h2 className="text-lg font-bold text-gray-900">Brain Mapping</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Manage videos visible to clients</p>
+        <>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">Brain Mapping</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Manage videos visible to clients</p>
+            </div>
+            <button
+              onClick={() => setModal('add')}
+              className="inline-flex items-center justify-center gap-2 bg-[#E8670A] text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-[#c45e09] transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              Add Video
+            </button>
           </div>
-          <button
-            onClick={() => setModal('add')}
-            className="inline-flex items-center justify-center gap-2 bg-[#E8670A] text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-[#c45e09] transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            Add Video
-          </button>
-        </div>
+
+          {loading && <p className="text-sm text-gray-400 text-center py-16">Loading…</p>}
+          {error   && <p className="text-sm text-red-500 text-center py-8">{error}</p>}
+
+          {!loading && !error && videos.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <p className="text-4xl mb-3">🧠</p>
+              <p className="text-sm font-semibold text-gray-700 mb-1">No videos yet</p>
+              <p className="text-sm text-gray-400">Add your first video with the button above.</p>
+            </div>
+          )}
+
+          {!loading && !error && videos.length > 0 && (
+            <div className="space-y-4">
+              {videos.map(v => (
+                <VideoCard
+                  key={v.id}
+                  video={v}
+                  isStaff
+                  onEdit={setModal}
+                  onDelete={setDeleteTarget}
+                  onTogglePublish={handleTogglePublish}
+                  expanded={expandedId === v.id}
+                  onToggleExpand={() => setExpandedId(expandedId === v.id ? null : v.id)}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
 
+      {/* ── Client view ─────────────────────────────────────────────────────── */}
       {!isStaff && (
-        <div className="mb-5">
-          <h2 className="text-lg font-bold text-gray-900">Brain Mapping</h2>
-          <p className="text-sm text-gray-500 mt-0.5">Foundational mindset work from your coaching team</p>
-        </div>
-      )}
-
-      {loading && <p className="text-sm text-gray-400 text-center py-16">Loading…</p>}
-      {error   && <p className="text-sm text-red-500 text-center py-8">{error}</p>}
-
-      {!loading && !error && videos.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <p className="text-4xl mb-3">🧠</p>
-          <p className="text-sm font-semibold text-gray-700 mb-1">No videos yet</p>
-          <p className="text-sm text-gray-400">
-            {isStaff ? 'Add your first video with the button above.' : 'Check back soon — content is on the way.'}
-          </p>
-        </div>
-      )}
-
-      {!loading && !error && videos.length > 0 && (
-        isStaff ? (
-          /* Staff: flat list with management controls */
-          <div className="space-y-4">
-            {videos.map(v => (
-              <VideoCard
-                key={v.id}
-                video={v}
-                isStaff
-                onEdit={setModal}
-                onDelete={setDeleteTarget}
-                onTogglePublish={handleTogglePublish}
-                expanded={expandedId === v.id}
-                onToggleExpand={() => setExpandedId(expandedId === v.id ? null : v.id)}
-              />
-            ))}
+        <>
+          {/* Page header */}
+          <div className="mb-5">
+            <h2 className="text-xl font-bold text-gray-900">Brain Mapping</h2>
+            <p className="text-sm text-gray-500 mt-0.5">Foundational mindset work from your coaching team.</p>
           </div>
-        ) : (
-          /* Client: grouped by module */
-          <div className="space-y-8">
-            {Object.entries(grouped).map(([module, mvids]) => (
-              <div key={module}>
-                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">{module}</h3>
-                <div className="space-y-4">
-                  {mvids.map(v => (
-                    <VideoCard
-                      key={v.id}
-                      video={v}
-                      isStaff={false}
-                      onEdit={() => {}}
-                      onDelete={() => {}}
-                      onTogglePublish={() => {}}
-                      expanded={expandedId === v.id}
-                      onToggleExpand={() => setExpandedId(expandedId === v.id ? null : v.id)}
-                      getToken={getToken}
-                      progress={myProgress[v.id] ?? null}
-                      onProgressSaved={handleProgressSaved}
+
+          {loading && <p className="text-sm text-gray-400 text-center py-16">Loading…</p>}
+          {error   && <p className="text-sm text-red-500 text-center py-8">{error}</p>}
+
+          {!loading && !error && publishedVideos.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <p className="text-4xl mb-3">🧠</p>
+              <p className="text-sm font-semibold text-gray-700 mb-1">No videos yet</p>
+              <p className="text-sm text-gray-400">Check back soon — content is on the way.</p>
+            </div>
+          )}
+
+          {!loading && !error && publishedVideos.length > 0 && (
+            <>
+              {/* Progress summary bar */}
+              {totalCount > 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 p-4 mb-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-gray-600">
+                      <span className="font-bold text-gray-900">{completedCount}</span>
+                      {' '}of{' '}
+                      <span className="font-bold text-gray-900">{totalCount}</span>
+                      {' '}completed
+                    </span>
+                    <span className="text-sm font-bold text-[#E8670A]">{progressPct}%</span>
+                  </div>
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-[#E8670A] rounded-full transition-all duration-500"
+                      style={{ width: `${progressPct}%` }}
                     />
-                  ))}
+                  </div>
                 </div>
+              )}
+
+              {/* Continue Watching / Start Here hero */}
+              {featuredVideo && (
+                <FeaturedVideoCard
+                  video={featuredVideo}
+                  progress={myProgress[featuredVideo.id] ?? null}
+                  label={continueVideo ? 'Continue Watching' : 'Start Here'}
+                  onWatch={() => watchFeatured(featuredVideo.id)}
+                />
+              )}
+
+              {/* Grouped video list */}
+              <div className="space-y-8">
+                {Object.entries(grouped).map(([module, mvids]) => (
+                  <div key={module}>
+                    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">{module}</h3>
+                    <div className="space-y-4">
+                      {mvids.map(v => (
+                        <div key={v.id} ref={el => { videoRefs.current[v.id] = el }}>
+                          <VideoCard
+                            video={v}
+                            isStaff={false}
+                            onEdit={() => {}}
+                            onDelete={() => {}}
+                            onTogglePublish={() => {}}
+                            expanded={expandedId === v.id}
+                            onToggleExpand={() => setExpandedId(expandedId === v.id ? null : v.id)}
+                            getToken={getToken}
+                            progress={myProgress[v.id] ?? null}
+                            onProgressSaved={handleProgressSaved}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )
+            </>
+          )}
+        </>
       )}
 
       {/* Add/Edit modal */}
