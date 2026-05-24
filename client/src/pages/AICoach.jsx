@@ -61,7 +61,15 @@ export default function AICoach() {
         body: JSON.stringify(userMessage ? { message: userMessage } : {}),
       })
 
-      if (!res.ok) throw new Error(`Server error ${res.status}`)
+      if (!res.ok) {
+        // Try to get a friendly error from the response body
+        let msg = `Server error ${res.status}`
+        try {
+          const body = await res.json()
+          if (body?.error) msg = body.error
+        } catch { /* ignore */ }
+        throw new Error(msg)
+      }
 
       const reader  = res.body.getReader()
       const decoder = new TextDecoder()
@@ -79,14 +87,19 @@ export default function AICoach() {
           if (!line.startsWith('data: ')) continue
           const raw = line.slice(6).trim()
           if (raw === '[DONE]') { setStreaming(false); return }
-          try {
-            const parsed = JSON.parse(raw)
-            if (parsed.error) throw new Error(parsed.error)
+
+          // Parse SSE chunk — separate JSON parse errors (skip) from API errors (throw)
+          let parsed
+          try { parsed = JSON.parse(raw) } catch { continue }
+
+          if (parsed.error) {
+            // Server sent an application-level error — surface it to the user
+            throw new Error(parsed.error)
+          }
+          if (parsed.text) {
             setMessages(prev =>
               prev.map(m => m.id === bubbleId ? { ...m, content: m.content + parsed.text } : m)
             )
-          } catch {
-            // skip malformed SSE chunk
           }
         }
       }
@@ -95,6 +108,9 @@ export default function AICoach() {
       setMessages(prev => prev.filter(m => m.id !== bubbleId))
     } finally {
       setStreaming(false)
+      // Remove any empty assistant bubble left behind by a stream that ended
+      // without producing text (e.g., connection dropped before [DONE])
+      setMessages(prev => prev.filter(m => !(m.id === bubbleId && !m.content)))
       inputRef.current?.focus()
     }
   }, [getToken])

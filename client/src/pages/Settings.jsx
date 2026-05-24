@@ -387,6 +387,10 @@ export default function Settings() {
   const [saving, setSaving]   = useState(false)
   const [saved,  setSaved]    = useState(false)
   const [error,  setError]    = useState(null)
+  const [prefForm, setPrefForm] = useState({ food_dislikes: '', food_allergies: '' })
+  const [prefSaving, setPrefSaving] = useState(false)
+  const [prefSaved,  setPrefSaved]  = useState(false)
+  const [prefError,  setPrefError]  = useState(null)
   const [nameSaving, setNameSaving] = useState(false)
   const [nameSaved,  setNameSaved]  = useState(false)
   const [nameError,  setNameError]  = useState(null)
@@ -454,6 +458,10 @@ export default function Settings() {
           activity_level: data.activity_level ?? '',
           gender:         data.gender         ?? '',
           phone_number:   data.phone_number   ?? '',
+        })
+        setPrefForm({
+          food_dislikes:  data.food_dislikes  ?? '',
+          food_allergies: data.food_allergies ?? '',
         })
 
         if (loadedProfile?.role === 'admin' || loadedProfile?.role === 'coach') {
@@ -638,6 +646,29 @@ export default function Settings() {
       setAError(err.message)
     } finally {
       setASaving(false)
+    }
+  }
+
+  async function savePreferences(e) {
+    e.preventDefault()
+    setPrefSaving(true); setPrefError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/users/me`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          food_dislikes:  prefForm.food_dislikes.trim()  || '',
+          food_allergies: prefForm.food_allergies.trim() || '',
+        }),
+      })
+      if (!res.ok) throw new Error('Failed to save')
+      setPrefSaved(true)
+      setTimeout(() => setPrefSaved(false), 2500)
+    } catch (err) {
+      setPrefError(err.message)
+    } finally {
+      setPrefSaving(false)
     }
   }
 
@@ -1307,6 +1338,48 @@ export default function Settings() {
                 </table>
               </div>
             )}
+          </div>
+
+          {/* Food Preferences */}
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">Food Preferences</h2>
+          <div className="bg-white rounded-xl border border-gray-200 p-5 mb-8">
+            <p className="text-xs text-gray-500 mb-4">
+              Katie uses these when building meal plans. Leave blank if you have none.
+            </p>
+            <form onSubmit={savePreferences} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Allergies &amp; intolerances
+                </label>
+                <textarea
+                  rows={2}
+                  value={prefForm.food_allergies}
+                  onChange={e => setPrefForm(f => ({ ...f, food_allergies: e.target.value }))}
+                  placeholder="e.g. dairy, gluten, tree nuts, shellfish"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Foods I dislike
+                </label>
+                <textarea
+                  rows={2}
+                  value={prefForm.food_dislikes}
+                  onChange={e => setPrefForm(f => ({ ...f, food_dislikes: e.target.value }))}
+                  placeholder="e.g. mushrooms, fish, Brussels sprouts"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]"
+                />
+              </div>
+              {prefError && <p className="text-xs text-red-500">{prefError}</p>}
+              <button
+                type="submit"
+                disabled={prefSaving}
+                className="w-full py-2.5 rounded-lg text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors disabled:opacity-60"
+              >
+                {prefSaved ? 'Saved!' : prefSaving ? 'Saving…' : 'Save Preferences'}
+              </button>
+            </form>
           </div>
 
           {/* Connected Apps */}

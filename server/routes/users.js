@@ -35,7 +35,7 @@ router.get('/me', requireAuth(), async (req, res, next) => {
               onboarding_complete, assessment_complete,
               goal_calories, goal_protein, goal_carbs, goal_fat, goal_fiber, goal_water,
               gender, phone_number, paid, role, coaching_type, coaching_type_source,
-              bloodwork_enabled
+              bloodwork_enabled, food_dislikes, food_allergies
        FROM users WHERE id = $1`,
       [dbUserId],
     )
@@ -109,7 +109,13 @@ router.patch('/me', requireAuth(), async (req, res, next) => {
       first_name, last_name, age, height_inches, starting_weight_lbs, goal_weight_lbs,
       activity_level, tried_before, why_joined,
       identity_anchors, onboarding_complete, gender, phone_number,
+      food_dislikes, food_allergies,
     } = req.body
+
+    // food_dislikes and food_allergies use explicit-flag pattern so an empty string
+    // can clear the field (COALESCE can't distinguish "not sent" from "send null").
+    const hasDislikes  = Object.hasOwn(req.body, 'food_dislikes')
+    const hasAllergies = Object.hasOwn(req.body, 'food_allergies')
 
     const { rows } = await pool.query(
       `UPDATE users SET
@@ -125,8 +131,10 @@ router.patch('/me', requireAuth(), async (req, res, next) => {
          identity_anchors    = COALESCE($10, identity_anchors),
          onboarding_complete = COALESCE($11, onboarding_complete),
          gender              = COALESCE($12, gender),
-         phone_number        = COALESCE($13, phone_number)
-       WHERE id = $14
+         phone_number        = COALESCE($13, phone_number),
+         food_dislikes  = CASE WHEN $14 THEN $15 ELSE food_dislikes  END,
+         food_allergies = CASE WHEN $16 THEN $17 ELSE food_allergies END
+       WHERE id = $18
        RETURNING *`,
       [
         first_name ?? null, last_name ?? null, age ?? null, height_inches ?? null,
@@ -134,6 +142,8 @@ router.patch('/me', requireAuth(), async (req, res, next) => {
         activity_level ?? null, tried_before ?? null, why_joined ?? null,
         identity_anchors ?? null, onboarding_complete ?? null,
         gender ?? null, phone_number ?? null,
+        hasDislikes,  food_dislikes  !== undefined ? (food_dislikes?.trim()  || null) : null,
+        hasAllergies, food_allergies !== undefined ? (food_allergies?.trim() || null) : null,
         dbUserId,
       ],
     )

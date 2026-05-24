@@ -220,10 +220,35 @@ const KATIE_MEAL_PLAN_ADDENDUM = `
 
 MEAL PLANNING GUIDELINES
 
-When a client asks for a meal plan, "what should I eat today," or any request for a full day of eating, use the following format. For simpler one-off requests (snack idea, protein option, quick meal), stay in your normal concise answer format.
+STEP 1 — CHECK BEFORE BUILDING A PLAN
+When a client requests a full meal plan or asks "what should I eat today":
+- Check the FOOD PREFERENCES section of her profile (Dislikes and Allergies / intolerances).
+- Check whether she has stated any constraint in her current message (e.g., "no dairy," "gluten-free," "no fish," "I hate mushrooms"). If she has, treat that as a confirmed constraint and proceed directly to building the plan.
+- If her profile shows "None listed" for both Dislikes and Allergies AND she has not stated any constraint, ask this question FIRST before building the plan:
+  "Absolutely. Before I build it, do you have any food allergies, intolerances, or foods you want me to avoid? You can say 'none' if there aren't any."
+  Then wait for her answer before generating the plan.
+- If she answers the allergy question (even with "none"), proceed to build the plan using her answer.
+- Do NOT ask again on follow-up messages in the same conversation if she has already answered.
 
-FULL-DAY MEAL PLAN FORMAT:
+STEP 2 — ALLERGY AND INTOLERANCE RULES (highest priority, override everything else)
+Allergies and intolerances always override recent foods, the Warrior Food List, and stated preferences.
+If a recent food from her log conflicts with a stated allergy or intolerance, ignore that food entirely.
 
+DAIRY-FREE (allergy, intolerance, or stated "no dairy"):
+- Do NOT suggest: Greek yogurt, whey protein powder, cottage cheese, regular milk, any cheese, cream, butter, cream cheese, sour cream, kefir, or any product containing dairy.
+- For "intolerance" (not allergy): lactose-free dairy is acceptable ONLY if she explicitly says lactose-free is fine for her.
+- Suggest instead: pea protein or rice protein powder, eggs, egg whites, chicken, turkey, tuna, salmon, almond milk, oat milk, coconut yogurt, dairy-free protein shakes.
+
+GLUTEN-FREE:
+- Avoid wheat, barley, rye, regular oats (unless certified GF).
+- Use rice, quinoa, sweet potato, certified gluten-free oats, and other whole food carbs.
+
+NUT ALLERGY:
+- Remove all nuts and nut butters. Use sunflower seeds or pumpkin seeds as fat sources.
+
+Apply the same override logic to any other stated allergy, intolerance, or strong dislike in this conversation or her profile.
+
+STEP 3 — FULL-DAY MEAL PLAN FORMAT
 Generate one day of meals with:
 - Breakfast: 2 options
 - Lunch: 2 options
@@ -233,19 +258,18 @@ Generate one day of meals with:
 For each option include:
 - Food name and rough serving size
 - Estimated calories and protein in parentheses, e.g. (~420 cal, ~38g protein)
-- One sentence of simple prep or assembly (optional if obvious)
+- One sentence of simple prep or assembly (only if not obvious)
 
-After the plan, always add this exact line on its own:
+End every meal plan with this exact line on its own:
 "Macros are estimates. Log what you eat and adjust as you go."
 
-MEAL PLANNING RULES:
+ADDITIONAL RULES:
 - Build from the Warrior Food List first. Add other whole foods as needed.
-- Always respect listed allergies and dislikes from the client profile. Never include a food she has flagged.
-- Target her stated calorie and protein goals. If goals are not set, default to 1,400-1,600 calories and 100-120g protein as a reasonable starting range.
-- Keep prep simple. Most clients are busy. Never list more than 3 prep steps.
+- Target her stated calorie and protein goals. If goals are not set, use 1,400-1,600 cal and 100-120g protein as a reasonable starting range.
+- Keep prep simple. Never list more than 3 prep steps per meal.
 - Do not tell her you will log the meals. Do not make medical claims. Do not reference lab values or prescribe supplements.
 - Offer a grocery list only if she specifically asks for one.
-- After delivering the plan, offer one brief coaching observation or one question, not a lecture.`
+- After the plan, add one brief coaching observation or question. Not a lecture.`
 
 // Appended for VIP (human-coached) clients only
 const KATIE_VIP_ADDENDUM = `
@@ -423,10 +447,33 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     }
 
     // Build Anthropic messages array.
-    // Anthropic requires the turn sequence to start with a user message.
-    // If history starts with an assistant message (Katie's opening), prepend a
-    // silent session-start user message so the alternating pattern holds.
-    let anthropicMessages = history.map(h => ({ role: h.role, content: h.message }))
+    // Anthropic requires the turn sequence to start with a user message and
+    // messages must strictly alternate roles.  Two edge cases to handle:
+    //   1. History starts with an assistant message (Katie's opening) → prepend a
+    //      silent [session start] user message.
+    //   2. A previous request failed after saving the user message but before
+    //      saving the assistant reply — leaving consecutive user messages in the
+    //      DB.  normalizeMessages() merges consecutive same-role messages so the
+    //      sequence is always valid before we send it to the API.
+    function normalizeMessages(msgs) {
+      const result = []
+      for (const msg of msgs) {
+        if (result.length > 0 && result[result.length - 1].role === msg.role) {
+          // Merge consecutive same-role messages with a newline separator
+          result[result.length - 1] = {
+            role:    msg.role,
+            content: result[result.length - 1].content + '\n' + msg.content,
+          }
+        } else {
+          result.push({ role: msg.role, content: msg.content })
+        }
+      }
+      return result
+    }
+
+    let anthropicMessages = normalizeMessages(
+      history.map(h => ({ role: h.role, content: h.message }))
+    )
 
     if (anthropicMessages.length > 0 && anthropicMessages[0].role === 'assistant') {
       anthropicMessages = [{ role: 'user', content: '[session start]' }, ...anthropicMessages]
@@ -503,7 +550,9 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     })
 
     stream.on('error', (err) => {
-      console.error('[coach stream error]', err.message)
+      // Log safe details only — no user data or secrets in log output
+      const safeMsg = err.message?.replace(/sk-[A-Za-z0-9_-]+/g, '[REDACTED]') ?? 'unknown error'
+      console.error('[coach stream error]', safeMsg, { userId: dbUserId, status: err.status })
       trackEvent({
         actorUserId: dbUserId,
         feature:     'katie_chat',
@@ -513,10 +562,15 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
         model:       'claude-sonnet-4-6',
         status:      'error',
         durationMs:  Date.now() - chatT0,
-        metadata:    { error: err.message },
+        metadata:    { error: safeMsg },
       })
       if (!res.writableEnded) {
-        res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`)
+        // Send a user-friendly error the client can display
+        const clientMsg = err.status === 429
+          ? 'Too many messages. Please wait a moment and try again.'
+          : 'Katie ran into a problem. Please try again.'
+        res.write(`data: ${JSON.stringify({ error: clientMsg })}\n\n`)
+        res.write('data: [DONE]\n\n')
         res.end()
       }
     })
