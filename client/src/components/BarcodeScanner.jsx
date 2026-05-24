@@ -11,6 +11,8 @@ export default function BarcodeScanner({ onScan, onCancel }) {
   const [ready, setReady] = useState(false)
   const [error, setError] = useState(null)
   const [retry, setRetry] = useState(0)
+  const [showManualEntry, setShowManualEntry] = useState(false)
+  const [manualCode, setManualCode] = useState('')
 
   useEffect(() => {
     onScanRef.current = onScan
@@ -129,6 +131,9 @@ export default function BarcodeScanner({ onScan, onCancel }) {
         controlsRef.current = controls
         startedRef.current = true
         clearTimeout(startTimer)
+        const v = videoRef.current
+        console.log('[BarcodeScanner] decode loop started — readyState:', v?.readyState,
+          'dimensions:', v?.videoWidth, 'x', v?.videoHeight)
         if (activeRef.current) setReady(true)
       } catch (err) {
         clearTimeout(startTimer)
@@ -145,6 +150,13 @@ export default function BarcodeScanner({ onScan, onCancel }) {
       try { controlsRef.current?.stop() } catch {}
     }
   }, [retry])
+
+  function handleManualSubmit(e) {
+    e.preventDefault()
+    const code = manualCode.trim()
+    if (!code) return
+    onScanRef.current(code)
+  }
 
   function retryCamera() {
     try { controlsRef.current?.stop() } catch {}
@@ -195,6 +207,9 @@ export default function BarcodeScanner({ onScan, onCancel }) {
           muted
           onCanPlay={() => {
             if (!activeRef.current) return
+            const v = videoRef.current
+            console.log('[BarcodeScanner] onCanPlay — readyState:', v?.readyState,
+              'dimensions:', v?.videoWidth, 'x', v?.videoHeight)
             startedRef.current = true
             setReady(true)
           }}
@@ -231,6 +246,35 @@ export default function BarcodeScanner({ onScan, onCancel }) {
       >
         Cancel
       </button>
+
+      {showManualEntry ? (
+        <form onSubmit={handleManualSubmit} className="flex gap-2">
+          <input
+            type="text"
+            inputMode="numeric"
+            value={manualCode}
+            onChange={e => setManualCode(e.target.value)}
+            placeholder="Enter barcode number…"
+            className="flex-1 border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+            autoFocus
+          />
+          <button
+            type="submit"
+            disabled={!manualCode.trim()}
+            className="px-4 py-2.5 rounded-xl text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] disabled:opacity-40 transition-colors shrink-0"
+          >
+            Search
+          </button>
+        </form>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowManualEntry(true)}
+          className="w-full text-center text-xs text-gray-400 hover:text-gray-600 transition-colors py-1"
+        >
+          Can't scan? Enter barcode manually
+        </button>
+      )}
     </div>
   )
 }

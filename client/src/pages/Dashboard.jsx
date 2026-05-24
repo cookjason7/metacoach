@@ -1044,7 +1044,13 @@ export default function Dashboard() {
         onAddWater={async (v) => {
           const current = Math.round(parseFloat(todayLog?.water_oz) || 0)
           const next = Math.max(0, current + v)
-          await saveTracker('water_oz', next)
+          // Optimistic update — show new value immediately, revert on error
+          setTodayLog(prev => ({ ...(prev ?? {}), water_oz: next }))
+          try {
+            await saveTracker('water_oz', next)
+          } catch {
+            setTodayLog(prev => ({ ...(prev ?? {}), water_oz: current }))
+          }
         }}
       />
 
