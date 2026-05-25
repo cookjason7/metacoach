@@ -28,7 +28,6 @@ export default function BarcodeScanner({ onScan, onCancel }) {
     console.log('[BarcodeScanner] starting camera, attempt', retry + 1,
       navigator?.userAgent?.slice(0, 100))
 
-    // Hint-map: focus on grocery/retail formats, try harder for blurry/low-res cameras
     const hints = new Map()
     hints.set(DecodeHintType.POSSIBLE_FORMATS, [
       BarcodeFormat.UPC_A,
@@ -42,15 +41,19 @@ export default function BarcodeScanner({ onScan, onCancel }) {
     hints.set(DecodeHintType.TRY_HARDER, true)
 
     const reader = new BrowserMultiFormatReader(hints)
-    // 20 s — some Android/iOS devices take 10-15 s to initialise the camera
-    // system on first use; the previous 10 s limit was too tight.
     const startTimer = setTimeout(() => {
       if (!activeRef.current || startedRef.current) return
       activeRef.current = false
-      console.error('[BarcodeScanner] camera start timeout (20 s) — no start signal received')
+      console.error('[BarcodeScanner] camera start timeout (20 s) - no start signal received')
       try { controlsRef.current?.stop() } catch {}
+      stopVideoStream()
       setError('The camera did not start. Try again, or use manual food search if your browser is blocking camera access.')
     }, 20000)
+
+    function stopVideoStream() {
+      const stream = videoRef.current?.srcObject
+      if (stream?.getTracks) stream.getTracks().forEach(track => track.stop())
+    }
 
     function setCameraError(err) {
       const name = err?.name ?? ''
@@ -66,78 +69,108 @@ export default function BarcodeScanner({ onScan, onCancel }) {
       }
     }
 
+    async function openStreamWithFallbacks() {
+      try {
+        return await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+        })
+      } catch (err) {
+        if (err?.name !== 'OverconstrainedError' && err?.name !== 'ConstraintNotSatisfiedError') throw err
+        console.warn('[BarcodeScanner] resolution constraints rejected, dropping to environment-only fallback:', err?.name)
+        try {
+          return await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        } catch {
+          console.warn('[BarcodeScanner] environment facingMode failed, falling back to { video: true }')
+          return navigator.mediaDevices.getUserMedia({ video: true })
+        }
+      }
+    }
+
+    async function waitForVideoDimensions(video) {
+      for (let i = 0; i < 80; i++) {
+        if (!activeRef.current) return false
+        const videoWidth = video?.videoWidth ?? 0
+        const videoHeight = video?.videoHeight ?? 0
+        if (i === 0 || i % 10 === 0) {
+          console.log('[BarcodeScanner] waiting for video dimensions', {
+            readyState: video?.readyState,
+            videoWidth,
+            videoHeight,
+          })
+        }
+        if (videoWidth > 0 && videoHeight > 0) return true
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+      return false
+    }
+
     async function start() {
       let decodeAttempts = 0
       const callback = (result, err, scanControls) => {
         if (!activeRef.current) return
+        const v = videoRef.current
         if (!result) {
           decodeAttempts++
-          // Log decode errors periodically to help diagnose scanning issues
-          if (decodeAttempts % 30 === 1 && err && err.name !== 'NotFoundException') {
-            console.warn('[BarcodeScanner] decode error (sample):', err?.name, err?.message)
+          if (decodeAttempts % 30 === 0) {
+            console.warn('[BarcodeScanner] decode miss/failure', {
+              frame: decodeAttempts,
+              error: err?.name,
+              message: err?.message,
+              readyState: v?.readyState,
+              videoWidth: v?.videoWidth,
+              videoHeight: v?.videoHeight,
+            })
           }
           return
         }
-        console.log('[BarcodeScanner] decoded:', result.getText(), result.getBarcodeFormat())
+        console.log('[BarcodeScanner] decoded, firing barcode lookup:', result.getText(), result.getBarcodeFormat())
         activeRef.current = false
         try { (scanControls ?? controlsRef.current)?.stop() } catch {}
+        stopVideoStream()
         onScanRef.current(result.getText())
       }
 
       try {
-        let controls
-        try {
-          // Attempt 1: rear camera + ideal resolution
-          controls = await reader.decodeFromConstraints(
-            {
-              video: {
-                facingMode: { ideal: 'environment' },
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-              },
-            },
-            videoRef.current,
-            callback,
-          )
-        } catch (err) {
-          if (err?.name !== 'OverconstrainedError' && err?.name !== 'ConstraintNotSatisfiedError') {
-            throw err
-          }
-          console.warn('[BarcodeScanner] resolution constraints rejected, dropping to environment-only fallback:', err?.name)
-          try {
-            // Attempt 2: rear camera, no resolution constraints
-            controls = await reader.decodeFromConstraints(
-              { video: { facingMode: 'environment' } },
-              videoRef.current,
-              callback,
-            )
-          } catch {
-            // Attempt 3: bare constraints — any available camera
-            // Handles tablets/devices where facingMode:'environment' hangs or errors
-            console.warn('[BarcodeScanner] environment facingMode failed, falling back to { video: true }')
-            controls = await reader.decodeFromConstraints(
-              { video: true },
-              videoRef.current,
-              callback,
-            )
-          }
+        const video = videoRef.current
+        if (!video) throw new Error('Scanner video element is not ready')
+        const stream = await openStreamWithFallbacks()
+        video.srcObject = stream
+        await video.play().catch(() => {})
+
+        const hasDimensions = await waitForVideoDimensions(video)
+        if (!hasDimensions) {
+          stopVideoStream()
+          throw new Error('Camera video did not become ready for scanning')
         }
 
         if (!activeRef.current) {
-          try { controls?.stop() } catch {}
+          stopVideoStream()
           return
         }
 
+        console.log('[BarcodeScanner] decode start', {
+          readyState: video.readyState,
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight,
+        })
+        const controls = await reader.decodeFromVideoElement(video, callback)
         controlsRef.current = controls
         startedRef.current = true
         clearTimeout(startTimer)
-        const v = videoRef.current
-        console.log('[BarcodeScanner] decode loop started — readyState:', v?.readyState,
-          'dimensions:', v?.videoWidth, 'x', v?.videoHeight)
+        console.log('[BarcodeScanner] decode loop started', {
+          readyState: video.readyState,
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight,
+        })
         if (activeRef.current) setReady(true)
       } catch (err) {
         clearTimeout(startTimer)
         if (!activeRef.current) return
+        stopVideoStream()
         setCameraError(err)
       }
     }
@@ -148,6 +181,7 @@ export default function BarcodeScanner({ onScan, onCancel }) {
       activeRef.current = false
       clearTimeout(startTimer)
       try { controlsRef.current?.stop() } catch {}
+      stopVideoStream()
     }
   }, [retry])
 
@@ -160,11 +194,9 @@ export default function BarcodeScanner({ onScan, onCancel }) {
 
   function retryCamera() {
     try { controlsRef.current?.stop() } catch {}
+    const stream = videoRef.current?.srcObject
+    if (stream?.getTracks) stream.getTracks().forEach(track => track.stop())
     controlsRef.current = null
-    // Clear error BEFORE incrementing retry so the <video> element is back
-    // in the DOM when the useEffect re-runs.  Without this, videoRef.current
-    // is null (error branch has no <video>) and decodeFromConstraints silently
-    // fails, triggering the timeout again every time.
     setError(null)
     setRetry(r => r + 1)
   }
@@ -208,10 +240,11 @@ export default function BarcodeScanner({ onScan, onCancel }) {
           onCanPlay={() => {
             if (!activeRef.current) return
             const v = videoRef.current
-            console.log('[BarcodeScanner] onCanPlay — readyState:', v?.readyState,
-              'dimensions:', v?.videoWidth, 'x', v?.videoHeight)
-            startedRef.current = true
-            setReady(true)
+            console.log('[BarcodeScanner] onCanPlay', {
+              readyState: v?.readyState,
+              videoWidth: v?.videoWidth,
+              videoHeight: v?.videoHeight,
+            })
           }}
           className="w-full min-h-[260px] block object-cover"
           style={{ maxHeight: '60vh' }}
@@ -254,7 +287,7 @@ export default function BarcodeScanner({ onScan, onCancel }) {
             inputMode="numeric"
             value={manualCode}
             onChange={e => setManualCode(e.target.value)}
-            placeholder="Enter barcode number…"
+            placeholder="Enter barcode number..."
             className="flex-1 border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
             autoFocus
           />

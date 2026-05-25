@@ -342,12 +342,12 @@ function FoundationRing({ label, value, goal, color, unit }) {
   )
 }
 
-function WomensHealthFoundation({ meals, waterOz, onAddWater }) {
+function WomensHealthFoundation({ meals, waterOz }) {
   const micros = calculateMicronutrientTotals(meals)
   const getMicro = (key) => micros.find(m => m.key === key)?.value ?? 0
 
   const rings = [
-    { label: 'Water',     value: waterOz ?? 0,             goal: 64,   unit: 'oz',  color: '#60A5FA' },
+    { label: 'Water',     value: parseFloat(waterOz) || 0, goal: 64,   unit: 'oz',  color: '#60A5FA' },
     { label: 'Calcium',   value: getMicro('calcium_mg'),    goal: 1200, unit: 'mg',  color: '#3B82F6' },
     { label: 'Vitamin D', value: getMicro('vitamin_d_mcg'), goal: 20,   unit: 'mcg', color: '#F59E0B' },
     { label: 'Iron',      value: getMicro('iron_mg'),       goal: 18,   unit: 'mg',  color: '#8B5CF6' },
@@ -369,26 +369,6 @@ function WomensHealthFoundation({ meals, waterOz, onAddWater }) {
       </div>
       <div className="grid grid-cols-4 gap-y-4 gap-x-2 mb-3">
         {rings.map(r => <FoundationRing key={r.label} {...r} />)}
-      </div>
-      <div className="pt-3 border-t border-gray-100">
-        <p className="text-[11px] text-gray-400 mb-2">Log water</p>
-        <div className="flex gap-2">
-          <button
-            onClick={() => onAddWater(-8)}
-            className="flex-1 py-2.5 rounded-xl text-xs font-bold border-2 border-gray-100 bg-gray-50 text-gray-500 hover:bg-gray-100 hover:border-gray-300 active:bg-gray-200 transition-colors min-h-[44px]"
-          >
-            −8 oz
-          </button>
-          {[8, 16, 24].map(oz => (
-            <button
-              key={oz}
-              onClick={() => onAddWater(oz)}
-              className="flex-1 py-2.5 rounded-xl text-xs font-bold border-2 border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:border-blue-300 active:bg-blue-200 transition-colors min-h-[44px]"
-            >
-              +{oz} oz
-            </button>
-          ))}
-        </div>
       </div>
     </div>
   )
@@ -895,6 +875,14 @@ export default function Dashboard() {
     return () => { cancelled = true }
   }, [getToken])
 
+  useEffect(() => {
+    function onDailyLogUpdated(event) {
+      if (event.detail) setTodayLog(event.detail)
+    }
+    window.addEventListener('daily-log-updated', onDailyLogUpdated)
+    return () => window.removeEventListener('daily-log-updated', onDailyLogUpdated)
+  }, [])
+
   async function saveTracker(field, value) {
     const token = await getToken()
     const res = await fetch(`${API_URL}/api/daily-logs`, {
@@ -1041,17 +1029,6 @@ export default function Dashboard() {
       <WomensHealthFoundation
         meals={mealRows}
         waterOz={todayLog?.water_oz}
-        onAddWater={async (v) => {
-          const current = Math.round(parseFloat(todayLog?.water_oz) || 0)
-          const next = Math.max(0, current + v)
-          // Optimistic update — show new value immediately, revert on error
-          setTodayLog(prev => ({ ...(prev ?? {}), water_oz: next }))
-          try {
-            await saveTracker('water_oz', next)
-          } catch {
-            setTodayLog(prev => ({ ...(prev ?? {}), water_oz: current }))
-          }
-        }}
       />
 
       {!loading && todayMeals?.meal_count === 0 && (

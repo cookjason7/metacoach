@@ -31,8 +31,20 @@ export async function processFormSchedules() {
         AND fa.status IN ('pending', 'active')
     `)
 
+    console.log(`[formScheduler] Found ${due.length} due assignment(s).`)
+
     if (due.length === 0) {
-      console.log('[formScheduler] No due assignments.')
+      const { rows: [summary] } = await pool.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE is_active = TRUE AND status IN ('pending', 'active'))::int AS active_pending,
+          MIN(next_send_at) FILTER (WHERE is_active = TRUE AND status IN ('pending', 'active')) AS next_due_at
+        FROM form_assignments
+        WHERE assignment_type IN ('scheduled', 'recurring')
+      `)
+      console.log('[formScheduler] No due assignments.', {
+        active_pending: summary?.active_pending ?? 0,
+        next_due_at: summary?.next_due_at ?? null,
+      })
       return 0
     }
 
@@ -93,7 +105,9 @@ export async function processFormSchedules() {
       const visibility  = thread_type === 'ai_admin' ? 'client_and_admin_only' : 'client_and_staff'
 
       const firstName   = client.first_name ?? 'there'
-      const messageBody = `Hey ${firstName}, please complete your ${fa.form_title} when you have a chance.`
+      const messageBody = /weekly\s+check[-\s]?in/i.test(fa.form_title ?? '')
+        ? 'Please complete your weekly check-in.'
+        : `Hey ${firstName}, please complete your ${fa.form_title}.`
       let submissionAssignmentId = fa.id
 
       if (fa.assignment_type === 'recurring') {

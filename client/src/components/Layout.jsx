@@ -28,6 +28,7 @@ const STAFF_NAV_ITEMS = [
 ]
 
 const SIDEBAR_BG = '#0F1E35'
+const BLOODWORK_CLIENT_ENABLED = import.meta.env.VITE_BLOODWORK_CLIENT_ENABLED === 'true'
 
 export default function Layout() {
   const { user, isLoaded } = useUser()
@@ -45,6 +46,7 @@ export default function Layout() {
   const [quickMenuOpen,       setQuickMenuOpen]       = useState(false)
   const [quickAction,         setQuickAction]         = useState(null)
   const [quickValue,          setQuickValue]          = useState('')
+  const [quickWaterMode,      setQuickWaterMode]      = useState('add')
   const [quickSaving,         setQuickSaving]         = useState(false)
   const [quickDone,           setQuickDone]           = useState(false)
   const [quickActivityType,   setQuickActivityType]   = useState('')
@@ -68,6 +70,7 @@ export default function Layout() {
     setQuickMenuOpen(true)
     setQuickAction(null)
     setQuickValue('')
+    setQuickWaterMode('add')
     setQuickDone(false)
     resetQuickExtras()
   }
@@ -76,11 +79,12 @@ export default function Layout() {
     setQuickMenuOpen(false)
     setQuickAction(null)
     setQuickValue('')
+    setQuickWaterMode('add')
     setQuickDone(false)
     resetQuickExtras()
   }
 
-  async function submitQuickLog() {
+  async function submitQuickLog(waterMode = quickWaterMode) {
     if (!quickValue || quickSaving) return
     setQuickSaving(true)
     try {
@@ -89,7 +93,9 @@ export default function Layout() {
       if (quickAction === 'water') {
         const todayRes = await fetch(`${API_URL}/api/daily-logs/today`, { headers: { Authorization: `Bearer ${token}` } })
         const today = todayRes.ok ? await todayRes.json() : {}
-        body.water_oz = (today.water_oz ?? 0) + Number(quickValue)
+        const currentWater = parseFloat(today.water_oz) || 0
+        const delta = Math.abs(parseFloat(quickValue) || 0)
+        body.water_oz = Math.max(0, waterMode === 'subtract' ? currentWater - delta : currentWater + delta)
       } else if (quickAction === 'weight') {
         body.weight_lbs = Number(quickValue)
       } else if (quickAction === 'steps') {
@@ -97,11 +103,14 @@ export default function Layout() {
       } else if (quickAction === 'sleep') {
         body.sleep_minutes = Math.round(Number(quickValue) * 60)
       }
-      await fetch(`${API_URL}/api/daily-logs`, {
+      const res = await fetch(`${API_URL}/api/daily-logs`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
+      if (!res.ok) throw new Error('Failed to save quick log')
+      const saved = res.ok ? await res.json().catch(() => null) : null
+      if (saved) window.dispatchEvent(new CustomEvent('daily-log-updated', { detail: saved }))
       setQuickDone(true)
       setTimeout(() => closeQuickMenu(), 1200)
     } catch {}
@@ -530,10 +539,18 @@ export default function Layout() {
                       { id: 'photo',    emoji: '📸', label: 'Progress Photo' },
                       { id: 'sleep',    emoji: '😴', label: 'Sleep'          },
                       { id: 'activity', emoji: '🏃', label: 'Activity'       },
+                      ...(BLOODWORK_CLIENT_ENABLED ? [{ id: 'bloodwork', emoji: 'Lab', label: 'Upload Bloodwork' }] : []),
                     ].map(({ id, emoji, label }) => (
                       <button
                         key={id}
-                        onClick={() => setQuickAction(id)}
+                        onClick={() => {
+                          if (id === 'bloodwork') {
+                            closeQuickMenu()
+                            navigate('/settings?section=bloodwork')
+                          } else {
+                            setQuickAction(id)
+                          }
+                        }}
                         className="flex flex-col items-center justify-center gap-2 bg-gray-50 hover:bg-[#fde8c8] active:bg-[#fcd9b0] rounded-2xl py-4 px-2 transition-colors min-h-[84px]"
                       >
                         <span className="text-2xl leading-none">{emoji}</span>
@@ -586,9 +603,9 @@ export default function Layout() {
                 {/* water */}
                 {quickAction === 'water' && (
                   <>
-                    <p className="text-sm text-gray-500 mb-3">How many oz to add today?</p>
-                    <div className="flex gap-2 mb-3">
-                      {['48', '64', '80'].map(oz => (
+                    <p className="text-sm text-gray-500 mb-3">Update today's water</p>
+                    <div className="grid grid-cols-3 gap-2 mb-3">
+                      {['8', '16', '24'].map(oz => (
                         <button
                           key={oz}
                           onClick={() => setQuickValue(oz)}
@@ -598,21 +615,35 @@ export default function Layout() {
                               : 'border-gray-200 text-gray-600 hover:border-[#E8670A]'
                           }`}
                         >
-                          {oz} oz
+                          +{oz} oz
                         </button>
                       ))}
                     </div>
                     <input
                       type="number"
+                      min="0"
+                      step="0.1"
                       value={quickValue}
                       onChange={e => setQuickValue(e.target.value)}
                       placeholder="Custom amount (oz)"
-                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-4"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-3"
                     />
-                    <button onClick={submitQuickLog} disabled={!quickValue || quickSaving}
-                      className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
-                      {quickSaving ? 'Saving…' : 'Log Water'}
-                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => { setQuickWaterMode('add'); submitQuickLog('add') }}
+                        disabled={!quickValue || quickSaving}
+                        className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors"
+                      >
+                        {quickSaving && quickWaterMode === 'add' ? 'Saving...' : 'Add'}
+                      </button>
+                      <button
+                        onClick={() => { setQuickWaterMode('subtract'); submitQuickLog('subtract') }}
+                        disabled={!quickValue || quickSaving}
+                        className="w-full border-2 border-gray-200 text-gray-600 font-bold py-3.5 rounded-2xl text-sm hover:border-gray-300 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                      >
+                        {quickSaving && quickWaterMode === 'subtract' ? 'Saving...' : 'Subtract'}
+                      </button>
+                    </div>
                   </>
                 )}
 
@@ -818,3 +849,6 @@ export default function Layout() {
     </div>
   )
 }
+
+
+

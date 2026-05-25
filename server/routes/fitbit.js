@@ -14,8 +14,10 @@ const SCOPES = [
 ].join(' ')
 
 function googleHealthConfig() {
-  const { GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_CLIENT_SECRET, GOOGLE_HEALTH_REDIRECT_URI } = process.env
-  if (!GOOGLE_HEALTH_CLIENT_ID || !GOOGLE_HEALTH_CLIENT_SECRET || !GOOGLE_HEALTH_REDIRECT_URI) {
+  const { GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_CLIENT_SECRET } = process.env
+  const GOOGLE_HEALTH_REDIRECT_URI = process.env.GOOGLE_HEALTH_REDIRECT_URI
+    || `${getAppBaseUrl().replace(/\/$/, '')}/api/fitbit/callback`
+  if (!GOOGLE_HEALTH_CLIENT_ID || !GOOGLE_HEALTH_CLIENT_SECRET) {
     const err = new Error('Google Health OAuth is not configured')
     err.status = 503
     throw err
@@ -49,6 +51,7 @@ async function currentDbUserId(req) {
 router.get('/connect', requireAuth(), async (req, res, next) => {
   try {
     const { GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_REDIRECT_URI } = googleHealthConfig()
+    console.log('[fitbit connect] redirect_uri:', GOOGLE_HEALTH_REDIRECT_URI)
     const dbUserId = await currentDbUserId(req)
     const state = crypto.randomBytes(32).toString('hex')
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
@@ -77,6 +80,7 @@ router.get('/connect', requireAuth(), async (req, res, next) => {
 router.get('/callback', async (req, res, next) => {
   try {
     const { GOOGLE_HEALTH_REDIRECT_URI } = googleHealthConfig()
+    console.log('[fitbit callback] token exchange redirect_uri:', GOOGLE_HEALTH_REDIRECT_URI)
     const { code, state, error, error_description } = req.query
     if (error) return redirectToSettingsError(res, error_description || error)
     if (!code || !state) return redirectToSettingsError(res, 'missing_authorization_code_or_state')

@@ -360,6 +360,7 @@ export default function Messages() {
                   )}
                   {messages.map(m => {
                     const isMe = m.sender_role === 'client'
+                    const isWeeklyCheckIn = /weekly\s+check[-\s]?in/i.test(m.metadata?.form_title ?? '')
                     return (
                       <div key={m.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-[88%] sm:max-w-[80%] rounded-2xl px-4 py-2 ${
@@ -380,7 +381,7 @@ export default function Messages() {
                               <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                               </svg>
-                              Complete Form →
+                              {isWeeklyCheckIn ? 'Open Check-In' : 'Complete Form'}
                             </a>
                           )}
                         </div>

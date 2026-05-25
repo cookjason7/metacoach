@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { useUser } from '@clerk/clerk-react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { API_URL } from '../config.js'
 import BloodworkIntakeForm from '../components/BloodworkIntakeForm.jsx'
 
@@ -376,6 +376,7 @@ function BloodworkSection({ getToken, profile }) {
 export default function Settings() {
   const { getToken }   = useAuth()
   const { user }       = useUser()
+  const location       = useLocation()
   const [profile, setProfile]             = useState(null)
   const [profileLoading, setProfileLoading] = useState(true)
   const [profileError, setProfileError]   = useState(null)
@@ -427,6 +428,8 @@ export default function Settings() {
   const [mSaved,  setMSaved]  = useState(false)
   const [mError,  setMError]  = useState(null)
   const [editingMeasurementId, setEditingMeasurementId] = useState(null)
+  const [measurementsOpen, setMeasurementsOpen] = useState(false)
+  const [bloodworkOpen, setBloodworkOpen] = useState(false)
   const [fitbitStatus, setFitbitStatus] = useState({ connected: false, last_synced_at: null, fitbit_user_id: null })
   const [fitbitLoading, setFitbitLoading] = useState(false)
   const [fitbitSyncing, setFitbitSyncing] = useState(false)
@@ -434,6 +437,11 @@ export default function Settings() {
   const [fitbitError, setFitbitError] = useState('')
 
   const email = user?.primaryEmailAddress?.emailAddress ?? ''
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    if (params.get('section') === 'bloodwork' && BLOODWORK_CLIENT_ENABLED) setBloodworkOpen(true)
+  }, [location.search])
 
   useEffect(() => {
     let cancelled = false
@@ -1263,15 +1271,35 @@ export default function Settings() {
           </div>
 
           {BLOODWORK_CLIENT_ENABLED && (
-            <>
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">Bloodwork</h2>
-              <BloodworkSection getToken={getToken} profile={profile} />
-            </>
+            <div className="bg-white rounded-xl border border-gray-200 mb-8 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setBloodworkOpen(open => !open)}
+                className="w-full flex items-center justify-between gap-3 px-5 py-4 text-left"
+              >
+                <span className="text-sm font-semibold text-gray-700">Bloodwork</span>
+                <span className="text-lg leading-none text-gray-400">{bloodworkOpen ? '-' : '+'}</span>
+              </button>
+              {bloodworkOpen && (
+                <div className="border-t border-gray-100 p-5">
+                  <BloodworkSection getToken={getToken} profile={profile} />
+                </div>
+              )}
+            </div>
           )}
 
           {/* Measurements */}
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">Measurements</h2>
-          <div className="bg-white rounded-xl border border-gray-200 p-4 mb-8">
+          <div className="bg-white rounded-xl border border-gray-200 mb-8 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setMeasurementsOpen(open => !open)}
+              className="w-full flex items-center justify-between gap-3 px-5 py-4 text-left"
+            >
+              <span className="text-sm font-semibold text-gray-700">Measurements</span>
+              <span className="text-lg leading-none text-gray-400">{measurementsOpen ? '-' : '+'}</span>
+            </button>
+            {measurementsOpen && (
+              <div className="border-t border-gray-100 p-4">
             <p className="text-sm text-gray-500 mb-4">Track chest, waist, and hip measurements over time.</p>
             <form onSubmit={saveMeasurement} className="space-y-3 mb-5">
               <div>
@@ -1336,6 +1364,8 @@ export default function Settings() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
               </div>
             )}
           </div>
@@ -1506,4 +1536,3 @@ export default function Settings() {
     </div>
   )
 }
-

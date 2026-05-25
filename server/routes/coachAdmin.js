@@ -2219,6 +2219,15 @@ router.patch('/form-submissions/:submissionId/note', requireAuth(), async (req, 
 // POST /api/coach-admin/forms/:id/send
 // Body: { client_ids: [1, 2, 3] }
 // Creates a form_assignment and an in-app message for each accessible client.
+function isWeeklyCheckInForm(title = '') {
+  return /weekly\s+check[-\s]?in/i.test(title)
+}
+
+function formMessageBody(firstName, title) {
+  if (isWeeklyCheckInForm(title)) return 'Please complete your weekly check-in.'
+  return `Hey ${firstName}, please complete your ${title}.`
+}
+
 router.post('/forms/:id/send', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireStaff(req, res); if (!ctx) return
@@ -2282,7 +2291,7 @@ router.post('/forms/:id/send', requireAuth(), async (req, res, next) => {
         : 'client_and_staff'
 
       const firstName = client.first_name ?? 'there'
-      const messageBody = `Hey ${firstName}, please complete your ${tpl.title} when you have a chance.`
+      const messageBody = formMessageBody(firstName, tpl.title)
       const metadata = { form_id: templateId, assignment_id: assignment.id, form_title: tpl.title }
 
       await pool.query(`
@@ -2381,6 +2390,16 @@ router.post('/forms/:id/schedule', requireAuth(), async (req, res, next) => {
         VALUES ($1, $2, $3, $4, $5::jsonb, TRUE, $6, $7, $8)
         RETURNING id
       `, [templateId, clientId, ctx.dbUserId, nextSendAt, recurringRuleJson, send_mode, status, nextSendAt])
+
+      console.log('[formSchedule] created assignment', {
+        assignment_id: assignment.id,
+        template_id: templateId,
+        client_id: clientId,
+        assignment_type: send_mode,
+        status,
+        is_active: true,
+        next_send_at: nextSendAt?.toISOString?.() ?? nextSendAt,
+      })
 
       scheduled.push({ client_id: clientId, assignment_id: assignment.id })
     }
