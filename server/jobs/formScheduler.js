@@ -100,6 +100,13 @@ export async function processFormSchedules() {
           form_status: fa.form_status,
           current_version_id: fa.current_version_id,
         })
+        if (fa.assignment_type === 'scheduled') {
+          await pool.query(
+            `UPDATE form_assignments SET status = 'cancelled', is_active = FALSE WHERE id = $1`,
+            [fa.id],
+          )
+          console.log(`[formScheduler] Assignment ${fa.id} cancelled — form not published`)
+        }
         continue
       }
 
@@ -177,7 +184,13 @@ export async function processFormSchedules() {
           window_start_utc: windowStartUtc.toISOString(),
           window_end_utc: windowEndUtc.toISOString(),
         })
-        if (fa.assignment_type === 'recurring') {
+        if (fa.assignment_type === 'scheduled') {
+          await pool.query(
+            `UPDATE form_assignments SET status = 'completed', is_active = FALSE WHERE id = $1`,
+            [fa.id],
+          )
+          console.log(`[formScheduler] Assignment ${fa.id} completed — duplicate already delivered`)
+        } else if (fa.assignment_type === 'recurring') {
           const rule = fa.recurring_rule
           const nextSend = computeNextSendAt(rule.day_of_week, rule.hour, rule.minute ?? 0, new Date(), rule.timezone_offset_minutes)
           await pool.query(`UPDATE form_assignments SET next_send_at = $1 WHERE id = $2`, [nextSend, fa.id])

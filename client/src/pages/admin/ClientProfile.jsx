@@ -2357,12 +2357,17 @@ function FormSendSection({ clientId, getToken }) {
       }
       const data = await res.json()
       if (res.ok) {
-        const msg = sendMode === 'now'
-          ? 'Form sent successfully.'
-          : sendMode === 'scheduled'
-            ? 'Form scheduled successfully.'
-            : 'Recurring form scheduled successfully.'
-        setResult({ ok: true, msg })
+        if (sendMode === 'now' && (data.sent ?? 1) === 0) {
+          const reason = data.skipped_list?.[0]?.reason ?? 'Form could not be delivered to this client.'
+          setResult({ ok: false, msg: reason })
+        } else {
+          const msg = sendMode === 'now'
+            ? `Form sent to ${data.sent ?? 1} client(s).`
+            : sendMode === 'scheduled'
+              ? 'Form scheduled successfully.'
+              : 'Recurring form scheduled successfully.'
+          setResult({ ok: true, msg })
+        }
       }
       else setResult({ ok: false, msg: data.error ?? 'Failed to send form.' })
     } catch (err) { setResult({ ok: false, msg: err.message || 'Failed to send form.' }) }

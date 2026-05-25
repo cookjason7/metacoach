@@ -1829,6 +1829,7 @@ export default function CoachDashboard({ getToken, userRole }) {
                       <th className="text-left px-4 py-3 font-semibold">Type</th>
                       <th className="text-left px-4 py-3 font-semibold">Coach</th>
                       <th className="text-left px-3 py-3 font-semibold">Last Activity</th>
+                      <th className="text-left px-3 py-3 font-semibold">Check-In</th>
                       <th className="text-center px-3 py-3 font-semibold">7d</th>
                       <th className="text-center px-3 py-3 font-semibold">30d</th>
                       <th className="text-left px-3 py-3 font-semibold">Momentum</th>
@@ -1858,6 +1859,12 @@ export default function CoachDashboard({ getToken, userRole }) {
                               Last check-in {daysSince(c.last_checkin_at) === 0 ? 'today' : `${daysSince(c.last_checkin_at)}d ago`}
                             </span>
                           )}
+                        </td>
+                        <td className="px-3 py-3">
+                          {c.check_in_this_week
+                            ? <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">✓ Check-in</span>
+                            : <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-bold text-gray-400">No check-in</span>
+                          }
                         </td>
                         <td className={`px-3 py-3 text-center font-bold ${adherenceColor(c.adherence_7d)}`}>
                           {Math.round(Number(c.adherence_7d) || 0)}%
@@ -1906,6 +1913,10 @@ export default function CoachDashboard({ getToken, userRole }) {
                       </span>
                       {c.assigned_coach_name && <span className="text-gray-500">Coach: {c.assigned_coach_name}</span>}
                       <span className="text-gray-400">{formatActivity(c)}</span>
+                      {c.check_in_this_week
+                        ? <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-bold text-emerald-700">✓ Check-in</span>
+                        : <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 font-bold text-gray-400">No check-in</span>
+                      }
                     </div>
                     <div className="flex gap-4 text-xs">
                       <div><span className="text-gray-400">7d </span><span className={`font-bold ${adherenceColor(c.adherence_7d)}`}>{Math.round(Number(c.adherence_7d) || 0)}%</span></div>

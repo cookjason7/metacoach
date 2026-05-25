@@ -129,6 +129,11 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
         (SELECT email      FROM users WHERE id = u.assigned_coach_id) AS assigned_coach_email,
         (SELECT MAX(logged_at) FROM meals WHERE user_id = u.id) AS last_meal_at,
         (SELECT MAX(submitted_at) FROM form_submissions WHERE user_id = u.id) AS last_checkin_at,
+        (SELECT COUNT(*) FROM form_submissions fs2
+         JOIN form_templates ft2 ON ft2.id = fs2.template_id
+         WHERE fs2.user_id = u.id
+           AND fs2.submitted_at >= NOW() - INTERVAL '8 days'
+           AND ft2.title ILIKE '%check%in%') > 0 AS check_in_this_week,
         COALESCE((
           SELECT AVG(completion_percentage)::numeric(5,1)
           FROM habit_completions hc
@@ -205,6 +210,7 @@ router.get('/dashboard-summary', requireAuth(), async (req, res, next) => {
         JOIN form_templates ft ON ft.id = fs.template_id
         LEFT JOIN form_assignments fa ON fa.id = fs.assignment_id
         WHERE fs.reviewed_at IS NULL
+          AND ft.title ILIKE '%check%in%'
         ORDER BY fs.submitted_at DESC
         LIMIT 8
       `, params),
