@@ -2294,11 +2294,21 @@ router.post('/forms/:id/send', requireAuth(), async (req, res, next) => {
       const messageBody = formMessageBody(firstName, tpl.title)
       const metadata = { form_id: templateId, assignment_id: assignment.id, form_title: tpl.title }
 
-      await pool.query(`
+      const { rows: [message] } = await pool.query(`
         INSERT INTO client_messages
           (client_id, sender_id, sender_role, message_body, thread_type, visibility, metadata)
         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+        RETURNING id, metadata
       `, [clientId, ctx.dbUserId, ctx.role, messageBody, thread_type, visibility, JSON.stringify(metadata)])
+
+      console.log('[formSend] message inserted', {
+        message_id: message.id,
+        client_id: clientId,
+        template_id: templateId,
+        assignment_id: assignment.id,
+        thread_type,
+        has_form_metadata: Boolean(message.metadata?.form_id && message.metadata?.assignment_id),
+      })
 
       sent.push({ client_id: clientId, assignment_id: assignment.id })
     }

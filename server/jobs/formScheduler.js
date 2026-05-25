@@ -27,6 +27,7 @@ export async function processFormSchedules() {
       FROM form_assignments fa
       JOIN form_templates ft ON ft.id = fa.template_id
       WHERE fa.is_active = TRUE
+        AND fa.assignment_type IN ('scheduled', 'recurring')
         AND fa.next_send_at <= NOW()
         AND fa.status IN ('pending', 'active')
     `)
@@ -64,7 +65,11 @@ export async function processFormSchedules() {
       }
 
       if (fa.form_status !== 'published' || !fa.current_version_id) {
-        console.log(`[formScheduler] Skipping assignment ${fa.id} — form not published`)
+        console.log(`[formScheduler] Skipping assignment ${fa.id} — form not published`, {
+          template_id: fa.template_id,
+          form_status: fa.form_status,
+          current_version_id: fa.current_version_id,
+        })
         continue
       }
 
@@ -99,7 +104,12 @@ export async function processFormSchedules() {
         'SELECT id, first_name, coaching_type FROM users WHERE id = $1',
         [fa.client_id],
       )
-      if (!client) continue
+      if (!client) {
+        console.log(`[formScheduler] Skipping assignment ${fa.id} — client not found`, {
+          client_id: fa.client_id,
+        })
+        continue
+      }
 
       const thread_type = client.coaching_type === 'ai' ? 'ai_admin' : 'coach_thread'
       const visibility  = thread_type === 'ai_admin' ? 'client_and_admin_only' : 'client_and_staff'
@@ -119,6 +129,12 @@ export async function processFormSchedules() {
           RETURNING id
         `, [fa.template_id, fa.client_id, fa.assigned_by, fa.id])
         submissionAssignmentId = occurrence.id
+        console.log('[formScheduler] recurring occurrence assignment created', {
+          parent_assignment_id: fa.id,
+          assignment_id: submissionAssignmentId,
+          client_id: fa.client_id,
+          template_id: fa.template_id,
+        })
       }
 
       const metadata = {
@@ -127,11 +143,21 @@ export async function processFormSchedules() {
         form_title:    fa.form_title,
       }
 
-      await pool.query(`
+      const { rows: [message] } = await pool.query(`
         INSERT INTO client_messages
           (client_id, sender_id, sender_role, message_body, thread_type, visibility, metadata)
         VALUES ($1, $2, 'admin', $3, $4, $5, $6::jsonb)
+        RETURNING id, metadata
       `, [fa.client_id, fa.assigned_by, messageBody, thread_type, visibility, JSON.stringify(metadata)])
+      console.log('[formScheduler] message inserted', {
+        message_id: message.id,
+        schedule_assignment_id: fa.id,
+        assignment_id: submissionAssignmentId,
+        client_id: fa.client_id,
+        template_id: fa.template_id,
+        thread_type,
+        has_form_metadata: Boolean(message.metadata?.form_id && message.metadata?.assignment_id),
+      })
 
       if (fa.assignment_type === 'recurring') {
         const rule     = fa.recurring_rule

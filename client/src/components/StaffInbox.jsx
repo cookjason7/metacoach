@@ -35,6 +35,18 @@ function fmtFull(iso) {
 }
 
 // Team tab is hidden from staff UI — thread data still exists, just not shown as a tab.
+function parseMessageMetadata(metadata) {
+  if (!metadata) return {}
+  if (typeof metadata === 'object') return metadata
+  if (typeof metadata !== 'string') return {}
+  try {
+    const parsed = JSON.parse(metadata)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
 const STAFF_THREAD_LABELS = {
   coach_thread:  'Coach',
   admin_private: 'Jason',
@@ -388,6 +400,7 @@ export default function StaffInbox({ getToken }) {
               )}
               {messages.map(m => {
                 const isStaff = m.sender_role === 'admin' || m.sender_role === 'coach'
+                const metadata = parseMessageMetadata(m.metadata)
                 return (
                   <div key={m.id} className={`flex ${isStaff ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[80%] rounded-2xl px-4 py-2 ${
@@ -400,16 +413,13 @@ export default function StaffInbox({ getToken }) {
                       {m.image_url && (
                         <img src={m.image_url} alt="attachment" className="max-w-[240px] rounded-lg mt-1 cursor-pointer" onClick={() => window.open(m.image_url, '_blank')} />
                       )}
-                      {m.metadata?.form_id && (
-                        <a
-                          href={`/forms/${m.metadata.form_id}/fill?preview=1`}
-                          className="mt-2 flex items-center gap-1.5 bg-white/20 hover:bg-white/30 border border-white/30 rounded-lg px-3 py-2 text-xs font-bold transition-colors"
-                        >
+                      {metadata.form_id && (
+                        <div className="mt-2 flex items-center gap-1.5 bg-white/20 border border-white/30 rounded-lg px-3 py-2 text-xs font-bold">
                           <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                           </svg>
-                          View Form (Preview)
-                        </a>
+                          Form attached: {metadata.form_title ?? 'Form'}
+                        </div>
                       )}
                       {isStaff && (
                         <p className="text-[9px] opacity-60 text-right mt-0.5">

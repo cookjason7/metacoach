@@ -44,6 +44,18 @@ function fmtShort(iso) {
   return dateStr
 }
 
+function parseMessageMetadata(metadata) {
+  if (!metadata) return {}
+  if (typeof metadata === 'object') return metadata
+  if (typeof metadata !== 'string') return {}
+  try {
+    const parsed = JSON.parse(metadata)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
 export default function Messages() {
   const { getToken } = useAuth()
   const [isStaff,     setIsStaff]     = useState(null) // null = loading
@@ -360,7 +372,11 @@ export default function Messages() {
                   )}
                   {messages.map(m => {
                     const isMe = m.sender_role === 'client'
-                    const isWeeklyCheckIn = /weekly\s+check[-\s]?in/i.test(m.metadata?.form_title ?? '')
+                    const metadata = parseMessageMetadata(m.metadata)
+                    const isWeeklyCheckIn = /weekly\s+check[-\s]?in/i.test(metadata.form_title ?? '')
+                    const formHref = metadata.form_id
+                      ? `/forms/${metadata.form_id}/fill${metadata.assignment_id ? `?assignment_id=${metadata.assignment_id}` : ''}`
+                      : null
                     return (
                       <div key={m.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-[88%] sm:max-w-[80%] rounded-2xl px-4 py-2 ${
@@ -373,9 +389,9 @@ export default function Messages() {
                           {m.image_url && (
                             <img src={m.image_url} alt="attachment" className="max-w-[240px] rounded-lg mt-1 cursor-pointer" onClick={() => window.open(m.image_url, '_blank')} />
                           )}
-                          {!isMe && m.metadata?.form_id && (
+                          {!isMe && formHref && (
                             <a
-                              href={`/forms/${m.metadata.form_id}/fill?assignment_id=${m.metadata.assignment_id}`}
+                              href={formHref}
                               className="mt-2 flex items-center gap-1.5 bg-[#E8670A] hover:bg-[#c45e09] rounded-lg px-3 py-2 text-xs font-bold text-white transition-colors"
                             >
                               <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">

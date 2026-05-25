@@ -136,6 +136,7 @@ migrate()
       runInactivityAlert()
       setInterval(runInactivityAlert, 24 * 60 * 60 * 1000)
       // Run form schedule processor at startup, then every hour
+      console.log('[formScheduler] Scheduler started; running at startup and every 60 minutes')
       processFormSchedules()
       setInterval(processFormSchedules, 60 * 60 * 1000)
       // Postgres backup: daily (job_lock prevents duplicate runs across instances)
