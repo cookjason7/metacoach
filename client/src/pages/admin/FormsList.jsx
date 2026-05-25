@@ -7,6 +7,36 @@ import { API_URL } from '../../config.js'
 
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
+function localDateInputValue(date = new Date()) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+function localTimeInputValue(date = new Date()) {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+function timezonePayload(selectedLocalTime) {
+  return {
+    selected_local_time: selectedLocalTime,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    timezone_offset_minutes: new Date().getTimezoneOffset(),
+  }
+}
+
+function formatRecurringSummary(rule = {}) {
+  const day = DAY_LABELS[rule.day_of_week] ?? 'selected day'
+  const hour = Number(rule.hour ?? 9)
+  const minute = Number(rule.minute ?? 0)
+  const display = new Date(2000, 0, 2, hour, minute).toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+  return `Weekly on ${day} at ${display}`
+}
+
 // ── Send / Schedule Modal ─────────────────────────────────────────────────────
 
 function SendModal({ form, getToken, onClose, onScheduled }) {
@@ -25,6 +55,7 @@ function SendModal({ form, getToken, onClose, onScheduled }) {
   // recurring mode
   const [recurDay,  setRecurDay]  = useState(1)
   const [recurTime, setRecurTime] = useState('09:00')
+  const [recurEndDate, setRecurEndDate] = useState('')
 
   useEffect(() => {
     async function load() {
@@ -67,11 +98,17 @@ function SendModal({ form, getToken, onClose, onScheduled }) {
         setResult({ mode: 'now', ...data })
       } else if (sendMode === 'scheduled') {
         if (!schedDate || !schedTime) throw new Error('Please pick a date and time.')
+        const selectedLocal = `${schedDate} ${schedTime}`
         const send_at = new Date(`${schedDate}T${schedTime}:00`).toISOString()
         const res = await fetch(`${API_URL}/api/coach-admin/forms/${form.id}/schedule`, {
           method:  'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ client_ids: [...selected], send_mode: 'scheduled', send_at }),
+          body:    JSON.stringify({
+            client_ids: [...selected],
+            send_mode: 'scheduled',
+            send_at,
+            ...timezonePayload(selectedLocal),
+          }),
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.error ?? 'Schedule failed')
@@ -88,7 +125,9 @@ function SendModal({ form, getToken, onClose, onScheduled }) {
               day_of_week: recurDay,
               hour:        parseInt(recurTime.split(':')[0], 10),
               minute:      parseInt(recurTime.split(':')[1], 10),
+              end_date:    recurEndDate || null,
             },
+            ...timezonePayload(`${DAY_LABELS[recurDay]} ${recurTime}`),
           }),
         })
         const data = await res.json()
@@ -222,7 +261,7 @@ function SendModal({ form, getToken, onClose, onScheduled }) {
                   <input
                     type="date"
                     value={schedDate}
-                    min={new Date().toISOString().slice(0, 10)}
+                    min={localDateInputValue()}
                     onChange={e => setSchedDate(e.target.value)}
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
                   />
@@ -260,6 +299,16 @@ function SendModal({ form, getToken, onClose, onScheduled }) {
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
                   />
                 </div>
+                <div className="col-span-2">
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">End Date (optional)</label>
+                  <input
+                    type="date"
+                    value={recurEndDate}
+                    min={localDateInputValue()}
+                    onChange={e => setRecurEndDate(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                  />
+                </div>
               </div>
             )}
 
@@ -267,10 +316,13 @@ function SendModal({ form, getToken, onClose, onScheduled }) {
               <p className="text-xs text-gray-400 mb-4">An in-app message with a form link will be sent to each selected client.</p>
             )}
             {sendMode === 'scheduled' && (
-              <p className="text-xs text-gray-400 mb-4">Form will be delivered as an in-app message at the selected date and time.</p>
+              <p className="text-xs text-gray-400 mb-4">Form will be delivered as an in-app message at the selected date and time in your browser timezone.</p>
             )}
             {sendMode === 'recurring' && (
-              <p className="text-xs text-gray-400 mb-4">Form will be sent every week on {DAY_LABELS[recurDay]} at {recurTime}. You can pause or cancel below.</p>
+              <p className="text-xs text-gray-400 mb-4">
+                Form will be sent every week on {DAY_LABELS[recurDay]} at {recurTime}
+                {recurEndDate ? ` through ${recurEndDate}` : ''}. You can pause or cancel below.
+              </p>
             )}
 
             <div className="flex gap-3">
@@ -300,10 +352,8 @@ function EditScheduleModal({ schedule, getToken, onClose, onSaved }) {
 
   // scheduled fields — prefill from next_send_at
   const prefillDt = schedule.next_send_at ? new Date(schedule.next_send_at) : new Date()
-  const [schedDate, setSchedDate] = useState(prefillDt.toISOString().slice(0, 10))
-  const [schedTime, setSchedTime] = useState(
-    String(prefillDt.getHours()).padStart(2, '0') + ':' + String(prefillDt.getMinutes()).padStart(2, '0')
-  )
+  const [schedDate, setSchedDate] = useState(localDateInputValue(prefillDt))
+  const [schedTime, setSchedTime] = useState(localTimeInputValue(prefillDt))
 
   // recurring fields — prefill from recurring_rule
   const rule = schedule.recurring_rule ?? {}
@@ -311,6 +361,7 @@ function EditScheduleModal({ schedule, getToken, onClose, onSaved }) {
   const [recurTime, setRecurTime] = useState(
     String(rule.hour ?? 9).padStart(2, '0') + ':' + String(rule.minute ?? 0).padStart(2, '0')
   )
+  const [recurEndDate, setRecurEndDate] = useState(rule.end_date ?? '')
 
   const [saving, setSaving] = useState(false)
   const [err,    setErr]    = useState(null)
@@ -326,11 +377,17 @@ function EditScheduleModal({ schedule, getToken, onClose, onSaved }) {
             day_of_week: recurDay,
             hour:        parseInt(recurTime.split(':')[0], 10),
             minute:      parseInt(recurTime.split(':')[1], 10),
+            end_date:    recurEndDate || null,
           },
+          ...timezonePayload(`${DAY_LABELS[recurDay]} ${recurTime}`),
         }
       } else {
         if (!schedDate || !schedTime) throw new Error('Please pick a date and time.')
-        body = { send_at: new Date(`${schedDate}T${schedTime}:00`).toISOString() }
+        const selectedLocal = `${schedDate} ${schedTime}`
+        body = {
+          send_at: new Date(`${schedDate}T${schedTime}:00`).toISOString(),
+          ...timezonePayload(selectedLocal),
+        }
       }
       const res = await fetch(`${API_URL}/api/coach-admin/form-schedules/${schedule.id}`, {
         method:  'PATCH',
@@ -386,6 +443,16 @@ function EditScheduleModal({ schedule, getToken, onClose, onSaved }) {
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
               />
             </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-semibold text-gray-500 mb-1">End Date (optional)</label>
+              <input
+                type="date"
+                value={recurEndDate}
+                min={localDateInputValue()}
+                onChange={e => setRecurEndDate(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+              />
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 mb-5">
@@ -394,7 +461,7 @@ function EditScheduleModal({ schedule, getToken, onClose, onSaved }) {
               <input
                 type="date"
                 value={schedDate}
-                min={new Date().toISOString().slice(0, 10)}
+                min={localDateInputValue()}
                 onChange={e => setSchedDate(e.target.value)}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
               />
@@ -440,6 +507,10 @@ function fmtDt(iso) {
   return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 
+function fmtScheduleEndDate(date) {
+  if (!date) return '-'
+  return new Date(`${date}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
 function scheduleTypeLabel(type) {
   if (type === 'scheduled') return 'Scheduled'
   if (type === 'recurring') return 'Recurring'
@@ -508,12 +579,13 @@ function ScheduledSends({ getToken, refreshKey }) {
     pending:   'bg-blue-50 text-blue-700 border-blue-200',
     active:    'bg-emerald-50 text-emerald-700 border-emerald-200',
     sent:      'bg-gray-100 text-gray-500 border-gray-200',
+    completed: 'bg-gray-100 text-gray-500 border-gray-200',
     paused:    'bg-amber-50 text-amber-700 border-amber-200',
     cancelled: 'bg-red-50 text-red-500 border-red-200',
   }
 
   const active = rows.filter(r => ['pending', 'active', 'paused'].includes(r.status))
-  const past   = rows.filter(r => ['sent', 'cancelled'].includes(r.status))
+  const past   = rows.filter(r => ['sent', 'cancelled', 'completed'].includes(r.status))
 
   return (
     <section className="mt-10">
@@ -544,9 +616,11 @@ function ScheduledSends({ getToken, refreshKey }) {
                     <th className="text-left px-5 py-2.5 font-semibold">Form</th>
                     <th className="text-left px-4 py-2.5 font-semibold">Client</th>
                     <th className="text-left px-4 py-2.5 font-semibold">Type</th>
+                    <th className="text-left px-4 py-2.5 font-semibold">Recurring</th>
                     <th className="text-left px-4 py-2.5 font-semibold">Status</th>
                     <th className="text-left px-4 py-2.5 font-semibold">Next Send</th>
                     <th className="text-left px-4 py-2.5 font-semibold">Last Sent</th>
+                    <th className="text-left px-4 py-2.5 font-semibold">End</th>
                     <th className="text-right px-4 py-2.5 font-semibold">Actions</th>
                   </tr>
                 </thead>
@@ -558,6 +632,9 @@ function ScheduledSends({ getToken, refreshKey }) {
                       <td className="px-4 py-3">
                         <span className="text-xs font-semibold text-gray-500">{scheduleTypeLabel(r.assignment_type)}</span>
                       </td>
+                      <td className="px-4 py-3 text-xs text-gray-500">
+                        {r.assignment_type === 'recurring' ? formatRecurringSummary(r.recurring_rule) : '-'}
+                      </td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${STATUS_COLORS[r.status] ?? STATUS_COLORS.active}`}>
                           {r.status}
@@ -565,6 +642,7 @@ function ScheduledSends({ getToken, refreshKey }) {
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-500">{fmtDt(r.next_send_at)}</td>
                       <td className="px-4 py-3 text-xs text-gray-500">{fmtDt(r.last_sent_at || r.sent_at)}</td>
+                      <td className="px-4 py-3 text-xs text-gray-500">{fmtScheduleEndDate(r.recurring_rule?.end_date)}</td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
                         {r.assignment_type === 'recurring' && r.status === 'active' && (
                           <button
@@ -616,6 +694,12 @@ function ScheduledSends({ getToken, refreshKey }) {
                       </span>
                     </div>
                     <p className="text-xs text-gray-500 mb-1">{clientName(r)} · {scheduleTypeLabel(r.assignment_type)}</p>
+                    {r.assignment_type === 'recurring' && (
+                      <p className="text-xs text-gray-400 mb-2">
+                        {formatRecurringSummary(r.recurring_rule)}
+                        {r.recurring_rule?.end_date ? ` · Ends ${fmtScheduleEndDate(r.recurring_rule.end_date)}` : ''}
+                      </p>
+                    )}
                     <p className="text-xs text-gray-400 mb-2">Next: {fmtDt(r.next_send_at)}</p>
                     <p className="text-xs text-gray-400 mb-2">Last sent: {fmtDt(r.last_sent_at || r.sent_at)}</p>
                     <div className="flex gap-3">
@@ -1154,3 +1238,5 @@ export default function FormsList() {
     </div>
   )
 }
+
+

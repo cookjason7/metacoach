@@ -2324,8 +2324,21 @@ router.post('/forms/:id/send', requireAuth(), async (req, res, next) => {
 
 // ─── Form Scheduling ──────────────────────────────────────────────────────────
 
-// Helper: next occurrence of dayOfWeek/hour/minute after `after`
-function computeNextSendAt(dayOfWeek, hour, minute = 0, after = new Date()) {
+// Helper: next occurrence of dayOfWeek/hour/minute after `after`.
+// timezoneOffsetMinutes follows browser Date#getTimezoneOffset().
+function computeNextSendAt(dayOfWeek, hour, minute = 0, after = new Date(), timezoneOffsetMinutes = null) {
+  if (Number.isFinite(Number(timezoneOffsetMinutes))) {
+    const offsetMs = Number(timezoneOffsetMinutes) * 60 * 1000
+    const localNow = new Date(after.getTime() - offsetMs)
+    const localTarget = new Date(localNow)
+    localTarget.setUTCHours(hour, minute, 0, 0)
+    const currentDay = localTarget.getUTCDay()
+    let daysUntil = (dayOfWeek - currentDay + 7) % 7
+    if (daysUntil === 0 && localTarget <= localNow) daysUntil = 7
+    localTarget.setUTCDate(localTarget.getUTCDate() + daysUntil)
+    return new Date(localTarget.getTime() + offsetMs)
+  }
+
   const dt = new Date(after)
   dt.setHours(hour, minute, 0, 0)
   const currentDay = dt.getDay()
@@ -2342,7 +2355,7 @@ router.post('/forms/:id/schedule', requireAuth(), async (req, res, next) => {
     const ctx = await requireStaff(req, res); if (!ctx) return
 
     const templateId = parseInt(req.params.id, 10)
-    const { client_ids, send_mode, send_at, recurring_rule } = req.body
+    const { client_ids, send_mode, send_at, recurring_rule, selected_local_time, timezone, timezone_offset_minutes } = req.body
 
     if (!Array.isArray(client_ids) || client_ids.length === 0)
       return res.status(400).json({ error: 'client_ids must be a non-empty array.' })
@@ -2386,11 +2399,68 @@ router.post('/forms/:id/schedule', requireAuth(), async (req, res, next) => {
       if (send_mode === 'scheduled') {
         nextSendAt = new Date(send_at)
         status     = 'pending'
+        console.log('[formSchedule] scheduled local to UTC', {
+          selected_local_time: selected_local_time ?? null,
+          timezone: timezone ?? null,
+          timezone_offset_minutes: timezone_offset_minutes ?? null,
+          stored_utc: nextSendAt.toISOString(),
+          display_time: nextSendAt.toLocaleString('en-US', { timeZone: timezone || undefined }),
+        })
       } else {
-        const rule    = recurring_rule
-        nextSendAt    = computeNextSendAt(rule.day_of_week, rule.hour, rule.minute ?? 0)
+        const rule    = {
+          ...recurring_rule,
+          timezone: timezone ?? recurring_rule.timezone ?? null,
+          timezone_offset_minutes: timezone_offset_minutes ?? recurring_rule.timezone_offset_minutes ?? null,
+          end_date: recurring_rule.end_date || null,
+        }
+        nextSendAt    = computeNextSendAt(rule.day_of_week, rule.hour, rule.minute ?? 0, new Date(), rule.timezone_offset_minutes)
         recurringRuleJson = JSON.stringify(rule)
         status        = 'active'
+        console.log('[formSchedule] recurring local to UTC', {
+          selected_local_time: selected_local_time ?? `day ${rule.day_of_week} ${String(rule.hour).padStart(2, '0')}:${String(rule.minute ?? 0).padStart(2, '0')}`,
+          timezone: rule.timezone,
+          timezone_offset_minutes: rule.timezone_offset_minutes,
+          end_date: rule.end_date,
+          stored_utc: nextSendAt.toISOString(),
+          display_time: nextSendAt.toLocaleString('en-US', { timeZone: rule.timezone || undefined }),
+        })
+      }
+
+      const { rows: existingScheduleRows } = await pool.query(`
+        SELECT id FROM form_assignments
+        WHERE template_id = $1
+          AND client_id = $2
+          AND assignment_type = $3
+          AND status IN ('pending', 'active')
+          AND is_active = TRUE
+          AND (
+            ($3 = 'scheduled' AND ABS(EXTRACT(EPOCH FROM (next_send_at - $4::timestamptz))) < 60)
+            OR
+            ($3 = 'recurring'
+              AND (recurring_rule->>'day_of_week')::int = $5
+              AND (recurring_rule->>'hour')::int = $6
+              AND COALESCE((recurring_rule->>'minute')::int, 0) = $7)
+          )
+        LIMIT 1
+      `, [
+        templateId,
+        clientId,
+        send_mode,
+        nextSendAt,
+        recurring_rule?.day_of_week ?? null,
+        recurring_rule?.hour ?? null,
+        recurring_rule?.minute ?? 0,
+      ])
+      if (existingScheduleRows.length > 0) {
+        console.log('[formSchedule] skipped duplicate active schedule', {
+          existing_assignment_id: existingScheduleRows[0].id,
+          template_id: templateId,
+          client_id: clientId,
+          assignment_type: send_mode,
+          next_send_at: nextSendAt?.toISOString?.() ?? nextSendAt,
+        })
+        skipped.push({ client_id: clientId, reason: 'Duplicate active schedule already exists' })
+        continue
       }
 
       const { rows: [assignment] } = await pool.query(`
@@ -2522,7 +2592,7 @@ router.patch('/form-schedules/:id/resume', requireAuth(), async (req, res, next)
     if (fa.status !== 'paused') return res.status(400).json({ error: 'Only paused recurring schedules can be resumed.' })
 
     const rule     = fa.recurring_rule
-    const nextSend = computeNextSendAt(rule.day_of_week, rule.hour, rule.minute ?? 0)
+    const nextSend = computeNextSendAt(rule.day_of_week, rule.hour, rule.minute ?? 0, new Date(), rule.timezone_offset_minutes)
 
     const { rows: [updated] } = await pool.query(
       `UPDATE form_assignments SET status = 'active', is_active = TRUE, next_send_at = $1 WHERE id = $2 RETURNING *`,
@@ -2549,11 +2619,19 @@ router.patch('/form-schedules/:id', requireAuth(), async (req, res, next) => {
       if (fa.status !== 'pending')
         return res.status(400).json({ error: 'Only pending scheduled sends can be edited.' })
 
-      const { send_at } = req.body
+      const { send_at, selected_local_time, timezone, timezone_offset_minutes } = req.body
       if (!send_at) return res.status(400).json({ error: 'send_at is required.' })
       const dt = new Date(send_at)
       if (isNaN(dt.getTime())) return res.status(400).json({ error: 'send_at is not a valid date.' })
       if (dt <= new Date()) return res.status(400).json({ error: 'send_at must be in the future.' })
+      console.log('[formSchedule] edit scheduled local to UTC', {
+        assignment_id: id,
+        selected_local_time: selected_local_time ?? null,
+        timezone: timezone ?? null,
+        timezone_offset_minutes: timezone_offset_minutes ?? null,
+        stored_utc: dt.toISOString(),
+        display_time: dt.toLocaleString('en-US', { timeZone: timezone || undefined }),
+      })
 
       const { rows: [updated] } = await pool.query(
         `UPDATE form_assignments SET send_at = $1, next_send_at = $1 WHERE id = $2 RETURNING *`,
@@ -2566,14 +2644,29 @@ router.patch('/form-schedules/:id', requireAuth(), async (req, res, next) => {
       if (!['active', 'paused'].includes(fa.status))
         return res.status(400).json({ error: 'Only active or paused recurring schedules can be edited.' })
 
-      const { recurring_rule } = req.body
+      const { recurring_rule, selected_local_time, timezone, timezone_offset_minutes } = req.body
       if (!recurring_rule || recurring_rule.day_of_week == null || recurring_rule.hour == null)
         return res.status(400).json({ error: 'recurring_rule with day_of_week and hour is required.' })
 
-      const nextSend = computeNextSendAt(recurring_rule.day_of_week, recurring_rule.hour, recurring_rule.minute ?? 0)
+      const rule = {
+        ...recurring_rule,
+        timezone: timezone ?? recurring_rule.timezone ?? null,
+        timezone_offset_minutes: timezone_offset_minutes ?? recurring_rule.timezone_offset_minutes ?? null,
+        end_date: recurring_rule.end_date || null,
+      }
+      const nextSend = computeNextSendAt(rule.day_of_week, rule.hour, rule.minute ?? 0, new Date(), rule.timezone_offset_minutes)
+      console.log('[formSchedule] edit recurring local to UTC', {
+        assignment_id: id,
+        selected_local_time: selected_local_time ?? null,
+        timezone: rule.timezone,
+        timezone_offset_minutes: rule.timezone_offset_minutes,
+        end_date: rule.end_date,
+        stored_utc: nextSend.toISOString(),
+        display_time: nextSend.toLocaleString('en-US', { timeZone: rule.timezone || undefined }),
+      })
       const { rows: [updated] } = await pool.query(
         `UPDATE form_assignments SET recurring_rule = $1::jsonb, next_send_at = $2 WHERE id = $3 RETURNING *`,
-        [JSON.stringify(recurring_rule), nextSend, id],
+        [JSON.stringify(rule), nextSend, id],
       )
       return res.json(updated)
     }

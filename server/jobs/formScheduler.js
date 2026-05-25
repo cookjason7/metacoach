@@ -2,7 +2,19 @@ import { pool } from '../db.js'
 import { acquireJobLock, releaseJobLock } from './jobLock.js'
 
 // Returns the next Date when dayOfWeek/hour/minute fires, starting after `after`.
-export function computeNextSendAt(dayOfWeek, hour, minute = 0, after = new Date()) {
+export function computeNextSendAt(dayOfWeek, hour, minute = 0, after = new Date(), timezoneOffsetMinutes = null) {
+  if (Number.isFinite(Number(timezoneOffsetMinutes))) {
+    const offsetMs = Number(timezoneOffsetMinutes) * 60 * 1000
+    const localNow = new Date(after.getTime() - offsetMs)
+    const localTarget = new Date(localNow)
+    localTarget.setUTCHours(hour, minute, 0, 0)
+    const currentDay = localTarget.getUTCDay()
+    let daysUntil = (dayOfWeek - currentDay + 7) % 7
+    if (daysUntil === 0 && localTarget <= localNow) daysUntil = 7
+    localTarget.setUTCDate(localTarget.getUTCDate() + daysUntil)
+    return new Date(localTarget.getTime() + offsetMs)
+  }
+
   const dt = new Date(after)
   dt.setHours(hour, minute, 0, 0)
   const currentDay = dt.getDay()
@@ -52,12 +64,30 @@ export async function processFormSchedules() {
     let sent = 0
 
     for (const fa of due) {
+      const ruleForEndDate = fa.recurring_rule ?? {}
+      if (fa.assignment_type === 'recurring' && ruleForEndDate.end_date) {
+        const offsetMs = Number(ruleForEndDate.timezone_offset_minutes ?? 0) * 60 * 1000
+        const localNow = new Date(Date.now() - offsetMs)
+        const todayLocal = localNow.toISOString().slice(0, 10)
+        if (todayLocal > ruleForEndDate.end_date) {
+          await pool.query(
+            `UPDATE form_assignments SET status = 'completed', is_active = FALSE WHERE id = $1`,
+            [fa.id],
+          )
+          console.log(`[formScheduler] Assignment ${fa.id} completed — recurring end date reached`, {
+            end_date: ruleForEndDate.end_date,
+            today_local: todayLocal,
+          })
+          continue
+        }
+      }
+
       // Recurring dedup: if last_sent_at within 6 days, just advance next_send_at and skip
       if (fa.assignment_type === 'recurring' && fa.last_sent_at) {
         const msSinceLast = Date.now() - new Date(fa.last_sent_at).getTime()
         if (msSinceLast < 6 * 24 * 60 * 60 * 1000) {
           const rule = fa.recurring_rule
-          const nextSend = computeNextSendAt(rule.day_of_week, rule.hour, rule.minute ?? 0, new Date(fa.last_sent_at))
+          const nextSend = computeNextSendAt(rule.day_of_week, rule.hour, rule.minute ?? 0, new Date(fa.last_sent_at), rule.timezone_offset_minutes)
           await pool.query('UPDATE form_assignments SET next_send_at = $1 WHERE id = $2', [nextSend, fa.id])
           console.log(`[formScheduler] Assignment ${fa.id} sent recently — advancing next_send_at`)
           continue
@@ -119,6 +149,41 @@ export async function processFormSchedules() {
         ? 'Please complete your weekly check-in.'
         : `Hey ${firstName}, please complete your ${fa.form_title}.`
       let submissionAssignmentId = fa.id
+      const ruleForWindow = fa.recurring_rule ?? {}
+      const offsetMs = Number(ruleForWindow.timezone_offset_minutes ?? 0) * 60 * 1000
+      const dueLocal = new Date(new Date(fa.next_send_at ?? Date.now()).getTime() - offsetMs)
+      const windowStartLocal = new Date(dueLocal)
+      windowStartLocal.setUTCHours(0, 0, 0, 0)
+      const windowEndLocal = new Date(windowStartLocal)
+      windowEndLocal.setUTCDate(windowEndLocal.getUTCDate() + 1)
+      const windowStartUtc = new Date(windowStartLocal.getTime() + offsetMs)
+      const windowEndUtc = new Date(windowEndLocal.getTime() + offsetMs)
+
+      const { rows: duplicateWindowMessages } = await pool.query(
+        `SELECT id FROM client_messages
+         WHERE client_id = $1
+           AND metadata->>'form_id' = $2
+           AND created_at >= $3
+           AND created_at < $4
+         LIMIT 1`,
+        [fa.client_id, String(fa.template_id), windowStartUtc, windowEndUtc],
+      )
+      if (duplicateWindowMessages.length > 0) {
+        console.log('[formScheduler] Skipping duplicate form delivery in date window', {
+          existing_message_id: duplicateWindowMessages[0].id,
+          schedule_assignment_id: fa.id,
+          client_id: fa.client_id,
+          template_id: fa.template_id,
+          window_start_utc: windowStartUtc.toISOString(),
+          window_end_utc: windowEndUtc.toISOString(),
+        })
+        if (fa.assignment_type === 'recurring') {
+          const rule = fa.recurring_rule
+          const nextSend = computeNextSendAt(rule.day_of_week, rule.hour, rule.minute ?? 0, new Date(), rule.timezone_offset_minutes)
+          await pool.query(`UPDATE form_assignments SET next_send_at = $1 WHERE id = $2`, [nextSend, fa.id])
+        }
+        continue
+      }
 
       if (fa.assignment_type === 'recurring') {
         const { rows: [occurrence] } = await pool.query(`
@@ -143,6 +208,20 @@ export async function processFormSchedules() {
         form_title:    fa.form_title,
       }
 
+      const { rows: existingMessages } = await pool.query(
+        `SELECT id FROM client_messages
+         WHERE client_id = $1
+           AND metadata->>'assignment_id' = $2
+         LIMIT 1`,
+        [fa.client_id, String(submissionAssignmentId)],
+      )
+      if (existingMessages.length > 0) {
+        console.log('[formScheduler] Skipping duplicate message insert', {
+          existing_message_id: existingMessages[0].id,
+          assignment_id: submissionAssignmentId,
+          schedule_assignment_id: fa.id,
+        })
+      } else {
       const { rows: [message] } = await pool.query(`
         INSERT INTO client_messages
           (client_id, sender_id, sender_role, message_body, thread_type, visibility, metadata)
@@ -158,10 +237,11 @@ export async function processFormSchedules() {
         thread_type,
         has_form_metadata: Boolean(message.metadata?.form_id && message.metadata?.assignment_id),
       })
+      }
 
       if (fa.assignment_type === 'recurring') {
         const rule     = fa.recurring_rule
-        const nextSend = computeNextSendAt(rule.day_of_week, rule.hour, rule.minute ?? 0)
+        const nextSend = computeNextSendAt(rule.day_of_week, rule.hour, rule.minute ?? 0, new Date(), rule.timezone_offset_minutes)
         await pool.query(
           `UPDATE form_assignments SET next_send_at = $1 WHERE id = $2`,
           [nextSend, fa.id],

@@ -2273,8 +2273,28 @@ function FormSendSection({ clientId, getToken }) {
   const [templates, setTemplates] = useState([])
   const [tplLoading, setTplLoading] = useState(true)
   const [selectedId, setSelectedId] = useState('')
+  const [sendMode, setSendMode] = useState('now')
   const [sending, setSending] = useState(false)
   const [result, setResult] = useState(null) // { ok: bool, msg: string }
+  const [schedDate, setSchedDate] = useState('')
+  const [schedTime, setSchedTime] = useState('09:00')
+  const [recurDay, setRecurDay] = useState(1)
+  const [recurTime, setRecurTime] = useState('09:00')
+  const [recurEndDate, setRecurEndDate] = useState('')
+
+  const dayLabels = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+  const todayLocal = (() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  })()
+
+  function timezonePayload(selectedLocalTime) {
+    return {
+      selected_local_time: selectedLocalTime,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      timezone_offset_minutes: new Date().getTimezoneOffset(),
+    }
+  }
 
   useEffect(() => {
     async function load() {
@@ -2299,15 +2319,53 @@ function FormSendSection({ clientId, getToken }) {
     setSending(true); setResult(null)
     try {
       const token = await getToken()
-      const res = await fetch(`${API_URL}/api/coach-admin/forms/${selectedId}/send`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_ids: [clientId] }),
-      })
+      let res
+      if (sendMode === 'now') {
+        res = await fetch(`${API_URL}/api/coach-admin/forms/${selectedId}/send`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client_ids: [clientId] }),
+        })
+      } else if (sendMode === 'scheduled') {
+        if (!schedDate || !schedTime) throw new Error('Please pick a date and time.')
+        res = await fetch(`${API_URL}/api/coach-admin/forms/${selectedId}/schedule`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            client_ids: [clientId],
+            send_mode: 'scheduled',
+            send_at: new Date(`${schedDate}T${schedTime}:00`).toISOString(),
+            ...timezonePayload(`${schedDate} ${schedTime}`),
+          }),
+        })
+      } else {
+        res = await fetch(`${API_URL}/api/coach-admin/forms/${selectedId}/schedule`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            client_ids: [clientId],
+            send_mode: 'recurring',
+            recurring_rule: {
+              day_of_week: recurDay,
+              hour: parseInt(recurTime.split(':')[0], 10),
+              minute: parseInt(recurTime.split(':')[1], 10),
+              end_date: recurEndDate || null,
+            },
+            ...timezonePayload(`${dayLabels[recurDay]} ${recurTime}`),
+          }),
+        })
+      }
       const data = await res.json()
-      if (res.ok) setResult({ ok: true, msg: 'Form sent successfully.' })
+      if (res.ok) {
+        const msg = sendMode === 'now'
+          ? 'Form sent successfully.'
+          : sendMode === 'scheduled'
+            ? 'Form scheduled successfully.'
+            : 'Recurring form scheduled successfully.'
+        setResult({ ok: true, msg })
+      }
       else setResult({ ok: false, msg: data.error ?? 'Failed to send form.' })
-    } catch { setResult({ ok: false, msg: 'Failed to send form.' }) }
+    } catch (err) { setResult({ ok: false, msg: err.message || 'Failed to send form.' }) }
     finally { setSending(false) }
   }
 
@@ -2317,6 +2375,24 @@ function FormSendSection({ clientId, getToken }) {
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4">
       <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider mb-3">Send Form</p>
+      <div className="flex gap-1 mb-4 bg-gray-100 rounded-xl p-1">
+        {[
+          ['now', 'Send Now'],
+          ['scheduled', 'Schedule'],
+          ['recurring', 'Recurring'],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => { setSendMode(value); setResult(null) }}
+            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-colors ${
+              sendMode === value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex-1 min-w-[160px]">
           <label className="block text-xs font-medium text-gray-600 mb-1">Form template</label>
@@ -2333,9 +2409,44 @@ function FormSendSection({ clientId, getToken }) {
           onClick={sendForm}
           disabled={sending || !selectedId}
           className="bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 min-h-[40px]">
-          {sending ? 'Sending…' : 'Send'}
+          {sending ? 'Working…' : sendMode === 'now' ? 'Send Now' : sendMode === 'scheduled' ? 'Schedule' : 'Set Recurring'}
         </button>
       </div>
+      {sendMode === 'scheduled' && (
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
+            <input type="date" value={schedDate} min={todayLocal} onChange={e => setSchedDate(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Time</label>
+            <input type="time" value={schedTime} onChange={e => setSchedTime(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+          </div>
+        </div>
+      )}
+      {sendMode === 'recurring' && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Day</label>
+            <select value={recurDay} onChange={e => setRecurDay(parseInt(e.target.value, 10))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+              {dayLabels.map((d, i) => <option key={d} value={i}>{d}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Time</label>
+            <input type="time" value={recurTime} onChange={e => setRecurTime(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">End Date (optional)</label>
+            <input type="date" value={recurEndDate} min={todayLocal} onChange={e => setRecurEndDate(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+          </div>
+        </div>
+      )}
       {result && (
         <p className={`text-xs mt-2 ${result.ok ? 'text-emerald-600' : 'text-red-500'}`}>{result.msg}</p>
       )}
@@ -4054,4 +4165,3 @@ export default function ClientProfile() {
     </div>
   )
 }
-

@@ -418,7 +418,10 @@ export default function StaffInbox({ getToken }) {
                           <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                           </svg>
-                          Form attached: {metadata.form_title ?? 'Form'}
+                          <span>
+                            Form attached: {metadata.form_title ?? 'Form'}
+                            <span className="block text-[10px] font-semibold opacity-80">Client sees: Open Check-In</span>
+                          </span>
                         </div>
                       )}
                       {isStaff && (
