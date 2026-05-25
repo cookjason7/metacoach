@@ -30,6 +30,7 @@ import FormBuilder from './pages/admin/FormBuilder'
 import FormFill from './pages/FormFill'
 import Terms from './pages/Terms'
 import Privacy from './pages/Privacy'
+import About from './pages/About'
 import Progress from './pages/Progress'
 import { API_URL } from './config.js'
 
@@ -151,6 +152,9 @@ export default function App() {
       <Routes>
         <Route path="/sign-in/*"  element={<SignInPage />} />
         <Route path="/sign-up/*"  element={<SignUpPage />} />
+        <Route path="/about"              element={<About />} />
+        <Route path="/terms"              element={<Terms />} />
+        <Route path="/privacy"            element={<Privacy />} />
         <Route path="/onboarding"         element={<OnboardingRoute />} />
         <Route path="/payment"            element={<PaymentRoute />} />
         <Route path="/health-assessment"  element={<HealthAssessmentRoute />} />
@@ -179,8 +183,6 @@ export default function App() {
           <Route path="/admin/forms"         element={<FormsList />} />
           <Route path="/admin/forms/:id/edit" element={<FormBuilder />} />
           <Route path="/admin/usage"         element={<UsageAnalytics />} />
-          <Route path="/terms"   element={<Terms />} />
-          <Route path="/privacy" element={<Privacy />} />
         </Route>
       </Routes>
     </BrowserRouter>
