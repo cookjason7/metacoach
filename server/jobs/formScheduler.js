@@ -25,7 +25,7 @@ export function computeNextSendAt(dayOfWeek, hour, minute = 0, after = new Date(
 }
 
 export async function processFormSchedules() {
-  const locked = await acquireJobLock('form_scheduler', 3000000)
+  const locked = await acquireJobLock('form_scheduler', 240000)
   if (!locked) {
     console.log('[formScheduler] Lock held by another instance — skipping')
     return 0

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 
 export default function Privacy() {
   return (
+    <div className="min-h-screen bg-white py-8 px-4 sm:px-6">
     <div className="w-full max-w-2xl mx-auto pb-10">
       <Link to="/settings" className="text-sm text-[#E8670A] hover:text-[#c45e09] mb-6 inline-block">
         ← Back to Settings
@@ -9,12 +10,6 @@ export default function Privacy() {
 
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Privacy Policy</h1>
       <p className="text-sm text-gray-500 mb-4">Last updated: May 2025</p>
-
-      <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-8">
-        <p className="text-xs text-amber-700 font-medium">
-          Placeholder — this content should be reviewed by legal counsel before launch.
-        </p>
-      </div>
 
       <div className="space-y-8 text-sm text-gray-700 leading-relaxed">
         <section>
@@ -98,6 +93,7 @@ export default function Privacy() {
           </p>
         </section>
       </div>
+    </div>
     </div>
   )
 }

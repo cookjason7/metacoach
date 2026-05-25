@@ -1340,11 +1340,12 @@ export default function CoachDashboard({ getToken, userRole }) {
   const [isAdmin,        setIsAdmin]        = useState(userRole === 'admin')
 
   // ── Filters ─────────────────────────────────────────────────────────────────
-  const [clientSearch, setClientSearch] = useState('')
-  const [coachFilter,  setCoachFilter]  = useState('all')
-  const [typeFilter,   setTypeFilter]   = useState('all')
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [sortBy,       setSortBy]       = useState('activity')
+  const [clientSearch,   setClientSearch]   = useState('')
+  const [coachFilter,    setCoachFilter]    = useState('all')
+  const [typeFilter,     setTypeFilter]     = useState('all')
+  const [statusFilter,   setStatusFilter]   = useState('all')
+  const [checkinFilter,  setCheckinFilter]  = useState('all')
+  const [sortBy,         setSortBy]         = useState('activity')
 
   // ── Tabs ─────────────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState('clients')
@@ -1507,6 +1508,8 @@ export default function CoachDashboard({ getToken, userRole }) {
         if (coachFilter  !== 'all' && String(c.assigned_coach_id ?? '') !== coachFilter) return false
         if (typeFilter   !== 'all' && (c.coaching_type || 'vip') !== typeFilter) return false
         if (statusFilter !== 'all' && accountStatus(c) !== statusFilter) return false
+        if (checkinFilter === 'received' && !c.check_in_this_week) return false
+        if (checkinFilter === 'none'     &&  c.check_in_this_week) return false
         if (q && !`${clientName(c)} ${c.email ?? ''}`.toLowerCase().includes(q)) return false
         return true
       })
@@ -1516,7 +1519,7 @@ export default function CoachDashboard({ getToken, userRole }) {
         if (sortBy === 'status') return accountStatus(a).localeCompare(accountStatus(b)) || clientName(a).localeCompare(clientName(b))
         return clientName(a).localeCompare(clientName(b))
       })
-  }, [clients, clientSearch, coachFilter, typeFilter, statusFilter, sortBy])
+  }, [clients, clientSearch, coachFilter, typeFilter, statusFilter, checkinFilter, sortBy])
 
   const tabs = [
     { id: 'clients',     label: 'Clients' },
@@ -1757,7 +1760,7 @@ export default function CoachDashboard({ getToken, userRole }) {
         <div className="space-y-4">
           {/* Filters */}
           <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
               <input type="text" value={clientSearch} onChange={e => setClientSearch(e.target.value)}
                 placeholder="Search by name or email…"
                 className="lg:col-span-2 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
@@ -1779,6 +1782,12 @@ export default function CoachDashboard({ getToken, userRole }) {
                 <option value="invited">Awaiting Setup</option>
                 <option value="inactive">Inactive</option>
               </select>
+              <select value={checkinFilter} onChange={e => setCheckinFilter(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+                <option value="all">All check-ins</option>
+                <option value="received">Check-in received</option>
+                <option value="none">No check-in</option>
+              </select>
               <select value={sortBy} onChange={e => setSortBy(e.target.value)}
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
                 <option value="activity">Sort by activity</option>
@@ -1789,10 +1798,10 @@ export default function CoachDashboard({ getToken, userRole }) {
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <p className="text-xs text-gray-400">{filteredClients.length} of {clients.length} clients</p>
-              {(clientSearch || coachFilter !== 'all' || typeFilter !== 'all' || statusFilter !== 'all') && (
+              {(clientSearch || coachFilter !== 'all' || typeFilter !== 'all' || statusFilter !== 'all' || checkinFilter !== 'all') && (
                 <button
                   type="button"
-                  onClick={() => { setClientSearch(''); setCoachFilter('all'); setTypeFilter('all'); setStatusFilter('all') }}
+                  onClick={() => { setClientSearch(''); setCoachFilter('all'); setTypeFilter('all'); setStatusFilter('all'); setCheckinFilter('all') }}
                   className="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-semibold text-[#E8670A] hover:bg-orange-100 transition-colors"
                 >
                   Clear filters

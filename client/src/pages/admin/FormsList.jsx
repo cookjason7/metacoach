@@ -594,6 +594,13 @@ function ScheduledSends({ getToken, refreshKey }) {
           <h2 className="text-lg font-bold text-gray-900">Scheduled Forms</h2>
           <p className="text-xs text-gray-500 mt-0.5">Pending one-time and recurring form deliveries</p>
         </div>
+        <button
+          onClick={load}
+          disabled={loading}
+          className="text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] disabled:opacity-40 transition-colors"
+        >
+          {loading ? 'Refreshing…' : '↻ Refresh'}
+        </button>
       </div>
 
       {loading ? (
