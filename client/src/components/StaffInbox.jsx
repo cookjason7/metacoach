@@ -48,20 +48,26 @@ function parseMessageMetadata(metadata) {
   }
 }
 
-// Ensure Cloudinary audio URLs deliver as MP3 so every browser can play them.
-// Chrome records WebM/Opus (Safari can't play WebM); MP3 is universally supported.
-// Also fixes any URLs stored before the server-side f_mp3 fix was deployed.
-function toMp3Url(url) {
-  if (!url) return url
+function getAudioSources(url) {
+  if (!url) return []
+  const sources = [{
+    src: url,
+    type: url.includes('/f_mp3/')
+      ? 'audio/mpeg'
+      : url.includes('.webm')
+        ? 'audio/webm'
+        : url.includes('.mp4') || url.includes('.m4a')
+          ? 'audio/mp4'
+          : undefined,
+  }]
   if (
     url.includes('res.cloudinary.com') &&
     url.includes('/video/upload/') &&
-    !url.includes('/f_mp3') &&
-    !url.includes('/f_auto')
+    !url.includes('/f_mp3/')
   ) {
-    return url.replace('/upload/', '/upload/f_mp3/')
+    sources.push({ src: url.replace('/upload/', '/upload/f_mp3/'), type: 'audio/mpeg' })
   }
-  return url
+  return sources
 }
 
 const STAFF_THREAD_LABELS = {
@@ -142,6 +148,11 @@ export default function StaffInbox({ getToken }) {
       if (!res.ok) throw new Error('Audio upload failed')
       return (await res.json()).url
     } finally { setUploading(false) }
+  }
+
+  function rerecordAudio() {
+    clearAudio()
+    startRecording()
   }
 
   useEffect(() => { selectedRef.current = selected }, [selected])
@@ -303,6 +314,10 @@ export default function StaffInbox({ getToken }) {
         const msg = await res.json()
         setMessages(m => [...m, msg])
         setBody(''); clearImage(); clearAudio()
+        fetchInbox()
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.error ?? 'Could not send message')
       }
     } catch { alert('Could not send message') }
     finally { setSending(false) }
@@ -325,7 +340,7 @@ export default function StaffInbox({ getToken }) {
   return (
     <div className="flex flex-col lg:flex-row gap-4 min-h-[600px]">
       {/* Inbox list */}
-      <div className="lg:w-72 shrink-0 space-y-1.5 overflow-y-auto">
+      <div className={`lg:w-72 shrink-0 space-y-1.5 overflow-y-auto ${selected ? 'hidden lg:block' : ''}`}>
         {totalUnread > 0 && (
           <p className="text-xs font-semibold text-[#E8670A] mb-2 px-1">
             {totalUnread} unread message{totalUnread !== 1 ? 's' : ''}
@@ -380,7 +395,7 @@ export default function StaffInbox({ getToken }) {
       </div>
 
       {/* Conversation panel */}
-      <div className="flex-1 flex flex-col bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <div className={`flex-1 flex-col bg-white border border-gray-200 rounded-xl overflow-hidden ${selected ? 'flex' : 'hidden lg:flex'}`}>
         {!selected ? (
           <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
             Select a client to view messages
@@ -388,7 +403,18 @@ export default function StaffInbox({ getToken }) {
         ) : (
           <>
             <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-              <p className="text-sm font-semibold text-gray-900">{selected.clientName}</p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setSelected(null)}
+                  className="lg:hidden -ml-1 min-w-10 h-10 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-200 transition-colors"
+                  aria-label="Back to inbox"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                <p className="text-sm font-semibold text-gray-900">{selected.clientName}</p>
+              </div>
               {selectedClientThreads.filter(t => STAFF_VISIBLE_THREADS.includes(t.thread_type)).length > 1 && (
                 <div className="flex gap-1 mt-2 flex-wrap">
                   {selectedClientThreads.filter(t => STAFF_VISIBLE_THREADS.includes(t.thread_type)).map(t => {
@@ -448,7 +474,11 @@ export default function StaffInbox({ getToken }) {
                         <img src={m.image_url} alt="attachment" className="max-w-[240px] rounded-lg mt-1 cursor-pointer" onClick={() => window.open(m.image_url, '_blank')} />
                       )}
                       {m.audio_url && (
-                        <audio controls src={toMp3Url(m.audio_url)} className="mt-1 w-full max-w-[260px]" style={{ height: 36 }} />
+                        <audio controls className="mt-1 w-full max-w-[260px]" style={{ height: 36 }}>
+                          {getAudioSources(m.audio_url).map(source => (
+                            <source key={source.src} src={source.src} type={source.type} />
+                          ))}
+                        </audio>
                       )}
                       {metadata.form_id && (
                         <div className="mt-2 flex items-center gap-1.5 bg-white/20 border border-white/30 rounded-lg px-3 py-2 text-xs font-bold">
@@ -479,9 +509,14 @@ export default function StaffInbox({ getToken }) {
                 </div>
               )}
               {audioPreview && (
-                <div className="flex items-center gap-2 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
-                  <audio controls src={audioPreview} className="flex-1 min-w-0" style={{ height: 32 }} />
-                  <button onClick={clearAudio} title="Discard recording" className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full bg-red-100 text-red-600 hover:bg-red-200 text-xs font-bold leading-none">×</button>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+                  <audio controls src={audioPreview} className="w-full sm:flex-1 min-w-0" style={{ height: 32 }} />
+                  <div className="flex items-center gap-2">
+                    <button onClick={rerecordAudio} disabled={recording} className="min-h-9 px-3 rounded-lg bg-white border border-orange-200 text-xs font-semibold text-[#E8670A] hover:border-[#E8670A] disabled:opacity-40">
+                      Rerecord
+                    </button>
+                    <button onClick={clearAudio} title="Discard recording" className="shrink-0 min-w-9 h-9 flex items-center justify-center rounded-lg bg-red-100 text-red-600 hover:bg-red-200 text-xs font-bold leading-none">x</button>
+                  </div>
                 </div>
               )}
               {recording && (

@@ -57,20 +57,26 @@ function parseMessageMetadata(metadata) {
   }
 }
 
-// Ensure Cloudinary audio URLs deliver as MP3 so every browser can play them.
-// Chrome records WebM/Opus (Safari can't play WebM); MP3 is universally supported.
-// Also fixes any URLs stored before the server-side f_mp3 fix was deployed.
-function toMp3Url(url) {
-  if (!url) return url
+function getAudioSources(url) {
+  if (!url) return []
+  const sources = [{
+    src: url,
+    type: url.includes('/f_mp3/')
+      ? 'audio/mpeg'
+      : url.includes('.webm')
+        ? 'audio/webm'
+        : url.includes('.mp4') || url.includes('.m4a')
+          ? 'audio/mp4'
+          : undefined,
+  }]
   if (
     url.includes('res.cloudinary.com') &&
     url.includes('/video/upload/') &&
-    !url.includes('/f_mp3') &&
-    !url.includes('/f_auto')
+    !url.includes('/f_mp3/')
   ) {
-    return url.replace('/upload/', '/upload/f_mp3/')
+    sources.push({ src: url.replace('/upload/', '/upload/f_mp3/'), type: 'audio/mpeg' })
   }
-  return url
+  return sources
 }
 
 export default function Messages() {
@@ -89,6 +95,7 @@ export default function Messages() {
   const [sending,     setSending]     = useState(false)
   const scrollRef      = useRef(null)
   const didPrependRef  = useRef(false)
+  const didAutoOpenRef = useRef(false)
   const fileInputRef   = useRef(null)  // camera
   const galleryInputRef = useRef(null) // gallery/files
   const [imgPreview, setImgPreview] = useState(null) // object URL for preview
@@ -146,6 +153,11 @@ export default function Messages() {
     } finally { setUploading(false) }
   }
 
+  function rerecordAudio() {
+    clearAudio()
+    startRecording()
+  }
+
   // Detect role once on mount
   useEffect(() => {
     async function checkRole() {
@@ -191,7 +203,8 @@ export default function Messages() {
       // Auto-open the most recently active thread on first load only
       // (ensures a newly-sent form message thread opens, not always admin_private)
       setActive(prev => {
-        if (prev || list.length === 0) return prev
+        if (didAutoOpenRef.current || prev || list.length === 0) return prev
+        didAutoOpenRef.current = true
         const byRecent = [...list].sort(
           (a, b) => new Date(b.last_message_at ?? 0) - new Date(a.last_message_at ?? 0),
         )
@@ -203,6 +216,11 @@ export default function Messages() {
   }, [getToken])
 
   useEffect(() => { loadThreads() }, [loadThreads])
+
+  useEffect(() => {
+    const id = setInterval(loadThreads, 30_000)
+    return () => clearInterval(id)
+  }, [loadThreads])
 
   const loadMessages = useCallback(async () => {
     if (!active) return
@@ -240,6 +258,32 @@ export default function Messages() {
   }, [active, nextBeforeId, loadingOlder, getToken])
 
   useEffect(() => { loadMessages() }, [loadMessages])
+
+  useEffect(() => {
+    if (!active) return
+    const poll = async () => {
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/messages/thread/${active}?limit=50`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        const fresh = data.messages ?? []
+        setMessages(prev => {
+          const ids = new Set(prev.map(m => m.id))
+          const merged = [...prev, ...fresh.filter(m => !ids.has(m.id))]
+          merged.sort((a, b) => a.id - b.id)
+          return merged
+        })
+        setHasMore(data.hasMore ?? false)
+        setNextBeforeId(data.nextBeforeId ?? null)
+        loadThreads()
+      } catch {}
+    }
+    const id = setInterval(poll, 20_000)
+    return () => clearInterval(id)
+  }, [active, getToken, loadThreads])
 
   useEffect(() => {
     if (didPrependRef.current) { didPrependRef.current = false; return }
@@ -424,7 +468,11 @@ export default function Messages() {
                             <img src={m.image_url} alt="attachment" className="max-w-[240px] rounded-lg mt-1 cursor-pointer" onClick={() => window.open(m.image_url, '_blank')} />
                           )}
                           {m.audio_url && (
-                            <audio controls src={toMp3Url(m.audio_url)} className="mt-1 w-full max-w-[260px]" style={{ height: 36 }} />
+                            <audio controls className="mt-1 w-full max-w-[260px]" style={{ height: 36 }}>
+                              {getAudioSources(m.audio_url).map(source => (
+                                <source key={source.src} src={source.src} type={source.type} />
+                              ))}
+                            </audio>
                           )}
                           {!isMe && formHref && (
                             <a
@@ -455,9 +503,14 @@ export default function Messages() {
                     )}
                     {/* Audio preview */}
                     {audioPreview && (
-                      <div className="flex items-center gap-2 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
-                        <audio controls src={audioPreview} className="flex-1 min-w-0" style={{ height: 32 }} />
-                        <button onClick={clearAudio} title="Discard recording" className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full bg-red-100 text-red-600 hover:bg-red-200 text-xs font-bold leading-none">×</button>
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+                        <audio controls src={audioPreview} className="w-full sm:flex-1 min-w-0" style={{ height: 32 }} />
+                        <div className="flex items-center gap-2">
+                          <button onClick={rerecordAudio} disabled={recording} className="min-h-9 px-3 rounded-lg bg-white border border-orange-200 text-xs font-semibold text-[#E8670A] hover:border-[#E8670A] disabled:opacity-40">
+                            Rerecord
+                          </button>
+                          <button onClick={clearAudio} title="Discard recording" className="shrink-0 min-w-9 h-9 flex items-center justify-center rounded-lg bg-red-100 text-red-600 hover:bg-red-200 text-xs font-bold leading-none">x</button>
+                        </div>
                       </div>
                     )}
                     {/* Recording indicator */}

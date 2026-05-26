@@ -254,7 +254,8 @@ router.get('/dashboard-summary', requireAuth(), async (req, res, next) => {
 
           SELECT m.client_id, ac.client_name, m.created_at AS occurred_at,
                  'message' AS type,
-                 CASE WHEN m.image_url IS NOT NULL AND COALESCE(m.message_body, '') = '' THEN 'Sent photo message'
+                 CASE WHEN m.audio_url IS NOT NULL AND COALESCE(m.message_body, '') = '' THEN 'Sent voice message'
+                      WHEN m.image_url IS NOT NULL AND COALESCE(m.message_body, '') = '' THEN 'Sent photo message'
                       ELSE 'Sent message'
                  END AS label
           FROM client_messages m
@@ -1897,8 +1898,8 @@ router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
         MAX(m.created_at) AS last_message_at,
         (SELECT CASE
             WHEN message_body IS NOT NULL AND message_body != '' THEN message_body
-            WHEN audio_url IS NOT NULL THEN '🎙 Voice message'
-            ELSE '📷 Image'
+            WHEN audio_url IS NOT NULL THEN 'Voice message'
+            ELSE 'Image'
           END
           FROM client_messages
           WHERE client_id = u.id AND thread_type = m.thread_type

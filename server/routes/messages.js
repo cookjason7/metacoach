@@ -18,7 +18,7 @@ const uploadAudioMulter = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    const ok = ['audio/webm', 'audio/mp4', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/x-m4a', 'audio/aac'].includes(file.mimetype)
+    const ok = file.mimetype?.startsWith('audio/')
     cb(null, ok)
   },
 })
@@ -45,12 +45,8 @@ function uploadAudioToCloudinary(buffer) {
       { folder: 'metacoach/messages/audio', resource_type: 'video' },
       (err, result) => {
         if (err) return reject(err)
-        // Inject f_mp3 transformation so the stored URL delivers MP3 to every
-        // browser.  Chrome records WebM/Opus (great quality, tiny file) but
-        // Safari on iOS/macOS cannot play WebM at all.  MP3 is the one format
-        // all browsers — Chrome, Firefox, Safari, iOS WebView — support.
-        // Cloudinary applies the transcode lazily on first request and caches it.
-        const secure_url = result.secure_url.replace('/upload/', '/upload/f_mp3/')
+        // Store the raw Cloudinary URL; playback fallbacks are handled by the UI.
+        const secure_url = result.secure_url
         resolve({ ...result, secure_url })
       },
     )
@@ -86,7 +82,13 @@ async function listThreadsForClient(dbUserId, coachingType) {
       thread_type,
       COUNT(*) FILTER (WHERE read_at IS NULL AND sender_id != $1) AS unread,
       MAX(created_at) AS last_message_at,
-      (SELECT message_body FROM client_messages
+      (SELECT CASE
+          WHEN message_body IS NOT NULL AND message_body != '' THEN message_body
+          WHEN audio_url IS NOT NULL THEN 'Voice message'
+          WHEN image_url IS NOT NULL THEN 'Image'
+          ELSE ''
+        END
+        FROM client_messages
         WHERE client_id = $1 AND thread_type = m.thread_type
         ORDER BY created_at DESC LIMIT 1) AS last_message_body
     FROM client_messages m
