@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { API_URL } from '../config.js'
+import { useVoiceRecorder } from '../hooks/useVoiceRecorder.js'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -76,6 +77,8 @@ export default function StaffInbox({ getToken }) {
   const [imgFile,     setImgFile]     = useState(null)
   const [uploading,   setUploading]   = useState(false)
 
+  const { canRecord, recording, audioBlob, audioPreview, recordError, startRecording, stopRecording, clearAudio } = useVoiceRecorder()
+
   const ALLOWED = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
 
   function handleFileSelect(e) {
@@ -107,6 +110,20 @@ export default function StaffInbox({ getToken }) {
         method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
       })
       if (!res.ok) throw new Error('Upload failed')
+      return (await res.json()).url
+    } finally { setUploading(false) }
+  }
+
+  async function uploadAudio(blob) {
+    setUploading(true)
+    try {
+      const token = await getToken()
+      const ext = blob.type.includes('mp4') ? 'mp4' : 'webm'
+      const fd = new FormData(); fd.append('audio', blob, `voice-message.${ext}`)
+      const res = await fetch(`${API_URL}/api/messages/upload-audio`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+      })
+      if (!res.ok) throw new Error('Audio upload failed')
       return (await res.json()).url
     } finally { setUploading(false) }
   }
@@ -253,22 +270,23 @@ export default function StaffInbox({ getToken }) {
   }, [messages])
 
   async function send() {
-    if (!body.trim() && !imgFile) return
+    if (!body.trim() && !imgFile && !audioBlob) return
     if (sending || uploading) return
     setSending(true)
     try {
-      let image_url = null
-      if (imgFile) image_url = await uploadImage(imgFile)
+      let image_url = null, audio_url = null
+      if (imgFile)   image_url = await uploadImage(imgFile)
+      if (audioBlob) audio_url = await uploadAudio(audioBlob)
       const token = await getToken()
       const res = await fetch(`${API_URL}/api/coach-admin/clients/${selected.clientId}/messages`, {
         method:  'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ message_body: body, thread_type: selected.threadType, image_url }),
+        body:    JSON.stringify({ message_body: body, thread_type: selected.threadType, image_url, audio_url }),
       })
       if (res.ok) {
         const msg = await res.json()
         setMessages(m => [...m, msg])
-        setBody(''); clearImage()
+        setBody(''); clearImage(); clearAudio()
       }
     } catch { alert('Could not send message') }
     finally { setSending(false) }
@@ -413,6 +431,9 @@ export default function StaffInbox({ getToken }) {
                       {m.image_url && (
                         <img src={m.image_url} alt="attachment" className="max-w-[240px] rounded-lg mt-1 cursor-pointer" onClick={() => window.open(m.image_url, '_blank')} />
                       )}
+                      {m.audio_url && (
+                        <audio controls src={m.audio_url} className="mt-1 w-full max-w-[260px]" style={{ height: 36 }} />
+                      )}
                       {metadata.form_id && (
                         <div className="mt-2 flex items-center gap-1.5 bg-white/20 border border-white/30 rounded-lg px-3 py-2 text-xs font-bold">
                           <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
@@ -441,6 +462,25 @@ export default function StaffInbox({ getToken }) {
                   <button onClick={clearImage} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center leading-none font-bold">×</button>
                 </div>
               )}
+              {audioPreview && (
+                <div className="flex items-center gap-2 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+                  <audio controls src={audioPreview} className="flex-1 min-w-0" style={{ height: 32 }} />
+                  <button onClick={clearAudio} title="Discard recording" className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full bg-red-100 text-red-600 hover:bg-red-200 text-xs font-bold leading-none">×</button>
+                </div>
+              )}
+              {recording && (
+                <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  <span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                  <span className="text-xs text-red-600 font-medium">Recording… tap ■ to stop</span>
+                </div>
+              )}
+              {recordError && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  {recordError === 'not_supported' && 'Voice recording is not supported in this browser.'}
+                  {recordError === 'permission_denied' && 'Microphone access was denied. Please allow microphone access and try again.'}
+                  {recordError === 'unknown' && 'Could not start recording. Please try again.'}
+                </p>
+              )}
               <div className="space-y-2 pb-[env(safe-area-inset-bottom)]">
                 {/* Camera — capture from device camera */}
                 <input ref={fileInputRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp" capture="environment" className="hidden" onChange={handleFileSelect} />
@@ -457,18 +497,34 @@ export default function StaffInbox({ getToken }) {
                   />
                   <button
                     onClick={send}
-                    disabled={sending || uploading || (!body.trim() && !imgFile)}
+                    disabled={sending || uploading || (!body.trim() && !imgFile && !audioBlob)}
                     className="bg-[#E8670A] text-white px-3 sm:px-4 rounded-lg text-xs sm:text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 min-w-[64px] sm:min-w-[76px]"
                   >
                     {uploading ? '⬆' : sending ? '…' : 'Send'}
                   </button>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => fileInputRef.current?.click()} title="Take photo" className="shrink-0 min-w-10 h-10 sm:min-w-11 sm:h-11 px-2.5 sm:px-3 flex items-center justify-center rounded-lg border border-gray-300 text-gray-500 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors">
+                  <button onClick={() => fileInputRef.current?.click()} disabled={!!audioBlob || recording} title="Take photo" className="shrink-0 min-w-10 h-10 sm:min-w-11 sm:h-11 px-2.5 sm:px-3 flex items-center justify-center rounded-lg border border-gray-300 text-gray-500 hover:border-[#E8670A] hover:text-[#E8670A] disabled:opacity-30 transition-colors">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                   </button>
-                  <button onClick={() => galleryInputRef.current?.click()} title="Choose from gallery" className="shrink-0 min-w-10 h-10 sm:min-w-11 sm:h-11 px-2.5 sm:px-3 flex items-center justify-center rounded-lg border border-gray-300 text-gray-500 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors">
+                  <button onClick={() => galleryInputRef.current?.click()} disabled={!!audioBlob || recording} title="Choose from gallery" className="shrink-0 min-w-10 h-10 sm:min-w-11 sm:h-11 px-2.5 sm:px-3 flex items-center justify-center rounded-lg border border-gray-300 text-gray-500 hover:border-[#E8670A] hover:text-[#E8670A] disabled:opacity-30 transition-colors">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                  </button>
+                  <button
+                    onClick={recording ? stopRecording : startRecording}
+                    disabled={!!imgFile}
+                    title={!canRecord ? 'Voice recording not supported in this browser' : recording ? 'Stop recording' : 'Record voice message'}
+                    className={`shrink-0 min-w-10 h-10 sm:min-w-11 sm:h-11 px-2.5 sm:px-3 flex items-center justify-center rounded-lg border transition-colors disabled:opacity-30 ${
+                      recording
+                        ? 'bg-red-500 border-red-500 text-white animate-pulse'
+                        : 'border-gray-300 text-gray-500 hover:border-[#E8670A] hover:text-[#E8670A]'
+                    }`}
+                  >
+                    {recording ? (
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1" /></svg>
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                    )}
                   </button>
                 </div>
               </div>

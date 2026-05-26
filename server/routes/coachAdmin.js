@@ -1895,7 +1895,11 @@ router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
         m.thread_type,
         COUNT(*) FILTER (WHERE m.sender_role = 'client' AND m.read_at IS NULL)::int AS unread,
         MAX(m.created_at) AS last_message_at,
-        (SELECT CASE WHEN message_body != '' THEN message_body ELSE '📷 Image' END
+        (SELECT CASE
+            WHEN message_body IS NOT NULL AND message_body != '' THEN message_body
+            WHEN audio_url IS NOT NULL THEN '🎙 Voice message'
+            ELSE '📷 Image'
+          END
           FROM client_messages
           WHERE client_id = u.id AND thread_type = m.thread_type
           ORDER BY created_at DESC LIMIT 1) AS last_message_body,
@@ -2003,8 +2007,8 @@ router.post('/clients/:id/messages', requireAuth(), async (req, res, next) => {
     const id = parseInt(req.params.id, 10)
     if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
 
-    const { message_body = '', thread_type = 'coach_thread', image_url } = req.body
-    if (!message_body?.trim() && !image_url) return res.status(400).json({ error: 'message_body or image required' })
+    const { message_body = '', thread_type = 'coach_thread', image_url, audio_url } = req.body
+    if (!message_body?.trim() && !image_url && !audio_url) return res.status(400).json({ error: 'message_body, image, or audio required' })
 
     // Coach can only send to coach_thread
     if (ctx.role === 'coach' && thread_type !== 'coach_thread') {
@@ -2026,9 +2030,9 @@ router.post('/clients/:id/messages', requireAuth(), async (req, res, next) => {
 
     const { rows } = await pool.query(`
       INSERT INTO client_messages
-        (client_id, sender_id, sender_role, message_body, thread_type, visibility, image_url)
-      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *
-    `, [id, ctx.dbUserId, ctx.role, message_body.trim(), thread_type, visibility, image_url ?? null])
+        (client_id, sender_id, sender_role, message_body, thread_type, visibility, image_url, audio_url)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *
+    `, [id, ctx.dbUserId, ctx.role, message_body.trim(), thread_type, visibility, image_url ?? null, audio_url ?? null])
 
     res.status(201).json(rows[0])
   } catch (err) { next(err) }

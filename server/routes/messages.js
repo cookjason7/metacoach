@@ -14,6 +14,15 @@ const upload = multer({
   },
 })
 
+const uploadAudioMulter = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = ['audio/webm', 'audio/mp4', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/x-m4a', 'audio/aac'].includes(file.mimetype)
+    cb(null, ok)
+  },
+})
+
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key:    process.env.CLOUDINARY_API_KEY,
@@ -24,6 +33,16 @@ function uploadToCloudinary(buffer) {
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
       { folder: 'metacoach/messages' },
+      (err, result) => (err ? reject(err) : resolve(result)),
+    )
+    stream.end(buffer)
+  })
+}
+
+function uploadAudioToCloudinary(buffer) {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: 'metacoach/messages/audio', resource_type: 'video' },
       (err, result) => (err ? reject(err) : resolve(result)),
     )
     stream.end(buffer)
@@ -91,6 +110,27 @@ router.post('/upload', requireAuth(), upload.single('image'), async (req, res, n
     trackEvent({
       actorUserId: dbUserId,
       feature:     'message_upload',
+      action:      'upload',
+      provider:    'cloudinary',
+      providerOp:  'upload_stream',
+      fileCount:   1,
+      bytesIn:     req.file.size,
+      metadata:    { mime_type: req.file.mimetype },
+    })
+    res.json({ url: result.secure_url })
+  } catch (err) { next(err) }
+})
+
+// POST /api/messages/upload-audio  (client or staff)
+router.post('/upload-audio', requireAuth(), uploadAudioMulter.single('audio'), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No audio file received' })
+    const { userId } = getAuth(req)
+    const dbUserId = await getOrCreateUser(userId)
+    const result = await uploadAudioToCloudinary(req.file.buffer)
+    trackEvent({
+      actorUserId: dbUserId,
+      feature:     'message_audio_upload',
       action:      'upload',
       provider:    'cloudinary',
       providerOp:  'upload_stream',
@@ -180,14 +220,14 @@ router.get('/thread/:threadType', requireAuth(), async (req, res, next) => {
 })
 
 // POST /api/messages/thread/:threadType
-// body: { message_body }
+// body: { message_body, image_url, audio_url }
 router.post('/thread/:threadType', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await getClientContext(req)
     const thread = req.params.threadType
-    const { message_body = '', image_url } = req.body
-    if (!message_body?.trim() && !image_url) {
-      return res.status(400).json({ error: 'message_body or image required' })
+    const { message_body = '', image_url, audio_url } = req.body
+    if (!message_body?.trim() && !image_url && !audio_url) {
+      return res.status(400).json({ error: 'message_body, image, or audio required' })
     }
 
     // All human/team threads are two-way — clients may reply to any of them.
@@ -195,10 +235,10 @@ router.post('/thread/:threadType', requireAuth(), async (req, res, next) => {
 
     const { rows } = await pool.query(`
       INSERT INTO client_messages
-        (client_id, sender_id, sender_role, message_body, thread_type, visibility, image_url)
-      VALUES ($1, $2, 'client', $3, $4, $5, $6)
+        (client_id, sender_id, sender_role, message_body, thread_type, visibility, image_url, audio_url)
+      VALUES ($1, $2, 'client', $3, $4, $5, $6, $7)
       RETURNING *
-    `, [ctx.dbUserId, ctx.dbUserId, message_body.trim(), thread, visibility, image_url ?? null])
+    `, [ctx.dbUserId, ctx.dbUserId, message_body.trim(), thread, visibility, image_url ?? null, audio_url ?? null])
 
     res.status(201).json(rows[0])
   } catch (err) { next(err) }

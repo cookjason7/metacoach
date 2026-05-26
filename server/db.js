@@ -915,6 +915,7 @@ export async function migrate() {
   // Form assignment tracking on submissions + metadata on messages (for in-app form delivery)
   await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS assignment_id INTEGER REFERENCES form_assignments(id) ON DELETE SET NULL`)
   await pool.query(`ALTER TABLE client_messages  ADD COLUMN IF NOT EXISTS metadata JSONB`)
+  await pool.query(`ALTER TABLE client_messages  ADD COLUMN IF NOT EXISTS audio_url TEXT`)
   // Staff review note per submission
   await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS coach_note TEXT`)
   await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS due_at TIMESTAMPTZ`)
