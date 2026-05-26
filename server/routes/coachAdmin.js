@@ -1107,7 +1107,7 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
           ? d.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
           : range === 'weekly'
             ? 'Week of ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
-            : d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
+            : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
         return r
       })
 
@@ -1263,6 +1263,7 @@ router.get('/clients/:id/nutrition', requireAuth(), async (req, res, next) => {
           COALESCE(SUM(carbs),    0)::int AS total_carbs,
           COALESCE(SUM(fat),      0)::int AS total_fat,
           COALESCE(SUM(fiber),    0)::int AS total_fiber,
+          ROUND(COALESCE(SUM((micronutrients->>'sodium_mg')::numeric), 0))::int AS total_sodium_mg,
           COUNT(*)::int                   AS meal_count
         FROM meals
         WHERE user_id = $1 AND COALESCE(log_date, logged_at::date) = $2::date

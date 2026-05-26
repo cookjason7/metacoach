@@ -743,6 +743,184 @@ function FoodLogSection({ clientId, date, getToken }) {
   )
 }
 
+// ─── Food Log Modal ───────────────────────────────────────────────────────────
+
+function FoodLogModal({ clientId, clientName, date, getToken, goals = {}, onClose, onDateChange }) {
+  const today = new Date().toISOString().slice(0, 10)
+  const [nutrition, setNutrition] = useState(null)
+  const [meals,     setMeals]     = useState([])
+  const [loading,   setLoading]   = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true); setNutrition(null); setMeals([])
+      try {
+        const token = await getToken()
+        const [nRes, mRes] = await Promise.all([
+          fetch(`${API_URL}/api/coach-admin/clients/${clientId}/nutrition?date=${date}`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_URL}/api/coach-admin/clients/${clientId}/meals?date=${date}`,    { headers: { Authorization: `Bearer ${token}` } }),
+        ])
+        if (!cancelled) {
+          if (nRes.ok) setNutrition(await nRes.json())
+          if (mRes.ok) setMeals(await mRes.json()); else setMeals([])
+        }
+      } catch { if (!cancelled) setMeals([]) }
+      finally { if (!cancelled) setLoading(false) }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [clientId, date, getToken])
+
+  useEffect(() => {
+    function onKey(e) { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  function shiftDay(n) {
+    const d = new Date(date + 'T12:00:00Z')
+    d.setDate(d.getDate() + n)
+    return d.toISOString().slice(0, 10)
+  }
+
+  const grouped = {}
+  for (const m of meals) {
+    const slot = SNACK_SLOTS.has(m.meal_slot) ? 'Snack' : (m.meal_slot ?? 'Other')
+    if (!grouped[slot]) grouped[slot] = []
+    grouped[slot].push(m)
+  }
+  const slotsPresent = [
+    ...SLOT_DISPLAY_ORDER.filter(s => grouped[s]?.length),
+    ...Object.keys(grouped).filter(s => !SLOT_DISPLAY_ORDER.includes(s) && grouped[s]?.length),
+  ]
+
+  const n = nutrition ?? {}
+  const dateLabel = new Date(date + 'T12:00:00Z').toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+  })
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-xl max-h-[90vh] flex flex-col overflow-hidden shadow-xl"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Modal header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
+          <div className="flex items-center gap-1 min-w-0">
+            <button
+              onClick={() => onDateChange(shiftDay(-1))}
+              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 font-bold text-lg leading-none shrink-0">
+              ‹
+            </button>
+            <div className="min-w-0 px-1">
+              {clientName && <p className="text-[11px] text-gray-400 truncate">{clientName}</p>}
+              <p className="text-sm font-semibold text-gray-900 truncate">{dateLabel}</p>
+            </div>
+            <button
+              onClick={() => onDateChange(shiftDay(1))}
+              disabled={date >= today}
+              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 font-bold text-lg leading-none disabled:opacity-25 shrink-0">
+              ›
+            </button>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1.5 leading-none shrink-0 text-lg">✕</button>
+        </div>
+
+        {/* Scrollable content */}
+        <div className="overflow-y-auto flex-1 p-4 space-y-4">
+          {loading ? (
+            <p className="text-xs text-gray-400 text-center py-10">Loading…</p>
+          ) : (
+            <>
+              {/* Macro summary grid */}
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { label: 'Calories', actual: n.total_calories, goal: goals.goal_calories, unit: ' kcal' },
+                  { label: 'Protein',  actual: n.total_protein,  goal: goals.goal_protein,  unit: 'g' },
+                  { label: 'Carbs',    actual: n.total_carbs,    goal: goals.goal_carbs,    unit: 'g' },
+                  { label: 'Fat',      actual: n.total_fat,      goal: goals.goal_fat,      unit: 'g' },
+                ].map(({ label, actual, goal, unit }) => {
+                  const a = actual != null ? Math.round(Number(actual)) : null
+                  const g = goal   != null ? Math.round(Number(goal))   : null
+                  const atGoal = a != null && g ? Math.abs(a - g) / g <= 0.12 : null
+                  return (
+                    <div key={label} className="bg-gray-50 rounded-xl p-3">
+                      <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide mb-0.5">{label}</p>
+                      <p className="text-base font-bold text-gray-900">{a != null ? `${a.toLocaleString()}${unit}` : '—'}</p>
+                      {g ? (
+                        <p className={`text-[10px] mt-0.5 font-medium ${atGoal === true ? 'text-emerald-500' : atGoal === false ? 'text-amber-500' : 'text-gray-400'}`}>
+                          Goal: {g.toLocaleString()}{unit}
+                        </p>
+                      ) : null}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Fiber + Sodium inline */}
+              {(Number(n.total_fiber) > 0 || Number(n.total_sodium_mg) > 0) && (
+                <div className="flex gap-4 text-xs text-gray-500 px-1">
+                  {Number(n.total_fiber)     > 0 && <span>Fiber <strong className="text-gray-700">{n.total_fiber}g</strong></span>}
+                  {Number(n.total_sodium_mg) > 0 && <span>Sodium <strong className="text-gray-700">{Number(n.total_sodium_mg).toLocaleString()}mg</strong></span>}
+                </div>
+              )}
+
+              {/* Food log by slot */}
+              {slotsPresent.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-6">No meals logged for this day.</p>
+              ) : (
+                <div className="space-y-4">
+                  {slotsPresent.map(slot => {
+                    const slotMeals = grouped[slot]
+                    const slotCal = slotMeals.reduce((s, m) => s + (Number(m.calories) || 0), 0)
+                    return (
+                      <div key={slot}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{slot}</p>
+                          {slotCal > 0 && <p className="text-[10px] text-gray-400">{Math.round(slotCal)} kcal</p>}
+                        </div>
+                        <div className="space-y-0.5">
+                          {slotMeals.map(m => {
+                            const serving = m.serving_size != null
+                              ? `${m.serving_size}${m.serving_unit || 'g'}`
+                              : null
+                            const macros = [
+                              m.calories ? `${m.calories} cal`  : null,
+                              m.protein  ? `${m.protein}g P`    : null,
+                              m.carbs    ? `${m.carbs}g C`      : null,
+                              m.fat      ? `${m.fat}g F`        : null,
+                            ].filter(Boolean)
+                            return (
+                              <div key={m.id} className="flex items-start justify-between gap-3 py-1.5 border-b border-gray-50 last:border-0">
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-medium text-gray-900 leading-snug">{m.meal_name}</p>
+                                  {serving && <p className="text-[11px] text-gray-400">{serving}</p>}
+                                </div>
+                                {macros.length > 0 && (
+                                  <p className="shrink-0 text-[11px] text-gray-500 text-right leading-relaxed">{macros.join(' · ')}</p>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Nutrition Tab ────────────────────────────────────────────────────────────
 
 function NutritionStat({ label, value, unit = '' }) {
@@ -820,13 +998,30 @@ function NutritionTab({ client, clientId, getToken, onUpdate }) {
     return () => { cancelled = true }
   }, [clientId, date, getToken])
 
+  function shiftNutrDate(n) {
+    const d = new Date(date + 'T12:00:00Z')
+    d.setDate(d.getDate() + n)
+    return d.toISOString().slice(0, 10)
+  }
+
   return (
     <div className="space-y-4">
-      {/* 1. Date selector */}
-      <div className="flex items-center gap-3">
+      {/* 1. Date selector with prev/next */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setDate(shiftNutrDate(-1))}
+          className="p-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 font-bold leading-none min-h-11 min-w-11 flex items-center justify-center">
+          ‹
+        </button>
         <input type="date" value={date} max={today}
           onChange={e => setDate(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30" />
+          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 min-h-11" />
+        <button
+          onClick={() => setDate(shiftNutrDate(1))}
+          disabled={date >= today}
+          className="p-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 font-bold leading-none min-h-11 min-w-11 flex items-center justify-center disabled:opacity-30">
+          ›
+        </button>
         {date !== today && (
           <button onClick={() => setDate(today)} className="text-xs text-[#E8670A] font-medium hover:text-[#c45e09]">Today</button>
         )}
@@ -1803,8 +1998,9 @@ function SummaryCard({ label, value, sub, color }) {
   )
 }
 
-function ProgressTab({ clientId, getToken }) {
-  const [range,   setRange]   = useState('daily')
+function ProgressTab({ clientId, clientName, getToken }) {
+  const [range,       setRange]       = useState('daily')
+  const [foodLogDate, setFoodLogDate] = useState(null)
   const today = new Date().toISOString().slice(0, 10)
   const thirtyDaysAgo = (() => {
     const d = new Date()
@@ -1899,10 +2095,10 @@ function ProgressTab({ clientId, getToken }) {
 
   function goalTag(cal, prot, carbs, fat) {
     const parts = []
-    if (cal)   parts.push(`${Number(cal).toLocaleString()}`)
-    if (prot)  parts.push(`P${prot}`)
-    if (carbs) parts.push(`C${carbs}`)
-    if (fat)   parts.push(`F${fat}`)
+    if (cal)   parts.push(`Cal ${Number(cal).toLocaleString()}`)
+    if (prot)  parts.push(`P ${prot}`)
+    if (carbs) parts.push(`C ${carbs}`)
+    if (fat)   parts.push(`F ${fat}`)
     return parts.length ? parts.join(' · ') : null
   }
   // Convert sleep series minutes → hours for chart display
@@ -2042,7 +2238,7 @@ function ProgressTab({ clientId, getToken }) {
                       <th className="px-2 py-2 text-right font-semibold">Pro</th>
                       <th className="px-2 py-2 text-right font-semibold">Fat</th>
                       <th className="px-2 py-2 text-right font-semibold">Fiber</th>
-                      <th className="px-2 py-2 text-right font-semibold">Na</th>
+                      <th className="px-2 py-2 text-right font-semibold">Sodium</th>
                       <th className="px-2 py-2 text-right font-semibold">Sugar</th>
                       <th className="px-2 py-2 text-left font-semibold">Goals</th>
                       <th className="px-2 py-2 text-right font-semibold">Steps</th>
@@ -2053,11 +2249,20 @@ function ProgressTab({ clientId, getToken }) {
                   <tbody className="divide-y divide-gray-50">
                     {rows.map((r, i) => {
                       const gt = goalTag(goalCalories, goalProtein, goalCarbs, goalFat)
+                      const isDaily = range === 'daily' || range === 'custom'
                       return (
-                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}>
-                          <td className="px-3 py-2 text-gray-700 font-medium whitespace-nowrap sticky left-0 bg-inherit">{r.period}</td>
+                        <tr
+                          key={i}
+                          onClick={isDaily ? () => setFoodLogDate(r.date) : undefined}
+                          className={`${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'} ${isDaily ? 'cursor-pointer hover:bg-orange-50/60 transition-colors' : ''}`}
+                        >
+                          <td className="px-3 py-2 text-gray-700 font-medium whitespace-nowrap sticky left-0 bg-inherit">
+                            {isDaily
+                              ? <span className="text-[#E8670A] hover:underline">{r.period}</span>
+                              : r.period}
+                          </td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums whitespace-nowrap">{r.weight   ? `${r.weight} lbs`                       : '—'}</td>
-                          <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.calories  ? Number(r.calories).toLocaleString()                     : '—'}</td>
+                          <td className="px-2 py-2 text-right text-gray-600 tabular-nums font-medium">{r.calories  ? Number(r.calories).toLocaleString()          : '—'}</td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.protein   ? `${r.protein}g`                                         : '—'}</td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.fat       ? `${r.fat}g`                                             : '—'}</td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.fiber     ? `${r.fiber}g`                                           : '—'}</td>
@@ -2235,6 +2440,19 @@ function ProgressTab({ clientId, getToken }) {
             )}
           </div>
         </>
+      )}
+
+      {/* Food Log Modal — opens when a daily row is clicked */}
+      {foodLogDate && (
+        <FoodLogModal
+          clientId={clientId}
+          clientName={clientName}
+          date={foodLogDate}
+          getToken={getToken}
+          goals={{ goal_calories: goalCalories, goal_protein: goalProtein, goal_carbs: goalCarbs, goal_fat: goalFat }}
+          onClose={() => setFoodLogDate(null)}
+          onDateChange={setFoodLogDate}
+        />
       )}
     </div>
   )
@@ -4139,7 +4357,7 @@ export default function ClientProfile() {
       {tab === 'overview'   && <OverviewTab    client={client} role={meRole} getToken={getToken} onUpdate={u => setClient(c => ({ ...c, ...u }))} />}
       {tab === 'nutrition'  && <NutritionTab   client={client} clientId={client.id} getToken={getToken} onUpdate={u => setClient(c => ({ ...c, ...u }))} />}
       {tab === 'habits'     && <HabitsTab      clientId={client.id} getToken={getToken} />}
-      {tab === 'progress'   && <ProgressTab    clientId={client.id} getToken={getToken} />}
+      {tab === 'progress'   && <ProgressTab    clientId={client.id} getToken={getToken} clientName={[client.display_first_name || client.first_name, client.display_last_name || client.last_name].filter(Boolean).join(' ') || client.email?.split('@')[0] || null} />}
       {tab === 'assessment' && <AssessmentTab  clientId={client.id} getToken={getToken} />}
       {tab === 'notes'      && <NotesTab       clientId={client.id} role={meRole} getToken={getToken} />}
       {tab === 'messaging'  && <MessagingTab   client={client} role={meRole} getToken={getToken} />}
