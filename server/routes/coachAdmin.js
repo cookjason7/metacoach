@@ -926,16 +926,22 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
       ? `SELECT ${md} AS date,
            ROUND(SUM(calories)) AS calories, ROUND(SUM(protein)::numeric,1) AS protein,
            ROUND(SUM(carbs)::numeric,1) AS carbs, ROUND(SUM(fat)::numeric,1) AS fat,
-           ROUND(COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0)) AS sodium_mg
+           ROUND(COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0)) AS sodium_mg,
+           ROUND(COALESCE(SUM(fiber)::numeric,0),1) AS fiber,
+           ROUND(COALESCE(SUM(sugar)::numeric,0),1) AS sugar
          FROM meals WHERE user_id=$1 AND ${md} BETWEEN $2::date AND $3::date
          GROUP BY ${md} ORDER BY ${md}`
       : `SELECT ${group.exprMeal} AS date,
            ROUND(AVG(cal)) AS calories, ROUND(AVG(prot)::numeric,1) AS protein,
            ROUND(AVG(crb)::numeric,1) AS carbs, ROUND(AVG(ft)::numeric,1) AS fat,
-           ROUND(AVG(sod), 0) AS sodium_mg
+           ROUND(AVG(sod), 0) AS sodium_mg,
+           ROUND(AVG(fib)::numeric,1) AS fiber,
+           ROUND(AVG(sug)::numeric,1) AS sugar
          FROM (SELECT ${md} AS d, SUM(calories) cal, SUM(protein) prot,
                  SUM(carbs) crb, SUM(fat) ft,
-                 COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0) sod
+                 COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0) sod,
+                 COALESCE(SUM(fiber)::numeric,0) fib,
+                 COALESCE(SUM(sugar)::numeric,0) sug
                FROM meals WHERE user_id=$1 AND ${md} BETWEEN $2::date AND $3::date GROUP BY d) t
          GROUP BY 1 ORDER BY 1`
     const stp_q = isDailyLike
@@ -981,6 +987,14 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
            ROUND(current_weight::numeric,1) AS current_weight
          FROM weekly_checkins WHERE user_id=$1 AND week_start BETWEEN $2::date AND $3::date
          ORDER BY week_start`
+    const wat_q = isDailyLike
+      ? `SELECT logged_date AS date, water_oz AS value
+         FROM daily_logs WHERE user_id=$1 AND water_oz IS NOT NULL
+           AND logged_date BETWEEN $2::date AND $3::date ORDER BY logged_date`
+      : `SELECT ${group.exprLog} AS date, ROUND(AVG(water_oz)::numeric,1) AS value
+         FROM daily_logs WHERE user_id=$1 AND water_oz IS NOT NULL
+           AND logged_date BETWEEN $2::date AND $3::date
+         GROUP BY 1 ORDER BY 1`
 
     // ── Summary — all core metrics follow the selected date range ──────────────
     const sum_q = `
@@ -1013,7 +1027,7 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
            (SELECT SUM((micronutrients->>'sodium_mg')::numeric) dns FROM meals WHERE user_id=$1
               AND ${md} BETWEEN $2::date AND $3::date GROUP BY ${md}) t) AS avg_sodium_mg`
 
-    const [sumR, wtR, macR, stpR, slpR, movR, chkR, photoR] = await Promise.all([
+    const [sumR, wtR, macR, stpR, slpR, movR, chkR, photoR, watR, profR, wtCurR] = await Promise.all([
       pool.query(sum_q, [id, startDate, endDate]),
       pool.query(wt_q,  [id, startDate, endDate]),
       pool.query(mac_q, [id, startDate, endDate]),
@@ -1041,6 +1055,18 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
          LIMIT 30`,
         [id, startDate, endDate],
       ),
+      pool.query(wat_q, [id, startDate, endDate]),
+      pool.query(`
+        SELECT u.age, u.height_inches, u.starting_weight_lbs,
+          COALESCE(u.start_date, u.paid_at::date, u.created_at::date) AS effective_start_date,
+          u.program_end_date, u.goal_calories, u.goal_protein, u.goal_carbs, u.goal_fat
+        FROM users u WHERE u.id = $1
+      `, [id]),
+      pool.query(`
+        SELECT ROUND(weight_lbs::numeric,1) AS weight_current
+        FROM daily_logs WHERE user_id=$1 AND weight_lbs IS NOT NULL
+        ORDER BY logged_date DESC LIMIT 1
+      `, [id]),
     ])
 
     // ── Summary: compute weight change + unified movement total ──────────────
@@ -1059,10 +1085,11 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
       return tmap.get(key)
     }
     for (const r of wtR.rows)  { const o = row(r.date); o.weight        = r.value }
-    for (const r of macR.rows) { const o = row(r.date); o.calories = r.calories; o.protein = r.protein; o.carbs = r.carbs; o.fat = r.fat }
+    for (const r of macR.rows) { const o = row(r.date); o.calories = r.calories; o.protein = r.protein; o.carbs = r.carbs; o.fat = r.fat; o.sodium_mg = r.sodium_mg; o.fiber = r.fiber; o.sugar = r.sugar }
     for (const r of stpR.rows) { const o = row(r.date); o.steps         = r.value }
     for (const r of slpR.rows) { const o = row(r.date); o.sleep_minutes = r.value }
     for (const r of movR.rows) { const o = row(r.date); o.movement      = r.count }
+    for (const r of watR.rows) { const o = row(r.date); o.water_oz      = r.value }
     for (const r of chkR.rows) {
       const o = row(r.date)
       if (r.sleep_quality  != null) o.sleep_quality = r.sleep_quality
@@ -1093,9 +1120,22 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
       return { session_id: row.session_id, session_date: row.session_date, photos: byAngle }
     })
 
+    const prof = profR.rows[0] ?? {}
+    const weight_current = wtCurR.rows[0]?.weight_current ?? null
     res.json({ range, start_date: startDate, end_date: endDate, summary, weight_series: wtR.rows, macro_series: macR.rows,
                step_series: stpR.rows, sleep_series: slpR.rows, movement_series: movR.rows,
-               checkin_series: chkR.rows, table_rows, progress_photos: photoSessions })
+               checkin_series: chkR.rows, table_rows, progress_photos: photoSessions,
+               weight_current,
+               age:                  prof.age                  ?? null,
+               height_inches:        prof.height_inches        ?? null,
+               starting_weight_lbs:  prof.starting_weight_lbs  ?? null,
+               effective_start_date: prof.effective_start_date ?? null,
+               program_end_date:     prof.program_end_date     ?? null,
+               goal_calories:        prof.goal_calories        ?? null,
+               goal_protein:         prof.goal_protein         ?? null,
+               goal_carbs:           prof.goal_carbs           ?? null,
+               goal_fat:             prof.goal_fat             ?? null,
+             })
   } catch (err) { next(err) }
 })
 

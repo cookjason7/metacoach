@@ -1882,11 +1882,19 @@ function ProgressTab({ clientId, getToken }) {
   const mac    = data?.macro_series   ?? []
   const stp    = data?.step_series    ?? []
   const slp    = data?.sleep_series   ?? []
-  const mov    = data?.movement_series ?? []
   const rows   = data?.table_rows     ?? []
   const photoSessions = data?.progress_photos ?? []
   const effectiveStart = data?.start_date ?? startDate
   const effectiveEnd   = data?.end_date ?? endDate
+
+  const weightCurrent      = data?.weight_current      ?? null
+  const profileAge         = data?.age                 ?? null
+  const heightInches       = data?.height_inches       ?? null
+  const startingWeightLbs  = data?.starting_weight_lbs ?? null
+  const profileStartDate   = data?.effective_start_date ?? null
+  const profileEndDate     = data?.program_end_date    ?? null
+  const goalCalories       = data?.goal_calories       ?? null
+  const goalProtein        = data?.goal_protein        ?? null
 
   // Photo comparison state
   const [showCompare, setShowCompare] = useState(false)
@@ -1904,6 +1912,21 @@ function ProgressTab({ clientId, getToken }) {
     const h = Math.floor(Number(mins) / 60)
     const m = Number(mins) % 60
     return m ? `${h}h ${m}m` : `${h}h`
+  }
+
+  function fmtHeight(inches) {
+    if (!inches) return '—'
+    const ft = Math.floor(Number(inches) / 12)
+    const in_ = Number(inches) % 12
+    return `${ft}'${in_}"`
+  }
+
+  function goalIndicator(actual, goal) {
+    if (!goal || !actual) return null
+    const ratio = Number(actual) / Number(goal)
+    if (ratio >= 0.88 && ratio <= 1.12) return { symbol: '✓', cls: 'text-emerald-600' }
+    if (ratio > 1.12) return { symbol: '↑', cls: 'text-red-500' }
+    return { symbol: '↓', cls: 'text-amber-500' }
   }
   // Convert sleep series minutes → hours for chart display
   const slpHrs = slp.map(d => ({ date: d.date, value: d.value ? +(Number(d.value) / 60).toFixed(1) : 0 }))
@@ -1932,51 +1955,71 @@ function ProgressTab({ clientId, getToken }) {
   }
 
   return (
-    <div className="space-y-5">
-      {/* Header + range toggle */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-3">
-          <h2 className="text-lg font-bold text-gray-900">Progress</h2>
-          <button
-            onClick={() => setShowWeightForm(s => !s)}
-            className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white border border-gray-200 text-gray-600 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors">
-            + Log Weight
-          </button>
+    <div className="space-y-4">
+      {/* Header row: title + log weight button */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <h2 className="text-lg font-bold text-gray-900">Progress</h2>
+        <button
+          onClick={() => setShowWeightForm(s => !s)}
+          className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white border border-gray-200 text-gray-600 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors">
+          + Log Weight
+        </button>
+      </div>
+
+      {/* Quick stats strip */}
+      {data && (
+        <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2.5">
+          {[
+            { label: 'Age',       value: profileAge      ? String(profileAge)             : '—' },
+            { label: 'Height',    value: fmtHeight(heightInches) },
+            { label: 'Start Wt',  value: startingWeightLbs ? `${startingWeightLbs} lbs`   : '—' },
+            { label: 'Current Wt',value: weightCurrent   ? `${weightCurrent} lbs`         : '—' },
+            { label: 'Change',    value: wc != null ? `${wc > 0 ? '+' : ''}${wc} lbs`     : '—', color: wtColor },
+            { label: 'Joined',    value: profileStartDate ? fmtDate(profileStartDate)      : '—' },
+            { label: 'Prog. End', value: profileEndDate  ? fmtDate(profileEndDate)         : '—' },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="text-center min-w-0">
+              <p className="text-[9px] text-gray-400 font-medium uppercase tracking-wide truncate">{label}</p>
+              <p className={`text-xs sm:text-sm font-bold truncate ${color ?? 'text-gray-800'}`}>{value}</p>
+            </div>
+          ))}
         </div>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-          <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-semibold">
-            {['daily','weekly','monthly','custom'].map(r => (
-              <button key={r} onClick={() => setRange(r)}
-                className={`px-3 py-2 capitalize transition-colors min-h-11 ${range === r ? 'bg-[#E8670A] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
-                {r.charAt(0).toUpperCase() + r.slice(1)}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-2 text-xs">
-            <label className="flex items-center gap-1 text-gray-500">
-              <span className="hidden sm:inline">Start Date</span>
-              <input
-                type="date"
-                aria-label="Start Date"
-                value={startDate}
-                onChange={e => { setStartDate(e.target.value); setRange('custom') }}
-                max={endDate}
-                className="min-h-11 rounded-lg border border-gray-200 px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-              />
-            </label>
-            <label className="flex items-center gap-1 text-gray-500">
-              <span className="hidden sm:inline">End Date</span>
-              <input
-                type="date"
-                aria-label="End Date"
-                value={endDate}
-                onChange={e => { setEndDate(e.target.value); setRange('custom') }}
-                min={startDate}
-                max={today}
-                className="min-h-11 rounded-lg border border-gray-200 px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-              />
-            </label>
-          </div>
+      )}
+
+      {/* Range controls */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+        <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-semibold">
+          {['daily','weekly','monthly','custom'].map(r => (
+            <button key={r} onClick={() => setRange(r)}
+              className={`px-3 py-2 capitalize transition-colors min-h-11 ${range === r ? 'bg-[#E8670A] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+              {r.charAt(0).toUpperCase() + r.slice(1)}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <label className="flex items-center gap-1 text-gray-500">
+            <span className="hidden sm:inline">Start Date</span>
+            <input
+              type="date"
+              aria-label="Start Date"
+              value={startDate}
+              onChange={e => { setStartDate(e.target.value); setRange('custom') }}
+              max={endDate}
+              className="min-h-11 rounded-lg border border-gray-200 px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+            />
+          </label>
+          <label className="flex items-center gap-1 text-gray-500">
+            <span className="hidden sm:inline">End Date</span>
+            <input
+              type="date"
+              aria-label="End Date"
+              value={endDate}
+              onChange={e => { setEndDate(e.target.value); setRange('custom') }}
+              min={startDate}
+              max={today}
+              className="min-h-11 rounded-lg border border-gray-200 px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+            />
+          </label>
         </div>
       </div>
 
@@ -2031,7 +2074,7 @@ function ProgressTab({ clientId, getToken }) {
 
       {!loading && !error && (
         <>
-          {/* Summary cards */}
+          {/* Summary cards — no Movement */}
           <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
             <SummaryCard
               label="Weight change"
@@ -2059,14 +2102,59 @@ function ProgressTab({ clientId, getToken }) {
               value={fmtSleep(s.avg_sleep_minutes)}
               sub="per night with data"
             />
-            <SummaryCard
-              label="Movement"
-              value={s.total_movement ?? '—'}
-              sub="workouts + activity"
-            />
           </div>
 
-          {/* Charts */}
+          {/* Averages & Trends table — above charts */}
+          {rows.length > 0 && (
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+              <p className="text-sm font-semibold text-gray-900 px-4 py-3 border-b border-gray-100">Averages &amp; Trends</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs min-w-[640px]">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500 text-[10px] uppercase tracking-wide">
+                      <th className="px-3 py-2 text-left font-semibold sticky left-0 bg-gray-50">Period</th>
+                      <th className="px-2 py-2 text-right font-semibold">Weight</th>
+                      <th className="px-2 py-2 text-right font-semibold">Cal</th>
+                      <th className="px-2 py-2 text-right font-semibold">Pro</th>
+                      <th className="px-2 py-2 text-right font-semibold">Fat</th>
+                      <th className="px-2 py-2 text-right font-semibold">Fiber</th>
+                      <th className="px-2 py-2 text-right font-semibold">Na</th>
+                      <th className="px-2 py-2 text-right font-semibold">Sugar</th>
+                      <th className="px-2 py-2 text-center font-semibold">Goal</th>
+                      <th className="px-2 py-2 text-right font-semibold">Steps</th>
+                      <th className="px-2 py-2 text-right font-semibold">Sleep</th>
+                      <th className="px-2 py-2 text-right font-semibold">H₂O</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {rows.map((r, i) => {
+                      const gi = goalIndicator(r.calories, goalCalories)
+                      return (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}>
+                          <td className="px-3 py-2 text-gray-700 font-medium whitespace-nowrap sticky left-0 bg-inherit">{r.period}</td>
+                          <td className="px-2 py-2 text-right text-gray-600 tabular-nums whitespace-nowrap">{r.weight   ? `${r.weight} lbs`                       : '—'}</td>
+                          <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.calories  ? Number(r.calories).toLocaleString()                     : '—'}</td>
+                          <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.protein   ? `${r.protein}g`                                         : '—'}</td>
+                          <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.fat       ? `${r.fat}g`                                             : '—'}</td>
+                          <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.fiber     ? `${r.fiber}g`                                           : '—'}</td>
+                          <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.sodium_mg ? `${Number(r.sodium_mg).toLocaleString()}mg`             : '—'}</td>
+                          <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.sugar     ? `${r.sugar}g`                                           : '—'}</td>
+                          <td className="px-2 py-2 text-center">
+                            {gi ? <span className={`font-bold ${gi.cls}`}>{gi.symbol}</span> : <span className="text-gray-300">—</span>}
+                          </td>
+                          <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.steps      ? Number(r.steps).toLocaleString()                      : '—'}</td>
+                          <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.sleep_minutes != null ? fmtSleep(r.sleep_minutes)                  : '—'}</td>
+                          <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.water_oz  ? `${r.water_oz} oz`                                     : '—'}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Charts — no Movement per Period */}
           <div className="grid sm:grid-cols-2 gap-4">
             <ChartCard title="Weight (lbs)" series={wt} valueKey="value" />
             <ChartCard
@@ -2077,43 +2165,7 @@ function ProgressTab({ clientId, getToken }) {
             />
             <ChartCard title="Daily Steps" series={stp} valueKey="value" />
             <ChartCard title="Sleep (hrs)" series={slpHrs} valueKey="value" color="#6366f1" />
-            <ChartCard title="Movement per Period" series={mov} valueKey="count" />
           </div>
-
-          {/* Averages table */}
-          {rows.length > 0 && (
-            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-              <p className="text-sm font-semibold text-gray-900 px-4 py-3 border-b border-gray-100">Averages &amp; Trends</p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs min-w-[540px]">
-                  <thead>
-                    <tr className="bg-gray-50 text-gray-500 text-[10px] uppercase tracking-wide">
-                      <th className="px-3 py-2 text-left font-semibold">Period</th>
-                      <th className="px-3 py-2 text-right font-semibold">Calories</th>
-                      <th className="px-3 py-2 text-right font-semibold">Protein</th>
-                      <th className="px-3 py-2 text-right font-semibold">Weight</th>
-                      <th className="px-3 py-2 text-right font-semibold">Steps</th>
-                      <th className="px-3 py-2 text-right font-semibold">Movement</th>
-                      <th className="px-3 py-2 text-right font-semibold">Sleep 😴</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {rows.map((r, i) => (
-                      <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}>
-                        <td className="px-3 py-2 text-gray-700 font-medium whitespace-nowrap">{r.period}</td>
-                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.calories ? `${Number(r.calories).toLocaleString()} cal` : '—'}</td>
-                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.protein  ? `${r.protein}g`                          : '—'}</td>
-                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.weight   ? `${r.weight} lbs`                         : '—'}</td>
-                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.steps    ? Number(r.steps).toLocaleString()           : '—'}</td>
-                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.movement != null ? r.movement                         : '—'}</td>
-                        <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{r.sleep_minutes != null ? fmtSleep(r.sleep_minutes) : '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
 
           {/* Measurements */}
           <MeasurementsSection clientId={clientId} getToken={getToken} startDate={effectiveStart} endDate={effectiveEnd} />
