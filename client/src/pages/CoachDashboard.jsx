@@ -1719,11 +1719,19 @@ export default function CoachDashboard({ getToken, userRole }) {
                     <p className="text-[11px] text-gray-400 mt-0.5">
                       Submitted {fmtDateTime(item.submitted_at)}
                       {item.due_at ? ` · Due ${fmtShortDate(item.due_at)}` : ''}
+                      {item.is_late ? ' · Late' : ''}
                     </p>
                   </div>
-                  <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
-                    {item.status}
-                  </span>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    {item.is_late && (
+                      <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-600">
+                        Late
+                      </span>
+                    )}
+                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                      {item.status}
+                    </span>
+                  </div>
                 </div>
               </Link>
             ))}

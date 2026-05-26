@@ -8,6 +8,11 @@ const router = Router()
 const SUBMITTABLE_ASSIGNMENT_TYPES = new Set(['manual', 'scheduled', 'recurring_occurrence'])
 const SUBMITTABLE_ASSIGNMENT_STATUSES = new Set(['sent', 'pending', 'active'])
 
+function localDateString(date, timezoneOffsetMinutes = 0) {
+  const offsetMs = Number(timezoneOffsetMinutes || 0) * 60 * 1000
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 10)
+}
+
 // ── Auth helpers (mirrors coachAdmin.js pattern) ──────────────────────────────
 
 async function getCurrentUser(req) {
@@ -314,6 +319,8 @@ router.post('/:id/submit', requireAuth(), async (req, res, next) => {
     }
 
     let assignId = null
+    let dueAt = null
+    let isLate = false
     if (assignment_id !== undefined && assignment_id !== null && assignment_id !== '') {
       assignId = Number.parseInt(assignment_id, 10)
       if (!Number.isInteger(assignId) || assignId <= 0) {
@@ -321,9 +328,12 @@ router.post('/:id/submit', requireAuth(), async (req, res, next) => {
       }
 
       const { rows: [assignment] } = await pool.query(
-        `SELECT id, template_id, client_id, assignment_type, status
-         FROM form_assignments
-         WHERE id = $1`,
+        `SELECT fa.id, fa.template_id, fa.client_id, fa.assignment_type, fa.status,
+                fa.send_at, fa.sent_at, fa.next_send_at, fa.recurring_rule,
+                parent.recurring_rule AS parent_recurring_rule
+         FROM form_assignments fa
+         LEFT JOIN form_assignments parent ON parent.id = fa.parent_assignment_id
+         WHERE fa.id = $1`,
         [assignId],
       )
       if (!assignment) {
@@ -352,6 +362,26 @@ router.post('/:id/submit', requireAuth(), async (req, res, next) => {
           already_submitted: true,
         })
       }
+
+      dueAt = assignment.send_at ?? assignment.sent_at ?? assignment.next_send_at ?? null
+      if (dueAt) {
+        const rule = assignment.recurring_rule ?? assignment.parent_recurring_rule ?? {}
+        const offset = Number.isFinite(Number(rule.timezone_offset_minutes))
+          ? Number(rule.timezone_offset_minutes)
+          : new Date().getTimezoneOffset()
+        const dueLocalDate = localDateString(new Date(dueAt), offset)
+        const submittedLocalDate = localDateString(new Date(), offset)
+        isLate = submittedLocalDate > dueLocalDate
+        console.log('[forms submit] assignment timing', {
+          assignment_id: assignId,
+          assignment_type: assignment.assignment_type,
+          due_at: new Date(dueAt).toISOString(),
+          submitted_local_date: submittedLocalDate,
+          due_local_date: dueLocalDate,
+          timezone_offset_minutes: offset,
+          is_late: isLate,
+        })
+      }
     }
 
     // Validate required fields against the published version schema
@@ -375,10 +405,19 @@ router.post('/:id/submit', requireAuth(), async (req, res, next) => {
     }
 
     const { rows: [submission] } = await pool.query(`
-      INSERT INTO form_submissions (template_id, version_id, user_id, answers, assignment_id)
-      VALUES ($1, $2, $3, $4::jsonb, $5)
+      INSERT INTO form_submissions (template_id, version_id, user_id, answers, assignment_id, due_at, is_late)
+      VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
       RETURNING *
-    `, [id, tpl.current_version_id, ctx.dbUserId, JSON.stringify(answers), assignId])
+    `, [id, tpl.current_version_id, ctx.dbUserId, JSON.stringify(answers), assignId, dueAt, isLate])
+
+    console.log('[forms submit] submission created for staff review', {
+      submission_id: submission.id,
+      user_id: ctx.dbUserId,
+      template_id: id,
+      assignment_id: assignId,
+      is_late: submission.is_late,
+      due_at: submission.due_at,
+    })
 
     res.status(201).json(submission)
   } catch (err) {

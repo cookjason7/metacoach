@@ -917,6 +917,8 @@ export async function migrate() {
   await pool.query(`ALTER TABLE client_messages  ADD COLUMN IF NOT EXISTS metadata JSONB`)
   // Staff review note per submission
   await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS coach_note TEXT`)
+  await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS due_at TIMESTAMPTZ`)
+  await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS is_late BOOLEAN DEFAULT FALSE`)
   await pool.query(`
     DO $$
     BEGIN

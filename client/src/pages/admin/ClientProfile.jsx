@@ -2687,6 +2687,11 @@ function FormSubmissionsSection({ clientId, getToken }) {
                       <td className="px-4 py-3">
                         <p className="text-sm font-semibold text-gray-900 truncate max-w-[200px]">{sub.form_title}</p>
                         {sub.version_num && <p className="text-[10px] text-gray-400 mt-0.5">v{sub.version_num}</p>}
+                        {sub.is_late && (
+                          <span className="mt-1 inline-flex rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-600">
+                            Late
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">{fmtDateTime(sub.submitted_at)}</td>
                       <td className="px-4 py-3"><ReviewedBadge sub={sub} /></td>
@@ -2727,6 +2732,11 @@ function FormSubmissionsSection({ clientId, getToken }) {
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-gray-900 truncate">{sub.form_title}</p>
                       <p className="text-xs text-gray-400 mt-0.5">{fmtDateTime(sub.submitted_at)}</p>
+                      {sub.is_late && (
+                        <span className="mt-1 inline-flex rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-600">
+                          Late
+                        </span>
+                      )}
                     </div>
                     <ReviewedBadge sub={sub} />
                   </div>

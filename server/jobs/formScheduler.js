@@ -24,6 +24,16 @@ export function computeNextSendAt(dayOfWeek, hour, minute = 0, after = new Date(
   return dt
 }
 
+function localDateString(date, timezoneOffsetMinutes = 0) {
+  const offsetMs = Number(timezoneOffsetMinutes || 0) * 60 * 1000
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 10)
+}
+
+function occurrenceKey(fa) {
+  const due = new Date(fa.next_send_at)
+  return `${fa.id}:${due.toISOString()}`
+}
+
 export async function processFormSchedules() {
   const locked = await acquireJobLock('form_scheduler', 240000)
   if (!locked) {
@@ -64,11 +74,19 @@ export async function processFormSchedules() {
     let sent = 0
 
     for (const fa of due) {
+      console.log('[formScheduler] Due assignment check', {
+        assignment_id: fa.id,
+        client_id: fa.client_id,
+        template_id: fa.template_id,
+        assignment_type: fa.assignment_type,
+        status: fa.status,
+        next_send_at_utc: fa.next_send_at,
+        last_sent_at: fa.last_sent_at,
+      })
+
       const ruleForEndDate = fa.recurring_rule ?? {}
       if (fa.assignment_type === 'recurring' && ruleForEndDate.end_date) {
-        const offsetMs = Number(ruleForEndDate.timezone_offset_minutes ?? 0) * 60 * 1000
-        const localNow = new Date(Date.now() - offsetMs)
-        const todayLocal = localNow.toISOString().slice(0, 10)
+        const todayLocal = localDateString(new Date(), ruleForEndDate.timezone_offset_minutes)
         if (todayLocal > ruleForEndDate.end_date) {
           await pool.query(
             `UPDATE form_assignments SET status = 'completed', is_active = FALSE WHERE id = $1`,
@@ -78,18 +96,6 @@ export async function processFormSchedules() {
             end_date: ruleForEndDate.end_date,
             today_local: todayLocal,
           })
-          continue
-        }
-      }
-
-      // Recurring dedup: if last_sent_at within 6 days, just advance next_send_at and skip
-      if (fa.assignment_type === 'recurring' && fa.last_sent_at) {
-        const msSinceLast = Date.now() - new Date(fa.last_sent_at).getTime()
-        if (msSinceLast < 6 * 24 * 60 * 60 * 1000) {
-          const rule = fa.recurring_rule
-          const nextSend = computeNextSendAt(rule.day_of_week, rule.hour, rule.minute ?? 0, new Date(fa.last_sent_at), rule.timezone_offset_minutes)
-          await pool.query('UPDATE form_assignments SET next_send_at = $1 WHERE id = $2', [nextSend, fa.id])
-          console.log(`[formScheduler] Assignment ${fa.id} sent recently — advancing next_send_at`)
           continue
         }
       }
@@ -125,14 +131,41 @@ export async function processFormSchedules() {
         }
       } else {
         // recurring
+        const occurrence = occurrenceKey(fa)
         const { rows: claimed } = await pool.query(
           `UPDATE form_assignments SET last_sent_at = NOW()
-           WHERE id = $1 AND (last_sent_at IS NULL OR last_sent_at < NOW() - INTERVAL '6 days')
+           WHERE id = $1
+             AND status = 'active'
+             AND is_active = TRUE
+             AND next_send_at = $2
+             AND NOT EXISTS (
+               SELECT 1 FROM client_messages cm
+               WHERE cm.client_id = form_assignments.client_id
+                 AND cm.metadata->>'occurrence_key' = $3
+             )
            RETURNING id`,
-          [fa.id],
+          [fa.id, fa.next_send_at, occurrence],
         )
         if (claimed.length === 0) {
-          console.log(`[formScheduler] Assignment ${fa.id} already claimed — skipping`)
+          const { rows: [existingOccurrence] } = await pool.query(
+            `SELECT id FROM client_messages WHERE metadata->>'occurrence_key' = $1 LIMIT 1`,
+            [occurrence],
+          )
+          if (existingOccurrence) {
+            const rule = fa.recurring_rule
+            const nextSend = computeNextSendAt(rule.day_of_week, rule.hour, rule.minute ?? 0, new Date(), rule.timezone_offset_minutes)
+            await pool.query(`UPDATE form_assignments SET next_send_at = $1 WHERE id = $2`, [nextSend, fa.id])
+            console.log('[formScheduler] recurring occurrence already delivered; advanced schedule', {
+              assignment_id: fa.id,
+              existing_message_id: existingOccurrence.id,
+              occurrence_key: occurrence,
+              next_send_at_utc: nextSend.toISOString(),
+            })
+          }
+          console.log(`[formScheduler] Assignment ${fa.id} already claimed or occurrence already delivered — skipping`, {
+            occurrence_key: occurrence,
+            next_send_at_utc: fa.next_send_at,
+          })
           continue
         }
       }
@@ -156,69 +189,52 @@ export async function processFormSchedules() {
         ? 'Please complete your weekly check-in.'
         : `Hey ${firstName}, please complete your ${fa.form_title}.`
       let submissionAssignmentId = fa.id
-      const ruleForWindow = fa.recurring_rule ?? {}
-      const offsetMs = Number(ruleForWindow.timezone_offset_minutes ?? 0) * 60 * 1000
-      const dueLocal = new Date(new Date(fa.next_send_at ?? Date.now()).getTime() - offsetMs)
-      const windowStartLocal = new Date(dueLocal)
-      windowStartLocal.setUTCHours(0, 0, 0, 0)
-      const windowEndLocal = new Date(windowStartLocal)
-      windowEndLocal.setUTCDate(windowEndLocal.getUTCDate() + 1)
-      const windowStartUtc = new Date(windowStartLocal.getTime() + offsetMs)
-      const windowEndUtc = new Date(windowEndLocal.getTime() + offsetMs)
-
-      const { rows: duplicateWindowMessages } = await pool.query(
-        `SELECT id FROM client_messages
-         WHERE client_id = $1
-           AND metadata->>'form_id' = $2
-           AND created_at >= $3
-           AND created_at < $4
-         LIMIT 1`,
-        [fa.client_id, String(fa.template_id), windowStartUtc, windowEndUtc],
-      )
-      if (duplicateWindowMessages.length > 0) {
-        console.log('[formScheduler] Skipping duplicate form delivery in date window', {
-          existing_message_id: duplicateWindowMessages[0].id,
-          schedule_assignment_id: fa.id,
-          client_id: fa.client_id,
-          template_id: fa.template_id,
-          window_start_utc: windowStartUtc.toISOString(),
-          window_end_utc: windowEndUtc.toISOString(),
-        })
-        if (fa.assignment_type === 'scheduled') {
-          await pool.query(
-            `UPDATE form_assignments SET status = 'completed', is_active = FALSE WHERE id = $1`,
-            [fa.id],
-          )
-          console.log(`[formScheduler] Assignment ${fa.id} completed — duplicate already delivered`)
-        } else if (fa.assignment_type === 'recurring') {
-          const rule = fa.recurring_rule
-          const nextSend = computeNextSendAt(rule.day_of_week, rule.hour, rule.minute ?? 0, new Date(), rule.timezone_offset_minutes)
-          await pool.query(`UPDATE form_assignments SET next_send_at = $1 WHERE id = $2`, [nextSend, fa.id])
-        }
-        continue
-      }
+      const occurrence = fa.assignment_type === 'recurring' ? occurrenceKey(fa) : `scheduled:${fa.id}`
 
       if (fa.assignment_type === 'recurring') {
-        const { rows: [occurrence] } = await pool.query(`
+        const { rows: [existingOccurrenceAssignment] } = await pool.query(
+          `SELECT id FROM form_assignments
+           WHERE parent_assignment_id = $1
+             AND send_at = $2
+             AND assignment_type = 'recurring_occurrence'
+           LIMIT 1`,
+          [fa.id, fa.next_send_at],
+        )
+        if (existingOccurrenceAssignment) {
+          submissionAssignmentId = existingOccurrenceAssignment.id
+          console.log('[formScheduler] using existing recurring occurrence assignment', {
+            parent_assignment_id: fa.id,
+            assignment_id: submissionAssignmentId,
+            client_id: fa.client_id,
+            template_id: fa.template_id,
+            due_at: fa.next_send_at,
+          })
+        } else {
+          const { rows: [occurrenceAssignment] } = await pool.query(`
           INSERT INTO form_assignments
             (template_id, client_id, assigned_by, send_at, is_active,
              assignment_type, status, sent_at, parent_assignment_id)
-          VALUES ($1, $2, $3, NOW(), FALSE, 'recurring_occurrence', 'sent', NOW(), $4)
+          VALUES ($1, $2, $3, $4, FALSE, 'recurring_occurrence', 'sent', NOW(), $5)
           RETURNING id
-        `, [fa.template_id, fa.client_id, fa.assigned_by, fa.id])
-        submissionAssignmentId = occurrence.id
-        console.log('[formScheduler] recurring occurrence assignment created', {
-          parent_assignment_id: fa.id,
-          assignment_id: submissionAssignmentId,
-          client_id: fa.client_id,
-          template_id: fa.template_id,
-        })
+        `, [fa.template_id, fa.client_id, fa.assigned_by, fa.next_send_at, fa.id])
+          submissionAssignmentId = occurrenceAssignment.id
+          console.log('[formScheduler] recurring occurrence assignment created', {
+            parent_assignment_id: fa.id,
+            assignment_id: submissionAssignmentId,
+            client_id: fa.client_id,
+            template_id: fa.template_id,
+            due_at: fa.next_send_at,
+          })
+        }
       }
 
       const metadata = {
         form_id:       fa.template_id,
         assignment_id: submissionAssignmentId,
         form_title:    fa.form_title,
+        schedule_assignment_id: fa.id,
+        occurrence_key: occurrence,
+        due_at:        fa.next_send_at,
       }
 
       const { rows: existingMessages } = await pool.query(
@@ -259,6 +275,11 @@ export async function processFormSchedules() {
           `UPDATE form_assignments SET next_send_at = $1 WHERE id = $2`,
           [nextSend, fa.id],
         )
+        console.log('[formScheduler] recurring advanced', {
+          assignment_id: fa.id,
+          previous_next_send_at_utc: fa.next_send_at,
+          next_send_at_utc: nextSend.toISOString(),
+        })
       }
       // scheduled: status/sent_at/is_active already set in the atomic claim above
 

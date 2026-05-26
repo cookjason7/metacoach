@@ -203,7 +203,8 @@ router.get('/dashboard-summary', requireAuth(), async (req, res, next) => {
           ac.client_name,
           ft.title AS form_title,
           fs.submitted_at,
-          COALESCE(fa.send_at, fa.sent_at, fa.next_send_at) AS due_at,
+          COALESCE(fs.due_at, fa.send_at, fa.sent_at, fa.next_send_at) AS due_at,
+          COALESCE(fs.is_late, FALSE) AS is_late,
           CASE WHEN fs.reviewed_at IS NULL THEN 'Needs review' ELSE 'Reviewed' END AS status
         FROM form_submissions fs
         JOIN accessible_clients ac ON ac.id = fs.user_id
@@ -240,7 +241,10 @@ router.get('/dashboard-summary', requireAuth(), async (req, res, next) => {
           UNION ALL
 
           SELECT fs.user_id AS client_id, ac.client_name, fs.submitted_at AS occurred_at,
-                 'form' AS type, 'Submitted form: ' || ft.title AS label
+                 'form' AS type,
+                 CASE WHEN ft.title ILIKE '%check%in%' THEN 'Submitted check-in: ' || ft.title
+                      ELSE 'Submitted form: ' || ft.title
+                 END AS label
           FROM form_submissions fs
           JOIN accessible_clients ac ON ac.id = fs.user_id
           JOIN form_templates ft ON ft.id = fs.template_id
@@ -2100,7 +2104,7 @@ router.get('/clients/:id/form-submissions', requireAuth(), async (req, res, next
       SELECT
         fs.id, fs.template_id, fs.version_id, fs.user_id,
         fs.answers, fs.submitted_at, fs.updated_at,
-        fs.reviewed_at, fs.reviewed_by, fs.coach_note,
+        fs.reviewed_at, fs.reviewed_by, fs.coach_note, fs.due_at, fs.is_late,
         ft.title  AS form_title,
         ft.status AS form_status,
         fv.version_num,
@@ -2129,7 +2133,7 @@ router.get('/form-submissions/:submissionId', requireAuth(), async (req, res, ne
       SELECT
         fs.id, fs.template_id, fs.version_id, fs.user_id,
         fs.answers, fs.submitted_at, fs.updated_at,
-        fs.reviewed_at, fs.reviewed_by, fs.coach_note,
+        fs.reviewed_at, fs.reviewed_by, fs.coach_note, fs.due_at, fs.is_late,
         ft.title  AS form_title,
         ft.status AS form_status,
         fv.version_num,
@@ -2404,6 +2408,11 @@ router.post('/forms/:id/schedule', requireAuth(), async (req, res, next) => {
 
       if (send_mode === 'scheduled') {
         nextSendAt = new Date(send_at)
+        recurringRuleJson = JSON.stringify({
+          timezone: timezone ?? null,
+          timezone_offset_minutes: timezone_offset_minutes ?? null,
+          selected_local_time: selected_local_time ?? null,
+        })
         status     = 'pending'
         console.log('[formSchedule] scheduled local to UTC', {
           selected_local_time: selected_local_time ?? null,
