@@ -973,44 +973,50 @@ function DaySummaryRow({ label, actual, target, unit }) {
 
 // ─── Mifflin-St Jeor BMR / TDEE Calculator ────────────────────────────────────
 
-function MifflinCalculator({ client, clientId, getToken, onUpdate }) {
+function calculateAgeFromDob(dob) {
+  if (!dob) return null
+  const birth = new Date(dob)
+  if (Number.isNaN(birth.getTime())) return null
+  const today = new Date()
+  let years = today.getFullYear() - birth.getFullYear()
+  const monthDiff = today.getMonth() - birth.getMonth()
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) years -= 1
+  return years > 0 ? years : null
+}
+
+function normalizeCalculatorSex(value) {
+  const v = String(value ?? '').trim().toLowerCase()
+  if (['male', 'man', 'm'].includes(v)) return 'male'
+  if (['female', 'woman', 'f'].includes(v)) return 'female'
+  return ''
+}
+
+function normalizeActivityFactor(value) {
+  const v = String(value ?? '').trim().toLowerCase()
+  if (!v) return '1.55'
+  if (['1.2', '1.375', '1.55', '1.725', '1.9'].includes(v)) return v
+  if (v.includes('sedentary') || v.includes('little') || v.includes('none')) return '1.2'
+  if (v.includes('light')) return '1.375'
+  if (v.includes('moderate') || v.includes('3') || v.includes('5')) return '1.55'
+  if (v.includes('very') || v.includes('6') || v.includes('7')) return '1.725'
+  if (v.includes('extra') || v.includes('physical') || v.includes('athlete')) return '1.9'
+  return '1.55'
+}
+
+function BmrTdeeCalculator({ client, getToken, onUpdate }) {
+  const initialAge = client.age ?? calculateAgeFromDob(client.display_dob)
+  const initialWeight = client.latest_weight_lbs ?? client.starting_weight_lbs ?? ''
   const [open,        setOpen]        = useState(false)
-  const [sex,         setSex]         = useState('')
-  const [age,         setAge]         = useState(client.age         ? String(client.age)              : '')
-  const [heightIn,    setHeightIn]    = useState(client.height_inches ? String(client.height_inches)  : '')
-  const [weightLbs,   setWeightLbs]   = useState('')
-  const [activity,    setActivity]    = useState('1.55')
+  const [sex,         setSex]         = useState(normalizeCalculatorSex(client.gender))
+  const [age,         setAge]         = useState(initialAge ? String(initialAge) : '')
+  const [heightIn,    setHeightIn]    = useState(client.height_inches ? String(client.height_inches) : '')
+  const [weightLbs,   setWeightLbs]   = useState(initialWeight !== '' && initialWeight != null ? String(initialWeight) : '')
+  const [goalWeight,  setGoalWeight]  = useState(client.goal_weight_lbs ? String(client.goal_weight_lbs) : '')
+  const [activity,    setActivity]    = useState(normalizeActivityFactor(client.activity_level ?? client.assessment_activity_level))
   const [adjustment,  setAdjustment]  = useState('0')
   const [applying,    setApplying]    = useState(false)
   const [applyError,  setApplyError]  = useState(null)
   const [applied,     setApplied]     = useState(false)
-
-  // Fetch most recent logged weight when first opened
-  useEffect(() => {
-    if (!open || weightLbs !== '') return
-    let cancelled = false
-    async function fetchWeight() {
-      try {
-        const token = await getToken()
-        const today = new Date().toISOString().slice(0, 10)
-        const res = await fetch(
-          `${API_URL}/api/coach-admin/clients/${clientId}/nutrition?date=${today}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        )
-        if (!cancelled && res.ok) {
-          const d = await res.json()
-          const w = d.weight_lbs ?? client.starting_weight_lbs
-          if (w) setWeightLbs(String(w))
-        } else if (!cancelled && client.starting_weight_lbs) {
-          setWeightLbs(String(client.starting_weight_lbs))
-        }
-      } catch {
-        if (!cancelled && client.starting_weight_lbs) setWeightLbs(String(client.starting_weight_lbs))
-      }
-    }
-    fetchWeight()
-    return () => { cancelled = true }
-  }, [open, clientId, getToken, client.starting_weight_lbs])
 
   const ageN   = Number(age)
   const htN    = Number(heightIn)
@@ -1024,6 +1030,11 @@ function MifflinCalculator({ client, clientId, getToken, onUpdate }) {
   const bmr    = valid ? Math.round(10 * kg + 6.25 * cm - 5 * ageN + (sex === 'male' ? 5 : -161)) : null
   const tdee   = bmr   ? Math.round(bmr * actN) : null
   const goalCal = tdee ? Math.max(800, tdee + adjN) : null
+  const weightSource = client.latest_weight_lbs != null
+    ? 'Latest logged weight'
+    : client.starting_weight_lbs != null
+      ? 'Starting weight fallback'
+      : null
 
   async function applyCalories() {
     if (!goalCal) return
@@ -1067,7 +1078,6 @@ function MifflinCalculator({ client, clientId, getToken, onUpdate }) {
         className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-gray-900">BMR / TDEE Calculator</span>
-          <span className="text-xs text-gray-400">Mifflin-St Jeor</span>
         </div>
         <span className="text-gray-400 text-sm">{open ? '▲' : '▼'}</span>
       </button>
@@ -1075,7 +1085,7 @@ function MifflinCalculator({ client, clientId, getToken, onUpdate }) {
       {open && (
         <div className="px-4 pb-4 border-t border-gray-100 pt-4 space-y-4">
           {/* Row 1: inputs */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Sex</label>
               <select value={sex} onChange={e => setSex(e.target.value)} className={inputCls}>
@@ -1097,10 +1107,17 @@ function MifflinCalculator({ client, clientId, getToken, onUpdate }) {
                 placeholder="inches" className={inputCls} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Weight (lbs)</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Current weight</label>
               <input type="number" min="1" max="1000" value={weightLbs}
                 onChange={e => setWeightLbs(e.target.value)}
                 placeholder="lbs" className={inputCls} />
+              {weightSource && <p className="mt-1 text-[10px] text-gray-400">{weightSource}</p>}
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Goal weight</label>
+              <input type="number" min="1" max="1000" value={goalWeight}
+                onChange={e => setGoalWeight(e.target.value)}
+                placeholder="optional" className={inputCls} />
             </div>
           </div>
 
@@ -1217,7 +1234,7 @@ function NutritionTab({ client, clientId, getToken, onUpdate }) {
       </div>
 
       {/* 2. BMR / TDEE Calculator */}
-      <MifflinCalculator client={client} clientId={clientId} getToken={getToken} onUpdate={onUpdate} />
+      <BmrTdeeCalculator client={client} getToken={getToken} onUpdate={onUpdate} />
 
       {/* 3. Nutrition Targets */}
       <NutritionTargetsCard client={client} getToken={getToken} onUpdate={onUpdate} />

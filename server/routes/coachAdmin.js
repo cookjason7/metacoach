@@ -668,6 +668,11 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
         (SELECT first_name FROM users WHERE id = u.assigned_coach_id) AS assigned_coach_name,
         (SELECT email      FROM users WHERE id = u.assigned_coach_id) AS assigned_coach_email,
         (SELECT MAX(logged_at) FROM meals WHERE user_id = u.id) AS last_meal_at,
+        (SELECT ROUND(weight_lbs::numeric, 1)
+          FROM daily_logs
+          WHERE user_id = u.id AND weight_lbs IS NOT NULL
+          ORDER BY logged_date DESC
+          LIMIT 1) AS latest_weight_lbs,
         COALESCE((SELECT AVG(completion_percentage)::numeric(5,1)
           FROM habit_completions
           WHERE user_id = u.id AND completion_date >= CURRENT_DATE - INTERVAL '7 days'), 0) AS adherence_7d,
@@ -685,6 +690,7 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
         ha.state                AS assessment_state,
         ha.zip_code             AS assessment_zip_code,
         ha.country              AS assessment_country,
+        ha.activity_level       AS assessment_activity_level,
         ha.completed_at         AS assessment_completed_at
       FROM users u
       LEFT JOIN health_assessments ha ON ha.user_id = u.id
