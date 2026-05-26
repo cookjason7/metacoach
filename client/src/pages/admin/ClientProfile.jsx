@@ -971,6 +971,195 @@ function DaySummaryRow({ label, actual, target, unit }) {
   )
 }
 
+// ─── Mifflin-St Jeor BMR / TDEE Calculator ────────────────────────────────────
+
+function MifflinCalculator({ client, clientId, getToken, onUpdate }) {
+  const [open,        setOpen]        = useState(false)
+  const [sex,         setSex]         = useState('')
+  const [age,         setAge]         = useState(client.age         ? String(client.age)              : '')
+  const [heightIn,    setHeightIn]    = useState(client.height_inches ? String(client.height_inches)  : '')
+  const [weightLbs,   setWeightLbs]   = useState('')
+  const [activity,    setActivity]    = useState('1.55')
+  const [adjustment,  setAdjustment]  = useState('0')
+  const [applying,    setApplying]    = useState(false)
+  const [applyError,  setApplyError]  = useState(null)
+  const [applied,     setApplied]     = useState(false)
+
+  // Fetch most recent logged weight when first opened
+  useEffect(() => {
+    if (!open || weightLbs !== '') return
+    let cancelled = false
+    async function fetchWeight() {
+      try {
+        const token = await getToken()
+        const today = new Date().toISOString().slice(0, 10)
+        const res = await fetch(
+          `${API_URL}/api/coach-admin/clients/${clientId}/nutrition?date=${today}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        )
+        if (!cancelled && res.ok) {
+          const d = await res.json()
+          const w = d.weight_lbs ?? client.starting_weight_lbs
+          if (w) setWeightLbs(String(w))
+        } else if (!cancelled && client.starting_weight_lbs) {
+          setWeightLbs(String(client.starting_weight_lbs))
+        }
+      } catch {
+        if (!cancelled && client.starting_weight_lbs) setWeightLbs(String(client.starting_weight_lbs))
+      }
+    }
+    fetchWeight()
+    return () => { cancelled = true }
+  }, [open, clientId, getToken, client.starting_weight_lbs])
+
+  const ageN   = Number(age)
+  const htN    = Number(heightIn)
+  const wtN    = Number(weightLbs)
+  const actN   = Number(activity)
+  const adjN   = Number(adjustment)
+  const valid  = sex && ageN > 0 && htN > 0 && wtN > 0
+
+  const kg     = wtN / 2.2046
+  const cm     = htN * 2.54
+  const bmr    = valid ? Math.round(10 * kg + 6.25 * cm - 5 * ageN + (sex === 'male' ? 5 : -161)) : null
+  const tdee   = bmr   ? Math.round(bmr * actN) : null
+  const goalCal = tdee ? Math.max(800, tdee + adjN) : null
+
+  async function applyCalories() {
+    if (!goalCal) return
+    setApplying(true); setApplyError(null); setApplied(false)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/admin/users/${client.id}/macros`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ goal_calories: goalCal }),
+      })
+      if (!res.ok) throw new Error('Failed to apply')
+      onUpdate(await res.json())
+      setApplied(true)
+      setTimeout(() => setApplied(false), 3000)
+    } catch (err) { setApplyError(err.message) } finally { setApplying(false) }
+  }
+
+  const ACTIVITY_OPTIONS = [
+    { value: '1.2',   label: 'Sedentary (little/no exercise)' },
+    { value: '1.375', label: 'Lightly active (1–3 days/wk)' },
+    { value: '1.55',  label: 'Moderately active (3–5 days/wk)' },
+    { value: '1.725', label: 'Very active (6–7 days/wk)' },
+    { value: '1.9',   label: 'Extra active (physical job + training)' },
+  ]
+  const ADJ_OPTIONS = [
+    { value: '-750', label: '−750 kcal (aggressive deficit)' },
+    { value: '-500', label: '−500 kcal (deficit)' },
+    { value: '-250', label: '−250 kcal (mild deficit)' },
+    { value: '0',    label: 'Maintenance' },
+    { value: '250',  label: '+250 kcal (mild surplus)' },
+    { value: '500',  label: '+500 kcal (surplus)' },
+  ]
+
+  const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 min-h-[44px]'
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-gray-900">BMR / TDEE Calculator</span>
+          <span className="text-xs text-gray-400">Mifflin-St Jeor</span>
+        </div>
+        <span className="text-gray-400 text-sm">{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div className="px-4 pb-4 border-t border-gray-100 pt-4 space-y-4">
+          {/* Row 1: inputs */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Sex</label>
+              <select value={sex} onChange={e => setSex(e.target.value)} className={inputCls}>
+                <option value="">Select…</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Age</label>
+              <input type="number" min="1" max="120" value={age}
+                onChange={e => setAge(e.target.value)}
+                placeholder="yrs" className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Height (in)</label>
+              <input type="number" min="1" max="120" value={heightIn}
+                onChange={e => setHeightIn(e.target.value)}
+                placeholder="inches" className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Weight (lbs)</label>
+              <input type="number" min="1" max="1000" value={weightLbs}
+                onChange={e => setWeightLbs(e.target.value)}
+                placeholder="lbs" className={inputCls} />
+            </div>
+          </div>
+
+          {/* Row 2: activity + adjustment */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Activity Level</label>
+              <select value={activity} onChange={e => setActivity(e.target.value)} className={inputCls}>
+                {ACTIVITY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Goal Adjustment</label>
+              <select value={adjustment} onChange={e => setAdjustment(e.target.value)} className={inputCls}>
+                {ADJ_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Results */}
+          {valid ? (
+            <>
+              <div className="grid grid-cols-3 gap-3 bg-orange-50 border border-orange-100 rounded-xl p-4">
+                <div className="text-center">
+                  <p className="text-xs text-gray-500 mb-0.5">BMR</p>
+                  <p className="text-xl font-bold text-gray-900">{bmr?.toLocaleString()}</p>
+                  <p className="text-xs text-gray-400">kcal/day</p>
+                </div>
+                <div className="text-center border-x border-orange-100">
+                  <p className="text-xs text-gray-500 mb-0.5">TDEE</p>
+                  <p className="text-xl font-bold text-gray-900">{tdee?.toLocaleString()}</p>
+                  <p className="text-xs text-gray-400">kcal/day</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-gray-500 mb-0.5">Goal Calories</p>
+                  <p className="text-xl font-bold text-[#E8670A]">{goalCal?.toLocaleString()}</p>
+                  <p className="text-xs text-gray-400">kcal/day</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={applyCalories}
+                  disabled={applying}
+                  className="flex-1 bg-[#f97316] hover:bg-[#E8670A] disabled:opacity-40 text-white text-sm font-semibold rounded-lg px-4 py-2.5 min-h-[44px] transition-colors">
+                  {applying ? 'Applying…' : `Apply ${goalCal?.toLocaleString()} kcal to targets`}
+                </button>
+                {applied    && <span className="text-sm text-emerald-600 font-medium whitespace-nowrap">✓ Applied</span>}
+                {applyError && <span className="text-sm text-red-500">{applyError}</span>}
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-gray-400 text-center py-1">Enter sex, age, height, and weight to calculate.</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function NutritionTab({ client, clientId, getToken, onUpdate }) {
   const today = new Date().toISOString().slice(0, 10)
   const [date,    setDate]    = useState(today)
@@ -1027,10 +1216,13 @@ function NutritionTab({ client, clientId, getToken, onUpdate }) {
         )}
       </div>
 
-      {/* 2. Nutrition Targets */}
+      {/* 2. BMR / TDEE Calculator */}
+      <MifflinCalculator client={client} clientId={clientId} getToken={getToken} onUpdate={onUpdate} />
+
+      {/* 3. Nutrition Targets */}
       <NutritionTargetsCard client={client} getToken={getToken} onUpdate={onUpdate} />
 
-      {/* 3. Selected Day Summary */}
+      {/* 4. Selected Day Summary */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <div className="flex items-baseline justify-between mb-3">
           <h3 className="text-sm font-semibold text-gray-900">Selected Day Summary</h3>
@@ -1053,10 +1245,10 @@ function NutritionTab({ client, clientId, getToken, onUpdate }) {
         )}
       </div>
 
-      {/* 4. Food Log */}
+      {/* 5. Food Log */}
       <FoodLogSection clientId={clientId} date={date} getToken={getToken} />
 
-      {/* 5. 7-Day Averages */}
+      {/* 6. 7-Day Averages */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <h3 className="text-sm font-semibold text-gray-900 mb-3">7-Day Averages</h3>
         {loading ? <p className="text-xs text-gray-400">Loading…</p> : (
