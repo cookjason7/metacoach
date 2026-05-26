@@ -340,12 +340,6 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
         {saved && !editing && <p className="text-xs font-medium text-emerald-600 mt-3">Saved.</p>}
       </div>
 
-      {/* Nutrition Targets — visible to admin and coaches (coaches only reach assigned clients) */}
-      <NutritionTargetsCard
-        client={client}
-        getToken={getToken}
-        onUpdate={onUpdate}
-      />
     </div>
   )
 }
@@ -1822,14 +1816,6 @@ function ProgressTab({ clientId, getToken }) {
   const [data,    setData]    = useState(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(false)
-  const [refreshKey, setRefreshKey] = useState(0)
-
-  // Weight logging form
-  const [showWeightForm, setShowWeightForm] = useState(false)
-  const [weightDate,     setWeightDate]     = useState(today)
-  const [weightLbs,      setWeightLbs]      = useState('')
-  const [weightSaving,   setWeightSaving]   = useState(false)
-  const [weightError,    setWeightError]    = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -1854,28 +1840,7 @@ function ProgressTab({ clientId, getToken }) {
     }
     load()
     return () => { cancelled = true }
-  }, [clientId, getToken, range, startDate, endDate, refreshKey])
-
-  async function logWeight() {
-    if (!weightLbs || isNaN(Number(weightLbs))) return
-    setWeightSaving(true); setWeightError(null)
-    try {
-      const token = await getToken()
-      const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/weight`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: weightDate, weight_lbs: Number(weightLbs) }),
-      })
-      if (!res.ok) throw new Error('Failed to save weight')
-      setShowWeightForm(false)
-      setWeightLbs('')
-      setRefreshKey(k => k + 1)
-    } catch (e) {
-      setWeightError(e.message)
-    } finally {
-      setWeightSaving(false)
-    }
-  }
+  }, [clientId, getToken, range, startDate, endDate])
 
   const s      = data?.summary        ?? {}
   const wt     = data?.weight_series  ?? []
@@ -1895,11 +1860,22 @@ function ProgressTab({ clientId, getToken }) {
   const profileEndDate     = data?.program_end_date    ?? null
   const goalCalories       = data?.goal_calories       ?? null
   const goalProtein        = data?.goal_protein        ?? null
+  const goalCarbs          = data?.goal_carbs          ?? null
+  const goalFat            = data?.goal_fat            ?? null
 
   // Photo comparison state
   const [showCompare, setShowCompare] = useState(false)
   const [sessionAIdx, setSessionAIdx] = useState(0)
   const [sessionBIdx, setSessionBIdx] = useState(1)
+
+  // Weight change = current weight minus starting weight (all-time)
+  const overallWtChange = (weightCurrent != null && startingWeightLbs != null)
+    ? Math.round((Number(weightCurrent) - Number(startingWeightLbs)) * 10) / 10
+    : null
+  const overallWtColor = overallWtChange == null ? 'text-gray-900'
+    : overallWtChange < 0 ? 'text-emerald-600'
+    : overallWtChange > 0 ? 'text-red-500'
+    : 'text-gray-900'
 
   const wc = s.weight_change
   const wtColor = wc == null ? 'text-gray-900' : wc < 0 ? 'text-emerald-600' : wc > 0 ? 'text-red-500' : 'text-gray-900'
@@ -1921,12 +1897,13 @@ function ProgressTab({ clientId, getToken }) {
     return `${ft}'${in_}"`
   }
 
-  function goalIndicator(actual, goal) {
-    if (!goal || !actual) return null
-    const ratio = Number(actual) / Number(goal)
-    if (ratio >= 0.88 && ratio <= 1.12) return { symbol: '✓', cls: 'text-emerald-600' }
-    if (ratio > 1.12) return { symbol: '↑', cls: 'text-red-500' }
-    return { symbol: '↓', cls: 'text-amber-500' }
+  function goalTag(cal, prot, carbs, fat) {
+    const parts = []
+    if (cal)   parts.push(`${Number(cal).toLocaleString()}`)
+    if (prot)  parts.push(`P${prot}`)
+    if (carbs) parts.push(`C${carbs}`)
+    if (fat)   parts.push(`F${fat}`)
+    return parts.length ? parts.join(' · ') : null
   }
   // Convert sleep series minutes → hours for chart display
   const slpHrs = slp.map(d => ({ date: d.date, value: d.value ? +(Number(d.value) / 60).toFixed(1) : 0 }))
@@ -1956,15 +1933,8 @@ function ProgressTab({ clientId, getToken }) {
 
   return (
     <div className="space-y-4">
-      {/* Header row: title + log weight button */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <h2 className="text-lg font-bold text-gray-900">Progress</h2>
-        <button
-          onClick={() => setShowWeightForm(s => !s)}
-          className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white border border-gray-200 text-gray-600 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors">
-          + Log Weight
-        </button>
-      </div>
+      {/* Header row */}
+      <h2 className="text-lg font-bold text-gray-900">Progress</h2>
 
       {/* Quick stats strip */}
       {data && (
@@ -1974,7 +1944,7 @@ function ProgressTab({ clientId, getToken }) {
             { label: 'Height',    value: fmtHeight(heightInches) },
             { label: 'Start Wt',  value: startingWeightLbs ? `${startingWeightLbs} lbs`   : '—' },
             { label: 'Current Wt',value: weightCurrent   ? `${weightCurrent} lbs`         : '—' },
-            { label: 'Change',    value: wc != null ? `${wc > 0 ? '+' : ''}${wc} lbs`     : '—', color: wtColor },
+            { label: 'Change',    value: overallWtChange != null ? `${overallWtChange > 0 ? '+' : ''}${overallWtChange} lbs` : '—', color: overallWtColor },
             { label: 'Joined',    value: profileStartDate ? fmtDate(profileStartDate)      : '—' },
             { label: 'Prog. End', value: profileEndDate  ? fmtDate(profileEndDate)         : '—' },
           ].map(({ label, value, color }) => (
@@ -2022,52 +1992,6 @@ function ProgressTab({ clientId, getToken }) {
           </label>
         </div>
       </div>
-
-      {/* Inline weight logging form */}
-      {showWeightForm && (
-        <div className="bg-white border border-gray-200 rounded-xl p-4">
-          <p className="text-sm font-semibold text-gray-700 mb-3">Log Weight</p>
-          <div className="flex flex-wrap items-end gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
-              <input
-                type="date"
-                value={weightDate}
-                max={today}
-                onChange={e => setWeightDate(e.target.value)}
-                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Weight (lbs)</label>
-              <input
-                type="number"
-                step="0.1"
-                min="50"
-                max="700"
-                value={weightLbs}
-                onChange={e => setWeightLbs(e.target.value)}
-                placeholder="e.g. 185.5"
-                className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-32 focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-              />
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={logWeight}
-                disabled={weightSaving || !weightLbs}
-                className="bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 min-h-[40px]">
-                {weightSaving ? 'Saving…' : 'Save'}
-              </button>
-              <button
-                onClick={() => { setShowWeightForm(false); setWeightError(null); setWeightLbs('') }}
-                className="text-sm text-gray-500 px-3 py-2">
-                Cancel
-              </button>
-            </div>
-          </div>
-          {weightError && <p className="text-xs text-red-500 mt-2">{weightError}</p>}
-        </div>
-      )}
 
       {loading && <p className="text-sm text-gray-400 text-center py-10">Loading…</p>}
       {error   && <p className="text-sm text-red-500 text-center py-10">Failed to load progress data.</p>}
@@ -2120,7 +2044,7 @@ function ProgressTab({ clientId, getToken }) {
                       <th className="px-2 py-2 text-right font-semibold">Fiber</th>
                       <th className="px-2 py-2 text-right font-semibold">Na</th>
                       <th className="px-2 py-2 text-right font-semibold">Sugar</th>
-                      <th className="px-2 py-2 text-center font-semibold">Goal</th>
+                      <th className="px-2 py-2 text-left font-semibold">Goals</th>
                       <th className="px-2 py-2 text-right font-semibold">Steps</th>
                       <th className="px-2 py-2 text-right font-semibold">Sleep</th>
                       <th className="px-2 py-2 text-right font-semibold">H₂O</th>
@@ -2128,7 +2052,7 @@ function ProgressTab({ clientId, getToken }) {
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {rows.map((r, i) => {
-                      const gi = goalIndicator(r.calories, goalCalories)
+                      const gt = goalTag(goalCalories, goalProtein, goalCarbs, goalFat)
                       return (
                         <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}>
                           <td className="px-3 py-2 text-gray-700 font-medium whitespace-nowrap sticky left-0 bg-inherit">{r.period}</td>
@@ -2139,9 +2063,7 @@ function ProgressTab({ clientId, getToken }) {
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.fiber     ? `${r.fiber}g`                                           : '—'}</td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.sodium_mg ? `${Number(r.sodium_mg).toLocaleString()}mg`             : '—'}</td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.sugar     ? `${r.sugar}g`                                           : '—'}</td>
-                          <td className="px-2 py-2 text-center">
-                            {gi ? <span className={`font-bold ${gi.cls}`}>{gi.symbol}</span> : <span className="text-gray-300">—</span>}
-                          </td>
+                          <td className="px-2 py-2 text-left text-[10px] text-gray-400 whitespace-nowrap">{gt ?? '—'}</td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.steps      ? Number(r.steps).toLocaleString()                      : '—'}</td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.sleep_minutes != null ? fmtSleep(r.sleep_minutes)                  : '—'}</td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.water_oz  ? `${r.water_oz} oz`                                     : '—'}</td>
@@ -4122,32 +4044,26 @@ export default function ClientProfile() {
         const typeLabel  = client.coaching_type
           ? client.coaching_type.charAt(0).toUpperCase() + client.coaching_type.slice(1)
           : '—'
-        const startLabel = client.start_date ? fmtDate(client.start_date) : '—'
-        const rawDays    = client.start_date ? daysSince(client.start_date) : null
+        const effStart   = client.effective_start_date || client.start_date
+        const startLabel = effStart ? fmtDate(effStart) : '—'
+        const rawDays    = effStart ? daysSince(effStart) : null
         const daysLabel  = rawDays != null ? `${Math.max(0, rawDays)} days` : '—'
-        const weightLabel = client.weight_lbs ? `${client.weight_lbs} lbs` : '—'
 
-        function Chip({ label, value, extra = '' }) {
+        function Chip({ label, value }) {
           return (
-            <div className={`flex flex-col gap-0.5 rounded-lg border px-3 py-2 ${extra || 'bg-gray-50 border-gray-200'}`}>
+            <div className="flex flex-col gap-0.5 rounded-lg border px-3 py-2 bg-gray-50 border-gray-200">
               <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide leading-none">{label}</span>
-              <span className={`text-sm font-semibold leading-snug ${extra ? '' : 'text-gray-900'}`}>{value}</span>
+              <span className="text-sm font-semibold leading-snug text-gray-900">{value}</span>
             </div>
           )
         }
 
         return (
           <div className="flex flex-wrap gap-2 mb-5">
-            <Chip label="Coach"    value={coachLabel} />
-            <Chip label="Type"     value={typeLabel} />
-            <Chip label="Started"  value={startLabel} />
-            <Chip label="Active"   value={daysLabel} />
-            <Chip label="Weight"   value={weightLabel} />
-            {/* Status chip — colored border + text via tagStyle */}
-            <div className={`flex flex-col gap-0.5 rounded-lg border px-3 py-2 ${tagStyle}`}>
-              <span className="text-[10px] font-semibold uppercase tracking-wide leading-none opacity-70">Status</span>
-              <span className="text-sm font-semibold leading-snug">{statusTag}</span>
-            </div>
+            <Chip label="Coach"   value={coachLabel} />
+            <Chip label="Type"    value={typeLabel} />
+            <Chip label="Started" value={startLabel} />
+            <Chip label="Active"  value={daysLabel} />
           </div>
         )
       })()}
