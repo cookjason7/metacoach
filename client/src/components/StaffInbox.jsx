@@ -48,6 +48,22 @@ function parseMessageMetadata(metadata) {
   }
 }
 
+// Ensure Cloudinary audio URLs deliver as MP3 so every browser can play them.
+// Chrome records WebM/Opus (Safari can't play WebM); MP3 is universally supported.
+// Also fixes any URLs stored before the server-side f_mp3 fix was deployed.
+function toMp3Url(url) {
+  if (!url) return url
+  if (
+    url.includes('res.cloudinary.com') &&
+    url.includes('/video/upload/') &&
+    !url.includes('/f_mp3') &&
+    !url.includes('/f_auto')
+  ) {
+    return url.replace('/upload/', '/upload/f_mp3/')
+  }
+  return url
+}
+
 const STAFF_THREAD_LABELS = {
   coach_thread:  'Coach',
   admin_private: 'Jason',
@@ -432,7 +448,7 @@ export default function StaffInbox({ getToken }) {
                         <img src={m.image_url} alt="attachment" className="max-w-[240px] rounded-lg mt-1 cursor-pointer" onClick={() => window.open(m.image_url, '_blank')} />
                       )}
                       {m.audio_url && (
-                        <audio controls src={m.audio_url} className="mt-1 w-full max-w-[260px]" style={{ height: 36 }} />
+                        <audio controls src={toMp3Url(m.audio_url)} className="mt-1 w-full max-w-[260px]" style={{ height: 36 }} />
                       )}
                       {metadata.form_id && (
                         <div className="mt-2 flex items-center gap-1.5 bg-white/20 border border-white/30 rounded-lg px-3 py-2 text-xs font-bold">

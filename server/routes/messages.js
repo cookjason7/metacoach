@@ -43,7 +43,16 @@ function uploadAudioToCloudinary(buffer) {
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
       { folder: 'metacoach/messages/audio', resource_type: 'video' },
-      (err, result) => (err ? reject(err) : resolve(result)),
+      (err, result) => {
+        if (err) return reject(err)
+        // Inject f_mp3 transformation so the stored URL delivers MP3 to every
+        // browser.  Chrome records WebM/Opus (great quality, tiny file) but
+        // Safari on iOS/macOS cannot play WebM at all.  MP3 is the one format
+        // all browsers — Chrome, Firefox, Safari, iOS WebView — support.
+        // Cloudinary applies the transcode lazily on first request and caches it.
+        const secure_url = result.secure_url.replace('/upload/', '/upload/f_mp3/')
+        resolve({ ...result, secure_url })
+      },
     )
     stream.end(buffer)
   })
