@@ -70,6 +70,106 @@ function getAudioSources(url) {
   return sources
 }
 
+function formatAudioTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  return `${mins}:${String(secs).padStart(2, '0')}`
+}
+
+function VoiceMessagePlayer({ audioUrl, isMine }) {
+  const audioRef = useRef(null)
+  const [playing, setPlaying] = useState(false)
+  const [duration, setDuration] = useState(0)
+  const [currentTime, setCurrentTime] = useState(0)
+  const sources = getAudioSources(audioUrl)
+  const rangeMax = duration || 0
+
+  useEffect(() => {
+    setPlaying(false)
+    setCurrentTime(0)
+    setDuration(0)
+  }, [audioUrl])
+
+  async function togglePlayback() {
+    const audio = audioRef.current
+    if (!audio) return
+    if (playing) {
+      audio.pause()
+      setPlaying(false)
+      return
+    }
+    try {
+      await audio.play()
+      setPlaying(true)
+    } catch {
+      setPlaying(false)
+    }
+  }
+
+  function seek(e) {
+    const nextTime = Number(e.target.value)
+    const audio = audioRef.current
+    if (audio) audio.currentTime = nextTime
+    setCurrentTime(nextTime)
+  }
+
+  return (
+    <div className={`mt-1 flex w-[min(260px,100%)] max-w-full items-center gap-2 rounded-full px-2.5 py-2 ${
+      isMine ? 'bg-white/95 text-gray-800' : 'bg-gray-100 text-gray-800'
+    }`}>
+      <button
+        type="button"
+        onClick={togglePlayback}
+        className="flex h-9 min-w-9 items-center justify-center rounded-full bg-[#E8670A] text-white shadow-sm"
+        aria-label={playing ? 'Pause voice message' : 'Play voice message'}
+      >
+        {playing ? (
+          <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="6" y="5" width="4" height="14" rx="1" />
+            <rect x="14" y="5" width="4" height="14" rx="1" />
+          </svg>
+        ) : (
+          <svg className="ml-0.5 h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+        )}
+      </button>
+      <input
+        type="range"
+        min="0"
+        max={rangeMax}
+        step="0.1"
+        value={Math.min(currentTime, rangeMax)}
+        onChange={seek}
+        disabled={!duration}
+        className="min-w-0 flex-1 accent-[#E8670A] disabled:opacity-40"
+        aria-label="Voice message progress"
+      />
+      <span className="w-9 shrink-0 text-right text-[11px] font-semibold tabular-nums text-gray-500">
+        {formatAudioTime(duration || currentTime)}
+      </span>
+      <audio
+        ref={audioRef}
+        preload="metadata"
+        className="hidden"
+        onLoadedMetadata={e => {
+          const nextDuration = e.currentTarget.duration
+          setDuration(Number.isFinite(nextDuration) ? nextDuration : 0)
+        }}
+        onTimeUpdate={e => setCurrentTime(e.currentTarget.currentTime || 0)}
+        onEnded={() => setPlaying(false)}
+        onPause={() => setPlaying(false)}
+        onPlay={() => setPlaying(true)}
+      >
+        {sources.map(source => (
+          <source key={source.src} src={source.src} type={source.type} />
+        ))}
+      </audio>
+    </div>
+  )
+}
+
 const STAFF_THREAD_LABELS = {
   coach_thread:  'Coach',
   admin_private: 'Jason',
@@ -474,11 +574,7 @@ export default function StaffInbox({ getToken }) {
                         <img src={m.image_url} alt="attachment" className="max-w-[240px] rounded-lg mt-1 cursor-pointer" onClick={() => window.open(m.image_url, '_blank')} />
                       )}
                       {m.audio_url && (
-                        <audio controls className="mt-1 w-full max-w-[260px]" style={{ height: 36 }}>
-                          {getAudioSources(m.audio_url).map(source => (
-                            <source key={source.src} src={source.src} type={source.type} />
-                          ))}
-                        </audio>
+                        <VoiceMessagePlayer audioUrl={m.audio_url} isMine={isStaff} />
                       )}
                       {metadata.form_id && (
                         <div className="mt-2 flex items-center gap-1.5 bg-white/20 border border-white/30 rounded-lg px-3 py-2 text-xs font-bold">
