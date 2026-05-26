@@ -108,29 +108,6 @@ function formatActivity(c) {
   return `${prefix} ${d}d ago`
 }
 
-function adherenceColor(v) {
-  const n = Number(v) || 0
-  if (n >= 80) return 'text-emerald-600'
-  if (n >= 50) return 'text-blue-600'
-  if (n >= 30) return 'text-amber-600'
-  return 'text-gray-400'
-}
-
-// ── CoachStatCard ─────────────────────────────────────────────────────────────
-
-function CoachStatCard({ label, value, sub, accent = false, href }) {
-  const inner = (
-    <div className={`bg-white rounded-xl border p-3 ${accent ? 'border-[#E8670A]' : 'border-gray-200'}`}>
-      <p className="text-[11px] text-gray-500 mb-0.5">{label}</p>
-      <p className={`text-xl font-bold leading-tight ${accent ? 'text-[#E8670A]' : 'text-gray-900'}`}>{value}</p>
-      {sub && <p className="text-[11px] text-gray-400 mt-0.5">{sub}</p>}
-    </div>
-  )
-  return href
-    ? <Link to={href} className="block hover:opacity-90 transition-opacity">{inner}</Link>
-    : inner
-}
-
 // ── StatusBadge ───────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }) {
@@ -147,9 +124,9 @@ function StatusBadge({ status }) {
 
 function RecentActivityRail({ loading, activity }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+    <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
       {/* Header */}
-      <div className="px-3 py-2.5 border-b border-gray-100 flex items-center justify-between">
+      <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
         <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Recent Activity</p>
       </div>
 
@@ -162,12 +139,12 @@ function RecentActivityRail({ loading, activity }) {
       )}
 
       {!loading && activity.length > 0 && (
-        <div className="divide-y divide-gray-100 overflow-y-auto max-h-[62vh]">
+        <div className="divide-y divide-gray-100 overflow-y-auto max-h-[48vh]">
           {activity.map((event, idx) => (
             <Link
               key={`${event.type}-${event.client_id}-${event.occurred_at}-${idx}`}
               to={`/admin/clients/${event.client_id}`}
-              className="flex items-start justify-between gap-2 px-3 py-2 hover:bg-orange-50/50 transition-colors"
+              className="flex items-start justify-between gap-2 px-3 py-1.5 hover:bg-orange-50/50 transition-colors"
             >
               <div className="min-w-0">
                 <p className="text-xs font-medium text-gray-900 truncate leading-tight">{event.client_name}</p>
@@ -1484,8 +1461,6 @@ export default function CoachDashboard({ getToken, userRole }) {
 
   // ── Computed ─────────────────────────────────────────────────────────────────
   const activeClients  = clients.filter(c => accountStatus(c) === 'active')
-  const needsAttention = activeClients.filter(c => c.status_tag === 'Needs Attention')
-  const noRecentLogs   = activeClients.filter(c => { const d = daysSince(c.last_meal_at); return d === null || d > 3 })
 
   const coachOptions = useMemo(() => {
     const seen = new Map()
@@ -1534,14 +1509,16 @@ export default function CoachDashboard({ getToken, userRole }) {
     <div className="max-w-7xl">
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-3 mb-4">
+      <div className="flex items-start justify-between gap-3 mb-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Coaching Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-0.5">What needs your attention today.</p>
+          <h1 className="text-xl font-bold text-gray-900">Coaching Dashboard</h1>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {dataLoading ? 'Loading clients...' : `${filteredClients.length} shown · ${activeClients.length} active`}
+          </p>
         </div>
         <button
           onClick={() => setInviteOpen(true)}
-          className="shrink-0 bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors min-h-[44px]"
+          className="shrink-0 bg-[#E8670A] text-white px-3 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors min-h-[40px]"
         >
           + Add Client
         </button>
@@ -1561,28 +1538,17 @@ export default function CoachDashboard({ getToken, userRole }) {
       <div className="flex gap-5 items-start">
 
       {/* ── Main column ── */}
-      <div className="flex-1 min-w-0 space-y-4">
-
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <CoachStatCard label="Active Clients"   value={dataLoading ? '…' : activeClients.length}  sub="in your roster" />
-        <CoachStatCard label="Needs Attention"  value={dataLoading ? '…' : needsAttention.length}  sub="by status tag"
-          accent={!dataLoading && needsAttention.length > 0} />
-        <CoachStatCard label="Unread Messages"  value={dataLoading ? '…' : msgUnread}              sub="from clients"
-          accent={!dataLoading && msgUnread > 0} href="/messages" />
-        <CoachStatCard label="No Recent Logs"   value={dataLoading ? '…' : noRecentLogs.length}    sub="3+ days inactive"
-          accent={!dataLoading && noRecentLogs.length > 0} />
-      </div>
+      <div className="flex-1 min-w-0 space-y-3">
 
       {/* Pending Invites */}
       {(pendingLoading || pendingInvites.length > 0) && (
-        <div className="bg-purple-50 border border-purple-200 rounded-xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-purple-100 flex items-center justify-between">
+        <div className="bg-purple-50 border border-purple-200 rounded-lg overflow-hidden">
+          <div className="px-3 py-2 border-b border-purple-100 flex items-center justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-purple-900">
                 Pending Invites{!pendingLoading && pendingInvites.length > 0 ? ` (${pendingInvites.length})` : ''}
               </p>
-              <p className="text-xs text-purple-600 mt-0.5">Invited but not yet signed up</p>
+              <p className="text-[11px] text-purple-600 mt-0.5">Invited but not yet signed up</p>
             </div>
             <button
               onClick={() => setInviteOpen(true)}
@@ -1607,146 +1573,14 @@ export default function CoachDashboard({ getToken, userRole }) {
         </div>
       )}
 
-      {/* Alert sections */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Status-Flagged */}
-        <div>
-          <p className="text-sm font-semibold text-gray-700 mb-2">Status-Flagged Clients</p>
-          {dataLoading ? (
-            <div className="bg-white border border-gray-200 rounded-xl px-4 py-6 text-center">
-              <p className="text-sm text-gray-400">Loading…</p>
-            </div>
-          ) : needsAttention.length === 0 ? (
-            <div className="bg-white border border-gray-200 rounded-xl px-4 py-4 text-center">
-              <p className="text-sm text-gray-500">No status flags right now.</p>
-            </div>
-          ) : (
-            <div className="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100">
-              {needsAttention.slice(0, 5).map(c => (
-                <Link key={c.id} to={`/admin/clients/${c.id}`}
-                  className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-orange-50/50 transition-colors">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{clientName(c)}</p>
-                    <p className="text-xs text-gray-400">
-                      {c.last_meal_at ? `Last log: ${fmtShortDate(c.last_meal_at)}` : 'No meals logged'}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <span className={`text-xs font-bold ${adherenceColor(c.adherence_7d)}`}>
-                      {Math.round(Number(c.adherence_7d) || 0)}% 7d
-                    </span>
-                    <Link
-                      to={`/admin/clients/${c.id}?tab=food`}
-                      onClick={e => e.stopPropagation()}
-                      className="text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] whitespace-nowrap"
-                    >
-                      Food Log →
-                    </Link>
-                    <svg className="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
-                  </div>
-                </Link>
-              ))}
-              {needsAttention.length > 5 && (
-                <div className="px-4 py-2 text-xs text-gray-400 text-center">
-                  +{needsAttention.length - 5} more — see Clients tab
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* No Recent Logs */}
-        <div>
-          <p className="text-sm font-semibold text-gray-700 mb-2">No Recent Logs (3+ days)</p>
-          {dataLoading ? (
-            <div className="bg-white border border-gray-200 rounded-xl px-4 py-6 text-center">
-              <p className="text-sm text-gray-400">Loading…</p>
-            </div>
-          ) : noRecentLogs.length === 0 ? (
-            <div className="bg-white border border-gray-200 rounded-xl px-4 py-4 text-center">
-              <p className="text-sm text-gray-500">Everyone has logged recently.</p>
-            </div>
-          ) : (
-            <div className="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100">
-              {noRecentLogs.slice(0, 4).map(c => (
-                <Link key={c.id} to={`/admin/clients/${c.id}`}
-                  className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-orange-50/50 transition-colors">
-                  <p className="text-sm font-medium text-gray-900 min-w-0 truncate">{clientName(c)}</p>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <p className="text-xs text-gray-400">
-                      {c.last_meal_at ? `Last logged ${fmtShortDate(c.last_meal_at)}` : 'Never logged'}
-                    </p>
-                    <Link
-                      to={`/admin/clients/${c.id}?tab=food`}
-                      onClick={e => e.stopPropagation()}
-                      className="text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] whitespace-nowrap"
-                    >
-                      Food Log →
-                    </Link>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Check-ins */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-semibold text-gray-700">Check-ins Needing Review</p>
-          <Link to="/admin/forms" className="text-xs text-[#E8670A] hover:text-[#c45e09] font-medium">Forms →</Link>
-        </div>
-        {dataLoading ? (
-          <div className="bg-white border border-gray-200 rounded-xl px-4 py-6 text-center">
-            <p className="text-sm text-gray-400">Loading…</p>
-          </div>
-        ) : checkins.length === 0 ? (
-          <div className="bg-white border border-gray-200 rounded-xl px-4 py-4 text-center">
-            <p className="text-sm text-gray-500">No check-ins need review right now.</p>
-          </div>
-        ) : (
-          <div className="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100 overflow-hidden">
-            {checkins.map(item => (
-              <Link key={item.submission_id} to={`/admin/clients/${item.client_id}?tab=assessment`}
-                className="block px-4 py-3 hover:bg-orange-50/50 transition-colors">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 truncate">{item.client_name}</p>
-                    <p className="text-xs text-gray-500 truncate">{item.form_title}</p>
-                    <p className="text-[11px] text-gray-400 mt-0.5">
-                      Submitted {fmtDateTime(item.submitted_at)}
-                      {item.due_at ? ` · Due ${fmtShortDate(item.due_at)}` : ''}
-                      {item.is_late ? ' · Late' : ''}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    {item.is_late && (
-                      <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-600">
-                        Late
-                      </span>
-                    )}
-                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
-                      {item.status}
-                    </span>
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
-      </div>
-
       {/* Tab bar */}
       <div className="-mx-4 px-4 sm:mx-0 sm:px-0 overflow-x-auto">
-        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit min-w-full sm:min-w-0">
+        <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit min-w-full sm:min-w-0">
           {tabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'bg-white text-gray-900 shadow-sm'
                   : 'text-gray-500 hover:text-gray-700'
@@ -1765,39 +1599,39 @@ export default function CoachDashboard({ getToken, userRole }) {
 
       {/* ── Clients tab ── */}
       {activeTab === 'clients' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {/* Filters */}
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
+          <div className="bg-white rounded-lg border border-gray-200 p-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-2">
               <input type="text" value={clientSearch} onChange={e => setClientSearch(e.target.value)}
                 placeholder="Search by name or email…"
-                className="lg:col-span-2 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+                className="lg:col-span-2 border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
               <select value={coachFilter} onChange={e => setCoachFilter(e.target.value)}
-                className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+                className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
                 <option value="all">All coaches</option>
                 {coachOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
               </select>
               <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
-                className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+                className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
                 <option value="all">All coaching</option>
                 <option value="vip">VIP</option>
                 <option value="ai">AI</option>
               </select>
               <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-                className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+                className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
                 <option value="all">All statuses</option>
                 <option value="active">Active</option>
                 <option value="invited">Awaiting Setup</option>
                 <option value="inactive">Inactive</option>
               </select>
               <select value={checkinFilter} onChange={e => setCheckinFilter(e.target.value)}
-                className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+                className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
                 <option value="all">All check-ins</option>
                 <option value="received">Check-in received</option>
                 <option value="none">No check-in</option>
               </select>
               <select value={sortBy} onChange={e => setSortBy(e.target.value)}
-                className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+                className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
                 <option value="activity">Sort by activity</option>
                 <option value="name">Sort by name</option>
                 <option value="coach">Sort by coach</option>
@@ -1816,6 +1650,51 @@ export default function CoachDashboard({ getToken, userRole }) {
                 </button>
               )}
             </div>
+          </div>
+
+          {/* Check-ins */}
+          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+            <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2">
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-700">Check-ins Needing Review</p>
+                {!dataLoading && checkins.length > 0 && (
+                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                    {checkins.length}
+                  </span>
+                )}
+              </div>
+              <Link to="/admin/forms" className="text-xs text-[#E8670A] hover:text-[#c45e09] font-medium">Forms</Link>
+            </div>
+            {dataLoading ? (
+              <p className="text-xs text-gray-400 px-3 py-3">Loading check-ins...</p>
+            ) : checkins.length === 0 ? (
+              <p className="text-xs text-gray-400 px-3 py-3">No check-ins need review right now.</p>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {checkins.slice(0, 4).map(item => (
+                  <Link key={item.submission_id} to={`/admin/clients/${item.client_id}?tab=assessment`}
+                    className="flex items-center justify-between gap-3 px-3 py-2 hover:bg-orange-50/50 transition-colors">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{item.client_name}</p>
+                      <p className="text-[11px] text-gray-400 truncate">
+                        {item.form_title} · Submitted {fmtDateTime(item.submitted_at)}
+                        {item.due_at ? ` · Due ${fmtShortDate(item.due_at)}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {item.is_late && (
+                        <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-600">
+                          Late
+                        </span>
+                      )}
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                        {item.status}
+                      </span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
 
           {dataLoading && <p className="text-center text-gray-400 py-12 text-sm">Loading clients…</p>}
@@ -1842,16 +1721,14 @@ export default function CoachDashboard({ getToken, userRole }) {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase tracking-wider">
                     <tr>
-                      <th className="text-left px-4 py-3 font-semibold">Client</th>
-                      <th className="text-left px-4 py-3 font-semibold">Type</th>
-                      <th className="text-left px-4 py-3 font-semibold">Coach</th>
-                      <th className="text-left px-3 py-3 font-semibold">Last Activity</th>
-                      <th className="text-left px-3 py-3 font-semibold">Check-In</th>
-                      <th className="text-center px-3 py-3 font-semibold">7d</th>
-                      <th className="text-center px-3 py-3 font-semibold">30d</th>
-                      <th className="text-left px-3 py-3 font-semibold">Momentum</th>
-                      <th className="text-left px-3 py-3 font-semibold">Status</th>
-                      <th className="text-right px-3 py-3 font-semibold">Actions</th>
+                      <th className="text-left px-3 py-2 font-semibold">Client</th>
+                      <th className="text-left px-3 py-2 font-semibold">Type</th>
+                      <th className="text-left px-3 py-2 font-semibold">Coach</th>
+                      <th className="text-left px-3 py-2 font-semibold">Last Activity</th>
+                      <th className="text-left px-3 py-2 font-semibold">Check-In</th>
+                      <th className="text-left px-3 py-2 font-semibold">Momentum</th>
+                      <th className="text-left px-3 py-2 font-semibold">Status</th>
+                      <th className="text-right px-3 py-2 font-semibold">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -1859,17 +1736,17 @@ export default function CoachDashboard({ getToken, userRole }) {
                       <tr key={c.id}
                         onClick={() => navigate(`/admin/clients/${c.id}`)}
                         className="hover:bg-orange-50/50 cursor-pointer transition-colors">
-                        <td className="px-4 py-3">
+                        <td className="px-3 py-2">
                           <p className="font-semibold text-gray-900">{clientName(c)}</p>
                           <p className="text-xs text-gray-400 truncate max-w-[180px]">{c.email}</p>
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-3 py-2">
                           <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold border ${coachingBadge(c.coaching_type)}`}>
                             {coachingLabel(c.coaching_type)}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-xs text-gray-600">{c.assigned_coach_name ?? '—'}</td>
-                        <td className="px-3 py-3 text-xs text-gray-500">
+                        <td className="px-3 py-2 text-xs text-gray-600">{c.assigned_coach_name ?? '—'}</td>
+                        <td className="px-3 py-2 text-xs text-gray-500">
                           <span className="block font-medium text-gray-700">{formatActivity(c)}</span>
                           {c.last_checkin_at && (
                             <span className="block text-[11px] text-gray-400">
@@ -1877,25 +1754,19 @@ export default function CoachDashboard({ getToken, userRole }) {
                             </span>
                           )}
                         </td>
-                        <td className="px-3 py-3">
+                        <td className="px-3 py-2">
                           {c.check_in_this_week
                             ? <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">✓ Check-in</span>
                             : <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-bold text-gray-400">No check-in</span>
                           }
                         </td>
-                        <td className={`px-3 py-3 text-center font-bold ${adherenceColor(c.adherence_7d)}`}>
-                          {Math.round(Number(c.adherence_7d) || 0)}%
-                        </td>
-                        <td className={`px-3 py-3 text-center font-bold ${adherenceColor(c.adherence_30d)}`}>
-                          {Math.round(Number(c.adherence_30d) || 0)}%
-                        </td>
-                        <td className="px-3 py-3"><StatusBadge status={c.status_tag} /></td>
-                        <td className="px-3 py-3">
+                        <td className="px-3 py-2"><StatusBadge status={c.status_tag} /></td>
+                        <td className="px-3 py-2">
                           <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${accountStatusBadgeClass(c)}`}>
                             {accountStatusLabel(c)}
                           </span>
                         </td>
-                        <td className="px-3 py-3 text-right whitespace-nowrap">
+                        <td className="px-3 py-2 text-right whitespace-nowrap">
                           {c.client_status === 'archived' ? (
                             <button onClick={e => reactivateClient(e, c.id)}
                               className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold mr-2">Reactivate</button>
@@ -1916,8 +1787,8 @@ export default function CoachDashboard({ getToken, userRole }) {
               <div className="lg:hidden space-y-3">
                 {filteredClients.map(c => (
                   <button key={c.id} onClick={() => navigate(`/admin/clients/${c.id}`)}
-                    className="w-full text-left bg-white border border-gray-200 rounded-xl p-4 hover:border-[#E8670A] active:scale-[0.99] transition-all">
-                    <div className="flex items-start justify-between gap-2 mb-2">
+                    className="w-full text-left bg-white border border-gray-200 rounded-lg p-3 hover:border-[#E8670A] active:scale-[0.99] transition-all">
+                    <div className="flex items-start justify-between gap-2 mb-1.5">
                       <div className="min-w-0">
                         <p className="font-semibold text-gray-900">{clientName(c)}</p>
                         <p className="text-xs text-gray-400 truncate">{c.email}</p>
@@ -1935,11 +1806,7 @@ export default function CoachDashboard({ getToken, userRole }) {
                         : <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 font-bold text-gray-400">No check-in</span>
                       }
                     </div>
-                    <div className="flex gap-4 text-xs">
-                      <div><span className="text-gray-400">7d </span><span className={`font-bold ${adherenceColor(c.adherence_7d)}`}>{Math.round(Number(c.adherence_7d) || 0)}%</span></div>
-                      <div><span className="text-gray-400">30d </span><span className={`font-bold ${adherenceColor(c.adherence_30d)}`}>{Math.round(Number(c.adherence_30d) || 0)}%</span></div>
-                    </div>
-                    <div className="mt-3 pt-2 border-t border-gray-100 flex items-center justify-between gap-2">
+                    <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between gap-2">
                       <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${accountStatusBadgeClass(c)}`}>
                         {accountStatusLabel(c)}
                       </span>
