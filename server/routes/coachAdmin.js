@@ -668,11 +668,8 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
         (SELECT first_name FROM users WHERE id = u.assigned_coach_id) AS assigned_coach_name,
         (SELECT email      FROM users WHERE id = u.assigned_coach_id) AS assigned_coach_email,
         (SELECT MAX(logged_at) FROM meals WHERE user_id = u.id) AS last_meal_at,
-        (SELECT ROUND(weight_lbs::numeric, 1)
-          FROM daily_logs
-          WHERE user_id = u.id AND weight_lbs IS NOT NULL
-          ORDER BY logged_date DESC
-          LIMIT 1) AS latest_weight_lbs,
+        lw.latest_weight_lbs,
+        lw.latest_weight_source,
         COALESCE((SELECT AVG(completion_percentage)::numeric(5,1)
           FROM habit_completions
           WHERE user_id = u.id AND completion_date >= CURRENT_DATE - INTERVAL '7 days'), 0) AS adherence_7d,
@@ -694,8 +691,23 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
         ha.completed_at         AS assessment_completed_at,
         bi.confirmed_age        AS confirmed_age,
         bi.confirmed_sex        AS confirmed_sex,
-        bi.confirmed_height_inches AS confirmed_height_inches
+        bi.confirmed_height_inches AS confirmed_height_inches,
+        bi.confirmed_weight_lbs AS confirmed_weight_lbs
       FROM users u
+      LEFT JOIN LATERAL (
+        SELECT ROUND(weight_lbs::numeric, 1) AS latest_weight_lbs, source AS latest_weight_source
+        FROM (
+          SELECT dl.weight_lbs, dl.logged_date AS entry_date, 'daily_log' AS source
+          FROM daily_logs dl
+          WHERE dl.user_id = u.id AND dl.weight_lbs IS NOT NULL
+          UNION ALL
+          SELECT wc.current_weight AS weight_lbs, wc.week_start AS entry_date, 'weekly_checkin' AS source
+          FROM weekly_checkins wc
+          WHERE wc.user_id = u.id AND wc.current_weight IS NOT NULL
+        ) weights
+        ORDER BY entry_date DESC
+        LIMIT 1
+      ) lw ON TRUE
       LEFT JOIN health_assessments ha ON ha.user_id = u.id
       LEFT JOIN bloodwork_intake bi ON bi.user_id = u.id
       WHERE u.id = $1
@@ -714,6 +726,11 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
       return years > 0 ? years : null
     }
     const firstPresent = (...values) => values.find(v => v !== null && v !== undefined && v !== '') ?? null
+    const firstPositive = (...values) => values.find(v => {
+      if (v === null || v === undefined || v === '') return false
+      const n = Number(v)
+      return Number.isFinite(n) && n > 0
+    }) ?? null
 
     // Field fallback chain: users table → health_assessments → null
     const merged = {
@@ -740,10 +757,11 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
       )),
       nutrition_calculator_defaults: {
         sex:             firstPresent(c.gender, c.confirmed_sex),
-        age:             firstPresent(c.age, ageFromDob(c.assessment_dob), c.confirmed_age),
-        height_inches:   firstPresent(c.height_inches, c.confirmed_height_inches),
-        weight_lbs:      firstPresent(c.latest_weight_lbs, c.starting_weight_lbs),
-        goal_weight_lbs: firstPresent(c.goal_weight_lbs),
+        age:             firstPositive(ageFromDob(c.assessment_dob), c.age, c.confirmed_age),
+        height_inches:   firstPositive(c.height_inches, c.confirmed_height_inches),
+        weight_lbs:      firstPositive(c.latest_weight_lbs, c.confirmed_weight_lbs, c.starting_weight_lbs),
+        weight_source:   c.latest_weight_lbs != null ? c.latest_weight_source : c.confirmed_weight_lbs != null ? 'confirmed_weight' : c.starting_weight_lbs != null ? 'starting_weight' : null,
+        goal_weight_lbs: firstPositive(c.goal_weight_lbs),
         activity_level:  firstPresent(c.activity_level, c.assessment_activity_level),
       },
       status_tag: computeStatusTag(c),

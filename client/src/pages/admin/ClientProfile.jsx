@@ -991,6 +991,38 @@ function normalizeCalculatorSex(value) {
   return ''
 }
 
+function normalizeHeightInches(value) {
+  if (value === null || value === undefined || value === '') return ''
+  if (typeof value === 'number') return value > 0 ? String(Math.round(value * 10) / 10) : ''
+
+  const raw = String(value).trim().toLowerCase()
+  if (!raw) return ''
+  const direct = Number(raw)
+  if (Number.isFinite(direct) && direct > 0) return String(Math.round(direct * 10) / 10)
+
+  const ftIn = raw.match(/(\d+(?:\.\d+)?)\s*(?:ft|feet|'|’)\s*(\d+(?:\.\d+)?)?/)
+  if (ftIn) {
+    const feet = Number(ftIn[1])
+    const inches = Number(ftIn[2] ?? 0)
+    const total = feet * 12 + inches
+    return Number.isFinite(total) && total > 0 ? String(Math.round(total * 10) / 10) : ''
+  }
+
+  const inchesOnly = raw.match(/(\d+(?:\.\d+)?)\s*(?:in|inch|inches|")/)
+  if (inchesOnly) {
+    const inches = Number(inchesOnly[1])
+    return Number.isFinite(inches) && inches > 0 ? String(Math.round(inches * 10) / 10) : ''
+  }
+
+  return ''
+}
+
+function positiveValueString(value) {
+  if (value === null || value === undefined || value === '') return ''
+  const n = Number(value)
+  return Number.isFinite(n) && n > 0 ? String(Math.round(n * 10) / 10) : ''
+}
+
 function normalizeActivityFactor(value) {
   const v = String(value ?? '').trim().toLowerCase()
   if (!v) return '1.55'
@@ -1013,10 +1045,10 @@ function BmrTdeeCalculator({ client, getToken, onUpdate }) {
   const clientIdRef = useRef(client.id)
   const [open,        setOpen]        = useState(false)
   const [sex,         setSex]         = useState(normalizeCalculatorSex(defaults.sex ?? client.gender))
-  const [age,         setAge]         = useState(initialAge ? String(initialAge) : '')
-  const [heightIn,    setHeightIn]    = useState(initialHeight ? String(initialHeight) : '')
-  const [weightLbs,   setWeightLbs]   = useState(initialWeight !== '' && initialWeight != null ? String(initialWeight) : '')
-  const [goalWeight,  setGoalWeight]  = useState(initialGoalWeight ? String(initialGoalWeight) : '')
+  const [age,         setAge]         = useState(positiveValueString(initialAge))
+  const [heightIn,    setHeightIn]    = useState(normalizeHeightInches(initialHeight))
+  const [weightLbs,   setWeightLbs]   = useState(positiveValueString(initialWeight))
+  const [goalWeight,  setGoalWeight]  = useState(positiveValueString(initialGoalWeight))
   const [activity,    setActivity]    = useState(normalizeActivityFactor(defaults.activity_level ?? client.activity_level ?? client.assessment_activity_level))
   const [adjustment,  setAdjustment]  = useState('0')
   const [applying,    setApplying]    = useState(false)
@@ -1037,10 +1069,10 @@ function BmrTdeeCalculator({ client, getToken, onUpdate }) {
     const nextGoalWeight = nextDefaults.goal_weight_lbs ?? client.goal_weight_lbs ?? ''
 
     setSex(normalizeCalculatorSex(nextDefaults.sex ?? client.gender))
-    setAge(nextAge ? String(nextAge) : '')
-    setHeightIn(nextHeight ? String(nextHeight) : '')
-    setWeightLbs(nextWeight !== '' && nextWeight != null ? String(nextWeight) : '')
-    setGoalWeight(nextGoalWeight ? String(nextGoalWeight) : '')
+    setAge(positiveValueString(nextAge))
+    setHeightIn(normalizeHeightInches(nextHeight))
+    setWeightLbs(positiveValueString(nextWeight))
+    setGoalWeight(positiveValueString(nextGoalWeight))
     setActivity(normalizeActivityFactor(nextDefaults.activity_level ?? client.activity_level ?? client.assessment_activity_level))
   }, [client])
 
@@ -1060,11 +1092,17 @@ function BmrTdeeCalculator({ client, getToken, onUpdate }) {
   const bmr    = valid ? Math.round(10 * kg + 6.25 * cm - 5 * ageN + (sex === 'male' ? 5 : -161)) : null
   const tdee   = bmr   ? Math.round(bmr * actN) : null
   const goalCal = tdee ? Math.max(800, tdee + adjN) : null
-  const weightSource = client.latest_weight_lbs != null
+  const sourceLabels = {
+    daily_log: 'Latest logged weight',
+    weekly_checkin: 'Latest check-in weight',
+    confirmed_weight: 'Confirmed weight fallback',
+    starting_weight: 'Starting weight fallback',
+  }
+  const weightSource = sourceLabels[defaults.weight_source] ?? (client.latest_weight_lbs != null
     ? 'Latest logged weight'
     : client.starting_weight_lbs != null
       ? 'Starting weight fallback'
-      : null
+      : null)
 
   async function applyCalories() {
     if (!goalCal) return
