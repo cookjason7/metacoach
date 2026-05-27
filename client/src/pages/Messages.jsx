@@ -182,6 +182,7 @@ function VoiceMessagePlayer({ audioUrl, isMine }) {
 export default function Messages() {
   const { getToken } = useAuth()
   const [isStaff,     setIsStaff]     = useState(null) // null = loading
+  const [staffRole,   setStaffRole]   = useState(null) // 'admin' | 'coach' | null
   const [threads,     setThreads]     = useState([])
   const [coachName,   setCoachName]   = useState(null)
   const [active,      setActive]      = useState(null)  // thread_type string
@@ -267,6 +268,7 @@ export default function Messages() {
         if (res.ok) {
           const data = await res.json()
           setIsStaff(data.role === 'admin' || data.role === 'coach')
+          setStaffRole(data.role ?? null)
         } else {
           setIsStaff(false)
         }
@@ -426,7 +428,7 @@ export default function Messages() {
           <h1 className="text-2xl font-bold text-gray-900">Messages</h1>
           <p className="text-sm text-gray-500">Client inbox — reply to any conversation below.</p>
         </div>
-        <StaffInbox getToken={getToken} />
+        <StaffInbox getToken={getToken} role={staffRole} />
       </div>
     )
   }

@@ -1040,8 +1040,8 @@ function AdminToolsPanel({ clients, getToken }) {
 }
 // ── Messaging tab ─────────────────────────────────────────────────────────────
 
-function AdminMessagingTab({ getToken }) {
-  return <StaffInbox getToken={getToken} />
+function AdminMessagingTab({ getToken, role }) {
+  return <StaffInbox getToken={getToken} role={role} />
 }
 
 // ── Pending Invite Row ────────────────────────────────────────────────────────
@@ -1829,7 +1829,7 @@ export default function CoachDashboard({ getToken, userRole }) {
       )}
 
       {/* Messaging tab */}
-      {activeTab === 'messaging' && <AdminMessagingTab getToken={getToken} />}
+      {activeTab === 'messaging' && <AdminMessagingTab getToken={getToken} role={userRole} />}
 
       {/* Coach Foods tab */}
       {activeTab === 'coach-foods' && <CoachFoodsTab getToken={getToken} />}

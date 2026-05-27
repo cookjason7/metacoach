@@ -180,7 +180,7 @@ const STAFF_VISIBLE_THREADS = ['admin_private', 'coach_thread', 'ai_admin']
 // ── Staff Inbox component ─────────────────────────────────────────────────────
 // Reused on the Coaching → Messaging tab AND the main Messages page for staff.
 
-export default function StaffInbox({ getToken }) {
+export default function StaffInbox({ getToken, role }) {
   const [inbox,       setInbox]       = useState([])
   const [loading,     setLoading]     = useState(true)
   const [selected,    setSelected]    = useState(null) // { clientId, clientName, threadType }
@@ -709,6 +709,14 @@ export default function StaffInbox({ getToken }) {
                 )
               })}
             </div>
+            {/* Read-only notice for admins viewing a coach thread */}
+            {role === 'admin' && selected?.threadType === 'coach_thread' ? (
+              <div className="border-t border-gray-100 px-4 py-3">
+                <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+                  👁 Viewing coach–client thread. Select the <strong>Admin</strong> thread tab to send your own message.
+                </p>
+              </div>
+            ) : (
             <div className="border-t border-gray-100 p-3 space-y-2">
               {imgPreview && (
                 <div className="relative inline-block">
@@ -788,6 +796,7 @@ export default function StaffInbox({ getToken }) {
                 </div>
               </div>
             </div>
+            )} {/* end role=admin coach_thread read-only gate */}
           </>
         )}
       </div>

@@ -78,8 +78,8 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
     client.start_date ? String(client.start_date).slice(0, 10) :
     client.effective_start_date ? String(client.effective_start_date).slice(0, 10) : ''
   const [form, setForm] = useState({
-    first_name:        client.first_name ?? '',
-    last_name:         client.last_name  ?? '',
+    first_name:        client.display_first_name ?? client.first_name ?? '',
+    last_name:         client.display_last_name  ?? client.last_name  ?? '',
     coaching_type:     client.coaching_type ?? 'vip',
     assigned_coach_id: client.assigned_coach_id ?? '',
     role:              client.role ?? 'client',
@@ -3570,7 +3570,8 @@ function NotesTab({ clientId, role, getToken }) {
 
 function MessagingTab({ client, role, getToken }) {
   const isAI = client.coaching_type === 'ai'
-  const initialThread = isAI ? 'ai_admin' : 'coach_thread'
+  // Admin defaults to admin_private (their own thread) so they don't accidentally reply in coach_thread
+  const initialThread = isAI ? 'ai_admin' : (role === 'admin' ? 'admin_private' : 'coach_thread')
   const [thread, setThread] = useState(initialThread)
   const [messages,     setMessages]     = useState([])
   const [hasMore,      setHasMore]      = useState(false)
@@ -3712,20 +3713,28 @@ function MessagingTab({ client, role, getToken }) {
         </div>
       </div>
 
-      {/* Compose */}
-      <div className="flex gap-2">
-        <textarea
-          value={body}
-          onChange={e => setBody(e.target.value)}
-          rows={2}
-          placeholder={`Message ${client.display_first_name || client.first_name || 'client'}…`}
-          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none"
-        />
-        <button onClick={send} disabled={sending || !body.trim()}
-          className="bg-[#E8670A] text-white px-5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 self-stretch">
-          {sending ? '…' : 'Send'}
-        </button>
-      </div>
+      {/* Compose — read-only for admins on the coach thread */}
+      {role === 'admin' && thread === 'coach_thread' ? (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5">
+          <p className="text-xs text-blue-700">
+            👁 Viewing coach–client thread (read-only). Switch to <strong>Admin Private</strong> to send your own message.
+          </p>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <textarea
+            value={body}
+            onChange={e => setBody(e.target.value)}
+            rows={2}
+            placeholder={`Message ${client.display_first_name || client.first_name || 'client'}…`}
+            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none"
+          />
+          <button onClick={send} disabled={sending || !body.trim()}
+            className="bg-[#E8670A] text-white px-5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 self-stretch">
+            {sending ? '…' : 'Send'}
+          </button>
+        </div>
+      )}
 
       {thread === 'admin_private' && (
         <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
