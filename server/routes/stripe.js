@@ -7,6 +7,72 @@ import { getAppBaseUrl } from '../services/appUrl.js'
 
 const router = Router()
 
+function idFromStripeValue(value) {
+  if (!value) return null
+  if (typeof value === 'string') return value
+  return value.id ?? null
+}
+
+function logSkippedAiSession(session, reason) {
+  console.log('[stripe] skipped non-AI checkout session', {
+    reason,
+    session_id: session?.id ?? null,
+    payment_link: idFromStripeValue(session?.payment_link),
+    mode: session?.mode ?? null,
+    metadata_keys: Object.keys(session?.metadata ?? {}),
+  })
+}
+
+async function sessionHasAllowedLineItem(stripe, session) {
+  const allowedPriceId = process.env.STRIPE_AI_PRICE_ID
+  const allowedProductId = process.env.STRIPE_AI_PRODUCT_ID
+  if (!allowedPriceId && !allowedProductId) return false
+
+  const lineItems = await stripe.checkout.sessions.listLineItems(session.id, {
+    limit: 100,
+    expand: ['data.price.product'],
+  })
+
+  return lineItems.data.some(item => {
+    const price = item.price
+    const productId = idFromStripeValue(price?.product)
+    return (allowedPriceId && price?.id === allowedPriceId) ||
+      (allowedProductId && productId === allowedProductId)
+  })
+}
+
+// AI coaching sessions must match one of these app-specific identifiers:
+//   STRIPE_AI_PAYMENT_LINK_ID - expected Checkout Payment Link id (plink_...)
+//   STRIPE_AI_PRICE_ID        - optional expected Stripe Price id (price_...)
+//   STRIPE_AI_PRODUCT_ID      - optional expected Stripe Product id (prod_...)
+//   STRIPE_AI_CHECKOUT_MODE   - optional expected Checkout mode, such as payment or subscription
+// Dashboard metadata app=metacoach and product=ai_coaching is also accepted.
+async function isAiCoachingSession(stripe, session) {
+  if (session.payment_status !== 'paid') {
+    return { ok: false, reason: 'not_paid' }
+  }
+
+  const expectedMode = process.env.STRIPE_AI_CHECKOUT_MODE
+  if (expectedMode && session.mode !== expectedMode) {
+    return { ok: false, reason: 'mode_mismatch' }
+  }
+
+  const paymentLinkId = idFromStripeValue(session.payment_link)
+  if (process.env.STRIPE_AI_PAYMENT_LINK_ID && paymentLinkId === process.env.STRIPE_AI_PAYMENT_LINK_ID) {
+    return { ok: true, reason: 'payment_link' }
+  }
+
+  if (session.metadata?.app === 'metacoach' && session.metadata?.product === 'ai_coaching') {
+    return { ok: true, reason: 'metadata' }
+  }
+
+  if (await sessionHasAllowedLineItem(stripe, session)) {
+    return { ok: true, reason: 'line_item' }
+  }
+
+  return { ok: false, reason: 'no_matching_ai_identifier' }
+}
+
 // POST /api/stripe/webhook
 // IMPORTANT: must be mounted BEFORE app.use(express.json()) in index.js
 // Stripe requires the raw request body to verify the webhook signature.
@@ -21,8 +87,8 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   }
 
   let event
+  const stripe = new Stripe(secretKey)
   try {
-    const stripe = new Stripe(secretKey)
     event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret)
   } catch (err) {
     console.error('[stripe] Webhook signature verification failed:', err.message)
@@ -35,8 +101,9 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
   const session = event.data.object
 
-  // Only handle paid sessions
-  if (session.payment_status !== 'paid') {
+  const eligibility = await isAiCoachingSession(stripe, session)
+  if (!eligibility.ok) {
+    logSkippedAiSession(session, eligibility.reason)
     return res.sendStatus(200)
   }
 
@@ -121,6 +188,12 @@ router.get('/session-setup-link', async (req, res, next) => {
 
     if (session.payment_status !== 'paid') {
       return res.status(402).json({ error: 'Payment not completed.' })
+    }
+
+    const eligibility = await isAiCoachingSession(stripe, session)
+    if (!eligibility.ok) {
+      logSkippedAiSession(session, eligibility.reason)
+      return res.status(403).json({ error: 'This payment is not eligible for AI coaching setup.' })
     }
 
     const email = (session.customer_details?.email ?? session.customer_email ?? '').trim().toLowerCase()
