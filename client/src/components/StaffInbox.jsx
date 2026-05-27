@@ -201,6 +201,7 @@ export default function StaffInbox({ getToken }) {
   const [uploading,   setUploading]   = useState(false)
 
   const [inboxView, setInboxView] = useState('active') // 'active' | 'archived'
+  const [availableThreads, setAvailableThreads] = useState([]) // thread types for current client (ignores archive state)
 
   const { canRecord, recording, audioBlob, audioPreview, recordError, startRecording, stopRecording, clearAudio } = useVoiceRecorder()
 
@@ -439,6 +440,24 @@ export default function StaffInbox({ getToken }) {
     return () => clearInterval(id)
   }, [selected, getToken])
 
+  // Fetch all thread types for the selected client, ignoring archive state.
+  // This lets the tab row show threads even if one is active and another is archived.
+  useEffect(() => {
+    if (!selected?.clientId) { setAvailableThreads([]); return }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const token = await getToken()
+        const res = await fetch(
+          `${API_URL}/api/coach-admin/clients/${selected.clientId}/thread-types`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        )
+        if (res.ok && !cancelled) setAvailableThreads(await res.json())
+      } catch {}
+    })()
+    return () => { cancelled = true }
+  }, [selected?.clientId, getToken])
+
   useEffect(() => {
     if (messages.length > 0 && messages.length >= msgCountRef.current) {
       if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
@@ -608,9 +627,9 @@ export default function StaffInbox({ getToken }) {
                   </button>
                 )}
               </div>
-              {selectedClientThreads.filter(t => STAFF_VISIBLE_THREADS.includes(t.thread_type)).length > 1 && (
+              {availableThreads.length > 1 && (
                 <div className="flex gap-1 mt-2 flex-wrap">
-                  {selectedClientThreads.filter(t => STAFF_VISIBLE_THREADS.includes(t.thread_type)).map(t => {
+                  {availableThreads.map(t => {
                     const threadUnread = Number(t.unread) || 0
                     const isActive = selected.threadType === t.thread_type
                     return (

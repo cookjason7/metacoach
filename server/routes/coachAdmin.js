@@ -1953,6 +1953,7 @@ router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
     // $2 = wantArchived (archived state filter)
     const params = [ctx.dbUserId, wantArchived]
     let extraWhere = `COALESCE(u.client_status, 'active') != 'deleted'`
+      + ` AND m.thread_type IN ('admin_private', 'coach_thread', 'ai_admin')`
     if (!isAdmin) {
       extraWhere += ` AND u.assigned_coach_id = $1 AND m.thread_type = 'coach_thread'`
     }
@@ -2158,6 +2159,34 @@ router.patch('/messaging/states/:clientId/:threadType', requireAuth(), async (re
     `, vals)
 
     res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
+// GET /api/coach-admin/clients/:id/thread-types
+// Returns all thread types with message counts for this client, ignoring archive state.
+// Used by the UI to show thread tabs regardless of which inbox view (active/archived) is open.
+router.get('/clients/:id/thread-types', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+
+    // Role-gated: coaches only see coach_thread
+    const allowedTypes = ctx.role === 'admin'
+      ? ['admin_private', 'coach_thread', 'ai_admin']
+      : ['coach_thread']
+
+    const { rows } = await pool.query(`
+      SELECT thread_type,
+        COUNT(*) FILTER (WHERE sender_role = 'client' AND read_at IS NULL)::int AS unread,
+        MAX(created_at) AS last_message_at
+      FROM client_messages
+      WHERE client_id = $1 AND thread_type = ANY($2::text[])
+      GROUP BY thread_type
+      ORDER BY MAX(created_at) DESC
+    `, [id, allowedTypes])
+
+    res.json(rows)
   } catch (err) { next(err) }
 })
 

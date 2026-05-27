@@ -261,6 +261,13 @@ router.post('/thread/:threadType', requireAuth(), async (req, res, next) => {
       RETURNING *
     `, [ctx.dbUserId, ctx.dbUserId, message_body.trim(), thread, visibility, image_url ?? null, audio_url ?? null])
 
+    // Auto-restore archived conversations when client sends a new message
+    await pool.query(`
+      UPDATE staff_inbox_states
+      SET archived = FALSE, archived_at = NULL
+      WHERE client_id = $1 AND thread_type = $2 AND archived = TRUE
+    `, [ctx.dbUserId, thread])
+
     res.status(201).json(rows[0])
   } catch (err) { next(err) }
 })
