@@ -2366,6 +2366,7 @@ export default function Community() {
     { id: 'resources', label: 'Resources' },
   ] : [
     { id: clientChannel, label: 'Group Chat' },
+    { id: 'mindset',     label: 'Brain Mapping' },
     { id: 'resources',   label: 'Resources' },
     { id: 'nsv',         label: 'Non-Scale Victories' },
   ]
@@ -2382,10 +2383,9 @@ export default function Community() {
     )
   }
 
-  // When a client lands on mindset via ?tab=mindset URL (Brain Mapping sidebar nav),
-  // that tab is not in their TABS list. Show a back button so they're not stranded.
-  // Resources IS a client tab now, so it is NOT hidden.
-  const clientOnHiddenTab = !isStaff && tab === 'mindset'
+  // Brain Mapping is now a normal client tab, so direct ?tab=mindset links
+  // use the same tab navigation as the rest of Community.
+  const clientOnHiddenTab = false
 
   return (
     <div className="max-w-5xl">

@@ -691,14 +691,29 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
         ha.zip_code             AS assessment_zip_code,
         ha.country              AS assessment_country,
         ha.activity_level       AS assessment_activity_level,
-        ha.completed_at         AS assessment_completed_at
+        ha.completed_at         AS assessment_completed_at,
+        bi.confirmed_age        AS confirmed_age,
+        bi.confirmed_sex        AS confirmed_sex,
+        bi.confirmed_height_inches AS confirmed_height_inches
       FROM users u
       LEFT JOIN health_assessments ha ON ha.user_id = u.id
+      LEFT JOIN bloodwork_intake bi ON bi.user_id = u.id
       WHERE u.id = $1
     `, [id])
     if (!rows.length) return res.status(404).json({ error: 'Client not found' })
 
     const c = rows[0]
+    const ageFromDob = dob => {
+      if (!dob) return null
+      const birth = new Date(dob)
+      if (Number.isNaN(birth.getTime())) return null
+      const today = new Date()
+      let years = today.getFullYear() - birth.getFullYear()
+      const monthDiff = today.getMonth() - birth.getMonth()
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) years -= 1
+      return years > 0 ? years : null
+    }
+    const firstPresent = (...values) => values.find(v => v !== null && v !== undefined && v !== '') ?? null
 
     // Field fallback chain: users table → health_assessments → null
     const merged = {
@@ -723,6 +738,14 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
         c.assessment_first_name || c.assessment_last_name ||
         c.assessment_phone      || c.assessment_dob
       )),
+      nutrition_calculator_defaults: {
+        sex:             firstPresent(c.gender, c.confirmed_sex),
+        age:             firstPresent(c.age, ageFromDob(c.assessment_dob), c.confirmed_age),
+        height_inches:   firstPresent(c.height_inches, c.confirmed_height_inches),
+        weight_lbs:      firstPresent(c.latest_weight_lbs, c.starting_weight_lbs),
+        goal_weight_lbs: firstPresent(c.goal_weight_lbs),
+        activity_level:  firstPresent(c.activity_level, c.assessment_activity_level),
+      },
       status_tag: computeStatusTag(c),
       momentum: computeMomentum(c.adherence_7d, c.adherence_30d),
     }
@@ -2561,7 +2584,7 @@ router.post('/forms/:id/schedule', requireAuth(), async (req, res, next) => {
 })
 
 // GET /api/coach-admin/form-schedules
-// Returns all non-manual assignments; admin sees all, coach sees assigned clients only.
+// Returns form delivery assignments; admin sees all, coach sees assigned clients only.
 router.get('/form-schedules', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireStaff(req, res); if (!ctx) return
@@ -2575,7 +2598,7 @@ router.get('/form-schedules', requireAuth(), async (req, res, next) => {
       FROM form_assignments fa
       JOIN form_templates ft ON ft.id = fa.template_id
       JOIN users u ON u.id = fa.client_id
-      WHERE fa.assignment_type IN ('scheduled', 'recurring')
+      WHERE fa.assignment_type IN ('manual', 'scheduled', 'recurring')
     `
 
     let rows

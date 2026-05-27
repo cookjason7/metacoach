@@ -96,6 +96,7 @@ function SendModal({ form, getToken, onClose, onScheduled }) {
         const data = await res.json()
         if (!res.ok) throw new Error(data.error ?? 'Send failed')
         setResult({ mode: 'now', ...data })
+        onScheduled?.()
       } else if (sendMode === 'scheduled') {
         if (!schedDate || !schedTime) throw new Error('Please pick a date and time.')
         const selectedLocal = `${schedDate} ${schedTime}`
@@ -512,6 +513,7 @@ function fmtScheduleEndDate(date) {
   return new Date(`${date}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 function scheduleTypeLabel(type) {
+  if (type === 'manual') return 'Sent now'
   if (type === 'scheduled') return 'Scheduled'
   if (type === 'recurring') return 'Recurring'
   return type ?? 'Schedule'
@@ -591,8 +593,8 @@ function ScheduledSends({ getToken, refreshKey }) {
     <section className="mt-10">
       <div className="flex items-center justify-between gap-3 mb-4">
         <div>
-          <h2 className="text-lg font-bold text-gray-900">Scheduled Forms</h2>
-          <p className="text-xs text-gray-500 mt-0.5">Pending one-time and recurring form deliveries</p>
+          <h2 className="text-lg font-bold text-gray-900">Form Delivery Status</h2>
+          <p className="text-xs text-gray-500 mt-0.5">Sent, pending, and recurring form deliveries</p>
         </div>
         <button
           onClick={load}
@@ -1245,5 +1247,4 @@ export default function FormsList() {
     </div>
   )
 }
-
 

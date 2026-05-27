@@ -1004,19 +1004,49 @@ function normalizeActivityFactor(value) {
 }
 
 function BmrTdeeCalculator({ client, getToken, onUpdate }) {
-  const initialAge = client.age ?? calculateAgeFromDob(client.display_dob)
-  const initialWeight = client.latest_weight_lbs ?? client.starting_weight_lbs ?? ''
+  const defaults = client.nutrition_calculator_defaults ?? {}
+  const initialAge = defaults.age ?? client.age ?? calculateAgeFromDob(client.display_dob)
+  const initialWeight = defaults.weight_lbs ?? client.latest_weight_lbs ?? client.starting_weight_lbs ?? ''
+  const initialHeight = defaults.height_inches ?? client.height_inches ?? ''
+  const initialGoalWeight = defaults.goal_weight_lbs ?? client.goal_weight_lbs ?? ''
+  const touchedRef = useRef(false)
+  const clientIdRef = useRef(client.id)
   const [open,        setOpen]        = useState(false)
-  const [sex,         setSex]         = useState(normalizeCalculatorSex(client.gender))
+  const [sex,         setSex]         = useState(normalizeCalculatorSex(defaults.sex ?? client.gender))
   const [age,         setAge]         = useState(initialAge ? String(initialAge) : '')
-  const [heightIn,    setHeightIn]    = useState(client.height_inches ? String(client.height_inches) : '')
+  const [heightIn,    setHeightIn]    = useState(initialHeight ? String(initialHeight) : '')
   const [weightLbs,   setWeightLbs]   = useState(initialWeight !== '' && initialWeight != null ? String(initialWeight) : '')
-  const [goalWeight,  setGoalWeight]  = useState(client.goal_weight_lbs ? String(client.goal_weight_lbs) : '')
-  const [activity,    setActivity]    = useState(normalizeActivityFactor(client.activity_level ?? client.assessment_activity_level))
+  const [goalWeight,  setGoalWeight]  = useState(initialGoalWeight ? String(initialGoalWeight) : '')
+  const [activity,    setActivity]    = useState(normalizeActivityFactor(defaults.activity_level ?? client.activity_level ?? client.assessment_activity_level))
   const [adjustment,  setAdjustment]  = useState('0')
   const [applying,    setApplying]    = useState(false)
   const [applyError,  setApplyError]  = useState(null)
   const [applied,     setApplied]     = useState(false)
+
+  useEffect(() => {
+    if (clientIdRef.current !== client.id) {
+      clientIdRef.current = client.id
+      touchedRef.current = false
+    }
+    if (touchedRef.current) return
+
+    const nextDefaults = client.nutrition_calculator_defaults ?? {}
+    const nextAge = nextDefaults.age ?? client.age ?? calculateAgeFromDob(client.display_dob)
+    const nextWeight = nextDefaults.weight_lbs ?? client.latest_weight_lbs ?? client.starting_weight_lbs ?? ''
+    const nextHeight = nextDefaults.height_inches ?? client.height_inches ?? ''
+    const nextGoalWeight = nextDefaults.goal_weight_lbs ?? client.goal_weight_lbs ?? ''
+
+    setSex(normalizeCalculatorSex(nextDefaults.sex ?? client.gender))
+    setAge(nextAge ? String(nextAge) : '')
+    setHeightIn(nextHeight ? String(nextHeight) : '')
+    setWeightLbs(nextWeight !== '' && nextWeight != null ? String(nextWeight) : '')
+    setGoalWeight(nextGoalWeight ? String(nextGoalWeight) : '')
+    setActivity(normalizeActivityFactor(nextDefaults.activity_level ?? client.activity_level ?? client.assessment_activity_level))
+  }, [client])
+
+  function markTouched() {
+    touchedRef.current = true
+  }
 
   const ageN   = Number(age)
   const htN    = Number(heightIn)
@@ -1088,7 +1118,7 @@ function BmrTdeeCalculator({ client, getToken, onUpdate }) {
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Sex</label>
-              <select value={sex} onChange={e => setSex(e.target.value)} className={inputCls}>
+              <select value={sex} onChange={e => { markTouched(); setSex(e.target.value) }} className={inputCls}>
                 <option value="">Select…</option>
                 <option value="male">Male</option>
                 <option value="female">Female</option>
@@ -1097,26 +1127,26 @@ function BmrTdeeCalculator({ client, getToken, onUpdate }) {
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Age</label>
               <input type="number" min="1" max="120" value={age}
-                onChange={e => setAge(e.target.value)}
+                onChange={e => { markTouched(); setAge(e.target.value) }}
                 placeholder="yrs" className={inputCls} />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Height (in)</label>
               <input type="number" min="1" max="120" value={heightIn}
-                onChange={e => setHeightIn(e.target.value)}
+                onChange={e => { markTouched(); setHeightIn(e.target.value) }}
                 placeholder="inches" className={inputCls} />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Current weight</label>
               <input type="number" min="1" max="1000" value={weightLbs}
-                onChange={e => setWeightLbs(e.target.value)}
+                onChange={e => { markTouched(); setWeightLbs(e.target.value) }}
                 placeholder="lbs" className={inputCls} />
               {weightSource && <p className="mt-1 text-[10px] text-gray-400">{weightSource}</p>}
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Goal weight</label>
               <input type="number" min="1" max="1000" value={goalWeight}
-                onChange={e => setGoalWeight(e.target.value)}
+                onChange={e => { markTouched(); setGoalWeight(e.target.value) }}
                 placeholder="optional" className={inputCls} />
             </div>
           </div>
@@ -1125,13 +1155,13 @@ function BmrTdeeCalculator({ client, getToken, onUpdate }) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Activity Level</label>
-              <select value={activity} onChange={e => setActivity(e.target.value)} className={inputCls}>
+              <select value={activity} onChange={e => { markTouched(); setActivity(e.target.value) }} className={inputCls}>
                 {ACTIVITY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Goal Adjustment</label>
-              <select value={adjustment} onChange={e => setAdjustment(e.target.value)} className={inputCls}>
+              <select value={adjustment} onChange={e => { markTouched(); setAdjustment(e.target.value) }} className={inputCls}>
                 {ADJ_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
