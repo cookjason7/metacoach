@@ -2325,7 +2325,7 @@ function ProgressTab({ clientId, clientName, getToken }) {
   const effectiveStart = data?.start_date ?? startDate
   const effectiveEnd   = data?.end_date ?? endDate
 
-  const weightCurrent      = data?.weight_current      ?? null
+  const weightCurrent      = data?.weight_current      ?? data?.starting_weight_lbs ?? null
   const profileAge         = data?.age                 ?? null
   const heightInches       = data?.height_inches       ?? null
   const startingWeightLbs  = data?.starting_weight_lbs ?? null
@@ -2471,56 +2471,31 @@ function ProgressTab({ clientId, clientName, getToken }) {
 
       {!loading && !error && (
         <>
-          {/* Summary cards — no Movement */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
-            <SummaryCard
-              label="Weight change"
-              value={wc != null ? `${wc > 0 ? '+' : ''}${wc} lbs` : '—'}
-              sub={rangeLabel}
-              color={wtColor}
-            />
-            <SummaryCard
-              label="Avg calories"
-              value={s.avg_calories ? `${Number(s.avg_calories).toLocaleString()} kcal` : '—'}
-              sub={`${s.logged_day_count ?? 0} logged day${s.logged_day_count !== 1 ? 's' : ''}`}
-            />
-            <SummaryCard
-              label="Avg protein"
-              value={s.avg_protein ? `${s.avg_protein}g` : '—'}
-              sub="per logged day"
-            />
-            <SummaryCard
-              label="Avg steps"
-              value={s.avg_steps ? Number(s.avg_steps).toLocaleString() : '—'}
-              sub="per day with data"
-            />
-            <SummaryCard
-              label="Avg sleep"
-              value={fmtSleep(s.avg_sleep_minutes)}
-              sub="per night with data"
-            />
-          </div>
-
-          {/* Averages & Trends table — above charts */}
+          {/* Averages & Trends table — table-first, above charts */}
           {rows.length > 0 && (
             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-              <p className="text-sm font-semibold text-gray-900 px-4 py-3 border-b border-gray-100">Averages &amp; Trends</p>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 px-4 py-3 border-b border-gray-100">
+                <p className="text-sm font-semibold text-gray-900">Averages &amp; Trends</p>
+                <p className="text-[11px] text-gray-400">
+                  {range === 'weekly' ? 'Weekly averages are Monday-Sunday.' : rangeLabel}
+                </p>
+              </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-xs min-w-[640px]">
+                <table className="w-full text-xs min-w-[720px]">
                   <thead>
                     <tr className="bg-gray-50 text-gray-500 text-[10px] uppercase tracking-wide">
                       <th className="px-3 py-2 text-left font-semibold sticky left-0 bg-gray-50">Period</th>
                       <th className="px-2 py-2 text-right font-semibold">Weight</th>
-                      <th className="px-2 py-2 text-right font-semibold">Cal</th>
-                      <th className="px-2 py-2 text-right font-semibold">Pro</th>
-                      <th className="px-2 py-2 text-right font-semibold">Fat</th>
+                      <th className="px-2 py-2 text-right font-semibold">Calories</th>
+                      <th className="px-2 py-2 text-right font-semibold">Protein</th>
+                      <th className="px-2 py-2 text-right font-semibold">Fats</th>
                       <th className="px-2 py-2 text-right font-semibold">Fiber</th>
                       <th className="px-2 py-2 text-right font-semibold">Sodium</th>
                       <th className="px-2 py-2 text-right font-semibold">Sugar</th>
                       <th className="px-2 py-2 text-left font-semibold">Goals</th>
                       <th className="px-2 py-2 text-right font-semibold">Steps</th>
                       <th className="px-2 py-2 text-right font-semibold">Sleep</th>
-                      <th className="px-2 py-2 text-right font-semibold">H₂O</th>
+                      <th className="px-2 py-2 text-right font-semibold">Water</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -2557,6 +2532,30 @@ function ProgressTab({ clientId, clientName, getToken }) {
               </div>
             </div>
           )}
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <SummaryCard
+              label="Weight change"
+              value={wc != null ? `${wc > 0 ? '+' : ''}${wc} lbs` : '—'}
+              sub={rangeLabel}
+              color={wtColor}
+            />
+            <SummaryCard
+              label="Avg calories"
+              value={s.avg_calories ? `${Number(s.avg_calories).toLocaleString()} kcal` : '—'}
+              sub={`${s.logged_day_count ?? 0} logged day${s.logged_day_count !== 1 ? 's' : ''}`}
+            />
+            <SummaryCard
+              label="Avg steps"
+              value={s.avg_steps ? Number(s.avg_steps).toLocaleString() : '—'}
+              sub="per day with data"
+            />
+            <SummaryCard
+              label="Avg sleep"
+              value={fmtSleep(s.avg_sleep_minutes)}
+              sub="per night with data"
+            />
+          </div>
 
           {/* Charts — no Movement per Period */}
           <div className="grid sm:grid-cols-2 gap-4">

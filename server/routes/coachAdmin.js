@@ -954,6 +954,7 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
       if (startDate > endDate) return res.status(400).json({ error: 'start_date must be on or before end_date.' })
     }
     const md    = `COALESCE(log_date, logged_at::date)` // meal date expression
+    // PostgreSQL DATE_TRUNC('week', ...) groups by ISO week: Monday through Sunday.
     const group = range === 'monthly'
       ? { exprLog: `DATE_TRUNC('month', logged_date)::date`, exprMeal: `DATE_TRUNC('month', d)::date`, exprWorkout: `DATE_TRUNC('month', completed_at)::date`, exprActivity: `DATE_TRUNC('month', logged_at)::date`, exprCheckin: `DATE_TRUNC('month', week_start)::date` }
       : range === 'weekly'
@@ -1111,9 +1112,18 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
         FROM users u WHERE u.id = $1
       `, [id]),
       pool.query(`
-        SELECT ROUND(weight_lbs::numeric,1) AS weight_current
-        FROM daily_logs WHERE user_id=$1 AND weight_lbs IS NOT NULL
-        ORDER BY logged_date DESC LIMIT 1
+        SELECT ROUND(weight_lbs::numeric, 1) AS weight_current, source AS weight_current_source
+        FROM (
+          SELECT dl.weight_lbs, dl.logged_date AS entry_date, 'daily_log' AS source
+          FROM daily_logs dl
+          WHERE dl.user_id = $1 AND dl.weight_lbs IS NOT NULL
+          UNION ALL
+          SELECT wc.current_weight AS weight_lbs, wc.week_start AS entry_date, 'weekly_checkin' AS source
+          FROM weekly_checkins wc
+          WHERE wc.user_id = $1 AND wc.current_weight IS NOT NULL
+        ) weights
+        ORDER BY entry_date DESC
+        LIMIT 1
       `, [id]),
     ])
 
@@ -1154,7 +1164,11 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
         r.period = range === 'monthly'
           ? d.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
           : range === 'weekly'
-            ? 'Week of ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+            ? (() => {
+              const end = new Date(d)
+              end.setUTCDate(end.getUTCDate() + 6)
+              return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}-${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}`
+            })()
             : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
         return r
       })
@@ -1169,11 +1183,13 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
     })
 
     const prof = profR.rows[0] ?? {}
-    const weight_current = wtCurR.rows[0]?.weight_current ?? null
+    const weight_current = wtCurR.rows[0]?.weight_current ?? prof.starting_weight_lbs ?? null
+    const weight_current_source = wtCurR.rows[0]?.weight_current_source ?? (prof.starting_weight_lbs != null ? 'starting_weight' : null)
     res.json({ range, start_date: startDate, end_date: endDate, summary, weight_series: wtR.rows, macro_series: macR.rows,
                step_series: stpR.rows, sleep_series: slpR.rows, movement_series: movR.rows,
                checkin_series: chkR.rows, table_rows, progress_photos: photoSessions,
                weight_current,
+               weight_current_source,
                age:                  prof.age                  ?? null,
                height_inches:        prof.height_inches        ?? null,
                starting_weight_lbs:  prof.starting_weight_lbs  ?? null,
