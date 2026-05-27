@@ -15,7 +15,6 @@ const SERVING_UNITS = ['g', 'oz', 'lb', 'cup', 'tbsp', 'tsp', 'ml', 'fl oz']
 const COACHING_TYPE_BADGE = {
   vip:    'bg-orange-50 text-[#E8670A] border-orange-200',
   ai:     'bg-blue-50 text-blue-700 border-blue-200',
-  hybrid: 'bg-emerald-50 text-emerald-700 border-emerald-200',
 }
 
 const STATUS_STYLES = {
@@ -62,7 +61,6 @@ function clientName(c) {
 
 function coachingLabel(type) {
   if (type === 'ai') return 'AI'
-  if (type === 'hybrid') return 'Hybrid'
   return 'VIP'
 }
 
@@ -1463,24 +1461,17 @@ export default function CoachDashboard({ getToken, userRole }) {
   const activeClients  = clients.filter(c => accountStatus(c) === 'active')
 
   const coachOptions = useMemo(() => {
-    const seen = new Map()
-    // Primary source: all active coaches from API (includes coaches with no clients yet)
-    coaches.forEach(c => {
-      if (c.id) seen.set(String(c.id), c.first_name || c.email || 'Coach')
-    })
-    // Supplement: catch any assigned coaches not in the coaches API list
-    clients.forEach(c => {
-      if (c.assigned_coach_id && !seen.has(String(c.assigned_coach_id)))
-        seen.set(String(c.assigned_coach_id), c.assigned_coach_name || c.assigned_coach_email || 'Assigned coach')
-    })
-    return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]))
-  }, [clients, coaches])
+    return coaches
+      .filter(c => c.id)
+      .map(c => [String(c.id), c.first_name || c.email || 'Coach'])
+      .sort((a, b) => a[1].localeCompare(b[1]))
+  }, [coaches])
 
   const filteredClients = useMemo(() => {
     const q = clientSearch.trim().toLowerCase()
     return clients
       .filter(c => {
-        if (coachFilter  !== 'all' && String(c.assigned_coach_id ?? '') !== coachFilter) return false
+        if (isAdmin && coachFilter !== 'all' && String(c.assigned_coach_id ?? '') !== coachFilter) return false
         if (typeFilter   !== 'all' && (c.coaching_type || 'vip') !== typeFilter) return false
         if (statusFilter !== 'all' && accountStatus(c) !== statusFilter) return false
         if (checkinFilter === 'received' && !c.check_in_this_week) return false
@@ -1494,7 +1485,7 @@ export default function CoachDashboard({ getToken, userRole }) {
         if (sortBy === 'status') return accountStatus(a).localeCompare(accountStatus(b)) || clientName(a).localeCompare(clientName(b))
         return clientName(a).localeCompare(clientName(b))
       })
-  }, [clients, clientSearch, coachFilter, typeFilter, statusFilter, checkinFilter, sortBy])
+  }, [clients, clientSearch, coachFilter, typeFilter, statusFilter, checkinFilter, sortBy, isAdmin])
 
   const tabs = [
     { id: 'clients',     label: 'Clients' },
@@ -1602,15 +1593,17 @@ export default function CoachDashboard({ getToken, userRole }) {
         <div className="space-y-3">
           {/* Filters */}
           <div className="bg-white rounded-lg border border-gray-200 p-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-2">
+            <div className={`grid grid-cols-1 sm:grid-cols-2 gap-2 ${isAdmin ? 'lg:grid-cols-7' : 'lg:grid-cols-6'}`}>
               <input type="text" value={clientSearch} onChange={e => setClientSearch(e.target.value)}
                 placeholder="Search by name or email…"
                 className="lg:col-span-2 border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
-              <select value={coachFilter} onChange={e => setCoachFilter(e.target.value)}
-                className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
-                <option value="all">All coaches</option>
-                {coachOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-              </select>
+              {isAdmin && (
+                <select value={coachFilter} onChange={e => setCoachFilter(e.target.value)}
+                  className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+                  <option value="all">All coaches</option>
+                  {coachOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+                </select>
+              )}
               <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
                 className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
                 <option value="all">All coaching</option>
@@ -1640,10 +1633,10 @@ export default function CoachDashboard({ getToken, userRole }) {
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <p className="text-xs text-gray-400">{filteredClients.length} of {clients.length} clients</p>
-              {(clientSearch || coachFilter !== 'all' || typeFilter !== 'all' || statusFilter !== 'all' || checkinFilter !== 'all') && (
+              {(clientSearch || (isAdmin && coachFilter !== 'all') || typeFilter !== 'all' || statusFilter !== 'all' || checkinFilter !== 'all') && (
                 <button
                   type="button"
-                  onClick={() => { setClientSearch(''); setCoachFilter('all'); setTypeFilter('all'); setStatusFilter('all'); setCheckinFilter('all') }}
+                  onClick={() => { setClientSearch(''); if (isAdmin) setCoachFilter('all'); setTypeFilter('all'); setStatusFilter('all'); setCheckinFilter('all') }}
                   className="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-semibold text-[#E8670A] hover:bg-orange-100 transition-colors"
                 >
                   Clear filters

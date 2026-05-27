@@ -88,7 +88,7 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireStaff(req, res); if (!ctx) return
     const params = []
-    let where = `WHERE u.role IN ('client', 'admin') AND COALESCE(u.client_status, 'active') != 'deleted'`
+    let where = `WHERE u.role = 'client' AND COALESCE(u.client_status, 'active') != 'deleted'`
 
     const statusFilter = req.query.status ?? 'active'
     if (statusFilter === 'active') {
