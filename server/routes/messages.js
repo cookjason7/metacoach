@@ -242,6 +242,16 @@ router.post('/thread/:threadType', requireAuth(), async (req, res, next) => {
     }
 
     // All human/team threads are two-way — clients may reply to any of them.
+    if (!['admin_private', 'coach_thread', 'ai_admin'].includes(thread)) {
+      return res.status(400).json({ error: 'Invalid message thread' })
+    }
+    if (thread === 'ai_admin' && ctx.coaching_type !== 'ai') {
+      return res.status(403).json({ error: 'Not an AI coaching client' })
+    }
+    if (thread === 'coach_thread' && ctx.coaching_type === 'ai') {
+      return res.status(403).json({ error: 'Not available for AI coaching clients' })
+    }
+
     const visibility = 'client_and_staff'
 
     const { rows } = await pool.query(`

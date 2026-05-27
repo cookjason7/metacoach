@@ -2053,6 +2053,8 @@ router.get('/clients/:id/messages', requireAuth(), async (req, res, next) => {
     if (thread) {
       readParams.push(thread)
       readWhere += ` AND thread_type = $${readParams.length}`
+    } else if (ctx.role !== 'admin') {
+      readWhere += ` AND thread_type = 'coach_thread'`
     }
     await pool.query(`UPDATE client_messages SET read_at = NOW() ${readWhere}`, readParams)
 

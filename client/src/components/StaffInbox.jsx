@@ -173,8 +173,9 @@ function VoiceMessagePlayer({ audioUrl, isMine }) {
 const STAFF_THREAD_LABELS = {
   coach_thread:  'Coach',
   admin_private: 'Jason',
+  ai_admin:      'AI/Admin',
 }
-const STAFF_VISIBLE_THREADS = ['admin_private', 'coach_thread']
+const STAFF_VISIBLE_THREADS = ['admin_private', 'coach_thread', 'ai_admin']
 
 // ── Staff Inbox component ─────────────────────────────────────────────────────
 // Reused on the Coaching → Messaging tab AND the main Messages page for staff.
