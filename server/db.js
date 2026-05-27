@@ -916,6 +916,19 @@ export async function migrate() {
   await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS assignment_id INTEGER REFERENCES form_assignments(id) ON DELETE SET NULL`)
   await pool.query(`ALTER TABLE client_messages  ADD COLUMN IF NOT EXISTS metadata JSONB`)
   await pool.query(`ALTER TABLE client_messages  ADD COLUMN IF NOT EXISTS audio_url TEXT`)
+  // Per-staff conversation state: archive conversations, mark as unread
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS staff_inbox_states (
+      staff_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      client_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      thread_type   TEXT NOT NULL,
+      archived      BOOLEAN NOT NULL DEFAULT FALSE,
+      archived_at   TIMESTAMPTZ,
+      marked_unread BOOLEAN NOT NULL DEFAULT FALSE,
+      PRIMARY KEY (staff_id, client_id, thread_type)
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_staff_inbox_states_staff ON staff_inbox_states (staff_id)`)
   // Staff review note per submission
   await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS coach_note TEXT`)
   await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS due_at TIMESTAMPTZ`)

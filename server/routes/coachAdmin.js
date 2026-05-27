@@ -1942,22 +1942,29 @@ router.patch('/notes/:noteId', requireAuth(), async (req, res, next) => {
 // ─── Messages ─────────────────────────────────────────────────────────────────
 
 // GET /api/coach-admin/messaging/inbox — returns all threads across accessible clients with unread counts
+// ?view=active (default) | archived
 router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireStaff(req, res); if (!ctx) return
     const isAdmin = ctx.role === 'admin'
-    const params = []
+    const wantArchived = req.query.view === 'archived'
+
+    // $1 = ctx.dbUserId (used for states join AND coach scope filter)
+    // $2 = wantArchived (archived state filter)
+    const params = [ctx.dbUserId, wantArchived]
     let extraWhere = `COALESCE(u.client_status, 'active') != 'deleted'`
     if (!isAdmin) {
-      params.push(ctx.dbUserId)
-      extraWhere += ` AND u.assigned_coach_id = $${params.length} AND m.thread_type = 'coach_thread'`
+      extraWhere += ` AND u.assigned_coach_id = $1 AND m.thread_type = 'coach_thread'`
     }
     const { rows } = await pool.query(`
       SELECT
         u.id AS client_id,
-        u.first_name,
+        COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), ''), u.first_name, 'Client') AS first_name,
+        u.last_name,
         m.thread_type,
         COUNT(*) FILTER (WHERE m.sender_role = 'client' AND m.read_at IS NULL)::int AS unread,
+        COALESCE(sis.marked_unread, FALSE) AS marked_unread,
+        COALESCE(sis.archived, FALSE)      AS archived,
         MAX(m.created_at) AS last_message_at,
         (SELECT CASE
             WHEN message_body IS NOT NULL AND message_body != '' THEN message_body
@@ -1972,8 +1979,11 @@ router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
           ORDER BY created_at DESC LIMIT 1) AS last_sender_role
       FROM client_messages m
       JOIN users u ON u.id = m.client_id
+      LEFT JOIN staff_inbox_states sis
+        ON sis.staff_id = $1 AND sis.client_id = u.id AND sis.thread_type = m.thread_type
       WHERE ${extraWhere}
-      GROUP BY u.id, u.first_name, m.thread_type
+        AND COALESCE(sis.archived, FALSE) = $2
+      GROUP BY u.id, u.first_name, u.last_name, m.thread_type, sis.marked_unread, sis.archived
       ORDER BY MAX(m.created_at) DESC
     `, params)
     res.json(rows)
@@ -2035,7 +2045,8 @@ router.get('/clients/:id/messages', requireAuth(), async (req, res, next) => {
     params.push(limit + 1)
 
     const { rows } = await pool.query(`
-      SELECT m.*, u.first_name AS sender_name
+      SELECT m.*,
+        COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), ''), u.first_name) AS sender_name
       FROM client_messages m
       LEFT JOIN users u ON u.id = m.sender_id
       ${where}
@@ -2101,6 +2112,52 @@ router.post('/clients/:id/messages', requireAuth(), async (req, res, next) => {
     `, [id, ctx.dbUserId, ctx.role, message_body.trim(), thread_type, visibility, image_url ?? null, audio_url ?? null])
 
     res.status(201).json(rows[0])
+  } catch (err) { next(err) }
+})
+
+// PATCH /api/coach-admin/messaging/states/:clientId/:threadType
+// Upserts per-staff conversation state: archived, marked_unread.
+// Body: { archived?: boolean, marked_unread?: boolean }
+router.patch('/messaging/states/:clientId/:threadType', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId  = parseInt(req.params.clientId, 10)
+    const threadType = req.params.threadType
+
+    // Coaches can only manage their own coach_thread
+    if (ctx.role === 'coach' && threadType !== 'coach_thread') {
+      return res.status(403).json({ error: 'Coaches can only manage coach_thread conversations' })
+    }
+
+    const { archived, marked_unread } = req.body
+    const vals = [ctx.dbUserId, clientId, threadType]
+    const insertCols = ['staff_id', 'client_id', 'thread_type']
+    const insertPlaceholders = ['$1', '$2', '$3']
+    const updates = []
+
+    if (typeof archived === 'boolean') {
+      insertCols.push('archived')
+      insertPlaceholders.push(`$${vals.push(archived)}`)
+      updates.push(`archived = EXCLUDED.archived`)
+      if (archived) updates.push(`archived_at = NOW()`)
+      else          updates.push(`archived_at = NULL`)
+    }
+    if (typeof marked_unread === 'boolean') {
+      insertCols.push('marked_unread')
+      insertPlaceholders.push(`$${vals.push(marked_unread)}`)
+      updates.push(`marked_unread = EXCLUDED.marked_unread`)
+    }
+
+    if (updates.length === 0) return res.json({ ok: true })
+
+    await pool.query(`
+      INSERT INTO staff_inbox_states (${insertCols.join(', ')})
+      VALUES (${insertPlaceholders.join(', ')})
+      ON CONFLICT (staff_id, client_id, thread_type) DO UPDATE SET
+        ${updates.join(', ')}
+    `, vals)
+
+    res.json({ ok: true })
   } catch (err) { next(err) }
 })
 

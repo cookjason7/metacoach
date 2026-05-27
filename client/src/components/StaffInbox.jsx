@@ -116,7 +116,7 @@ function VoiceMessagePlayer({ audioUrl, isMine }) {
 
   return (
     <div className={`mt-1 flex w-[min(260px,100%)] max-w-full items-center gap-2 rounded-full px-2.5 py-2 ${
-      isMine ? 'bg-white/95 text-gray-800' : 'bg-gray-100 text-gray-800'
+      isMine ? 'bg-white/95 text-gray-800' : 'bg-white/20 text-white'
     }`}>
       <button
         type="button"
@@ -146,7 +146,7 @@ function VoiceMessagePlayer({ audioUrl, isMine }) {
         className="min-w-0 flex-1 accent-[#E8670A] disabled:opacity-40"
         aria-label="Voice message progress"
       />
-      <span className="w-9 shrink-0 text-right text-[11px] font-semibold tabular-nums text-gray-500">
+      <span className="w-9 shrink-0 text-right text-[11px] font-semibold tabular-nums opacity-70">
         {formatAudioTime(duration || currentTime)}
       </span>
       <audio
@@ -199,6 +199,8 @@ export default function StaffInbox({ getToken }) {
   const [imgPreview,  setImgPreview]  = useState(null)
   const [imgFile,     setImgFile]     = useState(null)
   const [uploading,   setUploading]   = useState(false)
+
+  const [inboxView, setInboxView] = useState('active') // 'active' | 'archived'
 
   const { canRecord, recording, audioBlob, audioPreview, recordError, startRecording, stopRecording, clearAudio } = useVoiceRecorder()
 
@@ -256,6 +258,45 @@ export default function StaffInbox({ getToken }) {
     startRecording()
   }
 
+  // ── Inbox state helpers (archive / mark-unread) ───────────────────────────
+  async function patchInboxState(clientId, threadType, patch) {
+    try {
+      const token = await getToken()
+      await fetch(`${API_URL}/api/coach-admin/messaging/states/${clientId}/${threadType}`, {
+        method:  'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify(patch),
+      })
+    } catch {}
+  }
+
+  async function archiveConversation() {
+    if (!selected) return
+    await patchInboxState(selected.clientId, selected.threadType, { archived: true })
+    setSelected(null)
+    fetchInbox()
+  }
+
+  async function unarchiveConversation() {
+    if (!selected) return
+    await patchInboxState(selected.clientId, selected.threadType, { archived: false })
+    setSelected(null)
+    fetchInbox()
+  }
+
+  async function markUnread() {
+    if (!selected) return
+    await patchInboxState(selected.clientId, selected.threadType, { marked_unread: true })
+    setSelected(null)
+    fetchInbox()
+  }
+
+  // Reset inboxView back to active & clear selection when switching tabs
+  function switchView(view) {
+    setInboxView(view)
+    setSelected(null)
+  }
+
   useEffect(() => { selectedRef.current = selected }, [selected])
 
   // ── Group inbox rows by client ────────────────────────────────────────────
@@ -263,20 +304,25 @@ export default function StaffInbox({ getToken }) {
     const map = new Map()
     for (const row of inbox) {
       const existing = map.get(row.client_id)
+      // Full name: server now returns first_name as "First Last" (concat), but keep fallback
+      const fullName = row.first_name ?? 'Client'
       if (!existing) {
         map.set(row.client_id, {
-          client_id:         row.client_id,
-          first_name:        row.first_name,
-          totalUnread:       Number(row.unread) || 0,
-          last_message_at:   row.last_message_at,
-          last_message_body: row.last_message_body,
-          last_sender_role:  row.last_sender_role,
-          latestThreadType:  row.thread_type,
-          threads:           [row],
+          client_id:          row.client_id,
+          first_name:         fullName,
+          full_name:          fullName,
+          totalUnread:        Number(row.unread) || 0,
+          totalMarkedUnread:  row.marked_unread ? 1 : 0,
+          last_message_at:    row.last_message_at,
+          last_message_body:  row.last_message_body,
+          last_sender_role:   row.last_sender_role,
+          latestThreadType:   row.thread_type,
+          threads:            [row],
         })
       } else {
         existing.threads.push(row)
-        existing.totalUnread += Number(row.unread) || 0
+        existing.totalUnread       += Number(row.unread) || 0
+        existing.totalMarkedUnread += row.marked_unread ? 1 : 0
         if (row.last_message_at && (!existing.last_message_at || new Date(row.last_message_at) > new Date(existing.last_message_at))) {
           existing.last_message_at   = row.last_message_at
           existing.last_message_body = row.last_message_body
@@ -297,7 +343,7 @@ export default function StaffInbox({ getToken }) {
   const fetchInbox = useCallback(async () => {
     try {
       const token = await getToken()
-      const res = await fetch(`${API_URL}/api/coach-admin/messaging/inbox`, {
+      const res = await fetch(`${API_URL}/api/coach-admin/messaging/inbox?view=${inboxView}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok) return
@@ -307,11 +353,11 @@ export default function StaffInbox({ getToken }) {
         if (!sel) return fresh
         return fresh.map(r =>
           r.client_id === sel.clientId && r.thread_type === sel.threadType
-            ? { ...r, unread: 0 } : r,
+            ? { ...r, unread: 0, marked_unread: false } : r,
         )
       })
     } catch {}
-  }, [getToken])
+  }, [getToken, inboxView])
 
   useEffect(() => { fetchInbox().finally(() => setLoading(false)) }, [fetchInbox])
   useEffect(() => {
@@ -325,6 +371,8 @@ export default function StaffInbox({ getToken }) {
     setLoadingMsgs(true)
     setHasMore(false)
     setNextBeforeId(null)
+    // Clear "marked as unread" whenever a conversation is opened
+    patchInboxState(sel.clientId, sel.threadType, { marked_unread: false }).catch(() => {})
     const token = await getToken()
     const res = await fetch(
       `${API_URL}/api/coach-admin/clients/${sel.clientId}/messages?thread=${sel.threadType}&limit=50`,
@@ -426,34 +474,46 @@ export default function StaffInbox({ getToken }) {
 
   if (loading) return <p className="text-sm text-gray-400 py-8 text-center">Loading inbox…</p>
 
-  if (!loading && inbox.length === 0) {
-    return (
-      <div className="bg-white border border-gray-200 rounded-xl p-12 text-center">
-        <p className="text-3xl mb-3">💬</p>
-        <p className="text-sm font-semibold text-gray-700 mb-1">Client inbox is ready</p>
-        <p className="text-xs text-gray-500">New client conversations and replies will appear here automatically.</p>
-      </div>
-    )
-  }
-
-  const totalUnread = groupedInbox.reduce((sum, g) => sum + g.totalUnread, 0)
+  const totalUnread = groupedInbox.reduce((sum, g) => sum + g.totalUnread + g.totalMarkedUnread, 0)
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 min-h-[600px]">
       {/* Inbox list */}
-      <div className={`lg:w-72 shrink-0 space-y-1.5 overflow-y-auto ${selected ? 'hidden lg:block' : ''}`}>
-        {totalUnread > 0 && (
+      <div className={`lg:w-72 shrink-0 flex flex-col overflow-y-auto ${selected ? 'hidden lg:flex' : ''}`}>
+        {/* Active / Archived tabs */}
+        <div className="flex gap-1 mb-2">
+          {(['active', 'archived'] ).map(v => (
+            <button
+              key={v}
+              onClick={() => switchView(v)}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                inboxView === v
+                  ? 'bg-[#E8670A] text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {v === 'active' ? 'Active' : 'Archived'}
+            </button>
+          ))}
+        </div>
+        {totalUnread > 0 && inboxView === 'active' && (
           <p className="text-xs font-semibold text-[#E8670A] mb-2 px-1">
             {totalUnread} unread message{totalUnread !== 1 ? 's' : ''}
           </p>
         )}
+        <div className="flex-1 space-y-1.5">
+        {!loading && groupedInbox.length === 0 && (
+          <p className="text-xs text-gray-400 text-center py-6 px-2">
+            {inboxView === 'archived' ? 'No archived conversations.' : 'No messages yet. Client conversations will appear here.'}
+          </p>
+        )}
         {groupedInbox.map(g => {
           const isSelected = selected?.clientId === g.client_id
-          const hasUnread  = g.totalUnread > 0
+          const hasUnread  = g.totalUnread > 0 || g.totalMarkedUnread > 0
           return (
             <button
               key={g.client_id}
-              onClick={() => setSelected({ clientId: g.client_id, clientName: g.first_name, threadType: g.latestThreadType })}
+              onClick={() => setSelected({ clientId: g.client_id, clientName: g.full_name, threadType: g.latestThreadType })}
               className={`w-full text-left border rounded-xl px-3 py-3 transition-all ${
                 isSelected
                   ? 'bg-[#E8670A] border-[#E8670A] text-white shadow-md'
@@ -465,7 +525,7 @@ export default function StaffInbox({ getToken }) {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <p className={`text-sm font-semibold ${isSelected ? 'text-white' : 'text-gray-900'}`}>
-                    {g.first_name ?? 'Client'}
+                    {g.full_name}
                   </p>
                   <p className={`text-[10px] mt-0.5 ${isSelected ? 'text-white/70' : 'text-gray-400'}`}>
                     {g.last_message_at ? fmtShort(g.last_message_at) : ''}
@@ -486,13 +546,14 @@ export default function StaffInbox({ getToken }) {
                 </div>
                 {hasUnread && !isSelected && (
                   <span className="bg-[#E8670A] text-white text-[10px] font-bold rounded-full px-2 py-0.5 shrink-0 mt-0.5">
-                    {g.totalUnread}
+                    {g.totalUnread > 0 ? g.totalUnread : '●'}
                   </span>
                 )}
               </div>
             </button>
           )
         })}
+        </div>{/* end inner list */}
       </div>
 
       {/* Conversation panel */}
@@ -504,17 +565,48 @@ export default function StaffInbox({ getToken }) {
         ) : (
           <>
             <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <button
                   onClick={() => setSelected(null)}
-                  className="lg:hidden -ml-1 min-w-10 h-10 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-200 transition-colors"
+                  className="lg:hidden -ml-1 min-w-10 h-10 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-200 transition-colors shrink-0"
                   aria-label="Back to inbox"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                   </svg>
                 </button>
-                <p className="text-sm font-semibold text-gray-900">{selected.clientName}</p>
+                <p className="text-sm font-semibold text-gray-900 flex-1 min-w-0 truncate">{selected.clientName}</p>
+                {/* Mark as Unread — only in active view */}
+                {inboxView === 'active' && (
+                  <button
+                    onClick={markUnread}
+                    title="Mark as unread"
+                    className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-gray-600 bg-white border border-gray-200 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors"
+                  >
+                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" /></svg>
+                    Unread
+                  </button>
+                )}
+                {/* Archive / Unarchive */}
+                {inboxView === 'active' ? (
+                  <button
+                    onClick={archiveConversation}
+                    title="Archive conversation"
+                    className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-gray-600 bg-white border border-gray-200 hover:border-gray-400 hover:text-gray-800 transition-colors"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8l1 12a2 2 0 002 2h8a2 2 0 002-2L19 8M10 12h4" /></svg>
+                    Archive
+                  </button>
+                ) : (
+                  <button
+                    onClick={unarchiveConversation}
+                    title="Move back to active"
+                    className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-[#E8670A] bg-orange-50 border border-orange-200 hover:bg-orange-100 transition-colors"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg>
+                    Restore
+                  </button>
+                )}
               </div>
               {selectedClientThreads.filter(t => STAFF_VISIBLE_THREADS.includes(t.thread_type)).length > 1 && (
                 <div className="flex gap-1 mt-2 flex-wrap">
@@ -565,9 +657,9 @@ export default function StaffInbox({ getToken }) {
                 return (
                   <div key={m.id} className={`flex ${isStaff ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[80%] rounded-2xl px-4 py-2 ${
-                      isStaff ? 'bg-[#E8670A] text-white' : 'bg-white border border-gray-200 text-gray-800'
+                      isStaff ? 'bg-[#E8670A] text-white' : 'bg-blue-500 text-white'
                     }`}>
-                      <p className="text-[10px] font-semibold opacity-70 mb-0.5">
+                      <p className="text-[10px] font-semibold text-white/70 mb-0.5">
                         {m.sender_name ?? m.sender_role} · {fmtFull(m.created_at)}
                       </p>
                       {m.message_body && <p className="text-sm whitespace-pre-wrap">{m.message_body}</p>}

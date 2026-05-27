@@ -125,7 +125,7 @@ function VoiceMessagePlayer({ audioUrl, isMine }) {
 
   return (
     <div className={`mt-1 flex w-[min(260px,100%)] max-w-full items-center gap-2 rounded-full px-2.5 py-2 ${
-      isMine ? 'bg-white/95 text-gray-800' : 'bg-gray-100 text-gray-800'
+      isMine ? 'bg-white/20 text-white' : 'bg-white/95 text-gray-800'
     }`}>
       <button
         type="button"
@@ -558,9 +558,9 @@ export default function Messages() {
                     return (
                       <div key={m.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-[88%] sm:max-w-[80%] rounded-2xl px-4 py-2 ${
-                          isMe ? 'bg-[#E8670A] text-white' : 'bg-white border border-gray-200 text-gray-800'
+                          isMe ? 'bg-blue-500 text-white' : 'bg-[#E8670A] text-white'
                         }`}>
-                          <p className={`text-[10px] font-semibold mb-0.5 ${isMe ? 'text-white/80' : 'text-gray-500'}`}>
+                          <p className="text-[10px] font-semibold mb-0.5 text-white/80">
                             {isMe ? 'You' : (m.sender_name ?? m.sender_role)} · {fmtTime(m.created_at)}
                           </p>
                           {m.message_body && <p className="text-sm whitespace-pre-wrap">{m.message_body}</p>}
@@ -573,7 +573,7 @@ export default function Messages() {
                           {!isMe && formHref && (
                             <a
                               href={formHref}
-                              className="mt-2 flex items-center gap-1.5 bg-[#E8670A] hover:bg-[#c45e09] rounded-lg px-3 py-2 text-xs font-bold text-white transition-colors"
+                              className="mt-2 flex items-center gap-1.5 bg-white text-[#E8670A] hover:bg-orange-50 rounded-lg px-3 py-2 text-xs font-bold transition-colors"
                             >
                               <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
