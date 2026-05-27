@@ -575,7 +575,7 @@ export default function Messages() {
                           {!isMe && formHref && (
                             <a
                               href={formHref}
-                              className="mt-2 flex items-center gap-1.5 bg-white text-[#E8670A] hover:bg-orange-50 rounded-lg px-3 py-2 text-xs font-bold transition-colors"
+                              className="mt-2 flex items-center gap-1.5 bg-white text-[#E8670A] hover:bg-orange-50 rounded-lg px-3 py-2 text-xs font-bold transition-colors min-h-[44px]"
                             >
                               <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -631,7 +631,7 @@ export default function Messages() {
                       <input ref={fileInputRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp" capture="environment" className="hidden" onChange={handleFileSelect} />
                       {/* Gallery input */}
                       <input ref={galleryInputRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp" className="hidden" onChange={handleFileSelect} />
-                      <div className="flex items-stretch gap-2">
+                      <div className="flex items-end gap-2">
                         <textarea
                           value={body}
                           onChange={e => setBody(e.target.value)}
@@ -643,18 +643,18 @@ export default function Messages() {
                         <button
                           onClick={send}
                           disabled={sending || uploading || (!body.trim() && !imgFile && !audioBlob)}
-                          className="bg-[#E8670A] text-white px-3 sm:px-4 rounded-lg text-xs sm:text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 min-w-[64px] sm:min-w-[76px]"
+                          className="bg-[#E8670A] text-white px-3 sm:px-4 rounded-lg text-xs sm:text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 min-w-[64px] sm:min-w-[76px] min-h-[44px]"
                         >
                           {uploading ? '⬆' : sending ? '…' : 'Send'}
                         </button>
                       </div>
                       <div className="flex items-center gap-2">
                         {/* Camera button */}
-                        <button onClick={() => fileInputRef.current?.click()} disabled={!!audioBlob || recording} title="Take photo" className="shrink-0 min-w-10 h-10 sm:min-w-11 sm:h-11 px-2.5 sm:px-3 flex items-center justify-center rounded-lg border border-gray-300 text-gray-500 hover:border-[#E8670A] hover:text-[#E8670A] disabled:opacity-30 transition-colors">
+                        <button onClick={() => fileInputRef.current?.click()} disabled={!!audioBlob || recording} title="Take photo" className="shrink-0 min-w-[44px] h-[44px] px-2.5 flex items-center justify-center rounded-lg border border-gray-300 text-gray-500 hover:border-[#E8670A] hover:text-[#E8670A] disabled:opacity-30 transition-colors">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                         </button>
                         {/* Gallery button */}
-                        <button onClick={() => galleryInputRef.current?.click()} disabled={!!audioBlob || recording} title="Choose from gallery" className="shrink-0 min-w-10 h-10 sm:min-w-11 sm:h-11 px-2.5 sm:px-3 flex items-center justify-center rounded-lg border border-gray-300 text-gray-500 hover:border-[#E8670A] hover:text-[#E8670A] disabled:opacity-30 transition-colors">
+                        <button onClick={() => galleryInputRef.current?.click()} disabled={!!audioBlob || recording} title="Choose from gallery" className="shrink-0 min-w-[44px] h-[44px] px-2.5 flex items-center justify-center rounded-lg border border-gray-300 text-gray-500 hover:border-[#E8670A] hover:text-[#E8670A] disabled:opacity-30 transition-colors">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                         </button>
                         {/* Mic / Stop button */}
@@ -662,7 +662,7 @@ export default function Messages() {
                           onClick={recording ? stopRecording : startRecording}
                           disabled={!!imgFile}
                           title={!canRecord ? 'Voice recording not supported in this browser' : recording ? 'Stop recording' : 'Record voice message'}
-                          className={`shrink-0 min-w-10 h-10 sm:min-w-11 sm:h-11 px-2.5 sm:px-3 flex items-center justify-center rounded-lg border transition-colors disabled:opacity-30 ${
+                          className={`shrink-0 min-w-[44px] h-[44px] px-2.5 flex items-center justify-center rounded-lg border transition-colors disabled:opacity-30 ${
                             recording
                               ? 'bg-red-500 border-red-500 text-white animate-pulse'
                               : 'border-gray-300 text-gray-500 hover:border-[#E8670A] hover:text-[#E8670A]'
