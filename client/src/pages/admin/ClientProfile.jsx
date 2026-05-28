@@ -1501,7 +1501,7 @@ function getHabitDots(habitId, calendar) {
   const todayKey = localDateStr()
   const dots = []
   for (let i = 6; i >= 0; i--) {
-    const d = new Date(now)
+    const d = new Date()
     d.setDate(d.getDate() - i)
     const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
     if (key > todayKey) { dots.push({ key, status: 'future' }); continue }
