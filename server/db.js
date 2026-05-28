@@ -485,6 +485,14 @@ export async function migrate() {
   await pool.query(`UPDATE custom_foods SET review_status = 'approved' WHERE is_global = TRUE  AND review_status IS NULL`)
   await pool.query(`UPDATE custom_foods SET review_status = 'pending'  WHERE is_global = FALSE AND user_id IS NOT NULL AND review_status IS NULL`)
 
+  // ── Sugar & Sodium columns ────────────────────────────────────────────────────
+  await pool.query(`ALTER TABLE custom_foods ADD COLUMN IF NOT EXISTS sugar NUMERIC(6,1)`)
+  await pool.query(`ALTER TABLE custom_foods ADD COLUMN IF NOT EXISTS sodium_mg NUMERIC(8,1)`)
+  await pool.query(`ALTER TABLE recipes ADD COLUMN IF NOT EXISTS sugar NUMERIC(6,1)`)
+  await pool.query(`ALTER TABLE recipes ADD COLUMN IF NOT EXISTS sodium_mg NUMERIC(8,1)`)
+  await pool.query(`ALTER TABLE recipe_ingredients ADD COLUMN IF NOT EXISTS sugar NUMERIC(6,1)`)
+  await pool.query(`ALTER TABLE recipe_ingredients ADD COLUMN IF NOT EXISTS sodium_mg NUMERIC(8,1)`)
+
   // ── Global milk foods ────────────────────────────────────────────────────────
   // Stored per-serving (244 ml = 1 cup). Search query normalises to per-100ml.
   await pool.query(`

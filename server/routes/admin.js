@@ -18,6 +18,7 @@ async function requireAdmin(req, res) {
 async function getCoachFood(id) {
   const { rows } = await pool.query(`
     SELECT cf.id, cf.food_name, cf.calories_per_serving, cf.protein, cf.carbs, cf.fat, cf.fiber,
+           cf.sugar, cf.sodium_mg,
            cf.serving_size, cf.serving_unit, cf.notes,
            COALESCE(cf.is_active, TRUE) AS is_active,
            cf.created_at, cf.updated_at,
@@ -95,6 +96,7 @@ router.get('/coach-foods', requireAuth(), async (req, res, next) => {
     if (await requireAdmin(req, res) === null) return
     const { rows } = await pool.query(`
       SELECT cf.id, cf.food_name, cf.calories_per_serving, cf.protein, cf.carbs, cf.fat, cf.fiber,
+             cf.sugar, cf.sodium_mg,
              cf.serving_size, cf.serving_unit, cf.notes,
              COALESCE(cf.is_active, TRUE) AS is_active,
              cf.created_at, cf.updated_at,
@@ -113,7 +115,7 @@ router.post('/coach-foods', requireAuth(), async (req, res, next) => {
   try {
     const callerId = await requireAdmin(req, res)
     if (callerId === null) return
-    const { food_name, calories, protein, carbs, fat, fiber, serving_size, serving_unit, notes } = req.body
+    const { food_name, calories, protein, carbs, fat, fiber, sugar, sodium_mg, serving_size, serving_unit, notes } = req.body
     if (!food_name?.trim()) return res.status(400).json({ error: 'food_name required' })
 
     const ss = serving_size != null && serving_size !== '' ? Number(serving_size) : 100
@@ -122,16 +124,18 @@ router.post('/coach-foods', requireAuth(), async (req, res, next) => {
     const { rows } = await pool.query(`
       INSERT INTO custom_foods
         (is_global, is_coach_food, is_active, food_name, calories_per_serving, protein, carbs, fat, fiber,
-         serving_size, serving_unit, notes, created_by, review_status)
-      VALUES (TRUE, TRUE, TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'approved')
+         sugar, sodium_mg, serving_size, serving_unit, notes, created_by, review_status)
+      VALUES (TRUE, TRUE, TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'approved')
       RETURNING id
     `, [
       food_name.trim(),
-      calories != null ? Number(calories) : null,
-      protein  != null ? Number(protein)  : null,
-      carbs    != null ? Number(carbs)    : null,
-      fat      != null ? Number(fat)      : null,
-      fiber    != null ? Number(fiber)    : null,
+      calories  != null ? Number(calories)  : null,
+      protein   != null ? Number(protein)   : null,
+      carbs     != null ? Number(carbs)     : null,
+      fat       != null ? Number(fat)       : null,
+      fiber     != null ? Number(fiber)     : null,
+      sugar     != null ? Number(sugar)     : null,
+      sodium_mg != null ? Number(sodium_mg) : null,
       ss, su,
       notes?.trim() || null,
       callerId,
@@ -145,7 +149,7 @@ router.patch('/coach-foods/:id', requireAuth(), async (req, res, next) => {
   try {
     if (await requireAdmin(req, res) === null) return
     const id = parseInt(req.params.id, 10)
-    const { food_name, calories, protein, carbs, fat, fiber, serving_size, serving_unit, notes, is_active } = req.body
+    const { food_name, calories, protein, carbs, fat, fiber, sugar, sodium_mg, serving_size, serving_unit, notes, is_active } = req.body
 
     const sets = []
     const params = []
@@ -157,6 +161,8 @@ router.patch('/coach-foods/:id', requireAuth(), async (req, res, next) => {
     if (carbs      !== undefined) add('carbs',                carbs     !== '' ? Number(carbs)     : null)
     if (fat        !== undefined) add('fat',                  fat       !== '' ? Number(fat)       : null)
     if (fiber      !== undefined) add('fiber',                fiber     !== '' ? Number(fiber)     : null)
+    if (sugar      !== undefined) add('sugar',                sugar     !== '' ? Number(sugar)     : null)
+    if (sodium_mg  !== undefined) add('sodium_mg',            sodium_mg !== '' ? Number(sodium_mg) : null)
     if (serving_size !== undefined) add('serving_size',       serving_size !== '' ? Number(serving_size) : 100)
     if (serving_unit !== undefined) add('serving_unit',       serving_unit?.trim() || 'g')
     if (notes      !== undefined) add('notes',                notes?.trim() || null)

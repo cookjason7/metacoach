@@ -33,6 +33,7 @@ const EMPTY_INVITE = {
 
 const EMPTY_FOOD_FORM = {
   food_name: '', calories: '', protein: '', carbs: '', fat: '', fiber: '',
+  sugar: '', sodium_mg: '',
   serving_size: '100', serving_unit: 'g', notes: '',
 }
 
@@ -413,6 +414,8 @@ function CoachFoodForm({ initialValues, onSave, onCancel, saving, saveErr }) {
       carbs:        form.carbs        !== '' ? Number(form.carbs)        : null,
       fat:          form.fat          !== '' ? Number(form.fat)          : null,
       fiber:        form.fiber        !== '' ? Number(form.fiber)        : null,
+      sugar:        form.sugar        !== '' ? Number(form.sugar)        : null,
+      sodium_mg:    form.sodium_mg    !== '' ? Number(form.sodium_mg)    : null,
       serving_size: form.serving_size !== '' ? Number(form.serving_size) : 100,
       serving_unit: form.serving_unit || 'g',
       notes:        form.notes.trim() || null,
@@ -429,11 +432,13 @@ function CoachFoodForm({ initialValues, onSave, onCancel, saving, saveErr }) {
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {[
-          ['Calories (per serving)', 'calories', '120'],
-          ['Protein g',             'protein',  '22' ],
-          ['Carbs g',               'carbs',    '0'  ],
-          ['Fat g',                 'fat',      '2.6'],
-          ['Fiber g',               'fiber',    '0'  ],
+          ['Calories (per serving)', 'calories',  '120'],
+          ['Protein g',             'protein',   '22' ],
+          ['Carbs g',               'carbs',     '0'  ],
+          ['Fat g',                 'fat',       '2.6'],
+          ['Fiber g',               'fiber',     '0'  ],
+          ['Sugar g',               'sugar',     '0'  ],
+          ['Sodium mg',             'sodium_mg', '0'  ],
         ].map(([lbl, nm, ph]) => (
           <div key={nm}>
             <label className="block text-xs font-medium text-gray-600 mb-1">{lbl}</label>
@@ -490,10 +495,12 @@ function coachFoodEditInitial(food) {
   return {
     food_name:    food.food_name,
     calories:     food.calories_per_serving != null ? String(food.calories_per_serving) : '',
-    protein:      food.protein != null ? String(food.protein) : '',
-    carbs:        food.carbs   != null ? String(food.carbs)   : '',
-    fat:          food.fat     != null ? String(food.fat)     : '',
-    fiber:        food.fiber   != null ? String(food.fiber)   : '',
+    protein:      food.protein   != null ? String(food.protein)   : '',
+    carbs:        food.carbs     != null ? String(food.carbs)     : '',
+    fat:          food.fat       != null ? String(food.fat)       : '',
+    fiber:        food.fiber     != null ? String(food.fiber)     : '',
+    sugar:        food.sugar     != null ? String(food.sugar)     : '',
+    sodium_mg:    food.sodium_mg != null ? String(food.sodium_mg) : '',
     serving_size: String(food.serving_size ?? 100),
     serving_unit: food.serving_unit || 'g',
     notes:        food.notes || '',

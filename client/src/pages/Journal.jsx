@@ -2226,8 +2226,8 @@ function BarcodeLogger({ slotName, onSaved, logDate }) {
 
 // ── My Foods & Recipes Logger ──────────────────────────────────────────────────
 
-const EMPTY_ING = { food_name: '', calories: '', protein: '', carbs: '', fat: '', fiber: '', amount: '', unit: '' }
-const EMPTY_FOOD_FORM = { food_name: '', calories_per_serving: '', protein: '', carbs: '', fat: '', fiber: '', serving_size: '100', serving_unit: 'g' }
+const EMPTY_ING = { food_name: '', calories: '', protein: '', carbs: '', fat: '', fiber: '', sugar: '', sodium_mg: '', amount: '', unit: '' }
+const EMPTY_FOOD_FORM = { food_name: '', calories_per_serving: '', protein: '', carbs: '', fat: '', fiber: '', sugar: '', sodium_mg: '', serving_size: '100', serving_unit: 'g' }
 
 function RecipesLogger({ slotName, onSaved, logDate }) {
   const { getToken } = useAuth()
@@ -2473,6 +2473,10 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
     if (validation) { setCError(validation); return }
     const g = toGrams(parseFloat(cIngAmount), cIngUnit)
     const m = calcMacros(cIngFood, g)
+    const sugarRaw  = cIngFood.sugar_g   != null ? cIngFood.sugar_g   : null
+    const sodiumRaw = cIngFood.sodium_mg != null ? cIngFood.sodium_mg : null
+    const scaledSugar  = sugarRaw  != null ? +(sugarRaw  * g / 100).toFixed(1) : ''
+    const scaledSodium = sodiumRaw != null ? +(sodiumRaw * g / 100).toFixed(1) : ''
     setCIngs(prev => [...prev, {
       food_name: name.trim(),
       calories:  m.calories,
@@ -2480,6 +2484,8 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
       carbs:     m.carbs,
       fat:       m.fat,
       fiber:     m.fiber ?? '',
+      sugar:     scaledSugar,
+      sodium_mg: scaledSodium,
       amount:    parseFloat(cIngAmount) || '',
       unit:      cIngUnit,
     }])
@@ -2502,7 +2508,9 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
       protein:   +((parseFloat(cMyFoodSel.protein) || 0) * qty).toFixed(1),
       carbs:     +((parseFloat(cMyFoodSel.carbs)   || 0) * qty).toFixed(1),
       fat:       +((parseFloat(cMyFoodSel.fat)     || 0) * qty).toFixed(1),
-      fiber:     cMyFoodSel.fiber ? +((parseFloat(cMyFoodSel.fiber) || 0) * qty).toFixed(1) : '',
+      fiber:     cMyFoodSel.fiber     ? +((parseFloat(cMyFoodSel.fiber)     || 0) * qty).toFixed(1) : '',
+      sugar:     cMyFoodSel.sugar     ? +((parseFloat(cMyFoodSel.sugar)     || 0) * qty).toFixed(1) : '',
+      sodium_mg: cMyFoodSel.sodium_mg ? +((parseFloat(cMyFoodSel.sodium_mg) || 0) * qty).toFixed(1) : '',
       amount:    +((parseFloat(cMyFoodSel.serving_size) || 1) * qty).toFixed(2),
       unit:      cMyFoodSel.serving_unit || '',
     }])
@@ -2556,12 +2564,14 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
     setCIngs(Array.isArray(recipe.ingredients)
       ? recipe.ingredients.map(i => ({
           food_name: i.food_name || '',
-          calories:  String(i.calories ?? ''),
-          protein:   String(i.protein  ?? ''),
-          carbs:     String(i.carbs    ?? ''),
-          fat:       String(i.fat      ?? ''),
-          fiber:     String(i.fiber    ?? ''),
-          amount:    String(i.amount   ?? ''),
+          calories:  String(i.calories  ?? ''),
+          protein:   String(i.protein   ?? ''),
+          carbs:     String(i.carbs     ?? ''),
+          fat:       String(i.fat       ?? ''),
+          fiber:     String(i.fiber     ?? ''),
+          sugar:     String(i.sugar     ?? ''),
+          sodium_mg: String(i.sodium_mg ?? ''),
+          amount:    String(i.amount    ?? ''),
           unit:      i.unit || '',
         }))
       : [])
@@ -2619,12 +2629,14 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
     setCIngs(Array.isArray(data.ingredients)
       ? data.ingredients.map(i => ({
           food_name: i.food_name || '',
-          calories:  String(i.calories ?? ''),
-          protein:   String(i.protein  ?? ''),
-          carbs:     String(i.carbs    ?? ''),
-          fat:       String(i.fat      ?? ''),
-          fiber:     String(i.fiber    ?? ''),
-          amount:    String(i.amount   ?? ''),
+          calories:  String(i.calories  ?? ''),
+          protein:   String(i.protein   ?? ''),
+          carbs:     String(i.carbs     ?? ''),
+          fat:       String(i.fat       ?? ''),
+          fiber:     String(i.fiber     ?? ''),
+          sugar:     String(i.sugar     ?? ''),
+          sodium_mg: String(i.sodium_mg ?? ''),
+          amount:    String(i.amount    ?? ''),
           unit:      i.unit || '',
         }))
       : [])
@@ -2685,10 +2697,12 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
       setFForm({
         food_name:            data.food_name || '',
         calories_per_serving: data.calories_per_serving != null ? String(data.calories_per_serving) : '',
-        protein:  data.protein  != null ? String(data.protein)  : '',
-        carbs:    data.carbs    != null ? String(data.carbs)    : '',
-        fat:      data.fat      != null ? String(data.fat)      : '',
-        fiber:    data.fiber    != null ? String(data.fiber)    : '',
+        protein:   data.protein   != null ? String(data.protein)   : '',
+        carbs:     data.carbs     != null ? String(data.carbs)     : '',
+        fat:       data.fat       != null ? String(data.fat)       : '',
+        fiber:     data.fiber     != null ? String(data.fiber)     : '',
+        sugar:     data.sugar     != null ? String(data.sugar)     : '',
+        sodium_mg: data.sodium_mg != null ? String(data.sodium_mg) : '',
         serving_size: data.serving_size != null ? String(data.serving_size) : '100',
         serving_unit: data.serving_unit || 'g',
       })
@@ -2715,10 +2729,12 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
       const payload = {
         food_name:            fForm.food_name.trim(),
         calories_per_serving: fForm.calories_per_serving !== '' ? Number(fForm.calories_per_serving) : null,
-        protein:  fForm.protein  !== '' ? Number(fForm.protein)  : null,
-        carbs:    fForm.carbs    !== '' ? Number(fForm.carbs)    : null,
-        fat:      fForm.fat      !== '' ? Number(fForm.fat)      : null,
-        fiber:    fForm.fiber    !== '' ? Number(fForm.fiber)    : null,
+        protein:   fForm.protein   !== '' ? Number(fForm.protein)   : null,
+        carbs:     fForm.carbs     !== '' ? Number(fForm.carbs)     : null,
+        fat:       fForm.fat       !== '' ? Number(fForm.fat)       : null,
+        fiber:     fForm.fiber     !== '' ? Number(fForm.fiber)     : null,
+        sugar:     fForm.sugar     !== '' ? Number(fForm.sugar)     : null,
+        sodium_mg: fForm.sodium_mg !== '' ? Number(fForm.sodium_mg) : null,
         serving_size: fForm.serving_size !== '' ? Number(fForm.serving_size) : 100,
         serving_unit: fForm.serving_unit || 'g',
         is_global: false,
@@ -2969,7 +2985,8 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
           </div>
           <div className="grid grid-cols-3 gap-2">
             {[['Calories','calories_per_serving','250'],['Protein (g)','protein','20'],['Carbs (g)','carbs','30'],
-              ['Fat (g)','fat','8'],['Fiber (g)','fiber','2']].map(([lbl, key, ph]) => (
+              ['Fat (g)','fat','8'],['Fiber (g)','fiber','2'],['Sugar (g)','sugar','0'],
+              ['Sodium (mg)','sodium_mg','0']].map(([lbl, key, ph]) => (
               <div key={key}>
                 <label className="block text-xs font-medium text-gray-600 mb-1">{lbl}</label>
                 <input type="number" min="0" placeholder={ph} value={fForm[key]}
@@ -3319,6 +3336,18 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
                 </div>
                 <div>
+                  <label className="block text-xs text-gray-500 mb-0.5">Sugar (g) optional</label>
+                  <input type="number" min="0" value={cDraft.sugar} onChange={e => setCDraft(d => ({ ...d, sugar: e.target.value }))}
+                    placeholder="0"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-0.5">Sodium (mg) optional</label>
+                  <input type="number" min="0" value={cDraft.sodium_mg} onChange={e => setCDraft(d => ({ ...d, sodium_mg: e.target.value }))}
+                    placeholder="0"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+                </div>
+                <div>
                   <label className="block text-xs text-gray-500 mb-0.5">Amount</label>
                   <div className="flex gap-1">
                     <input type="number" min="0" value={cDraft.amount} onChange={e => setCDraft(d => ({ ...d, amount: e.target.value }))}
@@ -3403,10 +3432,12 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
                     setFForm({
                       food_name:            food.food_name,
                       calories_per_serving: food.calories_per_serving != null ? String(food.calories_per_serving) : '',
-                      protein:  food.protein  != null ? String(food.protein)  : '',
-                      carbs:    food.carbs    != null ? String(food.carbs)    : '',
-                      fat:      food.fat      != null ? String(food.fat)      : '',
-                      fiber:    food.fiber    != null ? String(food.fiber)    : '',
+                      protein:   food.protein   != null ? String(food.protein)   : '',
+                      carbs:     food.carbs     != null ? String(food.carbs)     : '',
+                      fat:       food.fat       != null ? String(food.fat)       : '',
+                      fiber:     food.fiber     != null ? String(food.fiber)     : '',
+                      sugar:     food.sugar     != null ? String(food.sugar)     : '',
+                      sodium_mg: food.sodium_mg != null ? String(food.sodium_mg) : '',
                       serving_size: food.serving_size != null ? String(food.serving_size) : '100',
                       serving_unit: food.serving_unit ?? 'g',
                     })
