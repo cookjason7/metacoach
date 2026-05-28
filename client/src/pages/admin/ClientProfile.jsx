@@ -1835,11 +1835,12 @@ function HabitsTab({ clientId, getToken }) {
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Identity category</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Habit Category</label>
             <select value={form.identity_category} onChange={e => setForm(f => ({ ...f, identity_category: e.target.value }))}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
               <option value="">— None —</option>
               <option value="food_tracking">Food Tracking</option>
+              <option value="hydration">Hydration</option>
               <option value="movement">Movement</option>
               <option value="mindset">Mindset</option>
               <option value="check_ins">Check-Ins</option>
@@ -1952,7 +1953,7 @@ function HabitsTab({ clientId, getToken }) {
                     </p>
                     {h.identity_category && (
                       <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-orange-50 text-[#E8670A] border border-orange-200">
-                        {{food_tracking:'Food Tracking',movement:'Movement',mindset:'Mindset',check_ins:'Check-Ins',progress:'Progress'}[h.identity_category] ?? h.identity_category}
+                        {{food_tracking:'Food Tracking',hydration:'Hydration',movement:'Movement',mindset:'Mindset',check_ins:'Check-Ins',progress:'Progress'}[h.identity_category] ?? h.identity_category}
                       </span>
                     )}
                     {h.notes && <p className="text-xs text-[#E8670A] italic mt-1">"{h.notes}"</p>}
@@ -3240,8 +3241,10 @@ function FormSubmissionsSection({ clientId, getToken }) {
     )
   }
 
-  const checkIns   = submissions?.filter(isCheckInSubmission) ?? []
-  const otherForms = submissions?.filter(s => !isCheckInSubmission(s)) ?? []
+  const checkIns            = submissions?.filter(isCheckInSubmission) ?? []
+  const otherForms          = submissions?.filter(s => !isCheckInSubmission(s)) ?? []
+  const unreviewedCheckIns  = checkIns.filter(s => !s.reviewed_at)
+  const unreviewedOtherForms = otherForms.filter(s => !s.reviewed_at)
 
   return (
     <div className="space-y-6">
@@ -3249,9 +3252,9 @@ function FormSubmissionsSection({ clientId, getToken }) {
       <div>
         <div className="flex items-center gap-2 mb-3">
           <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider">Check-Ins</p>
-          {!loading && checkIns.length > 0 && (
+          {!loading && unreviewedCheckIns.length > 0 && (
             <span className="text-[10px] bg-orange-100 text-[#E8670A] font-bold px-1.5 py-0.5 rounded-full">
-              {checkIns.length}
+              {unreviewedCheckIns.length} unreviewed
             </span>
           )}
         </div>
@@ -3263,9 +3266,11 @@ function FormSubmissionsSection({ clientId, getToken }) {
         <div>
           <div className="flex items-center gap-2 mb-3">
             <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider">Other Forms</p>
-            <span className="text-[10px] bg-orange-100 text-[#E8670A] font-bold px-1.5 py-0.5 rounded-full">
-              {otherForms.length}
-            </span>
+            {unreviewedOtherForms.length > 0 && (
+              <span className="text-[10px] bg-orange-100 text-[#E8670A] font-bold px-1.5 py-0.5 rounded-full">
+                {unreviewedOtherForms.length} unreviewed
+              </span>
+            )}
           </div>
           {renderList(otherForms, 'No other form submissions.')}
         </div>
