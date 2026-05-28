@@ -1058,7 +1058,7 @@ function PendingInviteRow({ invite, onResend, onCancel }) {
     ? Math.max(0, Math.ceil((new Date(invite.expires_at) - Date.now()) / 86400_000))
     : null
   const coachBadge  = COACHING_TYPE_BADGE[invite.coaching_type] ?? COACHING_TYPE_BADGE.vip
-  const typeLabel   = invite.coaching_type === 'ai' ? 'AI' : invite.coaching_type === 'hybrid' ? 'Hybrid' : 'VIP'
+  const typeLabel   = invite.coaching_type === 'ai' ? 'AI' : 'VIP'
 
   async function copy() {
     try {
