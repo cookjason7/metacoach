@@ -108,15 +108,16 @@ router.post('/:token/accept', requireAuth(), async (req, res, next) => {
     await pool.query(
       `UPDATE users
        SET first_name          = COALESCE(NULLIF(first_name, ''), $1),
-           coaching_type       = COALESCE($2, 'vip'),
+           last_name           = COALESCE(NULLIF(last_name,  ''), $2),
+           coaching_type       = COALESCE($3, 'vip'),
            coaching_type_source = 'invite',
-           assigned_coach_id   = COALESCE(assigned_coach_id, $3),
+           assigned_coach_id   = COALESCE(assigned_coach_id, $4),
            onboarding_complete = TRUE,
            assessment_complete = FALSE,
            client_status       = 'invited',
            paid                = TRUE
-       WHERE id = $4`,
-      [invite.first_name, invite.coaching_type, invite.assigned_coach_id, dbUserId],
+       WHERE id = $5`,
+      [invite.first_name, invite.last_name, invite.coaching_type, invite.assigned_coach_id, dbUserId],
     )
 
     // Mark invite accepted

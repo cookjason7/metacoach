@@ -112,6 +112,7 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
           CASE WHEN u.name IS NOT NULL THEN SPLIT_PART(u.name, ' ', 1) END
         ) AS first_name,
         COALESCE(u.last_name, ha.last_name,
+          (SELECT ci.last_name FROM client_invites ci WHERE ci.email = u.email AND ci.last_name IS NOT NULL AND ci.last_name <> '' ORDER BY ci.created_at DESC LIMIT 1),
           CASE WHEN u.name LIKE '% %'
             THEN LTRIM(SUBSTRING(u.name FROM POSITION(' ' IN u.name)))
           END
@@ -710,6 +711,13 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
       ) lw ON TRUE
       LEFT JOIN health_assessments ha ON ha.user_id = u.id
       LEFT JOIN bloodwork_intake bi ON bi.user_id = u.id
+      LEFT JOIN LATERAL (
+        SELECT ci.first_name AS invite_first_name, ci.last_name AS invite_last_name
+        FROM client_invites ci
+        WHERE ci.email = u.email
+          AND (ci.first_name IS NOT NULL OR ci.last_name IS NOT NULL)
+        ORDER BY ci.created_at DESC LIMIT 1
+      ) ci_name ON TRUE
       WHERE u.id = $1
     `, [id])
     if (!rows.length) return res.status(404).json({ error: 'Client not found' })
@@ -735,10 +743,12 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
     // Field fallback chain: users table → health_assessments → null
     const merged = {
       ...c,
-      // Build display name from first_name + assessment data
+      // Build display name: users table → health_assessments → client_invites → name split
       display_first_name: c.first_name || c.assessment_first_name
+        || c.invite_first_name
         || (c.name ? c.name.split(' ')[0] : null) || null,
       display_last_name: c.last_name || c.assessment_last_name
+        || c.invite_last_name
         || (c.name && c.name.includes(' ') ? c.name.split(' ').slice(1).join(' ') : null)
         || null,
       display_phone:      c.phone_number || c.assessment_phone || null,

@@ -693,7 +693,10 @@ function FoodLogSection({ clientId, date, getToken }) {
     if (!grouped[slot]) grouped[slot] = []
     grouped[slot].push(m)
   }
-  const slotsPresent = SLOT_DISPLAY_ORDER.filter(s => grouped[s]?.length)
+  const slotsPresent = [
+    ...SLOT_DISPLAY_ORDER.filter(s => grouped[s]?.length),
+    ...Object.keys(grouped).filter(s => !SLOT_DISPLAY_ORDER.includes(s) && grouped[s]?.length),
+  ]
 
   const fmt = (n, unit = '') => n != null && Number(n) > 0 ? `${n}${unit}` : null
 
@@ -746,7 +749,7 @@ function FoodLogSection({ clientId, date, getToken }) {
 // ─── Food Log Modal ───────────────────────────────────────────────────────────
 
 function FoodLogModal({ clientId, clientName, date, getToken, goals = {}, onClose, onDateChange }) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateStr()
   const [nutrition, setNutrition] = useState(null)
   const [meals,     setMeals]     = useState([])
   const [loading,   setLoading]   = useState(true)
@@ -1245,8 +1248,13 @@ function BmrTdeeCalculator({ client, getToken, onUpdate }) {
   )
 }
 
+function localDateStr() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 function NutritionTab({ client, clientId, getToken, onUpdate }) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateStr()
   const [date,    setDate]    = useState(today)
   const [daily,   setDaily]   = useState(null)
   const [weekly,  setWeekly]  = useState(null)
@@ -1454,7 +1462,7 @@ function habitActiveOnDay(h, date) {
 // Build a full-month grid for the coach habit calendar preview
 function buildMonthCalendar(habits) {
   const today = new Date(); today.setHours(0,0,0,0)
-  const todayKey = today.toISOString().slice(0, 10)
+  const todayKey = localDateStr()
   const year = today.getFullYear()
   const month = today.getMonth()
   const firstDay = new Date(year, month, 1)
@@ -1470,7 +1478,7 @@ function buildMonthCalendar(habits) {
   // Days in month
   for (let n = 1; n <= lastDay.getDate(); n++) {
     const d = new Date(year, month, n)
-    const dateKey = d.toISOString().slice(0, 10)
+    const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     cells.push({ date: d, dateKey, habits: habits.filter(h => habitActiveOnDay(h, d)), inMonth: true, isToday: dateKey === todayKey })
   }
   // Pad end of last week
@@ -1490,8 +1498,7 @@ function buildMonthCalendar(habits) {
 
 // Returns an array of 7 status objects for the last 7 days (oldest → today) for a given habit
 function getHabitDots(habitId, calendar) {
-  const now = new Date()
-  const todayKey = now.toISOString().slice(0, 10)
+  const todayKey = localDateStr()
   const dots = []
   for (let i = 6; i >= 0; i--) {
     const d = new Date(now)
@@ -1516,7 +1523,7 @@ function HabitsTab({ clientId, getToken }) {
   const [editForm, setEditForm] = useState({})
   const [form, setForm] = useState({
     habit_name: '', habit_type: 'boolean', target_value: '', unit: '',
-    frequency: 'daily', start_date: new Date().toISOString().slice(0, 10),
+    frequency: 'daily', start_date: localDateStr(),
     end_date: '', days_of_week: '', notes: '', identity_category: '',
   })
   const [compCalendar, setCompCalendar] = useState(null)
@@ -1569,7 +1576,7 @@ function HabitsTab({ clientId, getToken }) {
       target_value:      '',  // coach sets the goal
       unit:              p.unit ?? '',
       frequency:         'daily',
-      start_date:        new Date().toISOString().slice(0, 10),
+      start_date:        localDateStr(),
       end_date:          '',
       days_of_week:      '',
       notes:             '',
@@ -1602,7 +1609,7 @@ function HabitsTab({ clientId, getToken }) {
     if (res.ok) {
       setForm({
         habit_name: '', habit_type: 'boolean', target_value: '', unit: '',
-        frequency: 'daily', start_date: new Date().toISOString().slice(0, 10),
+        frequency: 'daily', start_date: localDateStr(),
         end_date: '', days_of_week: '', notes: '', identity_category: '',
       })
       setShowForm(false)
@@ -2008,7 +2015,7 @@ function MeasurementsSection({ clientId, getToken, startDate, endDate }) {
   const [mLoading,     setMLoading]     = useState(true)
   const [showForm,     setShowForm]     = useState(false)
   const [mForm,        setMForm]        = useState({
-    measurement_date: new Date().toISOString().slice(0, 10),
+    measurement_date: localDateStr(),
     chest: '', waist: '', hips: '',
   })
   const [mSaving, setMSaving] = useState(false)
@@ -2049,7 +2056,7 @@ function MeasurementsSection({ clientId, getToken, startDate, endDate }) {
       if (res.ok) {
         const m = await res.json()
         setMeasurements(prev => [m, ...prev].sort((a, b) => String(b.measurement_date).localeCompare(String(a.measurement_date))))
-        setMForm({ measurement_date: new Date().toISOString().slice(0, 10), chest: '', waist: '', hips: '' })
+        setMForm({ measurement_date: localDateStr(), chest: '', waist: '', hips: '' })
         setShowForm(false)
       } else {
         setMError('Failed to save. Please try again.')
@@ -2278,11 +2285,11 @@ function SummaryCard({ label, value, sub, color }) {
 function ProgressTab({ clientId, clientName, getToken }) {
   const [range,       setRange]       = useState('daily')
   const [foodLogDate, setFoodLogDate] = useState(null)
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateStr()
   const thirtyDaysAgo = (() => {
     const d = new Date()
     d.setDate(d.getDate() - 30)
-    return d.toISOString().slice(0, 10)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   })()
   const [startDate, setStartDate] = useState(thirtyDaysAgo)
   const [endDate,   setEndDate]   = useState(today)
