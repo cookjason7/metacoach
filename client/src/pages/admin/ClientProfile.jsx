@@ -78,15 +78,16 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
     client.start_date ? String(client.start_date).slice(0, 10) :
     client.effective_start_date ? String(client.effective_start_date).slice(0, 10) : ''
   const [form, setForm] = useState({
-    first_name:        client.display_first_name ?? client.first_name ?? '',
-    last_name:         client.display_last_name  ?? client.last_name  ?? '',
-    coaching_type:     client.coaching_type ?? 'vip',
-    assigned_coach_id: client.assigned_coach_id ?? '',
-    role:              client.role ?? 'client',
-    start_date:        startDateInitial,
-    program_end_date:  client.program_end_date ? String(client.program_end_date).slice(0, 10) : '',
-    phone_number:      client.phone_number ?? '',
-    paid:              client.paid ?? false,
+    first_name:           client.display_first_name ?? client.first_name ?? '',
+    last_name:            client.display_last_name  ?? client.last_name  ?? '',
+    coaching_type:        client.coaching_type ?? 'vip',
+    assigned_coach_id:    client.assigned_coach_id ?? '',
+    role:                 client.role ?? 'client',
+    start_date:           startDateInitial,
+    program_end_date:     client.program_end_date ? String(client.program_end_date).slice(0, 10) : '',
+    phone_number:         client.phone_number ?? '',
+    paid:                 client.paid ?? false,
+    starting_weight_lbs:  client.starting_weight_lbs != null ? String(client.starting_weight_lbs) : '',
   })
 
   useEffect(() => {
@@ -111,15 +112,16 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          first_name:        form.first_name.trim()  || null,
-          last_name:         form.last_name.trim()   || null,
-          coaching_type:     form.coaching_type,
-          assigned_coach_id: form.assigned_coach_id === '' ? null : Number(form.assigned_coach_id),
-          role:              form.role,
-          start_date:        form.start_date || null,
-          program_end_date:  form.program_end_date || null,
-          phone_number:      form.phone_number || null,
-          paid:              form.paid,
+          first_name:           form.first_name.trim()  || null,
+          last_name:            form.last_name.trim()   || null,
+          coaching_type:        form.coaching_type,
+          assigned_coach_id:    form.assigned_coach_id === '' ? null : Number(form.assigned_coach_id),
+          role:                 form.role,
+          start_date:           form.start_date || null,
+          program_end_date:     form.program_end_date || null,
+          phone_number:         form.phone_number || null,
+          paid:                 form.paid,
+          starting_weight_lbs:  form.starting_weight_lbs !== '' ? Number(form.starting_weight_lbs) : null,
         }),
       })
       if (!res.ok) {
@@ -228,6 +230,7 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 )}
                 <InfoRow label="Coaching type"   value={client.coaching_type === 'ai' ? 'AI / Hybrid Coaching' : 'VIP / Human Coaching'} />
                 <InfoRow label="Assigned coach"      value={client.assigned_coach_name} emptyText="Not assigned yet" />
+                <InfoRow label="Starting weight"     value={client.starting_weight_lbs != null ? `${client.starting_weight_lbs} lbs` : null} />
                 <InfoRow label="Program start date" value={displayStartDate} />
                 <InfoRow label="Program end date"   value={client.program_end_date ? String(client.program_end_date).slice(0, 10) : null} emptyText="Not set" />
                 <InfoRow label="Payment"         value={client.paid ? `✓ Active${client.paid_at ? ` (since ${String(client.paid_at).slice(0,10)})` : ''}` : '○ Not activated'} />
@@ -309,6 +312,14 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Program end date</label>
                 <input type="date" value={form.program_end_date} onChange={e => setForm(f => ({ ...f, program_end_date: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Starting weight (lbs)</label>
+                <input type="number" min="50" max="600" step="0.1"
+                  value={form.starting_weight_lbs}
+                  onChange={e => setForm(f => ({ ...f, starting_weight_lbs: e.target.value }))}
+                  placeholder="e.g. 185"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
               </div>
             </div>

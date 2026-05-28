@@ -790,7 +790,8 @@ router.patch('/clients/:id', requireAuth(), async (req, res, next) => {
     const id = parseInt(req.params.id, 10)
 
     const allowed = ['coaching_type', 'assigned_coach_id', 'role', 'start_date',
-                     'program_end_date', 'phone_number', 'paid', 'first_name', 'last_name']
+                     'program_end_date', 'phone_number', 'paid', 'first_name', 'last_name',
+                     'starting_weight_lbs']
     const setClauses = []
     const params = []
     for (const key of allowed) {
@@ -804,6 +805,9 @@ router.patch('/clients/:id', requireAuth(), async (req, res, next) => {
           value = (value === '' || value === null) ? null : Number(value)
         }
         if ((key === 'start_date' || key === 'program_end_date') && value === '') value = null
+        if (key === 'starting_weight_lbs') {
+          value = (value === '' || value === null) ? null : Number(value)
+        }
         params.push(value)
         setClauses.push(`${key} = $${params.length}`)
         if (key === 'coaching_type') {
