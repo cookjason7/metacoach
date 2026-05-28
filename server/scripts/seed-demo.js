@@ -468,12 +468,12 @@ async function seedQAExtras(db, coachId, log) {
   const { templateId: ciTmplId, versionId: ciVerId } = await upsertFormTemplate(
     '[QA] Weekly Check-In',
     'Weekly progress check-in — QA test form',
-    QA_WEEKLY_CHECKIN_SCHEMA
+    QA_WEEKLY_CHECKIN_SCHEMA.fields
   )
   await upsertFormTemplate(
     '[QA] Health / Initial Assessment',
     'Initial health assessment — QA test form',
-    QA_HEALTH_ASSESSMENT_SCHEMA
+    QA_HEALTH_ASSESSMENT_SCHEMA.fields
   )
 
   // 2. AI/Hybrid demo client ──────────────────────────────────────────────────
