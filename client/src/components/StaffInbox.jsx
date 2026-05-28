@@ -447,6 +447,7 @@ export default function StaffInbox({ getToken, role }) {
   // This lets the tab row show threads even if one is active and another is archived.
   useEffect(() => {
     if (!selected?.clientId) { setAvailableThreads([]); return }
+    setAvailableThreads([]) // clear stale tabs from the previous client immediately
     let cancelled = false
     ;(async () => {
       try {
@@ -716,7 +717,7 @@ export default function StaffInbox({ getToken, role }) {
             {role === 'admin' && selected?.threadType === 'coach_thread' ? (
               <div className="border-t border-gray-100 px-4 py-3">
                 <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
-                  👁 Viewing coach–client thread. Select the <strong>Admin</strong> thread tab to send your own message.
+                  👁 Viewing coach–client thread read-only. Switch to the <strong>{STAFF_THREAD_LABELS['admin_private'] ?? 'Account Owner'}</strong> tab to send your own message.
                 </p>
               </div>
             ) : (
