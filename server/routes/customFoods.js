@@ -65,10 +65,14 @@ router.post('/', requireAuth(), async (req, res, next) => {
       if (existing) return res.status(200).json(existing)
     }
 
+    // Client-created private foods enter the admin review queue automatically.
+    // Admin-created global foods are already approved.
+    const reviewStatus = (is_global) ? 'approved' : 'pending'
+
     const { rows } = await pool.query(
       `INSERT INTO custom_foods
-         (user_id, is_global, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit, barcode)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         (user_id, is_global, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit, barcode, review_status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING *`,
       [
         is_global ? null : dbUserId,
@@ -82,6 +86,7 @@ router.post('/', requireAuth(), async (req, res, next) => {
         serving_size  ?? 100,
         serving_unit  ?? 'g',
         cleanBarcode,
+        reviewStatus,
       ],
     )
     res.status(201).json(rows[0])

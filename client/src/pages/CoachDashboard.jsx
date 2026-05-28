@@ -594,7 +594,7 @@ function CoachFoodCard({ food, editingId, editSaving, editErr, togglingId, archi
   )
 }
 
-function CoachFoodsTab({ getToken }) {
+function CoachFoodsTab({ getToken, onCountChange }) {
   const [coachFoods,    setCoachFoods]    = useState([])
   const [loading,       setLoading]       = useState(true)
   const [showCreate,    setShowCreate]    = useState(false)
@@ -612,17 +612,28 @@ function CoachFoodsTab({ getToken }) {
   const [togglingId,    setTogglingId]    = useState(null)
   const [archivingId,   setArchivingId]   = useState(null)
   const [archiveFood,   setArchiveFood]   = useState(null)
+  // ── Pending client foods ──────────────────────────────────────────────────
+  const [pendingFoods,   setPendingFoods]   = useState([])
+  const [pendingLoading, setPendingLoading] = useState(true)
+  const [reviewing,      setReviewing]      = useState(null) // { id, action }
   const debounceRef = useRef(null)
 
   useEffect(() => {
     async function load() {
       try {
         const token = await getToken()
-        const res = await fetch(`${API_URL}/api/admin/coach-foods`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (res.ok) setCoachFoods(await res.json())
-      } finally { setLoading(false) }
+        const headers = { Authorization: `Bearer ${token}` }
+        const [r1, r2] = await Promise.all([
+          fetch(`${API_URL}/api/admin/coach-foods`,                   { headers }),
+          fetch(`${API_URL}/api/admin/client-foods?status=pending`,   { headers }),
+        ])
+        if (r1.ok) setCoachFoods(await r1.json())
+        if (r2.ok) {
+          const pending = await r2.json()
+          setPendingFoods(pending)
+          onCountChange?.(pending.length)
+        }
+      } finally { setLoading(false); setPendingLoading(false) }
     }
     load()
   }, [getToken])
@@ -725,6 +736,58 @@ function CoachFoodsTab({ getToken }) {
     } finally { setArchivingId(null) }
   }
 
+  async function approveFood(id) {
+    setReviewing({ id, action: 'approve' })
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/admin/client-foods/${id}/review`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'approve' }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Approve failed')
+      const { food } = await res.json()
+      // Remove from pending queue
+      setPendingFoods(prev => {
+        const remaining = prev.filter(f => f.id !== id)
+        onCountChange?.(remaining.length)
+        return remaining
+      })
+      // Add the promoted food to the coach foods list
+      setCoachFoods(prev =>
+        [...prev, {
+          id: food.id, food_name: food.food_name,
+          calories_per_serving: food.calories_per_serving,
+          protein: food.protein, carbs: food.carbs, fat: food.fat, fiber: food.fiber,
+          serving_size: food.serving_size, serving_unit: food.serving_unit,
+          notes: food.notes, is_active: food.is_active,
+          created_at: food.created_at, updated_at: food.updated_at,
+        }].sort((a, b) => {
+          if (Boolean(a.is_active) !== Boolean(b.is_active)) return a.is_active ? -1 : 1
+          return a.food_name.localeCompare(b.food_name)
+        }),
+      )
+    } catch (err) { alert(err.message) } finally { setReviewing(null) }
+  }
+
+  async function dismissFood(id) {
+    setReviewing({ id, action: 'dismiss' })
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/admin/client-foods/${id}/review`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'dismiss' }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Dismiss failed')
+      setPendingFoods(prev => {
+        const remaining = prev.filter(f => f.id !== id)
+        onCountChange?.(remaining.length)
+        return remaining
+      })
+    } catch (err) { alert(err.message) } finally { setReviewing(null) }
+  }
+
   const activeFoods    = coachFoods.filter(f => f.is_active !== false)
   const inactiveFoods  = coachFoods.filter(f => f.is_active === false)
   const lq             = listQ.toLowerCase()
@@ -746,6 +809,68 @@ function CoachFoodsTab({ getToken }) {
         food={archiveFood} archiving={Boolean(archivingId)}
         onConfirm={archiveCoachFood} onCancel={() => setArchiveFood(null)}
       />
+
+      {/* ── Pending Client Foods ── */}
+      {(pendingLoading || pendingFoods.length > 0) && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl overflow-hidden mb-5">
+          <div className="px-4 py-3 border-b border-amber-200 flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-semibold text-amber-900">Pending Client Foods</span>
+            {!pendingLoading && pendingFoods.length > 0 && (
+              <span className="bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                {pendingFoods.length}
+              </span>
+            )}
+            <span className="text-xs text-amber-700">· Client-created foods waiting for admin review</span>
+          </div>
+          {pendingLoading ? (
+            <p className="text-xs text-amber-500 px-4 py-3">Loading…</p>
+          ) : (
+            <div className="divide-y divide-amber-100">
+              {pendingFoods.map(food => (
+                <div key={food.id} className="px-4 py-3">
+                  <div className="flex items-start justify-between gap-3 flex-wrap sm:flex-nowrap">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{food.food_name}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {food.client_first_name ?? 'Client'}
+                        {food.client_email ? ` · ${food.client_email}` : ''}
+                        {' · '}
+                        {new Date(food.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {[
+                          food.calories_per_serving != null ? `${Math.round(food.calories_per_serving)} cal` : null,
+                          food.protein != null ? `${Number(food.protein).toFixed(1)}g P` : null,
+                          food.carbs   != null ? `${Number(food.carbs).toFixed(1)}g C`   : null,
+                          food.fat     != null ? `${Number(food.fat).toFixed(1)}g F`     : null,
+                          food.serving_size != null ? `per ${food.serving_size}${food.serving_unit ?? 'g'}` : null,
+                        ].filter(Boolean).join(' · ')}
+                      </p>
+                    </div>
+                    <div className="flex gap-2 shrink-0 mt-1 sm:mt-0">
+                      <button
+                        onClick={() => dismissFood(food.id)}
+                        disabled={reviewing?.id === food.id}
+                        className="min-h-[36px] px-3 rounded-lg text-xs font-semibold text-gray-600 border border-gray-200 hover:bg-gray-100 disabled:opacity-40 transition-colors"
+                      >
+                        {reviewing?.id === food.id && reviewing?.action === 'dismiss' ? 'Dismissing…' : 'Dismiss'}
+                      </button>
+                      <button
+                        onClick={() => approveFood(food.id)}
+                        disabled={reviewing?.id === food.id}
+                        className="min-h-[36px] px-3 rounded-lg text-xs font-semibold text-white bg-[#E8670A] hover:bg-[#c45e09] disabled:opacity-40 transition-colors"
+                      >
+                        {reviewing?.id === food.id && reviewing?.action === 'approve' ? 'Approving…' : 'Approve ⭐'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 mb-5 flex gap-2 items-start">
         <span className="text-lg shrink-0">⭐</span>
         <div>
@@ -1301,8 +1426,9 @@ export default function CoachDashboard({ getToken, userRole }) {
   const [searchParams, setSearchParams]  = useSearchParams()
 
   // ── Data ────────────────────────────────────────────────────────────────────
-  const [clients,        setClients]        = useState([])
-  const [msgUnread,      setMsgUnread]      = useState(0)
+  const [clients,            setClients]            = useState([])
+  const [msgUnread,          setMsgUnread]          = useState(0)
+  const [pendingFoodsCount,  setPendingFoodsCount]  = useState(0)
   const [checkins,       setCheckins]       = useState([])
   const [activity,       setActivity]       = useState([])
   const [dataLoading,    setDataLoading]    = useState(true)
@@ -1581,6 +1707,11 @@ export default function CoachDashboard({ getToken, userRole }) {
                   {msgUnread}
                 </span>
               )}
+              {tab.id === 'coach-foods' && pendingFoodsCount > 0 && (
+                <span className="ml-1.5 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  {pendingFoodsCount}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -1821,7 +1952,7 @@ export default function CoachDashboard({ getToken, userRole }) {
 
 
       {/* Coach Foods tab */}
-      {activeTab === 'coach-foods' && <CoachFoodsTab getToken={getToken} />}
+      {activeTab === 'coach-foods' && <CoachFoodsTab getToken={getToken} onCountChange={setPendingFoodsCount} />}
 
       {/* Admin Tools tab (admin only) */}
       {activeTab === 'admin-tools' && isAdmin && (
