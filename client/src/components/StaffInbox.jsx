@@ -274,6 +274,7 @@ export default function StaffInbox({ getToken, role }) {
   async function archiveConversation() {
     if (!selected) return
     await patchInboxState(selected.clientId, selected.threadType, { archived: true })
+    selectedRef.current = null
     setSelected(null)
     fetchInbox()
   }
@@ -281,6 +282,7 @@ export default function StaffInbox({ getToken, role }) {
   async function unarchiveConversation() {
     if (!selected) return
     await patchInboxState(selected.clientId, selected.threadType, { archived: false })
+    selectedRef.current = null
     setSelected(null)
     fetchInbox()
   }
@@ -288,6 +290,7 @@ export default function StaffInbox({ getToken, role }) {
   async function markUnread() {
     if (!selected) return
     await patchInboxState(selected.clientId, selected.threadType, { marked_unread: true })
+    selectedRef.current = null
     setSelected(null)
     fetchInbox()
   }

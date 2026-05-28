@@ -1980,7 +1980,8 @@ router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
         (SELECT CASE
             WHEN message_body IS NOT NULL AND message_body != '' THEN message_body
             WHEN audio_url IS NOT NULL THEN 'Voice message'
-            ELSE 'Image'
+            WHEN image_url IS NOT NULL THEN 'Image'
+            ELSE ''
           END
           FROM client_messages
           WHERE client_id = u.id AND thread_type = m.thread_type
