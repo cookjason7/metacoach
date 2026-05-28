@@ -1489,8 +1489,6 @@ export default function CoachDashboard({ getToken, userRole }) {
 
   const tabs = [
     { id: 'clients',     label: 'Clients' },
-    { id: 'food-macros', label: 'Food & Macros' },
-    { id: 'messaging',   label: 'Messaging' },
     { id: 'coach-foods', label: 'Coach Foods' },
     ...(isAdmin ? [{ id: 'admin-tools', label: '🛠 Admin Tools' }] : []),
   ]
@@ -1820,16 +1818,7 @@ export default function CoachDashboard({ getToken, userRole }) {
         </div>
       )}
 
-      {/* Food & Macros tab */}
-      {activeTab === 'food-macros' && (
-        <div>
-          <p className="text-sm text-gray-500 mb-4">Set and manage macro targets for each client.</p>
-          <FoodMacrosTab getToken={getToken} />
-        </div>
-      )}
 
-      {/* Messaging tab */}
-      {activeTab === 'messaging' && <AdminMessagingTab getToken={getToken} role={userRole} />}
 
       {/* Coach Foods tab */}
       {activeTab === 'coach-foods' && <CoachFoodsTab getToken={getToken} />}

@@ -470,12 +470,6 @@ export default function Progress() {
         <>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
             <StatCard
-              label="Current Weight"
-              value={s.weight_current ? `${s.weight_current} lbs` : '-'}
-              sub={wtChangeStr ?? 'No weight logged'}
-              valueClass={s.weight_change < 0 ? 'text-green-600' : 'text-gray-900'}
-            />
-            <StatCard
               label="Avg Steps"
               value={s.avg_steps ? fmtNum(s.avg_steps) : '-'}
               sub="per day"
