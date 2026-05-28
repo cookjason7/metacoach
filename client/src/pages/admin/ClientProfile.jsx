@@ -4551,9 +4551,11 @@ export default function ClientProfile() {
         const statusTag  = computeClientStatusTag(client)
         const tagStyle   = statusTagStyle(statusTag)
         const coachLabel = client.assigned_coach_name || client.assigned_coach_email || '—'
-        const typeLabel  = client.coaching_type
-          ? client.coaching_type.charAt(0).toUpperCase() + client.coaching_type.slice(1)
-          : '—'
+        const typeLabel  = client.coaching_type === 'vip' ? 'VIP'
+          : client.coaching_type === 'ai' ? 'AI'
+          : client.coaching_type
+            ? client.coaching_type.charAt(0).toUpperCase() + client.coaching_type.slice(1)
+            : '—'
         const effStart   = client.effective_start_date || client.start_date
         const startLabel = effStart ? fmtDate(effStart) : '—'
         const rawDays    = effStart ? daysSince(effStart) : null
@@ -4570,6 +4572,10 @@ export default function ClientProfile() {
 
         return (
           <div className="flex flex-wrap gap-2 mb-5">
+            <div className={`flex flex-col gap-0.5 rounded-lg border px-3 py-2 ${tagStyle}`}>
+              <span className="text-[10px] font-semibold uppercase tracking-wide leading-none opacity-60">Status</span>
+              <span className="text-sm font-semibold leading-snug">{statusTag}</span>
+            </div>
             <Chip label="Coach"   value={coachLabel} />
             <Chip label="Type"    value={typeLabel} />
             <Chip label="Started" value={startLabel} />
