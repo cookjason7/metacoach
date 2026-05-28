@@ -2984,11 +2984,11 @@ function ReviewedBadge({ sub }) {
     return (
       <span className="inline-flex flex-col gap-0.5">
         <span className="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold text-emerald-700 uppercase tracking-wide">
-          Reviewed
+          ✓ Complete
         </span>
         {sub.reviewed_by_name && (
           <span className="text-[10px] text-gray-400">
-            by {sub.reviewed_by_name} · {new Date(sub.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            ✓ Complete · Reviewed by {sub.reviewed_by_name} · {new Date(sub.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
           </span>
         )}
       </span>
@@ -3136,7 +3136,7 @@ function FormSubmissionsSection({ clientId, getToken }) {
               disabled={reviewing === sub.id}
               className="text-xs bg-emerald-600 text-white font-bold px-4 py-2 rounded-lg hover:bg-emerald-700 disabled:opacity-50"
             >
-              {reviewing === sub.id ? 'Marking…' : 'Mark Reviewed'}
+              {reviewing === sub.id ? 'Marking…' : 'Mark Complete'}
             </button>
           )}
         </div>
