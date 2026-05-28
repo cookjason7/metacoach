@@ -40,7 +40,10 @@ export default function BarcodeScanner({ onScan, onCancel }) {
     ])
     hints.set(DecodeHintType.TRY_HARDER, true)
 
-    const reader = new BrowserMultiFormatReader(hints)
+    const reader = new BrowserMultiFormatReader(hints, {
+      delayBetweenScanAttempts: 150,
+      delayBetweenScanSuccess: 500,
+    })
     const startTimer = setTimeout(() => {
       if (!activeRef.current || startedRef.current) return
       activeRef.current = false
@@ -88,6 +91,32 @@ export default function BarcodeScanner({ onScan, onCancel }) {
           return navigator.mediaDevices.getUserMedia({ video: true })
         }
       }
+    }
+
+    async function waitForStableDimensions(video) {
+      let stableCount = 0
+      let lastW = 0
+      let lastH = 0
+      for (let i = 0; i < 40; i++) {
+        if (!activeRef.current) return false
+        const w = video?.videoWidth ?? 0
+        const h = video?.videoHeight ?? 0
+        if (w > 0 && h > 0 && w === lastW && h === lastH) {
+          stableCount++
+          console.log('[BarcodeScanner] stable dim check', stableCount, w, h)
+          if (stableCount >= 3) return true
+        } else {
+          if (w !== lastW || h !== lastH) {
+            console.log('[BarcodeScanner] dim changed', lastW, lastH, '->', w, h)
+          }
+          stableCount = 0
+          lastW = w
+          lastH = h
+        }
+        await new Promise(resolve => setTimeout(resolve, 250))
+      }
+      console.warn('[BarcodeScanner] dimensions never stabilized — proceeding anyway')
+      return video?.videoWidth > 0 && video?.videoHeight > 0
     }
 
     async function waitForVideoDimensions(video) {
@@ -141,11 +170,24 @@ export default function BarcodeScanner({ onScan, onCancel }) {
         video.srcObject = stream
         await video.play().catch(() => {})
 
+        // Try to lock autofocus to continuous mode (helps Samsung/Android)
+        try {
+          const [track] = stream.getVideoTracks()
+          if (track && typeof track.applyConstraints === 'function') {
+            await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] })
+            console.log('[BarcodeScanner] continuous focus applied')
+          }
+        } catch (focusErr) {
+          console.log('[BarcodeScanner] continuous focus not supported, skipping:', focusErr?.name)
+        }
+
+        // Wait for dimensions to appear, then stabilize (Samsung can renegotiate resolution)
         const hasDimensions = await waitForVideoDimensions(video)
         if (!hasDimensions) {
           stopVideoStream()
           throw new Error('Camera video did not become ready for scanning')
         }
+        await waitForStableDimensions(video)
 
         if (!activeRef.current) {
           stopVideoStream()
