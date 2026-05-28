@@ -1035,7 +1035,7 @@ export default function Dashboard() {
         <div className="bg-white rounded-xl border border-gray-200 p-6 text-center mb-8">
           <p className="text-gray-500 text-sm mb-4">No meals logged yet today.</p>
           <Link
-            to="/log-meal"
+            to="/journal"
             className="inline-block bg-[#E8670A] text-white text-sm font-medium px-5 py-2.5 rounded-lg hover:bg-[#c45e09] transition-colors"
           >
             Log your first meal

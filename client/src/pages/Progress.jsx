@@ -598,7 +598,7 @@ export default function Progress() {
                         <button
                           type="button"
                           onClick={() => deleteProgressPhoto(photo.id)}
-                          className="mt-2 min-h-8 w-full rounded-lg border border-red-100 text-[10px] font-semibold text-red-600"
+                          className="mt-2 min-h-[44px] w-full rounded-lg border border-red-100 text-[10px] font-semibold text-red-600"
                         >
                           Delete Photo
                         </button>
