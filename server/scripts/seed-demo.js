@@ -378,6 +378,201 @@ const MESSAGE_PAIRS = [
   ],
 ]
 
+// ── QA seed constants ─────────────────────────────────────────────────────────
+
+const QA_WEEKLY_CHECKIN_SCHEMA = {
+  title: '[QA] Weekly Check-In',
+  fields: [
+    { id: 'weight',           label: 'Current weight (lbs)',       type: 'number',   required: true  },
+    { id: 'sleep',            label: 'Sleep quality (1–5)',         type: 'number',   required: true  },
+    { id: 'energy',           label: 'Energy level (1–5)',          type: 'number',   required: true  },
+    { id: 'stress',           label: 'Stress level (1–5)',          type: 'number',   required: true  },
+    { id: 'biggest_win',      label: 'Biggest win this week',       type: 'textarea', required: false },
+    { id: 'biggest_struggle', label: 'Biggest struggle this week',  type: 'textarea', required: false },
+  ],
+}
+
+const QA_HEALTH_ASSESSMENT_SCHEMA = {
+  title: '[QA] Health / Initial Assessment',
+  fields: [
+    { id: 'goals',          label: 'What are your main health goals?',   type: 'textarea', required: true },
+    { id: 'activity_level', label: 'Current activity level',             type: 'select',   required: true,
+      options: ['Sedentary', 'Lightly active', 'Moderately active', 'Very active'] },
+    { id: 'injuries',       label: 'Any injuries or limitations?',       type: 'textarea', required: false },
+    { id: 'supplements',    label: 'Current supplements',                type: 'text',     required: false },
+    { id: 'sleep_quality',  label: 'Average sleep quality (1–5)',        type: 'number',   required: true  },
+  ],
+}
+
+const AI_CLIENT = {
+  clerkId:        'demo_client_ai_001',
+  email:          'alex.demo@demo.metacoach.dev',
+  firstName:      'Alex',
+  lastName:       'Demo',
+  gender:         'male',
+  age:            35,
+  heightInches:   70,
+  startWeightLbs: 210,
+  currentWeight:  210,
+  goalWeightLbs:  190,
+  goalCalories:   2100,
+  goalProtein:    170,
+  goalCarbs:      190,
+  goalFat:        72,
+  startDaysAgo:   20,
+  activityLevel:  'moderate',
+  habits: [
+    { name: 'Log meals daily',   type: 'boolean', freq: 'daily', cat: 'food_tracking' },
+    { name: 'Walk 7,000 steps',  type: 'numeric', target: 7000, unit: 'steps', freq: 'daily', cat: 'movement' },
+  ],
+  complianceRate: 0.70,
+}
+
+// ── QA seed helper ────────────────────────────────────────────────────────────
+
+async function seedQAExtras(db, coachId, log) {
+  // 1. Form templates ─────────────────────────────────────────────────────────
+  async function upsertFormTemplate(title, description, schema) {
+    const { rows: existing } = await db.query(
+      `SELECT id FROM form_templates WHERE title = $1 LIMIT 1`, [title]
+    )
+    if (existing.length) {
+      const { rows: vRows } = await db.query(
+        `SELECT id FROM form_versions WHERE template_id = $1 ORDER BY version_num DESC LIMIT 1`,
+        [existing[0].id]
+      )
+      log(`  ↩ Form template already exists: "${title}" (id=${existing[0].id})`)
+      return { templateId: existing[0].id, versionId: vRows[0]?.id ?? null }
+    }
+    // Insert template without current_version_id first (avoids circular FK)
+    const { rows: [tmpl] } = await db.query(`
+      INSERT INTO form_templates (title, description, status, draft_schema, created_by, created_at, updated_at)
+      VALUES ($1, $2, 'published', $3, $4, NOW(), NOW())
+      RETURNING id
+    `, [title, description, JSON.stringify(schema), coachId])
+    // Publish version 1
+    const { rows: [ver] } = await db.query(`
+      INSERT INTO form_versions (template_id, version_num, schema, published_at, published_by)
+      VALUES ($1, 1, $2, NOW(), $3)
+      RETURNING id
+    `, [tmpl.id, JSON.stringify(schema), coachId])
+    // Wire current_version_id back
+    await db.query(
+      `UPDATE form_templates SET current_version_id = $1 WHERE id = $2`,
+      [ver.id, tmpl.id]
+    )
+    log(`  ✓ Form template "${title}" (template_id=${tmpl.id}, version_id=${ver.id})`)
+    return { templateId: tmpl.id, versionId: ver.id }
+  }
+
+  const { templateId: ciTmplId, versionId: ciVerId } = await upsertFormTemplate(
+    '[QA] Weekly Check-In',
+    'Weekly progress check-in — QA test form',
+    QA_WEEKLY_CHECKIN_SCHEMA.fields
+  )
+  await upsertFormTemplate(
+    '[QA] Health / Initial Assessment',
+    'Initial health assessment — QA test form',
+    QA_HEALTH_ASSESSMENT_SCHEMA.fields
+  )
+
+  // 2. AI/Hybrid demo client ──────────────────────────────────────────────────
+  const { rows: aiExisting } = await db.query(
+    `SELECT id FROM users WHERE clerk_user_id = $1 LIMIT 1`, [AI_CLIENT.clerkId]
+  )
+  if (aiExisting.length) {
+    log(`  ↩ AI client already exists (id=${aiExisting[0].id})`)
+  } else {
+    const startDate = daysAgo(AI_CLIENT.startDaysAgo)
+    const { rows: [aiRow] } = await db.query(`
+      INSERT INTO users
+        (clerk_user_id, email, first_name, last_name, name, role, paid,
+         onboarding_complete, assessment_complete, client_status,
+         coaching_type, assigned_coach_id, start_date,
+         age, gender, height_inches, starting_weight_lbs, goal_weight_lbs,
+         goal_calories, goal_protein, goal_carbs, goal_fat, activity_level)
+      VALUES ($1,$2,$3,$4,$5,'client',TRUE,TRUE,TRUE,'active',
+              'ai',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+      RETURNING id
+    `, [
+      AI_CLIENT.clerkId, AI_CLIENT.email,
+      AI_CLIENT.firstName, AI_CLIENT.lastName,
+      `${AI_CLIENT.firstName} ${AI_CLIENT.lastName}`,
+      coachId, isoDate(startDate),
+      AI_CLIENT.age, AI_CLIENT.gender, AI_CLIENT.heightInches,
+      AI_CLIENT.startWeightLbs, AI_CLIENT.goalWeightLbs,
+      AI_CLIENT.goalCalories, AI_CLIENT.goalProtein, AI_CLIENT.goalCarbs,
+      AI_CLIENT.goalFat, AI_CLIENT.activityLevel,
+    ])
+    const aiId = aiRow.id
+    // Seed minimal habits
+    const habitStart = isoDate(daysAgo(AI_CLIENT.startDaysAgo))
+    for (const h of AI_CLIENT.habits) {
+      await db.query(`
+        INSERT INTO coach_assigned_habits
+          (user_id, assigned_by_user_id, habit_name, habit_type,
+           target_value, unit, frequency, days_of_week, start_date, active, identity_category)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,TRUE,$10)
+      `, [
+        aiId, coachId, h.name, h.type,
+        h.target ?? null, h.unit ?? null,
+        h.freq, h.days ?? null,
+        habitStart, h.cat ?? null,
+      ])
+    }
+    log(`  ✓ AI client ${AI_CLIENT.firstName} ${AI_CLIENT.lastName} (id=${aiId}, coaching_type='ai')`)
+  }
+
+  // 3. Check-in submissions (1 reviewed + 1 unreviewed) for demo_client_001 ───
+  if (!ciTmplId || !ciVerId) {
+    log('  ⚠ Skipping submissions — check-in template not available')
+    return
+  }
+  const { rows: clientRows } = await db.query(
+    `SELECT id FROM users WHERE clerk_user_id = 'demo_client_001' LIMIT 1`
+  )
+  if (!clientRows.length) {
+    log('  ⚠ demo_client_001 not found — skipping submissions')
+    return
+  }
+  const clientId = clientRows[0].id
+  const { rows: existSubs } = await db.query(
+    `SELECT reviewed_at FROM form_submissions WHERE template_id = $1 AND user_id = $2`,
+    [ciTmplId, clientId]
+  )
+  const hasReviewed   = existSubs.some(s => s.reviewed_at !== null)
+  const hasUnreviewed = existSubs.some(s => s.reviewed_at === null)
+
+  if (hasReviewed && hasUnreviewed) {
+    log(`  ↩ Check-in submissions already present for demo_client_001`)
+  } else {
+    if (!hasReviewed) {
+      await db.query(`
+        INSERT INTO form_submissions
+          (template_id, version_id, user_id, answers, submitted_at, reviewed_at, reviewed_by)
+        VALUES ($1,$2,$3,$4, NOW() - INTERVAL '5 days', NOW() - INTERVAL '3 days', $5)
+      `, [ciTmplId, ciVerId, clientId, JSON.stringify({
+        weight: 178, sleep: 4, energy: 3, stress: 2,
+        biggest_win: 'Hit protein goal 5 days straight',
+        biggest_struggle: 'Late night snacking on Friday',
+      }), coachId])
+      log(`  ✓ Reviewed check-in submission for demo_client_001`)
+    }
+    if (!hasUnreviewed) {
+      await db.query(`
+        INSERT INTO form_submissions
+          (template_id, version_id, user_id, answers, submitted_at, reviewed_at)
+        VALUES ($1,$2,$3,$4, NOW() - INTERVAL '1 day', NULL)
+      `, [ciTmplId, ciVerId, clientId, JSON.stringify({
+        weight: 176.5, sleep: 3, energy: 4, stress: 3,
+        biggest_win: 'Down 1.5 lbs this week',
+        biggest_struggle: 'Skipped Wednesday workout',
+      })])
+      log(`  ✓ Unreviewed check-in submission for demo_client_001`)
+    }
+  }
+}
+
 // ── Core seed function ────────────────────────────────────────────────────────
 
 export async function runSeed({ wipe = false, log = console.log } = {}) {
@@ -392,11 +587,30 @@ export async function runSeed({ wipe = false, log = console.log } = {}) {
       `SELECT id FROM users WHERE clerk_user_id LIKE 'demo_%' LIMIT 1`
     )
     if (existing.length > 0 && !wipe) {
-      log('⚠  Demo data already present. Pass wipe=true to reset.')
+      log('ℹ  Demo data present — skipping main seed, checking QA extras…')
+      const { rows: [coachRow] } = await client.query(
+        `SELECT id FROM users WHERE clerk_user_id = 'demo_coach_001' LIMIT 1`
+      )
+      if (coachRow) {
+        await client.query('BEGIN')
+        try {
+          await seedQAExtras(client, coachRow.id, log)
+          await client.query('COMMIT')
+        } catch (e) {
+          await client.query('ROLLBACK')
+          throw e
+        }
+      }
+      log('✅ QA extras check complete.')
       return { skipped: true, reason: 'already_seeded' }
     }
     if (wipe && existing.length > 0) {
       log('🗑  Wiping existing demo rows…')
+      // Break circular FK (current_version_id → form_versions) before cascade-deleting templates
+      await client.query(`UPDATE form_templates SET current_version_id = NULL WHERE title LIKE '[QA]%'`)
+      // Cascade-deletes form_versions, form_submissions, form_assignments for QA templates
+      await client.query(`DELETE FROM form_templates WHERE title LIKE '[QA]%'`)
+      // Cascade-deletes all user-linked data (habits, meals, submissions, etc.)
       await client.query(`DELETE FROM users WHERE clerk_user_id LIKE 'demo_%'`)
       log('   Done.')
     }
@@ -684,8 +898,12 @@ export async function runSeed({ wipe = false, log = console.log } = {}) {
       log(`  ✓ ${c.firstName} ${c.lastName} (id=${userId})`)
     }
 
+    // ── QA extras (forms, AI client, submissions) ──────────────────────────────
+    log('\n  Seeding QA extras…')
+    await seedQAExtras(client, coachId, log)
+
     await client.query('COMMIT')
-    log(`\n✅ Demo seed complete — 1 coach, ${summary.clients.length} clients`)
+    log(`\n✅ Demo seed complete — 1 coach, ${summary.clients.length} clients + QA extras`)
     return { ok: true, summary }
 
   } catch (err) {

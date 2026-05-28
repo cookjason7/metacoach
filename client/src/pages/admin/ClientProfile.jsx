@@ -78,15 +78,16 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
     client.start_date ? String(client.start_date).slice(0, 10) :
     client.effective_start_date ? String(client.effective_start_date).slice(0, 10) : ''
   const [form, setForm] = useState({
-    first_name:        client.display_first_name ?? client.first_name ?? '',
-    last_name:         client.display_last_name  ?? client.last_name  ?? '',
-    coaching_type:     client.coaching_type ?? 'vip',
-    assigned_coach_id: client.assigned_coach_id ?? '',
-    role:              client.role ?? 'client',
-    start_date:        startDateInitial,
-    program_end_date:  client.program_end_date ? String(client.program_end_date).slice(0, 10) : '',
-    phone_number:      client.phone_number ?? '',
-    paid:              client.paid ?? false,
+    first_name:           client.display_first_name ?? client.first_name ?? '',
+    last_name:            client.display_last_name  ?? client.last_name  ?? '',
+    coaching_type:        client.coaching_type ?? 'vip',
+    assigned_coach_id:    client.assigned_coach_id ?? '',
+    role:                 client.role ?? 'client',
+    start_date:           startDateInitial,
+    program_end_date:     client.program_end_date ? String(client.program_end_date).slice(0, 10) : '',
+    phone_number:         client.phone_number ?? '',
+    paid:                 client.paid ?? false,
+    starting_weight_lbs:  client.starting_weight_lbs != null ? String(client.starting_weight_lbs) : '',
   })
 
   useEffect(() => {
@@ -111,15 +112,16 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          first_name:        form.first_name.trim()  || null,
-          last_name:         form.last_name.trim()   || null,
-          coaching_type:     form.coaching_type,
-          assigned_coach_id: form.assigned_coach_id === '' ? null : Number(form.assigned_coach_id),
-          role:              form.role,
-          start_date:        form.start_date || null,
-          program_end_date:  form.program_end_date || null,
-          phone_number:      form.phone_number || null,
-          paid:              form.paid,
+          first_name:           form.first_name.trim()  || null,
+          last_name:            form.last_name.trim()   || null,
+          coaching_type:        form.coaching_type,
+          assigned_coach_id:    form.assigned_coach_id === '' ? null : Number(form.assigned_coach_id),
+          role:                 form.role,
+          start_date:           form.start_date || null,
+          program_end_date:     form.program_end_date || null,
+          phone_number:         form.phone_number || null,
+          paid:                 form.paid,
+          starting_weight_lbs:  form.starting_weight_lbs !== '' ? Number(form.starting_weight_lbs) : null,
         }),
       })
       if (!res.ok) {
@@ -228,6 +230,7 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 )}
                 <InfoRow label="Coaching type"   value={client.coaching_type === 'ai' ? 'AI / Hybrid Coaching' : 'VIP / Human Coaching'} />
                 <InfoRow label="Assigned coach"      value={client.assigned_coach_name} emptyText="Not assigned yet" />
+                <InfoRow label="Starting weight"     value={client.starting_weight_lbs != null ? `${client.starting_weight_lbs} lbs` : null} />
                 <InfoRow label="Program start date" value={displayStartDate} />
                 <InfoRow label="Program end date"   value={client.program_end_date ? String(client.program_end_date).slice(0, 10) : null} emptyText="Not set" />
                 <InfoRow label="Payment"         value={client.paid ? `✓ Active${client.paid_at ? ` (since ${String(client.paid_at).slice(0,10)})` : ''}` : '○ Not activated'} />
@@ -309,6 +312,14 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Program end date</label>
                 <input type="date" value={form.program_end_date} onChange={e => setForm(f => ({ ...f, program_end_date: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Starting weight (lbs)</label>
+                <input type="number" min="50" max="600" step="0.1"
+                  value={form.starting_weight_lbs}
+                  onChange={e => setForm(f => ({ ...f, starting_weight_lbs: e.target.value }))}
+                  placeholder="e.g. 185"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
               </div>
             </div>
@@ -1501,7 +1512,7 @@ function getHabitDots(habitId, calendar) {
   const todayKey = localDateStr()
   const dots = []
   for (let i = 6; i >= 0; i--) {
-    const d = new Date(now)
+    const d = new Date()
     d.setDate(d.getDate() - i)
     const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
     if (key > todayKey) { dots.push({ key, status: 'future' }); continue }
@@ -1835,11 +1846,12 @@ function HabitsTab({ clientId, getToken }) {
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Identity category</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Habit Category</label>
             <select value={form.identity_category} onChange={e => setForm(f => ({ ...f, identity_category: e.target.value }))}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
               <option value="">— None —</option>
               <option value="food_tracking">Food Tracking</option>
+              <option value="hydration">Hydration</option>
               <option value="movement">Movement</option>
               <option value="mindset">Mindset</option>
               <option value="check_ins">Check-Ins</option>
@@ -1952,7 +1964,7 @@ function HabitsTab({ clientId, getToken }) {
                     </p>
                     {h.identity_category && (
                       <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-orange-50 text-[#E8670A] border border-orange-200">
-                        {{food_tracking:'Food Tracking',movement:'Movement',mindset:'Mindset',check_ins:'Check-Ins',progress:'Progress'}[h.identity_category] ?? h.identity_category}
+                        {{food_tracking:'Food Tracking',hydration:'Hydration',movement:'Movement',mindset:'Mindset',check_ins:'Check-Ins',progress:'Progress'}[h.identity_category] ?? h.identity_category}
                       </span>
                     )}
                     {h.notes && <p className="text-xs text-[#E8670A] italic mt-1">"{h.notes}"</p>}
@@ -2972,11 +2984,11 @@ function ReviewedBadge({ sub }) {
     return (
       <span className="inline-flex flex-col gap-0.5">
         <span className="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold text-emerald-700 uppercase tracking-wide">
-          Reviewed
+          ✓ Complete
         </span>
         {sub.reviewed_by_name && (
           <span className="text-[10px] text-gray-400">
-            by {sub.reviewed_by_name} · {new Date(sub.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            ✓ Complete · Reviewed by {sub.reviewed_by_name} · {new Date(sub.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
           </span>
         )}
       </span>
@@ -3124,7 +3136,7 @@ function FormSubmissionsSection({ clientId, getToken }) {
               disabled={reviewing === sub.id}
               className="text-xs bg-emerald-600 text-white font-bold px-4 py-2 rounded-lg hover:bg-emerald-700 disabled:opacity-50"
             >
-              {reviewing === sub.id ? 'Marking…' : 'Mark Reviewed'}
+              {reviewing === sub.id ? 'Marking…' : 'Mark Complete'}
             </button>
           )}
         </div>
@@ -3240,8 +3252,10 @@ function FormSubmissionsSection({ clientId, getToken }) {
     )
   }
 
-  const checkIns   = submissions?.filter(isCheckInSubmission) ?? []
-  const otherForms = submissions?.filter(s => !isCheckInSubmission(s)) ?? []
+  const checkIns            = submissions?.filter(isCheckInSubmission) ?? []
+  const otherForms          = submissions?.filter(s => !isCheckInSubmission(s)) ?? []
+  const unreviewedCheckIns  = checkIns.filter(s => !s.reviewed_at)
+  const unreviewedOtherForms = otherForms.filter(s => !s.reviewed_at)
 
   return (
     <div className="space-y-6">
@@ -3249,9 +3263,9 @@ function FormSubmissionsSection({ clientId, getToken }) {
       <div>
         <div className="flex items-center gap-2 mb-3">
           <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider">Check-Ins</p>
-          {!loading && checkIns.length > 0 && (
+          {!loading && unreviewedCheckIns.length > 0 && (
             <span className="text-[10px] bg-orange-100 text-[#E8670A] font-bold px-1.5 py-0.5 rounded-full">
-              {checkIns.length}
+              {unreviewedCheckIns.length} unreviewed
             </span>
           )}
         </div>
@@ -3263,9 +3277,11 @@ function FormSubmissionsSection({ clientId, getToken }) {
         <div>
           <div className="flex items-center gap-2 mb-3">
             <p className="text-xs font-bold text-[#E8670A] uppercase tracking-wider">Other Forms</p>
-            <span className="text-[10px] bg-orange-100 text-[#E8670A] font-bold px-1.5 py-0.5 rounded-full">
-              {otherForms.length}
-            </span>
+            {unreviewedOtherForms.length > 0 && (
+              <span className="text-[10px] bg-orange-100 text-[#E8670A] font-bold px-1.5 py-0.5 rounded-full">
+                {unreviewedOtherForms.length} unreviewed
+              </span>
+            )}
           </div>
           {renderList(otherForms, 'No other form submissions.')}
         </div>

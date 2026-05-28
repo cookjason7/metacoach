@@ -178,7 +178,12 @@ export default function Calendar() {
   const [viewMode, setViewMode] = useState('7d')
   // Anchor date — for month mode this is set to month-1st; for strip views,
   // it represents the start of the visible window.
-  const [anchor, setAnchor]   = useState(new Date(today.getFullYear(), today.getMonth(), 1))
+  // Default: Monday of the current week so the 7d view opens on today.
+  const [anchor, setAnchor]   = useState(() => {
+    const d = new Date(today)
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
+    return d
+  })
   const [calendar, setCalendar] = useState({})
   const [loading, setLoading]   = useState(true)
   const [toast, setToast]       = useState(null)
