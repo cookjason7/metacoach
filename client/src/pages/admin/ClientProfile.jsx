@@ -2980,15 +2980,29 @@ function notePreview(note) {
 }
 
 function ReviewedBadge({ sub }) {
+  if (sub.completed_at) {
+    return (
+      <span className="inline-flex flex-col gap-0.5">
+        <span className="inline-flex items-center rounded-full bg-purple-50 border border-purple-200 px-2 py-0.5 text-[10px] font-bold text-purple-700 uppercase tracking-wide">
+          Complete
+        </span>
+        {sub.reviewed_by_name && (
+          <span className="text-[10px] text-gray-400">
+            Reviewed by {sub.reviewed_by_name} · {new Date(sub.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+          </span>
+        )}
+      </span>
+    )
+  }
   if (sub.reviewed_at) {
     return (
       <span className="inline-flex flex-col gap-0.5">
         <span className="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold text-emerald-700 uppercase tracking-wide">
-          ✓ Complete
+          Reviewed
         </span>
         {sub.reviewed_by_name && (
           <span className="text-[10px] text-gray-400">
-            ✓ Complete · Reviewed by {sub.reviewed_by_name} · {new Date(sub.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            by {sub.reviewed_by_name} · {new Date(sub.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
           </span>
         )}
       </span>
@@ -3011,6 +3025,7 @@ function FormSubmissionsSection({ clientId, getToken }) {
   const [loading,     setLoading]     = useState(true)
   const [openId,      setOpenId]      = useState(null)
   const [reviewing,   setReviewing]   = useState(null)
+  const [completing,  setCompleting]  = useState(null)
   const [savingNote,  setSavingNote]  = useState(null)
   const [noteDrafts,  setNoteDrafts]  = useState({})
 
@@ -3057,6 +3072,27 @@ function FormSubmissionsSection({ clientId, getToken }) {
       }
     } catch {}
     finally { setReviewing(null) }
+  }
+
+  async function handleMarkComplete(sub) {
+    if (completing === sub.id) return
+    setCompleting(sub.id)
+    try {
+      const token = await getToken()
+      const res = await fetch(
+        `${API_URL}/api/coach-admin/form-submissions/${sub.id}/mark-complete`,
+        { method: 'PATCH', headers: { Authorization: `Bearer ${token}` } },
+      )
+      if (res.ok) {
+        const data = await res.json()
+        setSubmissions(prev => prev.map(s =>
+          s.id === sub.id
+            ? { ...s, completed_at: data.completed_at, completed_by: data.completed_by, completed_by_name: data.completed_by_name }
+            : s
+        ))
+      }
+    } catch {}
+    finally { setCompleting(null) }
   }
 
   async function handleSaveNote(sub) {
@@ -3125,18 +3161,36 @@ function FormSubmissionsSection({ clientId, getToken }) {
           </button>
         </div>
 
-        <div className="flex items-center justify-between pt-2 border-t border-gray-200">
-          {sub.reviewed_at ? (
-            <p className="text-xs text-emerald-700 font-semibold">
-              Reviewed{sub.reviewed_by_name ? ` by ${sub.reviewed_by_name}` : ''} · {new Date(sub.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-            </p>
+        <div className="pt-2 border-t border-gray-200 space-y-2">
+          {sub.completed_at ? (
+            <div className="space-y-0.5">
+              <p className="text-xs text-emerald-700 font-semibold">
+                Reviewed{sub.reviewed_by_name ? ` by ${sub.reviewed_by_name}` : ''} · {new Date(sub.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </p>
+              <p className="text-xs text-purple-700 font-semibold">
+                Complete{sub.completed_by_name ? ` · ${sub.completed_by_name}` : ''} · {new Date(sub.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </p>
+            </div>
+          ) : sub.reviewed_at ? (
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-emerald-700 font-semibold">
+                Reviewed{sub.reviewed_by_name ? ` by ${sub.reviewed_by_name}` : ''} · {new Date(sub.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </p>
+              <button
+                onClick={() => handleMarkComplete(sub)}
+                disabled={completing === sub.id}
+                className="text-xs bg-purple-600 text-white font-bold px-4 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50"
+              >
+                {completing === sub.id ? 'Marking…' : 'Mark Complete'}
+              </button>
+            </div>
           ) : (
             <button
               onClick={() => handleMarkReviewed(sub)}
               disabled={reviewing === sub.id}
               className="text-xs bg-emerald-600 text-white font-bold px-4 py-2 rounded-lg hover:bg-emerald-700 disabled:opacity-50"
             >
-              {reviewing === sub.id ? 'Marking…' : 'Mark Complete'}
+              {reviewing === sub.id ? 'Marking…' : 'Mark Reviewed'}
             </button>
           )}
         </div>

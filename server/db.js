@@ -933,6 +933,8 @@ export async function migrate() {
   await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS coach_note TEXT`)
   await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS due_at TIMESTAMPTZ`)
   await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS is_late BOOLEAN DEFAULT FALSE`)
+  await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ`)
+  await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS completed_by INTEGER REFERENCES users(id) ON DELETE SET NULL`)
   await pool.query(`
     DO $$
     BEGIN

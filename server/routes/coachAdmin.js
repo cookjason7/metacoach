@@ -2317,15 +2317,18 @@ router.get('/clients/:id/form-submissions', requireAuth(), async (req, res, next
         fs.id, fs.template_id, fs.version_id, fs.user_id,
         fs.answers, fs.submitted_at, fs.updated_at,
         fs.reviewed_at, fs.reviewed_by, fs.coach_note, fs.due_at, fs.is_late,
+        fs.completed_at, fs.completed_by,
         ft.title  AS form_title,
         ft.status AS form_status,
         fv.version_num,
         fv.schema AS version_schema,
-        reviewer.first_name AS reviewed_by_name
+        reviewer.first_name  AS reviewed_by_name,
+        completer.first_name AS completed_by_name
       FROM form_submissions fs
       JOIN form_templates ft ON ft.id = fs.template_id
       JOIN form_versions  fv ON fv.id = fs.version_id
-      LEFT JOIN users reviewer ON reviewer.id = fs.reviewed_by
+      LEFT JOIN users reviewer  ON reviewer.id  = fs.reviewed_by
+      LEFT JOIN users completer ON completer.id = fs.completed_by
       WHERE fs.user_id = $1
       ORDER BY fs.submitted_at DESC
     `, [id])
@@ -2346,15 +2349,18 @@ router.get('/form-submissions/:submissionId', requireAuth(), async (req, res, ne
         fs.id, fs.template_id, fs.version_id, fs.user_id,
         fs.answers, fs.submitted_at, fs.updated_at,
         fs.reviewed_at, fs.reviewed_by, fs.coach_note, fs.due_at, fs.is_late,
+        fs.completed_at, fs.completed_by,
         ft.title  AS form_title,
         ft.status AS form_status,
         fv.version_num,
         fv.schema AS version_schema,
-        reviewer.first_name AS reviewed_by_name
+        reviewer.first_name  AS reviewed_by_name,
+        completer.first_name AS completed_by_name
       FROM form_submissions fs
       JOIN form_templates ft ON ft.id = fs.template_id
       JOIN form_versions  fv ON fv.id = fs.version_id
-      LEFT JOIN users reviewer ON reviewer.id = fs.reviewed_by
+      LEFT JOIN users reviewer  ON reviewer.id  = fs.reviewed_by
+      LEFT JOIN users completer ON completer.id = fs.completed_by
       WHERE fs.id = $1
     `, [subId])
 
@@ -2408,6 +2414,53 @@ router.patch('/form-submissions/:submissionId/mark-reviewed', requireAuth(), asy
       reviewed_at:      updated.reviewed_at,
       reviewed_by:      updated.reviewed_by,
       reviewed_by_name: reviewer?.first_name ?? null,
+    })
+  } catch (err) { next(err) }
+})
+
+// PATCH /api/coach-admin/form-submissions/:submissionId/mark-complete
+// Stamps completed_at/completed_by after a submission has been reviewed.
+// Idempotent: never overwrites an existing completed_at.
+router.patch('/form-submissions/:submissionId/mark-complete', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const subId = parseInt(req.params.submissionId, 10)
+
+    const { rows: [sub] } = await pool.query(
+      `SELECT fs.id, fs.user_id, fs.reviewed_at, fs.completed_at, fs.completed_by,
+              completer.first_name AS completed_by_name
+       FROM form_submissions fs
+       LEFT JOIN users completer ON completer.id = fs.completed_by
+       WHERE fs.id = $1`,
+      [subId],
+    )
+    if (!sub) return res.status(404).json({ error: 'Submission not found' })
+    if (!await canAccessClient(ctx, sub.user_id)) return res.status(403).json({ error: 'Forbidden' })
+    if (!sub.reviewed_at) return res.status(400).json({ error: 'Must be reviewed before marking complete' })
+
+    if (sub.completed_at) {
+      return res.json({
+        already_completed:  true,
+        completed_at:       sub.completed_at,
+        completed_by:       sub.completed_by,
+        completed_by_name:  sub.completed_by_name,
+      })
+    }
+
+    const { rows: [updated] } = await pool.query(
+      `UPDATE form_submissions SET completed_at = NOW(), completed_by = $1
+       WHERE id = $2 RETURNING completed_at, completed_by`,
+      [ctx.dbUserId, subId],
+    )
+    const { rows: [completer] } = await pool.query(
+      'SELECT first_name FROM users WHERE id = $1',
+      [ctx.dbUserId],
+    )
+    res.json({
+      ok:                true,
+      completed_at:      updated.completed_at,
+      completed_by:      updated.completed_by,
+      completed_by_name: completer?.first_name ?? null,
     })
   } catch (err) { next(err) }
 })
