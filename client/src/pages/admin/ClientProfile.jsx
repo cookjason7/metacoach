@@ -3645,9 +3645,89 @@ function NotesTab({ clientId, role, getToken }) {
 
 // ─── Messaging Tab ────────────────────────────────────────────────────────────
 
+function KatieHistoryPanel({ client, getToken }) {
+  const [messages, setMessages] = useState([])
+  const [loading, setLoading]   = useState(true)
+  const clientName = client.display_first_name || client.first_name || 'Client'
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      try {
+        const token = await getToken()
+        const res = await fetch(
+          `${API_URL}/api/coach-admin/clients/${client.id}/katie-history`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        )
+        if (res.ok && !cancelled) setMessages(await res.json())
+      } catch {}
+      if (!cancelled) setLoading(false)
+    }
+    load()
+    return () => { cancelled = true }
+  }, [client.id, getToken])
+
+  return (
+    <div className="space-y-3">
+      {/* Read-only banner */}
+      <div className="bg-purple-50 border border-purple-200 rounded-lg px-3 py-2.5">
+        <p className="text-xs text-purple-700">
+          🤖 <strong>Katie conversation history — read only.</strong> These are the client's private AI coaching messages. Staff cannot reply here.
+        </p>
+      </div>
+
+      {/* Message list */}
+      <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 min-h-[300px] max-h-[560px] overflow-y-auto">
+        {loading && <p className="text-center text-sm text-gray-400 py-8">Loading…</p>}
+        {!loading && messages.length === 0 && (
+          <p className="text-center text-sm text-gray-400 py-8">
+            No Katie conversation history yet for this client.
+          </p>
+        )}
+        <div className="space-y-3">
+          {messages.map((m, i) => {
+            const isKatie = m.role === 'assistant'
+            return (
+              <div key={i} className={`flex items-end gap-2 ${isKatie ? 'justify-start' : 'justify-end'}`}>
+                {isKatie && (
+                  <div className="flex-shrink-0 w-7 h-7 rounded-full bg-[#E8670A] flex items-center justify-center text-white text-[10px] font-bold">
+                    K
+                  </div>
+                )}
+                <div className={`max-w-[78%] rounded-2xl px-4 py-2 ${
+                  isKatie
+                    ? 'bg-white border border-gray-200 text-gray-800'
+                    : 'bg-[#1e2a3a] text-white'
+                }`}>
+                  <p className="text-[10px] font-semibold opacity-60 mb-0.5">
+                    {isKatie ? 'Katie' : clientName} · {new Date(m.created_at).toLocaleString()}
+                    {m.is_proactive && (
+                      <span className="ml-2 bg-purple-100 text-purple-700 rounded px-1 py-0.5 text-[9px]">
+                        proactive{m.proactive_trigger ? `: ${m.proactive_trigger}` : ''}
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-sm whitespace-pre-wrap">{m.message}</p>
+                </div>
+                {!isKatie && (
+                  <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-300 flex items-center justify-center text-gray-600 text-[10px] font-bold">
+                    {clientName[0]?.toUpperCase() ?? 'C'}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function MessagingTab({ client, role, getToken }) {
   const isAI = client.coaching_type === 'ai'
-  // Admin defaults to admin_private (their own thread) so they don't accidentally reply in coach_thread
+  // Admin defaults to admin_private (their own thread) so they don't accidentally reply in coach_thread.
+  // AI clients with admin: default to ai_admin, with Katie Chat also available.
   const initialThread = isAI ? 'ai_admin' : (role === 'admin' ? 'admin_private' : 'coach_thread')
   const [thread, setThread] = useState(initialThread)
   const [messages,     setMessages]     = useState([])
@@ -3665,8 +3745,13 @@ function MessagingTab({ client, role, getToken }) {
     availableThreads.push({ id: 'coach_thread', label: 'Coach Thread', icon: '💬' })
     if (role === 'admin') availableThreads.push({ id: 'admin_private', label: 'Admin Private', icon: '🔒' })
   }
+  // Katie Chat: available for all client types, admin + coaches (canAccessClient enforced on backend)
+  availableThreads.push({ id: 'katie_history', label: 'Katie Chat', icon: '🤖' })
+
+  const isKatieThread = thread === 'katie_history'
 
   const load = useCallback(async () => {
+    if (isKatieThread) return  // handled by KatieHistoryPanel
     setLoading(true)
     setHasMore(false)
     setNextBeforeId(null)
@@ -3682,7 +3767,7 @@ function MessagingTab({ client, role, getToken }) {
       setNextBeforeId(data.nextBeforeId ?? null)
     }
     setLoading(false)
-  }, [client.id, thread, getToken])
+  }, [client.id, thread, getToken, isKatieThread])
 
   const loadOlder = useCallback(async () => {
     if (!nextBeforeId || loadingOlder) return
@@ -3702,7 +3787,7 @@ function MessagingTab({ client, role, getToken }) {
     } finally { setLoadingOlder(false) }
   }, [client.id, thread, nextBeforeId, loadingOlder, getToken])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { if (!isKatieThread) load() }, [load, isKatieThread])
 
   async function send() {
     if (!body.trim()) return
@@ -3745,78 +3830,85 @@ function MessagingTab({ client, role, getToken }) {
         ))}
       </div>
 
-      {/* Message list */}
-      <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 min-h-[300px] max-h-[500px] overflow-y-auto">
-        {hasMore && !loading && (
-          <div className="text-center pb-2">
-            <button
-              onClick={loadOlder}
-              disabled={loadingOlder}
-              className="text-xs text-gray-500 hover:text-[#E8670A] disabled:opacity-40 underline"
-            >
-              {loadingOlder ? 'Loading…' : 'Load older messages'}
-            </button>
-          </div>
-        )}
-        {loading && <p className="text-center text-sm text-gray-400 py-8">Loading…</p>}
-        {!loading && messages.length === 0 && (
-          <p className="text-center text-sm text-gray-400 py-8">
-            No messages yet in this thread. Start the conversation below.
-          </p>
-        )}
-        <div className="space-y-3">
-          {messages.map(m => {
-            const isStaff = m.sender_role === 'admin' || m.sender_role === 'coach'
-            return (
-              <div key={m.id} className={`flex ${isStaff ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[80%] rounded-2xl px-4 py-2 ${
-                  isStaff
-                    ? 'bg-[#E8670A] text-white'
-                    : 'bg-white border border-gray-200 text-gray-800'
-                }`}>
-                  <p className="text-[10px] font-semibold opacity-70 mb-0.5">
-                    {m.sender_name ?? m.sender_role} · {new Date(m.created_at).toLocaleString()}
-                  </p>
-                  <p className="text-sm whitespace-pre-wrap">{m.message_body}</p>
-                  {isStaff && m.read_at && (
-                    <p className="text-[9px] opacity-60 text-right mt-0.5">
-                      Read {new Date(m.read_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                    </p>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Compose — read-only for admins on the coach thread */}
-      {role === 'admin' && thread === 'coach_thread' ? (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5">
-          <p className="text-xs text-blue-700">
-            👁 Viewing coach–client thread (read-only). Switch to <strong>Admin Private</strong> to send your own message.
-          </p>
-        </div>
+      {/* Katie Chat — read-only panel rendered separately */}
+      {isKatieThread ? (
+        <KatieHistoryPanel client={client} getToken={getToken} />
       ) : (
-        <div className="flex gap-2">
-          <textarea
-            value={body}
-            onChange={e => setBody(e.target.value)}
-            rows={2}
-            placeholder={`Message ${client.display_first_name || client.first_name || 'client'}…`}
-            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none"
-          />
-          <button onClick={send} disabled={sending || !body.trim()}
-            className="bg-[#E8670A] text-white px-5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 self-stretch">
-            {sending ? '…' : 'Send'}
-          </button>
-        </div>
-      )}
+        <>
+          {/* Message list */}
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 min-h-[300px] max-h-[500px] overflow-y-auto">
+            {hasMore && !loading && (
+              <div className="text-center pb-2">
+                <button
+                  onClick={loadOlder}
+                  disabled={loadingOlder}
+                  className="text-xs text-gray-500 hover:text-[#E8670A] disabled:opacity-40 underline"
+                >
+                  {loadingOlder ? 'Loading…' : 'Load older messages'}
+                </button>
+              </div>
+            )}
+            {loading && <p className="text-center text-sm text-gray-400 py-8">Loading…</p>}
+            {!loading && messages.length === 0 && (
+              <p className="text-center text-sm text-gray-400 py-8">
+                No messages yet in this thread. Start the conversation below.
+              </p>
+            )}
+            <div className="space-y-3">
+              {messages.map(m => {
+                const isStaff = m.sender_role === 'admin' || m.sender_role === 'coach'
+                return (
+                  <div key={m.id} className={`flex ${isStaff ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[80%] rounded-2xl px-4 py-2 ${
+                      isStaff
+                        ? 'bg-[#E8670A] text-white'
+                        : 'bg-white border border-gray-200 text-gray-800'
+                    }`}>
+                      <p className="text-[10px] font-semibold opacity-70 mb-0.5">
+                        {m.sender_name ?? m.sender_role} · {new Date(m.created_at).toLocaleString()}
+                      </p>
+                      <p className="text-sm whitespace-pre-wrap">{m.message_body}</p>
+                      {isStaff && m.read_at && (
+                        <p className="text-[9px] opacity-60 text-right mt-0.5">
+                          Read {new Date(m.read_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
 
-      {thread === 'admin_private' && (
-        <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
-          🔒 This thread is admin-only. Coaches cannot see these messages.
-        </p>
+          {/* Compose — read-only for admins on the coach thread */}
+          {role === 'admin' && thread === 'coach_thread' ? (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5">
+              <p className="text-xs text-blue-700">
+                👁 Viewing coach–client thread (read-only). Switch to <strong>Admin Private</strong> to send your own message.
+              </p>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <textarea
+                value={body}
+                onChange={e => setBody(e.target.value)}
+                rows={2}
+                placeholder={`Message ${client.display_first_name || client.first_name || 'client'}…`}
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none"
+              />
+              <button onClick={send} disabled={sending || !body.trim()}
+                className="bg-[#E8670A] text-white px-5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 self-stretch">
+                {sending ? '…' : 'Send'}
+              </button>
+            </div>
+          )}
+
+          {thread === 'admin_private' && (
+            <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+              🔒 This thread is admin-only. Coaches cannot see these messages.
+            </p>
+          )}
+        </>
       )}
     </div>
   )
