@@ -4,6 +4,7 @@ import { v2 as cloudinary } from 'cloudinary'
 import { pool, getOrCreateUser } from '../db.js'
 import { sendInviteEmail } from '../services/email.js'
 import { getAppBaseUrl } from '../services/appUrl.js'
+import { notifyNewDirectMessage } from '../services/pushService.js'
 
 const router = Router()
 
@@ -2127,6 +2128,9 @@ router.post('/clients/:id/messages', requireAuth(), async (req, res, next) => {
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *
     `, [id, ctx.dbUserId, ctx.role, message_body.trim(), thread_type, visibility, image_url ?? null, audio_url ?? null])
 
+    // Push: notify the client — fire-and-forget
+    notifyNewDirectMessage(id).catch(() => {})
+
     res.status(201).json(rows[0])
   } catch (err) { next(err) }
 })
@@ -2606,6 +2610,9 @@ router.post('/forms/:id/send', requireAuth(), async (req, res, next) => {
         thread_type,
         has_form_metadata: Boolean(message.metadata?.form_id && message.metadata?.assignment_id),
       })
+
+      // Push: notify client about the form delivery message — fire-and-forget
+      notifyNewDirectMessage(clientId).catch(() => {})
 
       sent.push({ client_id: clientId, assignment_id: assignment.id })
     }

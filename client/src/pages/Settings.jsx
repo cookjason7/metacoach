@@ -392,6 +392,14 @@ export default function Settings() {
   const [prefSaving, setPrefSaving] = useState(false)
   const [prefSaved,  setPrefSaved]  = useState(false)
   const [prefError,  setPrefError]  = useState(null)
+  const [notifForm, setNotifForm] = useState({
+    notif_master_enabled:    true,
+    notif_dm_enabled:        true,
+    notif_community_enabled: true,
+  })
+  const [notifSaving, setNotifSaving] = useState(false)
+  const [notifSaved,  setNotifSaved]  = useState(false)
+  const [notifError,  setNotifError]  = useState(null)
   const [nameSaving, setNameSaving] = useState(false)
   const [nameSaved,  setNameSaved]  = useState(false)
   const [nameError,  setNameError]  = useState(null)
@@ -470,6 +478,11 @@ export default function Settings() {
         setPrefForm({
           food_dislikes:  data.food_dislikes  ?? '',
           food_allergies: data.food_allergies ?? '',
+        })
+        setNotifForm({
+          notif_master_enabled:    data.notif_master_enabled    ?? true,
+          notif_dm_enabled:        data.notif_dm_enabled        ?? true,
+          notif_community_enabled: data.notif_community_enabled ?? true,
         })
 
         if (loadedProfile?.role === 'admin' || loadedProfile?.role === 'coach') {
@@ -677,6 +690,29 @@ export default function Settings() {
       setPrefError(err.message)
     } finally {
       setPrefSaving(false)
+    }
+  }
+
+  async function saveNotifPrefs() {
+    setNotifSaving(true); setNotifError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/users/me`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          notif_master_enabled:    notifForm.notif_master_enabled,
+          notif_dm_enabled:        notifForm.notif_dm_enabled,
+          notif_community_enabled: notifForm.notif_community_enabled,
+        }),
+      })
+      if (!res.ok) throw new Error('Failed to save')
+      setNotifSaved(true)
+      setTimeout(() => setNotifSaved(false), 2500)
+    } catch (err) {
+      setNotifError(err.message)
+    } finally {
+      setNotifSaving(false)
     }
   }
 
@@ -1412,6 +1448,84 @@ export default function Settings() {
             </form>
           </div>
 
+          {/* Notifications */}
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">Notifications</h2>
+          <div className="bg-white rounded-xl border border-gray-200 p-5 mb-8 space-y-4">
+            {/* Master toggle */}
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-800">Push notifications</p>
+                <p className="text-xs text-gray-500 mt-0.5">Receive push notifications on this device</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={notifForm.notif_master_enabled}
+                onClick={() => setNotifForm(f => ({ ...f, notif_master_enabled: !f.notif_master_enabled }))}
+                className={`relative shrink-0 w-11 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#E8670A]/40 ${
+                  notifForm.notif_master_enabled ? 'bg-[#E8670A]' : 'bg-gray-200'
+                }`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  notifForm.notif_master_enabled ? 'translate-x-5' : 'translate-x-0'
+                }`} />
+              </button>
+            </div>
+
+            {/* Sub-toggles — disabled when master is off */}
+            <div className={`space-y-3 pl-0 transition-opacity ${notifForm.notif_master_enabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm text-gray-700">New message alerts</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={notifForm.notif_dm_enabled}
+                  disabled={!notifForm.notif_master_enabled}
+                  onClick={() => setNotifForm(f => ({ ...f, notif_dm_enabled: !f.notif_dm_enabled }))}
+                  className={`relative shrink-0 w-11 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#E8670A]/40 ${
+                    notifForm.notif_dm_enabled ? 'bg-[#E8670A]' : 'bg-gray-200'
+                  }`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                    notifForm.notif_dm_enabled ? 'translate-x-5' : 'translate-x-0'
+                  }`} />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm text-gray-700">New group post alerts</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={notifForm.notif_community_enabled}
+                  disabled={!notifForm.notif_master_enabled}
+                  onClick={() => setNotifForm(f => ({ ...f, notif_community_enabled: !f.notif_community_enabled }))}
+                  className={`relative shrink-0 w-11 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#E8670A]/40 ${
+                    notifForm.notif_community_enabled ? 'bg-[#E8670A]' : 'bg-gray-200'
+                  }`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                    notifForm.notif_community_enabled ? 'translate-x-5' : 'translate-x-0'
+                  }`} />
+                </button>
+              </div>
+            </div>
+
+            {notifError && <p className="text-xs text-red-500">{notifError}</p>}
+            <button
+              type="button"
+              onClick={saveNotifPrefs}
+              disabled={notifSaving}
+              className="w-full py-2.5 rounded-lg text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors disabled:opacity-60"
+            >
+              {notifSaved ? 'Saved!' : notifSaving ? 'Saving…' : 'Save Preferences'}
+            </button>
+          </div>
+
           {/* Connected Apps */}
           <h2 className="text-sm font-semibold text-gray-700 mb-3">Connected Apps</h2>
           <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
@@ -1503,6 +1617,79 @@ export default function Settings() {
           </div>
         </>
       ) : null}
+
+      {/* Notifications — shown to all users */}
+      {isStaff && (
+        <>
+          <h2 className="text-sm font-semibold text-gray-700 mb-3 mt-10">Notifications</h2>
+          <div className="bg-white rounded-xl border border-gray-200 p-5 mb-8 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-800">Push notifications</p>
+                <p className="text-xs text-gray-500 mt-0.5">Receive push notifications on this device</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={notifForm.notif_master_enabled}
+                onClick={() => setNotifForm(f => ({ ...f, notif_master_enabled: !f.notif_master_enabled }))}
+                className={`relative shrink-0 w-11 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#E8670A]/40 ${
+                  notifForm.notif_master_enabled ? 'bg-[#E8670A]' : 'bg-gray-200'
+                }`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  notifForm.notif_master_enabled ? 'translate-x-5' : 'translate-x-0'
+                }`} />
+              </button>
+            </div>
+            <div className={`space-y-3 transition-opacity ${notifForm.notif_master_enabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm text-gray-700">New message alerts</p>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={notifForm.notif_dm_enabled}
+                  disabled={!notifForm.notif_master_enabled}
+                  onClick={() => setNotifForm(f => ({ ...f, notif_dm_enabled: !f.notif_dm_enabled }))}
+                  className={`relative shrink-0 w-11 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#E8670A]/40 ${
+                    notifForm.notif_dm_enabled ? 'bg-[#E8670A]' : 'bg-gray-200'
+                  }`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                    notifForm.notif_dm_enabled ? 'translate-x-5' : 'translate-x-0'
+                  }`} />
+                </button>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm text-gray-700">New group post alerts</p>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={notifForm.notif_community_enabled}
+                  disabled={!notifForm.notif_master_enabled}
+                  onClick={() => setNotifForm(f => ({ ...f, notif_community_enabled: !f.notif_community_enabled }))}
+                  className={`relative shrink-0 w-11 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#E8670A]/40 ${
+                    notifForm.notif_community_enabled ? 'bg-[#E8670A]' : 'bg-gray-200'
+                  }`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                    notifForm.notif_community_enabled ? 'translate-x-5' : 'translate-x-0'
+                  }`} />
+                </button>
+              </div>
+            </div>
+            {notifError && <p className="text-xs text-red-500">{notifError}</p>}
+            <button
+              type="button"
+              onClick={saveNotifPrefs}
+              disabled={notifSaving}
+              className="w-full py-2.5 rounded-lg text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors disabled:opacity-60"
+            >
+              {notifSaved ? 'Saved!' : notifSaving ? 'Saving…' : 'Save Preferences'}
+            </button>
+          </div>
+        </>
+      )}
 
       {/* Legal */}
       {profile && (

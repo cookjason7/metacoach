@@ -1265,6 +1265,25 @@ export async function migrate() {
   // Mark every existing user onboarding_complete=TRUE so nobody gets stuck.
   await pool.query(`UPDATE users SET onboarding_complete = TRUE WHERE onboarding_complete = FALSE OR onboarding_complete IS NULL`)
 
+  // ── Push notification foundation ─────────────────────────────────────────────
+  // Device tokens for push notifications (FCM). Multiple devices per user allowed.
+  // platform: 'android' | 'ios' | 'web'
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS push_devices (
+      id           SERIAL PRIMARY KEY,
+      user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token        TEXT NOT NULL UNIQUE,
+      platform     TEXT NOT NULL DEFAULT 'android',
+      created_at   TIMESTAMPTZ DEFAULT NOW(),
+      last_used_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_push_devices_user ON push_devices (user_id)`)
+  // Notification preferences on users
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_master_enabled    BOOLEAN NOT NULL DEFAULT TRUE`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_dm_enabled        BOOLEAN NOT NULL DEFAULT TRUE`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_community_enabled BOOLEAN NOT NULL DEFAULT TRUE`)
+
   // ── Admin allowlist bootstrap ───────────────────────────────────────────────
   // Force role=admin for the hard-coded ADMIN_EMAILS list on every startup.
   // Existing user data (meals, workouts, journal, etc.) is preserved — this

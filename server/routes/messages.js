@@ -4,6 +4,7 @@ import { pool, getOrCreateUser } from '../db.js'
 import multer from 'multer'
 import { v2 as cloudinary } from 'cloudinary'
 import { trackEvent } from '../services/usageTracker.js'
+import { notifyNewDirectMessage } from '../services/pushService.js'
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -267,6 +268,21 @@ router.post('/thread/:threadType', requireAuth(), async (req, res, next) => {
       SET archived = FALSE, archived_at = NULL
       WHERE client_id = $1 AND thread_type = $2 AND archived = TRUE
     `, [ctx.dbUserId, thread])
+
+    // Push: notify assigned coach (or admins if no coach assigned) — fire-and-forget
+    pool.query(
+      `SELECT COALESCE(assigned_coach_id, NULL) AS coach_id FROM users WHERE id = $1`,
+      [ctx.dbUserId],
+    ).then(async ({ rows: [u] }) => {
+      if (u?.coach_id) {
+        await notifyNewDirectMessage(u.coach_id).catch(() => {})
+      } else {
+        const { rows: admins } = await pool.query(
+          `SELECT id FROM users WHERE role = 'admin'`,
+        )
+        for (const a of admins) await notifyNewDirectMessage(a.id).catch(() => {})
+      }
+    }).catch(() => {})
 
     res.status(201).json(rows[0])
   } catch (err) { next(err) }

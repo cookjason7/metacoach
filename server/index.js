@@ -31,6 +31,8 @@ import communityResourcesRouter from './routes/communityResources.js'
 import stripeRouter from './routes/stripe.js'
 import fitbitRouter from './routes/fitbit.js'
 import bloodworkRouter from './routes/bloodwork.js'
+import pushRouter from './routes/push.js'
+import { initPush } from './services/pushService.js'
 import { runInactivityAlert } from './jobs/inactivityAlert.js'
 import { processFormSchedules } from './jobs/formScheduler.js'
 import { runPostgresBackup, runCloudinaryBackup, getBackupStatus } from './jobs/backup.js'
@@ -83,6 +85,7 @@ app.use('/api/mindset-videos',        clerkMiddleware(), mindsetVideosRouter)
 app.use('/api/community-resources',   clerkMiddleware(), communityResourcesRouter)
 app.use('/api/fitbit',                fitbitRouter)
 app.use('/api/bloodwork',             clerkMiddleware(), bloodworkRouter)
+app.use('/api/push',                  clerkMiddleware(), pushRouter)
 
 // Demo seed endpoint — only mounted on staging / when explicitly allowed
 if (process.env.NODE_ENV !== 'production' || process.env.ALLOW_DEMO_SEED === 'true') {
@@ -128,6 +131,7 @@ migrate()
   .finally(() => {
     app.listen(PORT, () => {
       console.log(`MetaCoach server running on http://localhost:${PORT}`)
+      initPush()
       if (process.env.DISABLE_BACKGROUND_JOBS === 'true') {
         console.log('Background jobs disabled by DISABLE_BACKGROUND_JOBS=true')
         return
