@@ -57,7 +57,7 @@ export default function Layout() {
   const [quickPhotoPreview,   setQuickPhotoPreview]   = useState(null)
   const quickPhotoInputRef    = useRef(null)
   const quickPhotoGalleryRef  = useRef(null)
-  const quickMenuOpenedAtRef  = useRef(0) // guards against the mobile ghost-click that would instantly re-close the sheet
+  const overlayPressedRef     = useRef(false) // true only when a pointer press began on the backdrop itself (ghost-click guard)
   const [quickFoodMode, setQuickFoodMode] = useState(null) // 'search'|'barcode'|'photo'|'manual'
 
   function resetQuickExtras() {
@@ -68,7 +68,7 @@ export default function Layout() {
   }
 
   function openQuickMenu() {
-    quickMenuOpenedAtRef.current = Date.now()
+    overlayPressedRef.current = false
     setQuickMenuOpen(true)
     setQuickAction(null)
     setQuickValue('')
@@ -77,12 +77,19 @@ export default function Layout() {
     resetQuickExtras()
   }
 
-  // Overlay tap-to-close. Ignores the synthetic "ghost click" some mobile
-  // browsers fire from the same tap that opened the sheet (which lands on the
-  // freshly-mounted overlay and would otherwise close it instantly = flicker).
-  function handleQuickOverlayClick() {
-    if (Date.now() - quickMenuOpenedAtRef.current < 350) return
-    closeQuickMenu()
+  // Backdrop tap-to-close. We only close when a pointer press actually STARTED
+  // on the backdrop. The tap that opens the sheet presses on the plus button
+  // (the backdrop doesn't exist yet), so its trailing synthetic/"ghost" click —
+  // which lands on the freshly-mounted backdrop — has no matching pointerdown
+  // here and is ignored. This removes the open/close flicker without relying on
+  // a fragile timing guard.
+  function handleOverlayPointerDown(e) {
+    overlayPressedRef.current = e.target === e.currentTarget
+  }
+  function handleOverlayClick(e) {
+    const shouldClose = overlayPressedRef.current && e.target === e.currentTarget
+    overlayPressedRef.current = false
+    if (shouldClose) closeQuickMenu()
   }
 
   function closeQuickMenu() {
@@ -477,7 +484,11 @@ export default function Layout() {
       {/* Quick-log bottom sheet */}
       {quickMenuOpen && (
         <>
-          <div className="fixed inset-0 z-50 bg-black/40" onClick={handleQuickOverlayClick} />
+          <div
+            className="fixed inset-0 z-50 bg-black/40"
+            onPointerDown={handleOverlayPointerDown}
+            onClick={handleOverlayClick}
+          />
           <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl max-h-[calc(100vh-1rem)] overflow-y-auto pb-[env(safe-area-inset-bottom)]">
             {/* drag handle */}
             <div className="flex justify-center pt-3 pb-1">
