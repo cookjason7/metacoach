@@ -265,7 +265,7 @@ End every meal plan with this exact line on its own:
 
 ADDITIONAL RULES:
 - Build from the Warrior Food List first. Add other whole foods as needed.
-- Target her stated calorie and protein goals. If goals are not set, use 1,400-1,600 cal and 100-120g protein as a reasonable starting range.
+- Target her assigned macro goals (calories, protein, carbs, fat, fiber) from the NUTRITION GOALS section. If goals are not set, use 1,400-1,600 cal and 100-120g protein as a reasonable starting range and tell her her coach can confirm exact targets.
 - Keep prep simple. Never list more than 3 prep steps per meal.
 - Do not tell her you will log the meals. Do not make medical claims. Do not reference lab values or prescribe supplements.
 - Offer a grocery list only if she specifically asks for one.
@@ -324,6 +324,9 @@ function buildContextBlock(user, meals, logs, recentFoods = []) {
   const goalsLines = [
     user.goal_calories ? `- Calorie target: ${user.goal_calories} cal/day` : null,
     user.goal_protein  ? `- Protein target: ${user.goal_protein}g/day`     : null,
+    user.goal_carbs    ? `- Carb target: ${user.goal_carbs}g/day`          : null,
+    user.goal_fat      ? `- Fat target: ${user.goal_fat}g/day`             : null,
+    user.goal_fiber    ? `- Fiber target: ${user.goal_fiber}g/day`         : null,
   ].filter(Boolean)
   const goalsText = goalsLines.length ? goalsLines.join('\n') : '  Not yet set'
 
@@ -393,7 +396,8 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     const { rows: userRows } = await pool.query(
       `SELECT first_name, age, height_inches, starting_weight_lbs, goal_weight_lbs,
               activity_level, tried_before, why_joined, identity_anchors, coaching_type,
-              goal_calories, goal_protein, food_dislikes, food_allergies
+              goal_calories, goal_protein, goal_carbs, goal_fat, goal_fiber,
+              food_dislikes, food_allergies
        FROM users WHERE id = $1`,
       [dbUserId],
     )

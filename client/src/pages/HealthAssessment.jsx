@@ -246,6 +246,9 @@ function validateSection(section, form) {
     const wt = Number(form.starting_weight_lbs)
     if (!form.starting_weight_lbs || !Number.isFinite(wt) || wt <= 0)
       return 'Please enter your current weight in lbs.'
+    const gwt = Number(form.goal_weight_lbs)
+    if (!form.goal_weight_lbs || !Number.isFinite(gwt) || gwt <= 0)
+      return 'Please enter your goal weight in lbs.'
     return null
   }
   if (section === 2) {
@@ -714,7 +717,7 @@ export default function HealthAssessment() {
                       placeholder="165"
                     />
                   </Field>
-                  <Field label="Goal weight (lbs)" hint="Optional">
+                  <Field label="Goal weight (lbs)">
                     <TextInput
                       value={form.goal_weight_lbs}
                       onChange={set('goal_weight_lbs')}
