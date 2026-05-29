@@ -89,10 +89,6 @@ router.get('/me', requireAuth(), async (req, res, next) => {
       }
     }
 
-    console.log(
-      `[users/me] email=${email ?? rows[0]?.email ?? '?'} role=${rows[0]?.role} coaching_type=${rows[0]?.coaching_type} coaching_type_source=${rows[0]?.coaching_type_source ?? 'none'} selfHealRan=${originalCoachingType !== rows[0]?.coaching_type || robustAiSelfHealRan} isAdmin=${rows[0]?.role === 'admin'} isAllowlistEmail=${isAdminEmail(email)}`,
-    )
-
     res.json(rows[0])
   } catch (err) {
     next(err)
