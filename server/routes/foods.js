@@ -213,6 +213,14 @@ router.get('/search', requireAuth(), async (req, res, next) => {
            THEN ROUND((cf.fiber / cf.serving_size * 100)::numeric, 1)
            ELSE ROUND(cf.fiber::numeric, 1)
          END AS fiber_g,
+         CASE WHEN cf.serving_size > 0
+           THEN ROUND((cf.sugar / cf.serving_size * 100)::numeric, 1)
+           ELSE ROUND(cf.sugar::numeric, 1)
+         END AS sugar_g,
+         CASE WHEN cf.serving_size > 0
+           THEN ROUND((cf.sodium_mg / cf.serving_size * 100)::numeric, 0)
+           ELSE ROUND(cf.sodium_mg::numeric, 0)
+         END AS sodium_mg,
          cf.serving_size AS custom_serving_size,
          cf.serving_unit AS custom_serving_unit
        FROM custom_foods cf
@@ -229,6 +237,8 @@ router.get('/search', requireAuth(), async (req, res, next) => {
       carbs_g:   r.carbs_g   != null ? parseFloat(r.carbs_g)   : null,
       fat_g:     r.fat_g     != null ? parseFloat(r.fat_g)     : null,
       fiber_g:   r.fiber_g   != null ? parseFloat(r.fiber_g)   : null,
+      sugar_g:   r.sugar_g   != null ? parseFloat(r.sugar_g)   : null,
+      sodium_mg: r.sodium_mg != null ? parseFloat(r.sodium_mg) : null,
       // custom_serving_size / custom_serving_unit: prefill the portion picker
       // when the user selects this food in SearchMode
       custom_serving_size: r.custom_serving_size != null ? parseFloat(r.custom_serving_size) : null,
@@ -369,9 +379,9 @@ router.get('/barcode/:code', requireAuth(), async (req, res, next) => {
           protein_g:            cfMatch.protein != null ? parseFloat(cfMatch.protein) : null,
           carbs_g:              cfMatch.carbs   != null ? parseFloat(cfMatch.carbs)   : null,
           fat_g:                cfMatch.fat     != null ? parseFloat(cfMatch.fat)     : null,
-          fiber_g:              cfMatch.fiber   != null ? parseFloat(cfMatch.fiber)   : null,
-          sugar_g:              null,
-          sodium_mg:            null,
+          fiber_g:              cfMatch.fiber     != null ? parseFloat(cfMatch.fiber)     : null,
+          sugar_g:              cfMatch.sugar     != null ? parseFloat(cfMatch.sugar)     : null,
+          sodium_mg:            cfMatch.sodium_mg != null ? parseFloat(cfMatch.sodium_mg) : null,
           potassium_mg:         null,
           calcium_mg:           null,
           iron_mg:              null,

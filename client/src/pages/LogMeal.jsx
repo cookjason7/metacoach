@@ -721,7 +721,7 @@ function SearchMode({ slot, logDate }) {
 
 // ── Recipe Builder mode ───────────────────────────────────────────────────────
 
-const EMPTY_ING = { food_name: '', amount: '', unit: 'g', calories: '', protein: '', carbs: '', fat: '', fiber: '' }
+const EMPTY_ING = { food_name: '', amount: '', unit: 'g', calories: '', protein: '', carbs: '', fat: '', fiber: '', sugar: '', sodium_mg: '' }
 
 function CreateRecipeForm({ onSave, onCancel, initialRecipe = null }) {
   const { getToken } = useAuth()
@@ -738,6 +738,8 @@ function CreateRecipeForm({ onSave, onCancel, initialRecipe = null }) {
           carbs:     String(i.carbs     ?? ''),
           fat:       String(i.fat       ?? ''),
           fiber:     String(i.fiber     ?? ''),
+          sugar:     String(i.sugar     ?? ''),
+          sodium_mg: String(i.sodium_mg ?? ''),
         }))
       : [{ ...EMPTY_ING }]
   )
@@ -752,13 +754,15 @@ function CreateRecipeForm({ onSave, onCancel, initialRecipe = null }) {
 
   const totals = ingredients.reduce(
     (acc, ing) => ({
-      calories: acc.calories + (parseFloat(ing.calories) || 0),
-      protein:  acc.protein  + (parseFloat(ing.protein)  || 0),
-      carbs:    acc.carbs    + (parseFloat(ing.carbs)    || 0),
-      fat:      acc.fat      + (parseFloat(ing.fat)      || 0),
-      fiber:    acc.fiber    + (parseFloat(ing.fiber)    || 0),
+      calories:  acc.calories  + (parseFloat(ing.calories)  || 0),
+      protein:   acc.protein   + (parseFloat(ing.protein)   || 0),
+      carbs:     acc.carbs     + (parseFloat(ing.carbs)     || 0),
+      fat:       acc.fat       + (parseFloat(ing.fat)       || 0),
+      fiber:     acc.fiber     + (parseFloat(ing.fiber)     || 0),
+      sugar:     acc.sugar     + (parseFloat(ing.sugar)     || 0),
+      sodium_mg: acc.sodium_mg + (parseFloat(ing.sodium_mg) || 0),
     }),
-    { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 },
+    { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium_mg: 0 },
   )
 
   const srv = parseFloat(servings) || 1
@@ -866,6 +870,20 @@ function CreateRecipeForm({ onSave, onCancel, initialRecipe = null }) {
                   </div>
                 ))}
               </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {[['Sugar (g)', 'sugar'], ['Sodium (mg)', 'sodium_mg']].map(([lbl, field]) => (
+                  <div key={field}>
+                    <p className="text-[10px] text-gray-400 mb-0.5">{lbl}</p>
+                    <input
+                      type="number"
+                      min="0"
+                      value={ing[field]}
+                      onChange={e => updateIng(idx, field, e.target.value)}
+                      className={fieldStyle}
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
         </div>
@@ -888,6 +906,8 @@ function CreateRecipeForm({ onSave, onCancel, initialRecipe = null }) {
           <span><span className="font-bold text-blue-600">{totals.protein.toFixed(1)}g</span> <span className="text-gray-500 text-xs">protein</span></span>
           <span><span className="font-bold text-yellow-600">{totals.carbs.toFixed(1)}g</span> <span className="text-gray-500 text-xs">carbs</span></span>
           <span><span className="font-bold text-pink-500">{totals.fat.toFixed(1)}g</span> <span className="text-gray-500 text-xs">fat</span></span>
+          {totals.sugar > 0 && <span><span className="font-bold text-purple-500">{totals.sugar.toFixed(1)}g</span> <span className="text-gray-500 text-xs">sugar</span></span>}
+          {totals.sodium_mg > 0 && <span><span className="font-bold text-teal-600">{Math.round(totals.sodium_mg)}mg</span> <span className="text-gray-500 text-xs">sodium</span></span>}
         </div>
         {srv > 1 && (
           <p className="text-xs text-gray-400 mt-1.5">
@@ -1089,10 +1109,12 @@ function EditFoodModal({ food, onSave, onClose }) {
   const [form, setForm] = useState({
     food_name:            food.food_name,
     calories_per_serving: food.calories_per_serving != null ? String(food.calories_per_serving) : '',
-    protein:              food.protein  != null ? String(food.protein)  : '',
-    carbs:                food.carbs    != null ? String(food.carbs)    : '',
-    fat:                  food.fat      != null ? String(food.fat)      : '',
-    fiber:                food.fiber    != null ? String(food.fiber)    : '',
+    protein:              food.protein   != null ? String(food.protein)   : '',
+    carbs:                food.carbs     != null ? String(food.carbs)     : '',
+    fat:                  food.fat       != null ? String(food.fat)       : '',
+    fiber:                food.fiber     != null ? String(food.fiber)     : '',
+    sugar:                food.sugar     != null ? String(food.sugar)     : '',
+    sodium_mg:            food.sodium_mg != null ? String(food.sodium_mg) : '',
     serving_size:         food.serving_size != null ? String(food.serving_size) : '',
     serving_unit:         food.serving_unit ?? 'g',
   })
@@ -1114,10 +1136,12 @@ function EditFoodModal({ food, onSave, onClose }) {
         body: JSON.stringify({
           food_name:            form.food_name.trim(),
           calories_per_serving: form.calories_per_serving !== '' ? Number(form.calories_per_serving) : undefined,
-          protein:              form.protein  !== '' ? Number(form.protein)  : undefined,
-          carbs:                form.carbs    !== '' ? Number(form.carbs)    : undefined,
-          fat:                  form.fat      !== '' ? Number(form.fat)      : undefined,
-          fiber:                form.fiber    !== '' ? Number(form.fiber)    : undefined,
+          protein:              form.protein   !== '' ? Number(form.protein)   : undefined,
+          carbs:                form.carbs     !== '' ? Number(form.carbs)     : undefined,
+          fat:                  form.fat       !== '' ? Number(form.fat)       : undefined,
+          fiber:                form.fiber     !== '' ? Number(form.fiber)     : undefined,
+          sugar:                form.sugar     !== '' ? Number(form.sugar)     : undefined,
+          sodium_mg:            form.sodium_mg !== '' ? Number(form.sodium_mg) : undefined,
           serving_size:         form.serving_size !== '' ? Number(form.serving_size) : undefined,
           serving_unit:         form.serving_unit || undefined,
         }),
@@ -1164,7 +1188,7 @@ function EditFoodModal({ food, onSave, onClose }) {
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            {[['Calories', 'calories_per_serving'], ['Protein (g)', 'protein'], ['Carbs (g)', 'carbs'], ['Fat (g)', 'fat'], ['Fiber (g)', 'fiber']].map(([lbl, nm]) => (
+            {[['Calories', 'calories_per_serving'], ['Protein (g)', 'protein'], ['Carbs (g)', 'carbs'], ['Fat (g)', 'fat'], ['Fiber (g)', 'fiber'], ['Sugar (g)', 'sugar'], ['Sodium (mg)', 'sodium_mg']].map(([lbl, nm]) => (
               <div key={nm}>
                 <label className="block text-xs font-medium text-gray-600 mb-1">{lbl}</label>
                 <input type="number" name={nm} value={form[nm]} onChange={set} min="0" step="any"
@@ -1195,6 +1219,7 @@ function EditFoodModal({ food, onSave, onClose }) {
 
 const EMPTY_FOOD = {
   food_name: '', calories_per_serving: '', protein: '', carbs: '', fat: '', fiber: '',
+  sugar: '', sodium_mg: '',
   serving_size: '100', serving_unit: 'g', is_global: false,
 }
 
@@ -1244,10 +1269,12 @@ function MyFoodsMode() {
         body: JSON.stringify({
           food_name:            form.food_name.trim(),
           calories_per_serving: form.calories_per_serving !== '' ? Number(form.calories_per_serving) : null,
-          protein:  form.protein  !== '' ? Number(form.protein)  : null,
-          carbs:    form.carbs    !== '' ? Number(form.carbs)    : null,
-          fat:      form.fat      !== '' ? Number(form.fat)      : null,
-          fiber:    form.fiber    !== '' ? Number(form.fiber)    : null,
+          protein:   form.protein   !== '' ? Number(form.protein)   : null,
+          carbs:     form.carbs     !== '' ? Number(form.carbs)     : null,
+          fat:       form.fat       !== '' ? Number(form.fat)       : null,
+          fiber:     form.fiber     !== '' ? Number(form.fiber)     : null,
+          sugar:     form.sugar     !== '' ? Number(form.sugar)     : null,
+          sodium_mg: form.sodium_mg !== '' ? Number(form.sodium_mg) : null,
           serving_size: form.serving_size !== '' ? Number(form.serving_size) : 100,
           serving_unit: form.serving_unit || 'g',
           is_global: isAdmin ? form.is_global : false,
@@ -1313,7 +1340,8 @@ function MyFoodsMode() {
 
           <div className="grid grid-cols-3 gap-2">
             {[['Calories', 'calories_per_serving', '250'], ['Protein (g)', 'protein', '20'], ['Carbs (g)', 'carbs', '30'],
-              ['Fat (g)', 'fat', '8'], ['Fiber (g)', 'fiber', '2']].map(([lbl, nm, ph]) => (
+              ['Fat (g)', 'fat', '8'], ['Fiber (g)', 'fiber', '2'], ['Sugar (g)', 'sugar', '0'],
+              ['Sodium (mg)', 'sodium_mg', '0']].map(([lbl, nm, ph]) => (
               <div key={nm}>
                 <label className="block text-xs font-medium text-gray-600 mb-1">{lbl}</label>
                 <input type="number" name={nm} value={form[nm]} onChange={set} min="0" placeholder={ph} className={tinyInput} />

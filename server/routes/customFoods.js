@@ -40,7 +40,7 @@ router.post('/', requireAuth(), async (req, res, next) => {
     const dbUserId = await getOrCreateUser(userId)
     const {
       is_global, food_name, calories_per_serving, protein, carbs, fat, fiber,
-      serving_size, serving_unit, barcode,
+      sugar, sodium_mg, serving_size, serving_unit, barcode,
     } = req.body
 
     if (!food_name?.trim()) return res.status(400).json({ error: 'Food name required' })
@@ -65,23 +65,30 @@ router.post('/', requireAuth(), async (req, res, next) => {
       if (existing) return res.status(200).json(existing)
     }
 
+    // Client-created private foods enter the admin review queue automatically.
+    // Admin-created global foods are already approved.
+    const reviewStatus = (is_global) ? 'approved' : 'pending'
+
     const { rows } = await pool.query(
       `INSERT INTO custom_foods
-         (user_id, is_global, food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit, barcode)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         (user_id, is_global, food_name, calories_per_serving, protein, carbs, fat, fiber, sugar, sodium_mg, serving_size, serving_unit, barcode, review_status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING *`,
       [
         is_global ? null : dbUserId,
         is_global ?? false,
         food_name.trim(),
         calories_per_serving ?? null,
-        protein  ?? null,
-        carbs    ?? null,
-        fat      ?? null,
-        fiber    ?? null,
+        protein   ?? null,
+        carbs     ?? null,
+        fat       ?? null,
+        fiber     ?? null,
+        sugar     ?? null,
+        sodium_mg ?? null,
         serving_size  ?? 100,
         serving_unit  ?? 'g',
         cleanBarcode,
+        reviewStatus,
       ],
     )
     res.status(201).json(rows[0])
@@ -142,7 +149,7 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
       return res.status(403).json({ error: 'Not your food' })
     }
 
-    const { food_name, calories_per_serving, protein, carbs, fat, fiber, serving_size, serving_unit } = req.body
+    const { food_name, calories_per_serving, protein, carbs, fat, fiber, sugar, sodium_mg, serving_size, serving_unit } = req.body
 
     if (food_name !== undefined && !String(food_name ?? '').trim()) {
       return res.status(400).json({ error: 'Food name cannot be empty' })
@@ -156,9 +163,11 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
          carbs                = COALESCE($4, carbs),
          fat                  = COALESCE($5, fat),
          fiber                = COALESCE($6, fiber),
-         serving_size         = COALESCE($7, serving_size),
-         serving_unit         = COALESCE($8, serving_unit)
-       WHERE id = $9
+         sugar                = COALESCE($7, sugar),
+         sodium_mg            = COALESCE($8, sodium_mg),
+         serving_size         = COALESCE($9, serving_size),
+         serving_unit         = COALESCE($10, serving_unit)
+       WHERE id = $11
        RETURNING *`,
       [
         food_name        != null ? String(food_name).trim() : null,
@@ -167,6 +176,8 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
         carbs            != null ? Number(carbs)         : null,
         fat              != null ? Number(fat)           : null,
         fiber            != null ? Number(fiber)         : null,
+        sugar            != null ? Number(sugar)         : null,
+        sodium_mg        != null ? Number(sodium_mg)     : null,
         serving_size     != null ? Number(serving_size)  : null,
         serving_unit     != null ? String(serving_unit)  : null,
         foodId,

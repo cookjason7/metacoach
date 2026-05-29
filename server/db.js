@@ -475,6 +475,24 @@ export async function migrate() {
   await pool.query(`ALTER TABLE custom_foods ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`)
   await pool.query(`ALTER TABLE custom_foods ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id) ON DELETE SET NULL`)
 
+  // ── Client food review queue ──────────────────────────────────────────────────
+  // review_status: 'pending' (awaiting admin action) | 'approved' | 'dismissed'
+  // Only client-created private foods use this; global foods are always 'approved'.
+  await pool.query(`ALTER TABLE custom_foods ADD COLUMN IF NOT EXISTS review_status TEXT`)
+  await pool.query(`ALTER TABLE custom_foods ADD COLUMN IF NOT EXISTS reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL`)
+  await pool.query(`ALTER TABLE custom_foods ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ`)
+  // Backfill existing rows (idempotent — WHERE review_status IS NULL guard prevents overwrite)
+  await pool.query(`UPDATE custom_foods SET review_status = 'approved' WHERE is_global = TRUE  AND review_status IS NULL`)
+  await pool.query(`UPDATE custom_foods SET review_status = 'pending'  WHERE is_global = FALSE AND user_id IS NOT NULL AND review_status IS NULL`)
+
+  // ── Sugar & Sodium columns ────────────────────────────────────────────────────
+  await pool.query(`ALTER TABLE custom_foods ADD COLUMN IF NOT EXISTS sugar NUMERIC(6,1)`)
+  await pool.query(`ALTER TABLE custom_foods ADD COLUMN IF NOT EXISTS sodium_mg NUMERIC(8,1)`)
+  await pool.query(`ALTER TABLE recipes ADD COLUMN IF NOT EXISTS sugar NUMERIC(6,1)`)
+  await pool.query(`ALTER TABLE recipes ADD COLUMN IF NOT EXISTS sodium_mg NUMERIC(8,1)`)
+  await pool.query(`ALTER TABLE recipe_ingredients ADD COLUMN IF NOT EXISTS sugar NUMERIC(6,1)`)
+  await pool.query(`ALTER TABLE recipe_ingredients ADD COLUMN IF NOT EXISTS sodium_mg NUMERIC(8,1)`)
+
   // ── Global milk foods ────────────────────────────────────────────────────────
   // Stored per-serving (244 ml = 1 cup). Search query normalises to per-100ml.
   await pool.query(`

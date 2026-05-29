@@ -18,6 +18,7 @@ async function requireAdmin(req, res) {
 async function getCoachFood(id) {
   const { rows } = await pool.query(`
     SELECT cf.id, cf.food_name, cf.calories_per_serving, cf.protein, cf.carbs, cf.fat, cf.fiber,
+           cf.sugar, cf.sodium_mg,
            cf.serving_size, cf.serving_unit, cf.notes,
            COALESCE(cf.is_active, TRUE) AS is_active,
            cf.created_at, cf.updated_at,
@@ -95,6 +96,7 @@ router.get('/coach-foods', requireAuth(), async (req, res, next) => {
     if (await requireAdmin(req, res) === null) return
     const { rows } = await pool.query(`
       SELECT cf.id, cf.food_name, cf.calories_per_serving, cf.protein, cf.carbs, cf.fat, cf.fiber,
+             cf.sugar, cf.sodium_mg,
              cf.serving_size, cf.serving_unit, cf.notes,
              COALESCE(cf.is_active, TRUE) AS is_active,
              cf.created_at, cf.updated_at,
@@ -113,7 +115,7 @@ router.post('/coach-foods', requireAuth(), async (req, res, next) => {
   try {
     const callerId = await requireAdmin(req, res)
     if (callerId === null) return
-    const { food_name, calories, protein, carbs, fat, fiber, serving_size, serving_unit, notes } = req.body
+    const { food_name, calories, protein, carbs, fat, fiber, sugar, sodium_mg, serving_size, serving_unit, notes } = req.body
     if (!food_name?.trim()) return res.status(400).json({ error: 'food_name required' })
 
     const ss = serving_size != null && serving_size !== '' ? Number(serving_size) : 100
@@ -122,16 +124,18 @@ router.post('/coach-foods', requireAuth(), async (req, res, next) => {
     const { rows } = await pool.query(`
       INSERT INTO custom_foods
         (is_global, is_coach_food, is_active, food_name, calories_per_serving, protein, carbs, fat, fiber,
-         serving_size, serving_unit, notes, created_by)
-      VALUES (TRUE, TRUE, TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         sugar, sodium_mg, serving_size, serving_unit, notes, created_by, review_status)
+      VALUES (TRUE, TRUE, TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'approved')
       RETURNING id
     `, [
       food_name.trim(),
-      calories != null ? Number(calories) : null,
-      protein  != null ? Number(protein)  : null,
-      carbs    != null ? Number(carbs)    : null,
-      fat      != null ? Number(fat)      : null,
-      fiber    != null ? Number(fiber)    : null,
+      calories  != null ? Number(calories)  : null,
+      protein   != null ? Number(protein)   : null,
+      carbs     != null ? Number(carbs)     : null,
+      fat       != null ? Number(fat)       : null,
+      fiber     != null ? Number(fiber)     : null,
+      sugar     != null ? Number(sugar)     : null,
+      sodium_mg != null ? Number(sodium_mg) : null,
       ss, su,
       notes?.trim() || null,
       callerId,
@@ -145,7 +149,7 @@ router.patch('/coach-foods/:id', requireAuth(), async (req, res, next) => {
   try {
     if (await requireAdmin(req, res) === null) return
     const id = parseInt(req.params.id, 10)
-    const { food_name, calories, protein, carbs, fat, fiber, serving_size, serving_unit, notes, is_active } = req.body
+    const { food_name, calories, protein, carbs, fat, fiber, sugar, sodium_mg, serving_size, serving_unit, notes, is_active } = req.body
 
     const sets = []
     const params = []
@@ -157,6 +161,8 @@ router.patch('/coach-foods/:id', requireAuth(), async (req, res, next) => {
     if (carbs      !== undefined) add('carbs',                carbs     !== '' ? Number(carbs)     : null)
     if (fat        !== undefined) add('fat',                  fat       !== '' ? Number(fat)       : null)
     if (fiber      !== undefined) add('fiber',                fiber     !== '' ? Number(fiber)     : null)
+    if (sugar      !== undefined) add('sugar',                sugar     !== '' ? Number(sugar)     : null)
+    if (sodium_mg  !== undefined) add('sodium_mg',            sodium_mg !== '' ? Number(sodium_mg) : null)
     if (serving_size !== undefined) add('serving_size',       serving_size !== '' ? Number(serving_size) : 100)
     if (serving_unit !== undefined) add('serving_unit',       serving_unit?.trim() || 'g')
     if (notes      !== undefined) add('notes',                notes?.trim() || null)
@@ -193,6 +199,96 @@ router.delete('/coach-foods/:id', requireAuth(), async (req, res, next) => {
   } catch (err) {
     next(err)
   }
+})
+
+// ── Client Food Review Queue ──────────────────────────────────────────────────
+
+// GET /api/admin/client-foods?status=pending|approved|dismissed
+// Returns private client-created foods filtered by review_status.
+router.get('/client-foods', requireAuth(), async (req, res, next) => {
+  try {
+    if (await requireAdmin(req, res) === null) return
+    const status = req.query.status ?? 'pending'
+    if (!['pending', 'approved', 'dismissed'].includes(status)) {
+      return res.status(400).json({ error: 'status must be pending, approved, or dismissed' })
+    }
+    const { rows } = await pool.query(`
+      SELECT cf.id, cf.food_name, cf.calories_per_serving, cf.protein, cf.carbs, cf.fat, cf.fiber,
+             cf.serving_size, cf.serving_unit, cf.notes, cf.review_status,
+             cf.created_at, cf.reviewed_at,
+             u.id   AS client_id,
+             u.first_name AS client_first_name,
+             u.email AS client_email,
+             rv.first_name AS reviewed_by_name
+      FROM custom_foods cf
+      JOIN users u ON u.id = cf.user_id
+      LEFT JOIN users rv ON rv.id = cf.reviewed_by
+      WHERE cf.is_global = FALSE
+        AND cf.is_coach_food = FALSE
+        AND cf.user_id IS NOT NULL
+        AND cf.review_status = $1
+      ORDER BY cf.created_at ASC
+    `, [status])
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
+// PATCH /api/admin/client-foods/:id/review
+// body: { action: 'approve' | 'dismiss' }
+// approve → promote to global coach food, set reviewed fields
+// dismiss → keep private, set review_status='dismissed'
+router.patch('/client-foods/:id/review', requireAuth(), async (req, res, next) => {
+  try {
+    const callerId = await requireAdmin(req, res)
+    if (callerId === null) return
+
+    const id = parseInt(req.params.id, 10)
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
+
+    const { action } = req.body
+    if (!['approve', 'dismiss'].includes(action)) {
+      return res.status(400).json({ error: 'action must be "approve" or "dismiss"' })
+    }
+
+    const { rows: [food] } = await pool.query(
+      'SELECT id, user_id, is_global, review_status FROM custom_foods WHERE id = $1',
+      [id],
+    )
+    if (!food) return res.status(404).json({ error: 'Food not found' })
+    if (food.is_global || !food.user_id) {
+      return res.status(400).json({ error: 'Not a client-created private food' })
+    }
+
+    if (action === 'approve') {
+      // Promote to global coach food
+      const { rows: [updated] } = await pool.query(`
+        UPDATE custom_foods
+        SET is_global     = TRUE,
+            is_coach_food = TRUE,
+            is_active     = TRUE,
+            user_id       = NULL,
+            review_status = 'approved',
+            reviewed_by   = $1,
+            reviewed_at   = NOW(),
+            updated_at    = NOW()
+        WHERE id = $2
+        RETURNING *
+      `, [callerId, id])
+      res.json({ ok: true, action: 'approved', food: updated })
+    } else {
+      // Dismiss — keep private to client, flag as dismissed
+      const { rows: [updated] } = await pool.query(`
+        UPDATE custom_foods
+        SET review_status = 'dismissed',
+            reviewed_by   = $1,
+            reviewed_at   = NOW(),
+            updated_at    = NOW()
+        WHERE id = $2
+        RETURNING *
+      `, [callerId, id])
+      res.json({ ok: true, action: 'dismissed', food: updated })
+    }
+  } catch (err) { next(err) }
 })
 
 // ── DEV TOOLS ─────────────────────────────────────────────────────────────────

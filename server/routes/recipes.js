@@ -23,13 +23,13 @@ router.get('/', requireAuth(), async (req, res, next) => {
     const dbUserId = await getOrCreateUser(userId)
 
     const { rows } = await pool.query(
-      `SELECT r.id, r.name, r.servings, r.calories, r.protein, r.carbs, r.fat, r.fiber, r.created_at,
+      `SELECT r.id, r.name, r.servings, r.calories, r.protein, r.carbs, r.fat, r.fiber, r.sugar, r.sodium_mg, r.created_at,
               COALESCE(
                 json_agg(
                   json_build_object(
                     'id', ri.id, 'food_name', ri.food_name, 'amount', ri.amount, 'unit', ri.unit,
                     'calories', ri.calories, 'protein', ri.protein, 'carbs', ri.carbs,
-                    'fat', ri.fat, 'fiber', ri.fiber
+                    'fat', ri.fat, 'fiber', ri.fiber, 'sugar', ri.sugar, 'sodium_mg', ri.sodium_mg
                   ) ORDER BY ri.id
                 ) FILTER (WHERE ri.id IS NOT NULL),
                 '[]'::json
@@ -61,31 +61,35 @@ router.post('/', requireAuth(), async (req, res, next) => {
 
     const totals = ingredients.reduce(
       (acc, ing) => ({
-        calories: acc.calories + (parseFloat(ing.calories) || 0),
-        protein:  acc.protein  + (parseFloat(ing.protein)  || 0),
-        carbs:    acc.carbs    + (parseFloat(ing.carbs)    || 0),
-        fat:      acc.fat      + (parseFloat(ing.fat)      || 0),
-        fiber:    acc.fiber    + (parseFloat(ing.fiber)    || 0),
+        calories:  acc.calories  + (parseFloat(ing.calories)  || 0),
+        protein:   acc.protein   + (parseFloat(ing.protein)   || 0),
+        carbs:     acc.carbs     + (parseFloat(ing.carbs)     || 0),
+        fat:       acc.fat       + (parseFloat(ing.fat)       || 0),
+        fiber:     acc.fiber     + (parseFloat(ing.fiber)     || 0),
+        sugar:     acc.sugar     + (parseFloat(ing.sugar)     || 0),
+        sodium_mg: acc.sodium_mg + (parseFloat(ing.sodium_mg) || 0),
       }),
-      { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 },
+      { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium_mg: 0 },
     )
 
     const { rows: [recipe] } = await pool.query(
-      `INSERT INTO recipes (user_id, name, servings, calories, protein, carbs, fat, fiber)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO recipes (user_id, name, servings, calories, protein, carbs, fat, fiber, sugar, sodium_mg)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING *`,
       [dbUserId, name.trim(), parseFloat(servings) || 1,
-       totals.calories, totals.protein, totals.carbs, totals.fat, totals.fiber],
+       totals.calories, totals.protein, totals.carbs, totals.fat, totals.fiber,
+       totals.sugar, totals.sodium_mg],
     )
 
     for (const ing of ingredients) {
       await pool.query(
-        `INSERT INTO recipe_ingredients (recipe_id, food_name, calories, protein, carbs, fat, fiber, amount, unit)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        `INSERT INTO recipe_ingredients (recipe_id, food_name, calories, protein, carbs, fat, fiber, sugar, sodium_mg, amount, unit)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [recipe.id, ing.food_name || 'Ingredient',
-         parseFloat(ing.calories) || null, parseFloat(ing.protein) || null,
-         parseFloat(ing.carbs) || null, parseFloat(ing.fat) || null,
-         parseFloat(ing.fiber) || null, parseFloat(ing.amount) || null,
+         parseFloat(ing.calories)  || null, parseFloat(ing.protein)   || null,
+         parseFloat(ing.carbs)     || null, parseFloat(ing.fat)       || null,
+         parseFloat(ing.fiber)     || null, parseFloat(ing.sugar)     || null,
+         parseFloat(ing.sodium_mg) || null, parseFloat(ing.amount)    || null,
          ing.unit || null],
       )
     }
@@ -175,33 +179,37 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
 
     const totals = ingredients.reduce(
       (acc, ing) => ({
-        calories: acc.calories + (parseFloat(ing.calories) || 0),
-        protein:  acc.protein  + (parseFloat(ing.protein)  || 0),
-        carbs:    acc.carbs    + (parseFloat(ing.carbs)    || 0),
-        fat:      acc.fat      + (parseFloat(ing.fat)      || 0),
-        fiber:    acc.fiber    + (parseFloat(ing.fiber)    || 0),
+        calories:  acc.calories  + (parseFloat(ing.calories)  || 0),
+        protein:   acc.protein   + (parseFloat(ing.protein)   || 0),
+        carbs:     acc.carbs     + (parseFloat(ing.carbs)     || 0),
+        fat:       acc.fat       + (parseFloat(ing.fat)       || 0),
+        fiber:     acc.fiber     + (parseFloat(ing.fiber)     || 0),
+        sugar:     acc.sugar     + (parseFloat(ing.sugar)     || 0),
+        sodium_mg: acc.sodium_mg + (parseFloat(ing.sodium_mg) || 0),
       }),
-      { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 },
+      { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium_mg: 0 },
     )
 
     const client = await pool.connect()
     try {
       await client.query('BEGIN')
       await client.query(
-        `UPDATE recipes SET name=$1, servings=$2, calories=$3, protein=$4, carbs=$5, fat=$6, fiber=$7 WHERE id=$8`,
+        `UPDATE recipes SET name=$1, servings=$2, calories=$3, protein=$4, carbs=$5, fat=$6, fiber=$7, sugar=$8, sodium_mg=$9 WHERE id=$10`,
         [name.trim(), parseFloat(servings) || 1,
          totals.calories, totals.protein, totals.carbs, totals.fat, totals.fiber,
+         totals.sugar, totals.sodium_mg,
          recipeId],
       )
       await client.query('DELETE FROM recipe_ingredients WHERE recipe_id = $1', [recipeId])
       for (const ing of ingredients) {
         await client.query(
-          `INSERT INTO recipe_ingredients (recipe_id, food_name, calories, protein, carbs, fat, fiber, amount, unit)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          `INSERT INTO recipe_ingredients (recipe_id, food_name, calories, protein, carbs, fat, fiber, sugar, sodium_mg, amount, unit)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
           [recipeId, ing.food_name || 'Ingredient',
-           parseFloat(ing.calories) || null, parseFloat(ing.protein) || null,
-           parseFloat(ing.carbs) || null, parseFloat(ing.fat) || null,
-           parseFloat(ing.fiber) || null, parseFloat(ing.amount) || null,
+           parseFloat(ing.calories)  || null, parseFloat(ing.protein)   || null,
+           parseFloat(ing.carbs)     || null, parseFloat(ing.fat)       || null,
+           parseFloat(ing.fiber)     || null, parseFloat(ing.sugar)     || null,
+           parseFloat(ing.sodium_mg) || null, parseFloat(ing.amount)    || null,
            ing.unit || null],
         )
       }
@@ -215,11 +223,11 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
 
     // Re-fetch with ingredients
     const { rows: [updated] } = await pool.query(
-      `SELECT r.id, r.name, r.servings, r.calories, r.protein, r.carbs, r.fat, r.fiber, r.created_at,
+      `SELECT r.id, r.name, r.servings, r.calories, r.protein, r.carbs, r.fat, r.fiber, r.sugar, r.sodium_mg, r.created_at,
               COALESCE(json_agg(json_build_object(
                 'id', ri.id, 'food_name', ri.food_name, 'amount', ri.amount, 'unit', ri.unit,
                 'calories', ri.calories, 'protein', ri.protein, 'carbs', ri.carbs,
-                'fat', ri.fat, 'fiber', ri.fiber
+                'fat', ri.fat, 'fiber', ri.fiber, 'sugar', ri.sugar, 'sodium_mg', ri.sodium_mg
               ) ORDER BY ri.id) FILTER (WHERE ri.id IS NOT NULL), '[]'::json) AS ingredients
        FROM recipes r LEFT JOIN recipe_ingredients ri ON ri.recipe_id = r.id
        WHERE r.id = $1 GROUP BY r.id`,
@@ -249,9 +257,13 @@ router.post('/:id/log', requireAuth(), async (req, res, next) => {
     const totalServings = Math.max(parseFloat(r.servings) || 1, 0.01)
     const servingsEaten = Math.max(parseFloat(servings) || 1, 0.01)
 
+    const scaledSugar    = r.sugar     != null ? +(r.sugar     / totalServings * servingsEaten).toFixed(1) : null
+    const scaledSodium   = r.sodium_mg != null ? +(r.sodium_mg / totalServings * servingsEaten).toFixed(1) : null
+    const micronutrients = scaledSodium != null ? JSON.stringify({ sodium_mg: scaledSodium }) : null
+
     const { rows: [meal] } = await pool.query(
-      `INSERT INTO meals (user_id, meal_name, calories, protein, carbs, fat, fiber, meal_slot, log_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO meals (user_id, meal_name, calories, protein, carbs, fat, fiber, sugar, micronutrients, meal_slot, log_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
       [
         dbUserId, r.name,
@@ -260,6 +272,8 @@ router.post('/:id/log', requireAuth(), async (req, res, next) => {
         r.carbs    != null ? +(r.carbs    / totalServings * servingsEaten).toFixed(1) : null,
         r.fat      != null ? +(r.fat      / totalServings * servingsEaten).toFixed(1) : null,
         r.fiber    != null ? +(r.fiber    / totalServings * servingsEaten).toFixed(1) : null,
+        scaledSugar,
+        micronutrients,
         meal_slot ?? null,
         log_date ?? null,
       ],
