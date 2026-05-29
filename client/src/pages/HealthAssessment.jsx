@@ -211,9 +211,14 @@ const EMPTY_FORM = {
   first_name: '', last_name: '', phone: '',
   street_address: '', city: '', state: '', zip_code: '', country: 'United States',
   date_of_birth: '', shirt_size: '',
+  // S1 — physical stats (saved to users table, not health_assessments)
+  gender: '', height_feet: '5', height_in: '4',
+  starting_weight_lbs: '', goal_weight_lbs: '',
   // S2
   supplements: '', goals_6_months: '', injuries_limitations: '',
   num_kids: '', occupation: '',
+  // S2 — food preferences (saved to users table, not health_assessments)
+  food_allergies: '', food_dislikes: '',
   // S3
   energy_level: null, sleep_hours: '', stress_management: null,
   sleep_quality: null, daily_water: '', alcohol_weekdays: '0',
@@ -237,6 +242,10 @@ function validateSection(section, form) {
     if (!form.country.trim())        return 'Please add your country.'
     if (!form.date_of_birth)         return 'Please add your date of birth.'
     if (!form.shirt_size)            return 'Please choose a shirt size.'
+    if (!form.gender)                return 'Please select your biological sex — it\'s required for your calorie calculations.'
+    const wt = Number(form.starting_weight_lbs)
+    if (!form.starting_weight_lbs || !Number.isFinite(wt) || wt <= 0)
+      return 'Please enter your current weight in lbs.'
     return null
   }
   if (section === 2) {
@@ -297,7 +306,7 @@ export default function HealthAssessment() {
     async function load() {
       try {
         const token = await getToken()
-        const [res, meRes] = await Promise.all([
+        const [assessRes, meRes] = await Promise.all([
           fetch(`${API_URL}/api/health-assessment/me`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
@@ -305,42 +314,59 @@ export default function HealthAssessment() {
             headers: { Authorization: `Bearer ${token}` },
           }),
         ])
-        if (meRes.ok) {
-          const meData = await meRes.json()
-          setCoachingType(meData.coaching_type ?? null)
-        }
-        if (res.ok) {
-          const data = await res.json()
-          if (data) {
-            setForm({
-              first_name:     data.first_name     ?? '',
-              last_name:      data.last_name      ?? '',
-              phone:          data.phone          ?? '',
-              street_address: data.street_address ?? '',
-              city:           data.city           ?? '',
-              state:          data.state          ?? '',
-              zip_code:       data.zip_code       ?? '',
-              country:        data.country        ?? 'United States',
-              date_of_birth:  data.date_of_birth  ? data.date_of_birth.slice(0, 10) : '',
-              shirt_size:     data.shirt_size     ?? '',
-              supplements:          data.supplements          ?? '',
-              goals_6_months:       data.goals_6_months       ?? '',
-              injuries_limitations: data.injuries_limitations ?? '',
-              num_kids:             data.num_kids             != null ? String(data.num_kids) : '',
-              occupation:           data.occupation           ?? '',
-              energy_level:         data.energy_level         ?? null,
-              sleep_hours:          data.sleep_hours          ?? '',
-              stress_management:    data.stress_management    ?? null,
-              sleep_quality:        data.sleep_quality        ?? null,
-              daily_water:          data.daily_water          ?? '',
-              alcohol_weekdays:     data.alcohol_weekdays     != null ? String(data.alcohol_weekdays) : '0',
-              alcohol_weekends:     data.alcohol_weekends     != null ? String(data.alcohol_weekends) : '0',
-              happiness_level:      data.happiness_level      ?? null,
-              confidence_level:     data.confidence_level     ?? null,
-              activity_level:       data.activity_level       ?? '',
-              identity_traits:      Array.isArray(data.identity_traits) ? data.identity_traits : [],
-            })
-          }
+
+        // Parse both responses before touching state so we can merge in one setForm call.
+        let meData     = null
+        let assessData = null
+        if (meRes.ok)    meData     = await meRes.json()
+        if (assessRes.ok) assessData = await assessRes.json()
+
+        if (meData) setCoachingType(meData.coaching_type ?? null)
+
+        // Merge: assessment fields come from health_assessments; physical-stats and
+        // food-preference fields come from users (they are not stored in health_assessments).
+        if (assessData || meData) {
+          setForm({
+            // ── health_assessments fields ──
+            first_name:     assessData?.first_name     ?? '',
+            last_name:      assessData?.last_name      ?? '',
+            phone:          assessData?.phone          ?? '',
+            street_address: assessData?.street_address ?? '',
+            city:           assessData?.city           ?? '',
+            state:          assessData?.state          ?? '',
+            zip_code:       assessData?.zip_code       ?? '',
+            country:        assessData?.country        ?? 'United States',
+            date_of_birth:  assessData?.date_of_birth  ? assessData.date_of_birth.slice(0, 10) : '',
+            shirt_size:           assessData?.shirt_size           ?? '',
+            supplements:          assessData?.supplements          ?? '',
+            goals_6_months:       assessData?.goals_6_months       ?? '',
+            injuries_limitations: assessData?.injuries_limitations ?? '',
+            num_kids:             assessData?.num_kids != null ? String(assessData.num_kids) : '',
+            occupation:           assessData?.occupation           ?? '',
+            energy_level:         assessData?.energy_level         ?? null,
+            sleep_hours:          assessData?.sleep_hours          ?? '',
+            stress_management:    assessData?.stress_management    ?? null,
+            sleep_quality:        assessData?.sleep_quality        ?? null,
+            daily_water:          assessData?.daily_water          ?? '',
+            alcohol_weekdays:     assessData?.alcohol_weekdays != null ? String(assessData.alcohol_weekdays) : '0',
+            alcohol_weekends:     assessData?.alcohol_weekends != null ? String(assessData.alcohol_weekends) : '0',
+            happiness_level:      assessData?.happiness_level      ?? null,
+            confidence_level:     assessData?.confidence_level     ?? null,
+            activity_level:       assessData?.activity_level       ?? '',
+            identity_traits:      Array.isArray(assessData?.identity_traits) ? assessData.identity_traits : [],
+            // ── users-table fields (physical stats + food prefs) ──
+            gender:              meData?.gender ?? '',
+            height_feet:         meData?.height_inches != null
+                                   ? String(Math.floor(meData.height_inches / 12)) : '5',
+            height_in:           meData?.height_inches != null
+                                   ? String(meData.height_inches % 12) : '4',
+            starting_weight_lbs: meData?.starting_weight_lbs != null
+                                   ? String(meData.starting_weight_lbs) : '',
+            goal_weight_lbs:     meData?.goal_weight_lbs != null
+                                   ? String(meData.goal_weight_lbs) : '',
+            food_allergies:      meData?.food_allergies ?? '',
+            food_dislikes:       meData?.food_dislikes  ?? '',
+          })
         }
       } catch {
         // silent — pre-fill is best-effort
@@ -394,6 +420,21 @@ export default function HealthAssessment() {
     }
   }
 
+  // Save physical-stats and food-pref fields directly to users table (non-blocking).
+  // These fields are not stored in health_assessments — they live in users.
+  async function saveUsersProfile(payload) {
+    try {
+      const token = await getToken()
+      await fetch(`${API_URL}/api/users/me`, {
+        method:  'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload),
+      })
+    } catch {
+      // autosave failure is silent
+    }
+  }
+
   // ── Step navigation ──────────────────────────────────────────────────────────
 
   function handleWelcomeStart() {
@@ -416,6 +457,14 @@ export default function HealthAssessment() {
       date_of_birth:  form.date_of_birth,
       shirt_size:     form.shirt_size,
     })
+    // Physical stats go directly to users table (not stored in health_assessments)
+    const height_inches = parseInt(form.height_feet, 10) * 12 + parseInt(form.height_in, 10)
+    saveUsersProfile({
+      gender:              form.gender || null,
+      height_inches:       height_inches > 0 ? height_inches : null,
+      starting_weight_lbs: form.starting_weight_lbs ? Number(form.starting_weight_lbs) : null,
+      goal_weight_lbs:     form.goal_weight_lbs     ? Number(form.goal_weight_lbs)      : null,
+    })
     setValidation(null)
     setStep(2)
   }
@@ -429,6 +478,11 @@ export default function HealthAssessment() {
       injuries_limitations: form.injuries_limitations.trim(),
       num_kids:             Number(form.num_kids),
       occupation:           form.occupation.trim(),
+    })
+    // Food preferences go directly to users table (not stored in health_assessments)
+    saveUsersProfile({
+      food_allergies: form.food_allergies,
+      food_dislikes:  form.food_dislikes,
     })
     setValidation(null)
     setStep(3)
@@ -607,6 +661,68 @@ export default function HealthAssessment() {
                 <Field label="Shirt size">
                   <ButtonGroup value={form.shirt_size} onChange={setVal('shirt_size')} options={SHIRT_SIZES} />
                 </Field>
+
+                {/* ── Physical stats for TDEE / Katie context ── */}
+                <Field label="Biological sex" hint="Used to calculate your calorie and macro targets.">
+                  <div className="flex gap-3">
+                    {['Female', 'Male'].map(g => (
+                      <button
+                        key={g}
+                        type="button"
+                        onClick={() => { setForm(f => ({ ...f, gender: g.toLowerCase() })); if (validation) setValidation(null) }}
+                        className={`flex-1 py-3 rounded-xl text-sm font-semibold border-2 transition-all min-h-[44px] ${
+                          form.gender === g.toLowerCase()
+                            ? 'bg-[#E8670A] border-[#E8670A] text-white shadow-sm'
+                            : 'border-gray-200 text-gray-600 hover:border-[#E8670A] hover:text-[#E8670A] bg-white'
+                        }`}
+                      >
+                        {g}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+
+                <Field label="Height">
+                  <div className="grid grid-cols-2 gap-3">
+                    <select
+                      value={form.height_feet}
+                      onChange={set('height_feet')}
+                      className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
+                    >
+                      {[4, 5, 6, 7].map(f => (
+                        <option key={f} value={f}>{f} ft</option>
+                      ))}
+                    </select>
+                    <select
+                      value={form.height_in}
+                      onChange={set('height_in')}
+                      className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
+                    >
+                      {Array.from({ length: 12 }, (_, i) => i).map(i => (
+                        <option key={i} value={i}>{i} in</option>
+                      ))}
+                    </select>
+                  </div>
+                </Field>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Current weight (lbs)">
+                    <TextInput
+                      value={form.starting_weight_lbs}
+                      onChange={set('starting_weight_lbs')}
+                      type="number"
+                      placeholder="165"
+                    />
+                  </Field>
+                  <Field label="Goal weight (lbs)" hint="Optional">
+                    <TextInput
+                      value={form.goal_weight_lbs}
+                      onChange={set('goal_weight_lbs')}
+                      type="number"
+                      placeholder="145"
+                    />
+                  </Field>
+                </div>
               </div>
             </div>
             <div className="px-6 py-4 border-t border-gray-100">
@@ -668,6 +784,24 @@ export default function HealthAssessment() {
                     value={form.injuries_limitations}
                     onChange={set('injuries_limitations')}
                     placeholder="e.g. Lower back issues, knee surgery in 2022, none…"
+                    rows={2}
+                  />
+                </Field>
+
+                <Field label="Food allergies &amp; intolerances" hint="Leave blank if none. Katie will never suggest foods that trigger you.">
+                  <TextArea
+                    value={form.food_allergies}
+                    onChange={set('food_allergies')}
+                    placeholder="e.g. dairy, gluten, shellfish, tree nuts…"
+                    rows={2}
+                  />
+                </Field>
+
+                <Field label="Foods I dislike" hint="Leave blank if none. Katie will avoid these in meal plans.">
+                  <TextArea
+                    value={form.food_dislikes}
+                    onChange={set('food_dislikes')}
+                    placeholder="e.g. mushrooms, fish, Brussels sprouts…"
                     rows={2}
                   />
                 </Field>
