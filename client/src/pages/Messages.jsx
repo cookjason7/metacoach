@@ -8,10 +8,15 @@ import { useVoiceRecorder } from '../hooks/useVoiceRecorder.js'
 // ai_coach, proactive_ai, and any other automated threads are intentionally excluded.
 const HUMAN_THREAD_TYPES = ['admin_private', 'coach_thread', 'ai_admin']
 
-function getThreadMeta(threadType, coachName) {
+function getThreadMeta(threadType, coachName, isAiClient = false) {
   if (threadType === 'admin_private') return { title: 'Jason Cook',              icon: '💬', subtitle: 'Messages with Jason Cook',                 canReply: true }
   if (threadType === 'coach_thread')  return { title: coachName || 'Your Coach', icon: '💬', subtitle: `Messages with ${coachName || 'your coach'}`, canReply: true }
-  if (threadType === 'ai_admin')      return { title: 'Your Team',               icon: '💬', subtitle: 'Messages from your coaching team',         canReply: true }
+  if (threadType === 'ai_admin')      return {
+    title:    isAiClient ? 'Support'    : 'Your Team',
+    icon:     '💬',
+    subtitle: isAiClient ? 'Send a message to the coaching team' : 'Messages from your coaching team',
+    canReply: true,
+  }
   return { title: threadType, icon: '💬', subtitle: '', canReply: true }
 }
 
@@ -183,6 +188,7 @@ export default function Messages() {
   const { getToken } = useAuth()
   const [isStaff,     setIsStaff]     = useState(null) // null = loading
   const [staffRole,   setStaffRole]   = useState(null) // 'admin' | 'coach' | null
+  const [coachingType, setCoachingType] = useState(null) // 'vip' | 'ai' | null
   const [threads,     setThreads]     = useState([])
   const [coachName,   setCoachName]   = useState(null)
   const [active,      setActive]      = useState(null)  // thread_type string
@@ -269,6 +275,7 @@ export default function Messages() {
           const data = await res.json()
           setIsStaff(data.role === 'admin' || data.role === 'coach')
           setStaffRole(data.role ?? null)
+          setCoachingType(data.coaching_type ?? 'vip')
         } else {
           setIsStaff(false)
         }
@@ -434,13 +441,22 @@ export default function Messages() {
   }
 
   // ── Client UI ─────────────────────────────────────────────────────────────
-  const activeMeta = active ? getThreadMeta(active, coachName) : null
+  const isAiClient = !isStaff && coachingType === 'ai'
+  // Pass isAiClient so ai_admin thread shows "Support" label, not "Your Team"
+  const activeMeta  = active ? getThreadMeta(active, coachName, isAiClient) : null
+  const displayMeta = activeMeta
 
   return (
     <div className="max-w-5xl">
       <div className="mb-5">
-        <h1 className="text-2xl font-bold text-gray-900">Messages</h1>
-        <p className="text-sm text-gray-500">Chat with your coach and the team.</p>
+        <h1 className="text-2xl font-bold text-gray-900">
+          {isAiClient ? 'Support' : 'Messages'}
+        </h1>
+        <p className="text-sm text-gray-500">
+          {isAiClient
+            ? 'Message the coaching team. We’ll get back to you soon.'
+            : 'Chat with your coach and the team.'}
+        </p>
       </div>
 
       {loading && <p className="text-center text-gray-400 py-12 text-sm">Loading messages…</p>}
@@ -448,7 +464,11 @@ export default function Messages() {
       {!loading && threads.length === 0 && (
         <div className="bg-white border border-gray-200 rounded-xl p-12 text-center">
           <p className="text-4xl mb-3">💬</p>
-          <p className="text-sm text-gray-500">No messages yet. Your coach will reach out soon.</p>
+          <p className="text-sm text-gray-500">
+            {isAiClient
+              ? 'No messages yet. Send a message below and the coaching team will get back to you.'
+              : 'No messages yet. Your coach will reach out soon.'}
+          </p>
         </div>
       )}
 
@@ -458,7 +478,7 @@ export default function Messages() {
           {/* Thread list — hidden on mobile when a conversation is open */}
           <div className={`lg:w-64 shrink-0 space-y-1.5 ${active ? 'hidden lg:block' : 'w-full lg:w-64'}`}>
             {threads.map(t => {
-              const meta     = getThreadMeta(t.thread_type, coachName)
+              const meta     = getThreadMeta(t.thread_type, coachName, isAiClient)
               const isActive = active === t.thread_type
               const hasUnread = Number(t.unread) > 0
               return (
@@ -507,7 +527,7 @@ export default function Messages() {
 
           {/* Conversation pane — full-width on mobile when active */}
           <div className={`flex-1 min-w-0 flex-col bg-white border border-gray-200 rounded-xl overflow-hidden ${active ? 'flex' : 'hidden lg:flex'}`}>
-            {active && activeMeta ? (
+            {active && displayMeta ? (
               <>
                 {/* Header */}
                 <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center gap-3">
@@ -523,9 +543,9 @@ export default function Messages() {
                   </button>
                   <div>
                     <p className="text-sm font-semibold text-gray-900">
-                      {activeMeta.icon} {activeMeta.title}
+                      {displayMeta.icon} {displayMeta.title}
                     </p>
-                    {!activeMeta.canReply && (
+                    {!displayMeta.canReply && (
                       <p className="text-[10px] text-amber-700 mt-0.5">
                         🔒 One-way thread — you cannot reply here.
                       </p>
@@ -590,7 +610,7 @@ export default function Messages() {
                 </div>
 
                 {/* Reply box */}
-                {activeMeta.canReply && (
+                {displayMeta.canReply && (
                   <div className="border-t border-gray-100 p-3 space-y-2">
                     {/* Image preview */}
                     {imgPreview && (
