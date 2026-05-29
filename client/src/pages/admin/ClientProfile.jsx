@@ -45,6 +45,27 @@ function fmtDob(iso) {
   return `${m}/${d}/${y}`
 }
 
+function fmtHeight(inches) {
+  if (inches == null || inches === '') return null
+  const n = Number(inches)
+  if (!Number.isFinite(n) || n <= 0) return null
+  const ft = Math.floor(n / 12)
+  const ins = Math.round(n % 12)
+  return `${ft}'${ins}"`
+}
+
+function fmtActivityLevel(value) {
+  if (!value) return null
+  const map = {
+    sedentary:         'Sedentary',
+    lightly_active:    'Lightly Active',
+    moderately_active: 'Moderately Active',
+    very_active:       'Very Active',
+    extra_active:      'Extra Active',
+  }
+  return map[String(value).trim().toLowerCase()] ?? value
+}
+
 // Client status tag — mirrors computeStatusTag in coachAdmin.js (no API call needed)
 function computeClientStatusTag(client) {
   if (client.client_status === 'invited') return 'Invited'
@@ -231,6 +252,12 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 <InfoRow label="Coaching type"   value={client.coaching_type === 'ai' ? 'AI / Hybrid Coaching' : 'VIP / Human Coaching'} />
                 <InfoRow label="Assigned coach"      value={client.assigned_coach_name} emptyText="Not assigned yet" />
                 <InfoRow label="Starting weight"     value={client.starting_weight_lbs != null ? `${client.starting_weight_lbs} lbs` : null} />
+                <InfoRow label="Goal weight"         value={client.goal_weight_lbs != null ? `${client.goal_weight_lbs} lbs` : null} />
+                <InfoRow label="Height"              value={fmtHeight(client.height_inches)} />
+                <InfoRow label="Gender"              value={client.gender ? client.gender.charAt(0).toUpperCase() + client.gender.slice(1) : null} />
+                <InfoRow label="Activity level"      value={fmtActivityLevel(client.activity_level ?? client.assessment_activity_level)} />
+                <InfoRow label="Food allergies"      value={client.food_allergies || null} />
+                <InfoRow label="Foods disliked"      value={client.food_dislikes || null} />
                 <InfoRow label="Program start date" value={displayStartDate} />
                 <InfoRow label="Program end date"   value={client.program_end_date ? String(client.program_end_date).slice(0, 10) : null} emptyText="Not set" />
                 <InfoRow label="Payment"         value={client.paid ? `✓ Active${client.paid_at ? ` (since ${String(client.paid_at).slice(0,10)})` : ''}` : '○ Not activated'} />
