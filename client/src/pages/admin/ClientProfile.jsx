@@ -3740,14 +3740,13 @@ function MessagingTab({ client, role, getToken }) {
 
   const availableThreads = []
   if (isAI) {
-    if (role === 'admin') {
-      availableThreads.push({ id: 'ai_admin',       label: 'AI ↔ Admin',   icon: '🤖' })
-      availableThreads.push({ id: 'katie_history',  label: 'Katie Chat',   icon: '💬' })
-    }
+    if (role === 'admin') availableThreads.push({ id: 'ai_admin', label: 'AI ↔ Admin', icon: '🤖' })
   } else {
     availableThreads.push({ id: 'coach_thread', label: 'Coach Thread', icon: '💬' })
     if (role === 'admin') availableThreads.push({ id: 'admin_private', label: 'Admin Private', icon: '🔒' })
   }
+  // Katie Chat: available for all client types, admin + coaches (canAccessClient enforced on backend)
+  availableThreads.push({ id: 'katie_history', label: 'Katie Chat', icon: '🤖' })
 
   const isKatieThread = thread === 'katie_history'
 
