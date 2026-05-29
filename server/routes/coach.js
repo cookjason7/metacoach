@@ -487,8 +487,11 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
 
     if (!message && anthropicMessages.length === 0) {
       // Opening: no history, no user message — return hardcoded welcome (no LLM call)
-      const firstName   = user.first_name ?? 'there'
-      const welcomeMsg  = `Hey ${firstName}, welcome to Meta Coach. Your Health Profile is set, and this is where we start building momentum, self-trust, and consistency. Start simple: log your first meal or plan tomorrow's food. Small wins stack.`
+      // VIP clients get a neutral greeting; AI clients get the coaching welcome.
+      const firstName  = user.first_name ?? 'there'
+      const welcomeMsg = user.coaching_type === 'ai'
+        ? `Hey ${firstName}, welcome to Meta Coach. Your Health Profile is set, and this is where we start building momentum, self-trust, and consistency. Start simple: log your first meal or plan tomorrow's food. Small wins stack.`
+        : `Hey ${firstName}! I'm Katie. Your coach leads your program — I'm here if you have questions about the app, food logging, or resources.`
       await pool.query(
         `INSERT INTO coaching_conversations (user_id, role, message) VALUES ($1, 'assistant', $2)`,
         [dbUserId, welcomeMsg],
