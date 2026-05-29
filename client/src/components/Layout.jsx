@@ -57,6 +57,7 @@ export default function Layout() {
   const [quickPhotoPreview,   setQuickPhotoPreview]   = useState(null)
   const quickPhotoInputRef    = useRef(null)
   const quickPhotoGalleryRef  = useRef(null)
+  const quickMenuOpenedAtRef  = useRef(0) // guards against the mobile ghost-click that would instantly re-close the sheet
   const [quickFoodMode, setQuickFoodMode] = useState(null) // 'search'|'barcode'|'photo'|'manual'
 
   function resetQuickExtras() {
@@ -67,12 +68,21 @@ export default function Layout() {
   }
 
   function openQuickMenu() {
+    quickMenuOpenedAtRef.current = Date.now()
     setQuickMenuOpen(true)
     setQuickAction(null)
     setQuickValue('')
     setQuickWaterMode('add')
     setQuickDone(false)
     resetQuickExtras()
+  }
+
+  // Overlay tap-to-close. Ignores the synthetic "ghost click" some mobile
+  // browsers fire from the same tap that opened the sheet (which lands on the
+  // freshly-mounted overlay and would otherwise close it instantly = flicker).
+  function handleQuickOverlayClick() {
+    if (Date.now() - quickMenuOpenedAtRef.current < 350) return
+    closeQuickMenu()
   }
 
   function closeQuickMenu() {
@@ -467,7 +477,7 @@ export default function Layout() {
       {/* Quick-log bottom sheet */}
       {quickMenuOpen && (
         <>
-          <div className="fixed inset-0 z-50 bg-black/40" onClick={closeQuickMenu} />
+          <div className="fixed inset-0 z-50 bg-black/40" onClick={handleQuickOverlayClick} />
           <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl max-h-[calc(100vh-1rem)] overflow-y-auto pb-[env(safe-area-inset-bottom)]">
             {/* drag handle */}
             <div className="flex justify-center pt-3 pb-1">
@@ -532,7 +542,7 @@ export default function Layout() {
                       { id: 'photo',    emoji: '📸', label: 'Progress Photo' },
                       { id: 'sleep',    emoji: '😴', label: 'Sleep'          },
                       { id: 'activity', emoji: '🏃', label: 'Activity'       },
-                      ...(bloodworkEnabled ? [{ id: 'bloodwork', emoji: 'Lab', label: 'Upload Bloodwork' }] : []),
+                      ...(bloodworkEnabled ? [{ id: 'bloodwork', emoji: '🩸', label: 'Upload Bloodwork' }] : []),
                     ].map(({ id, emoji, label }) => (
                       <button
                         key={id}
