@@ -587,7 +587,7 @@ export default function HealthAssessment() {
                 <span className="text-[#E8670A] text-lg mt-0.5">✓</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-900">Only takes 3 minutes</p>
-                  <p className="text-xs text-gray-500">3 short sections. Your progress is saved as you go.</p>
+                  <p className="text-xs text-gray-500">4 short sections. Your progress is saved as you go.</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -657,8 +657,8 @@ export default function HealthAssessment() {
                   </Field>
                 </div>
 
-                <Field label="Date of birth" hint="MM/DD/YYYY or YYYY-MM-DD">
-                  <TextInput value={form.date_of_birth} onChange={set('date_of_birth')} placeholder="MM/DD/YYYY" />
+                <Field label="Date of birth">
+                  <TextInput value={form.date_of_birth} onChange={set('date_of_birth')} type="date" />
                 </Field>
 
                 <Field label="Shirt size">

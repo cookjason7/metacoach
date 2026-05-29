@@ -195,14 +195,6 @@ export default function Layout() {
       const data = await res.json()
       const adminStatus = data.role === 'admin'
       const staffStatus = adminStatus || data.role === 'coach'
-      // Debug logging — verify admin status loads correctly
-      console.log('[layout]',
-        'email=', user?.primaryEmailAddress?.emailAddress,
-        'role=', data.role,
-        'isAdmin=', adminStatus,
-        'isStaff=', staffStatus,
-        'coaching_type=', data.coaching_type,
-      )
       setIsAdmin(adminStatus)
       setIsStaff(staffStatus)
       setCoachingType(data.coaching_type ?? 'vip')
