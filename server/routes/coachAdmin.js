@@ -2205,6 +2205,28 @@ router.get('/clients/:id/thread-types', requireAuth(), async (req, res, next) =>
   } catch (err) { next(err) }
 })
 
+// GET /api/coach-admin/clients/:id/katie-history — read-only AI Katie conversation for staff
+// Admin sees all; coaches see only if canAccessClient passes (assigned clients).
+// Returns coaching_conversations rows — completely separate from client_messages.
+router.get('/clients/:id/katie-history', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId = parseInt(req.params.id, 10)
+    if (isNaN(clientId)) return res.status(400).json({ error: 'Invalid id' })
+    if (!await canAccessClient(ctx, clientId)) return res.status(403).json({ error: 'Forbidden' })
+
+    const { rows } = await pool.query(
+      `SELECT role, message, is_proactive, proactive_trigger, created_at
+       FROM coaching_conversations
+       WHERE user_id = $1
+       ORDER BY created_at ASC
+       LIMIT 100`,
+      [clientId],
+    )
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
 // ─── Weekly Check-Ins ─────────────────────────────────────────────────────────
 
 // GET /api/coach-admin/clients/:id/checkins — staff views client's check-in history
