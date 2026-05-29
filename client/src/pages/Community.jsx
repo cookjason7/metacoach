@@ -48,8 +48,8 @@ const REACTIONS = [
 
 const CATEGORIES = ['General Discussion', 'Non-Scale Victories']
 
-function normalizeChannel(ct) {
-  return (ct === 'ai' || ct === 'hybrid') ? 'ai' : 'vip'
+function normalizeChannel(_ct) {
+  return 'vip'  // one shared community for all coaching types
 }
 
 const CATEGORY_STYLES = {

@@ -9,7 +9,7 @@ const router = Router()
 const anthropic = new Anthropic()
 
 // ── Katie system prompt ───────────────────────────────────────────────────────
-const KATIE_BASE_PROMPT = `You are Katie, the AI coaching engine inside MetaCoach, built on the Life Warrior Coaching methodology. You are not a chatbot. You are not a calorie counter. You are a coach.
+const KATIE_BASE_PROMPT = `You are Katie, the AI coaching support inside MetaCoach, built on the Life Warrior Coaching methodology. You are not a chatbot. You are not a calorie counter. You are a coach.
 
 Your coaching philosophy: Identity first. Behavior second. Data third.
 
@@ -200,6 +200,7 @@ WHAT KATIE NEVER SAYS
 • "mess" or any word that frames her situation negatively
 • Em dashes (—) of any kind. Never. Use a period or comma instead.
 • Any sign-off or signature of any kind, including "- Katie" or "Katie" at the end of a message
+• The phrases "AI coaching" or "Hybrid coaching" when describing the client's service. Say "your coaching support" instead.
 • Any motivational speech longer than 2 sentences
 • Multiple instructions in one message
 • Anything that sounds like a generic fitness app
@@ -288,7 +289,7 @@ RULE V3. NO ASCENSION LANGUAGE
 Do not mention "book a call," vip.lwcvip.com/calendar, or any VIP upgrade language. She is already a VIP client. Never suggest upgrading or getting one-on-one coaching.
 
 RULE V4. NO UPSELL
-Do not plant seeds about the coaching program. Do not reference what the program offers. Do not compare AI coaching to her current experience.
+Do not plant seeds about the coaching program. Do not reference what the program offers. Do not compare coaching programs or reference what type of coaching she has.
 
 RULE V5. HUMAN COACH DEFERENCE
 For anything that requires deep personalization (custom macro targets, specific supplement protocols, medical questions), say: "That's a great one to bring up with your coach, who can personalize it to exactly where you are right now." Then still give a general helpful answer.
@@ -493,7 +494,7 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
       // Opening: no history, no user message — return hardcoded welcome (no LLM call)
       // VIP clients get a neutral greeting; AI clients get the coaching welcome.
       const firstName  = user.first_name ?? 'there'
-      const welcomeMsg = user.coaching_type === 'ai'
+      const welcomeMsg = user.coaching_type !== 'vip'
         ? `Hey ${firstName}, welcome to Meta Coach. Your Health Profile is set, and this is where we start building momentum, self-trust, and consistency. Start simple: log your first meal or plan tomorrow's food. Small wins stack.`
         : `Hey ${firstName}! I'm Katie. Your coach leads your program — I'm here if you have questions about the app, food logging, or resources.`
       await pool.query(
@@ -629,12 +630,12 @@ router.post('/check-proactive', requireAuth(), async (req, res, next) => {
     const { userId } = getAuth(req)
     const dbUserId   = await getOrCreateUser(userId)
 
-    // ── VIP gate: proactive messages only for AI coaching clients ───────────
+    // ── VIP gate: proactive messages only for hybrid/ai clients ────────────
     const { rows: typeRows } = await pool.query(
       'SELECT coaching_type FROM users WHERE id = $1',
       [dbUserId],
     )
-    if (typeRows[0]?.coaching_type !== 'ai') {
+    if (typeRows[0]?.coaching_type === 'vip') {
       return res.json({ generated: false, reason: 'vip_client' })
     }
 
