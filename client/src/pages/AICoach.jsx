@@ -3,6 +3,12 @@ import { useAuth } from '@clerk/clerk-react'
 import { linkify } from '../utils/linkify'
 import { API_URL } from '../config.js'
 
+// Monotonically-increasing ID avoids Date.now() collisions between the
+// optimistic user bubble and the assistant streaming bubble created in the
+// same millisecond tick.
+let _msgId = 0
+const nextMsgId = () => ++_msgId
+
 function MessageBubble({ role, content }) {
   const isKatie = role === 'assistant'
   return (
@@ -47,7 +53,7 @@ export default function AICoach() {
     setStreaming(true)
     setError(null)
 
-    const bubbleId = Date.now()
+    const bubbleId = nextMsgId()
     setMessages(prev => [...prev, { id: bubbleId, role: 'assistant', content: '' }])
 
     try {
@@ -162,7 +168,7 @@ export default function AICoach() {
     const text = (overrideText ?? input).trim()
     if (!text || streaming) return
     setInput('')
-    setMessages(prev => [...prev, { id: Date.now(), role: 'user', content: text }])
+    setMessages(prev => [...prev, { id: nextMsgId(), role: 'user', content: text }])
     await streamResponse(text)
   }
 

@@ -41,8 +41,8 @@ async function checkAdmin(req, res) {
   return dbUserId
 }
 
-function normalizeChannel(ct) {
-  return (ct === 'ai' || ct === 'hybrid') ? 'ai' : 'vip'
+function normalizeChannel(_ct) {
+  return 'vip'  // one shared community for all coaching types
 }
 
 async function getUserContext(userId) {

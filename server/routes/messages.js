@@ -100,7 +100,7 @@ async function listThreadsForClient(dbUserId, coachingType) {
   // Inject available threads even if no messages yet so UI can show them
   const existing = new Set(rows.map(r => r.thread_type))
   const all = []
-  if (coachingType === 'ai') {
+  if (coachingType !== 'vip') {
     if (!existing.has('ai_admin')) all.push({ thread_type: 'ai_admin', unread: 0, last_message_at: null, last_message_body: null })
   } else {
     if (!existing.has('coach_thread')) all.push({ thread_type: 'coach_thread', unread: 0, last_message_at: null, last_message_body: null })
@@ -182,12 +182,12 @@ router.get('/thread/:threadType', requireAuth(), async (req, res, next) => {
     const ctx = await getClientContext(req)
     const thread = req.params.threadType
 
-    // AI thread only for AI clients; coach_thread only for VIP
-    if (thread === 'ai_admin' && ctx.coaching_type !== 'ai') {
-      return res.status(403).json({ error: 'Not an AI coaching client' })
+    // ai_admin thread for hybrid/ai clients; coach_thread for VIP only
+    if (thread === 'ai_admin' && ctx.coaching_type === 'vip') {
+      return res.status(403).json({ error: 'Not available for VIP clients' })
     }
-    if (thread === 'coach_thread' && ctx.coaching_type === 'ai') {
-      return res.status(403).json({ error: 'Not available for AI coaching clients' })
+    if (thread === 'coach_thread' && ctx.coaching_type !== 'vip') {
+      return res.status(403).json({ error: 'Not available for non-VIP clients' })
     }
 
     const limit = Math.min(parseInt(req.query.limit) || 50, 200)
@@ -245,11 +245,11 @@ router.post('/thread/:threadType', requireAuth(), async (req, res, next) => {
     if (!['admin_private', 'coach_thread', 'ai_admin'].includes(thread)) {
       return res.status(400).json({ error: 'Invalid message thread' })
     }
-    if (thread === 'ai_admin' && ctx.coaching_type !== 'ai') {
-      return res.status(403).json({ error: 'Not an AI coaching client' })
+    if (thread === 'ai_admin' && ctx.coaching_type === 'vip') {
+      return res.status(403).json({ error: 'Not available for VIP clients' })
     }
-    if (thread === 'coach_thread' && ctx.coaching_type === 'ai') {
-      return res.status(403).json({ error: 'Not available for AI coaching clients' })
+    if (thread === 'coach_thread' && ctx.coaching_type !== 'vip') {
+      return res.status(403).json({ error: 'Not available for non-VIP clients' })
     }
 
     const visibility = 'client_and_staff'

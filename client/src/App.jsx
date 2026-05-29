@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '@clerk/clerk-react'
 import Layout from './components/Layout'
 import SignInPage from './pages/SignIn'
@@ -69,6 +69,8 @@ function ProtectedLayout() {
 
   const [userState, setUserState] = useState(userStateCache)
   const [checking, setChecking] = useState(userStateCache === null)
+  const [fetchError, setFetchError] = useState(false)
+  const [retryCount, setRetryCount] = useState(0)
 
   useEffect(() => {
     if (!isLoaded) return
@@ -101,27 +103,47 @@ function ProtectedLayout() {
           paid: !!data.paid,
           role: data.role ?? null,
         }
-      } catch {
-        userStateCache = { onboardingComplete: true, assessmentComplete: true, paid: true, role: null }
-      } finally {
         if (!cancelled) {
           setUserState(userStateCache)
+          setChecking(false)
+        }
+      } catch {
+        if (!cancelled) {
+          setFetchError(true)
           setChecking(false)
         }
       }
     }
     check()
     return () => { cancelled = true }
-  }, [isLoaded, isSignedIn, getToken])
+  }, [isLoaded, isSignedIn, getToken, retryCount])
 
   if (!isLoaded) return <LoadingScreen />
   if (!isSignedIn) return <Navigate to="/sign-in" replace />
   if (checking) return <LoadingScreen />
+  if (fetchError) return (
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center gap-4 p-6">
+      <p className="text-sm text-gray-600 text-center">Unable to connect. Please check your connection and try again.</p>
+      <button
+        onClick={() => { userStateCache = null; setFetchError(false); setChecking(true); setRetryCount(c => c + 1) }}
+        className="px-5 py-2.5 bg-[#E8670A] hover:bg-[#d45a08] text-white text-sm font-semibold rounded-xl transition-colors"
+      >
+        Try Again
+      </button>
+    </div>
+  )
   const isPrivileged = ['admin', 'staff', 'coach'].includes(userState?.role)
   if (!isPrivileged && !userState?.assessmentComplete) return <Navigate to="/health-assessment" replace />
   // Payment gate disabled — open access
   // if (!userState?.paid) return <Navigate to="/payment" replace />
   return <Layout />
+}
+
+function AdminRoute() {
+  if (!['admin', 'staff', 'coach'].includes(userStateCache?.role)) {
+    return <Navigate to="/dashboard" replace />
+  }
+  return <Outlet />
 }
 
 function OnboardingRoute() {
@@ -177,12 +199,14 @@ export default function App() {
           <Route path="/messages"     element={<Messages />} />
           <Route path="/weekly-checkin"      element={<Navigate to="/dashboard" replace />} />
           <Route path="/forms/:id/fill"        element={<FormFill />} />
-          <Route path="/admin"               element={<Admin />} />
-          <Route path="/admin/clients"       element={<ClientList />} />
-          <Route path="/admin/clients/:id"   element={<ClientProfile />} />
-          <Route path="/admin/forms"         element={<FormsList />} />
-          <Route path="/admin/forms/:id/edit" element={<FormBuilder />} />
-          <Route path="/admin/usage"         element={<UsageAnalytics />} />
+          <Route element={<AdminRoute />}>
+            <Route path="/admin"               element={<Admin />} />
+            <Route path="/admin/clients"       element={<ClientList />} />
+            <Route path="/admin/clients/:id"   element={<ClientProfile />} />
+            <Route path="/admin/forms"         element={<FormsList />} />
+            <Route path="/admin/forms/:id/edit" element={<FormBuilder />} />
+            <Route path="/admin/usage"         element={<UsageAnalytics />} />
+          </Route>
         </Route>
       </Routes>
     </BrowserRouter>
