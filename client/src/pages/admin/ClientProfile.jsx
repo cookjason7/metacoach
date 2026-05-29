@@ -249,7 +249,7 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                     <p className="text-sm font-medium text-amber-600">No Health Assessment on File</p>
                   </div>
                 )}
-                <InfoRow label="Coaching type"   value={client.coaching_type === 'ai' ? 'AI / Hybrid Coaching' : 'VIP / Human Coaching'} />
+                <InfoRow label="Coaching type"   value={client.coaching_type === 'ai' ? 'AI Coaching' : 'VIP / Human Coaching'} />
                 <InfoRow label="Assigned coach"      value={client.assigned_coach_name} emptyText="Not assigned yet" />
                 <InfoRow label="Starting weight"     value={client.starting_weight_lbs != null ? `${client.starting_weight_lbs} lbs` : null} />
                 <InfoRow label="Goal weight"         value={client.goal_weight_lbs != null ? `${client.goal_weight_lbs} lbs` : null} />
@@ -298,7 +298,7 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 <select value={form.coaching_type} onChange={e => setForm(f => ({ ...f, coaching_type: e.target.value }))}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
                   <option value="vip">VIP / Human Coaching</option>
-                  <option value="ai">AI / Hybrid Coaching</option>
+                  <option value="ai">AI Coaching</option>
                 </select>
               </div>
               <div>

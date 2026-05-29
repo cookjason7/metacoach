@@ -28,7 +28,6 @@ const STAFF_NAV_ITEMS = [
 ]
 
 const SIDEBAR_BG = '#0F1E35'
-const BLOODWORK_CLIENT_ENABLED = import.meta.env.VITE_BLOODWORK_CLIENT_ENABLED === 'true'
 
 export default function Layout() {
   const { user, isLoaded } = useUser()
@@ -39,6 +38,7 @@ export default function Layout() {
   const [isAdmin,      setIsAdmin]      = useState(false)
   const [isStaff,      setIsStaff]      = useState(false)
   const [coachingType, setCoachingType] = useState(null) // 'vip' | 'ai' — null until loaded
+  const [bloodworkEnabled, setBloodworkEnabled] = useState(false) // per-client flag from /api/users/me
   const [notifCount,   setNotifCount]   = useState(0)
   const [katieUnread,  setKatieUnread]  = useState(0)
   const [msgUnread,    setMsgUnread]    = useState(0)
@@ -198,6 +198,7 @@ export default function Layout() {
       setIsAdmin(adminStatus)
       setIsStaff(staffStatus)
       setCoachingType(data.coaching_type ?? 'vip')
+      setBloodworkEnabled(data.bloodwork_enabled === true)
     } catch (err) {
       console.error('[layout] fetchRole error:', err)
     }
@@ -531,7 +532,7 @@ export default function Layout() {
                       { id: 'photo',    emoji: '📸', label: 'Progress Photo' },
                       { id: 'sleep',    emoji: '😴', label: 'Sleep'          },
                       { id: 'activity', emoji: '🏃', label: 'Activity'       },
-                      ...(BLOODWORK_CLIENT_ENABLED ? [{ id: 'bloodwork', emoji: 'Lab', label: 'Upload Bloodwork' }] : []),
+                      ...(bloodworkEnabled ? [{ id: 'bloodwork', emoji: 'Lab', label: 'Upload Bloodwork' }] : []),
                     ].map(({ id, emoji, label }) => (
                       <button
                         key={id}

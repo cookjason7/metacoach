@@ -2356,7 +2356,7 @@ export default function Community() {
   //                 Brain Mapping is sidebar-only (?tab=mindset); not a client tab
   const TABS = isStaff ? [
     { id: 'vip',       label: 'VIP Chat' },
-    { id: 'ai',        label: 'AI/Hybrid Chat' },
+    { id: 'ai',        label: 'AI Chat' },
     { id: 'mindset',   label: 'Brain Mapping' },
     { id: 'resources', label: 'Resources' },
   ] : [

@@ -209,8 +209,6 @@ const EMPTY_ASSESSMENT = {
   activity_level: '',
 }
 
-const BLOODWORK_CLIENT_ENABLED = import.meta.env.VITE_BLOODWORK_CLIENT_ENABLED === 'true'
-
 function BloodworkSection({ getToken, profile }) {
   const [uploads, setUploads] = useState([])
   const [loadingList, setLoadingList] = useState(true)
@@ -440,8 +438,8 @@ export default function Settings() {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search)
-    if (params.get('section') === 'bloodwork' && BLOODWORK_CLIENT_ENABLED) setBloodworkOpen(true)
-  }, [location.search])
+    if (params.get('section') === 'bloodwork' && profile?.bloodwork_enabled) setBloodworkOpen(true)
+  }, [location.search, profile])
 
   useEffect(() => {
     let cancelled = false
@@ -1270,7 +1268,7 @@ export default function Settings() {
             </a>
           </div>
 
-          {BLOODWORK_CLIENT_ENABLED && (
+          {profile?.bloodwork_enabled && (
             <div className="bg-white rounded-xl border border-gray-200 mb-8 overflow-hidden">
               <button
                 type="button"
