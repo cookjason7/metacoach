@@ -122,17 +122,50 @@ router.post('/', requireAuth(), async (req, res, next) => {
 
     // On final submit: mark assessment complete and promote 'invited' → 'active'.
     // Only 'invited' users are promoted — archived/deleted stay untouched.
+    // Also backfill users table with assessment data only where users fields are blank,
+    // so Katie and the admin profile reflect real data from day one.
     if (completed) {
+      // The final submit only sends { identity_traits, completed: true }.
+      // All other fields were autosaved in earlier section calls and are in rows[0].
+      // Read backfill values from the returned assessment row, not from req.body.
+      const aRow = rows[0]
+
+      // Compute age from the saved date_of_birth.
+      // Returns null if DOB is missing or unparseable — safe as a COALESCE arg.
+      const computedAge = (() => {
+        const dob = aRow.date_of_birth
+        if (!dob) return null
+        const birth = new Date(dob)
+        if (Number.isNaN(birth.getTime())) return null
+        const today = new Date()
+        let years = today.getFullYear() - birth.getFullYear()
+        const m = today.getMonth() - birth.getMonth()
+        if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) years -= 1
+        return years > 0 ? years : null
+      })()
+
       await pool.query(
         `UPDATE users
          SET assessment_complete = TRUE,
-             start_date = COALESCE(start_date, CURRENT_DATE),
+             start_date    = COALESCE(start_date, CURRENT_DATE),
              client_status = CASE
                WHEN client_status = 'invited' THEN 'active'
                ELSE client_status
-             END
+             END,
+             -- Backfill profile fields from the assessment row only when users fields are blank.
+             -- Existing non-blank values are never overwritten.
+             first_name     = CASE WHEN first_name     IS NULL OR first_name     = '' THEN COALESCE($2, first_name)     ELSE first_name     END,
+             last_name      = CASE WHEN last_name      IS NULL OR last_name      = '' THEN COALESCE($3, last_name)      ELSE last_name      END,
+             activity_level = CASE WHEN activity_level IS NULL OR activity_level = '' THEN COALESCE($4, activity_level) ELSE activity_level END,
+             age            = CASE WHEN age            IS NULL                        THEN $5                           ELSE age            END
          WHERE id = $1`,
-        [dbUserId],
+        [
+          dbUserId,
+          aRow.first_name     ? String(aRow.first_name).trim()     : null,
+          aRow.last_name      ? String(aRow.last_name).trim()      : null,
+          aRow.activity_level ? String(aRow.activity_level).trim() : null,
+          computedAge,
+        ],
       )
     }
 
