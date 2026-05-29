@@ -903,21 +903,16 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
           />
         </div>
 
-        {/* Category filter tabs */}
-        <div className="flex gap-1.5 flex-wrap mb-4">
-          {['All', ...CATEGORIES].map(cat => (
-            <button
-              key={cat}
-              onClick={() => setActiveCategory(cat)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                activeCategory === cat
-                  ? 'bg-[#E8670A] text-white'
-                  : 'bg-white border border-gray-200 text-gray-600 hover:border-[#E8670A] hover:text-[#E8670A]'
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
+        {/* Feed filter */}
+        <div className="flex items-center gap-2 mb-4">
+          <select
+            value={activeCategory}
+            onChange={e => setActiveCategory(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
+          >
+            <option value="All">All Posts</option>
+            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
         </div>
 
         {/* Compose */}
@@ -2277,7 +2272,7 @@ function ResourcesTab({ getToken, isStaff }) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 // Tab IDs that can be driven by the ?tab= URL param
-const VALID_URL_TABS = ['vip', 'ai', 'mindset', 'resources', 'nsv']
+const VALID_URL_TABS = ['vip', 'ai', 'mindset', 'resources']
 
 export default function Community() {
   const { getToken }                       = useAuth()
@@ -2368,7 +2363,6 @@ export default function Community() {
     { id: clientChannel, label: 'Group Chat' },
     { id: 'mindset',     label: 'Brain Mapping' },
     { id: 'resources',   label: 'Resources' },
-    { id: 'nsv',         label: 'Non-Scale Victories' },
   ]
 
   if (initLoading && tab === null) {
@@ -2427,20 +2421,6 @@ export default function Community() {
         <HybridTab
           key={tab}
           channel={tab}
-          getToken={getToken}
-          isAdmin={isAdmin}
-          isStaff={isStaff}
-          currentUserId={currentUserId}
-          members={members}
-        />
-      )}
-
-      {/* Non-Scale Victories — same feed as Group Chat, pre-filtered to NSV category */}
-      {tab === 'nsv' && (
-        <HybridTab
-          key="nsv"
-          channel={clientChannel}
-          initialCategory="Non-Scale Victories"
           getToken={getToken}
           isAdmin={isAdmin}
           isStaff={isStaff}
