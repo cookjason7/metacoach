@@ -1271,11 +1271,25 @@ function InviteModal({ getToken, coaches = [], onClose, onSuccess }) {
   const [result,     setResult]     = useState(null)
   const [copied,     setCopied]     = useState(false)
 
-  function setF(e) { setForm(f => ({ ...f, [e.target.name]: e.target.value })) }
+  function setF(e) {
+    const { name, value } = e.target
+    setForm(f => ({
+      ...f,
+      [name]: value,
+      // Switching to AI clears any selected coach so it isn't accidentally submitted
+      ...(name === 'coaching_type' && value === 'ai' ? { assigned_coach_id: '' } : {}),
+    }))
+  }
 
   async function submit(e) {
     e.preventDefault()
     setSaving(true); setError(null); setIsArchived(false)
+    // VIP clients must have an assigned coach
+    if ((form.coaching_type || 'vip') === 'vip' && !form.assigned_coach_id) {
+      setError('Please assign a coach for VIP clients.')
+      setSaving(false)
+      return
+    }
     try {
       const token = await getToken()
       const res = await fetch(`${API_URL}/api/coach-admin/clients/invite`, {
@@ -1372,24 +1386,24 @@ function InviteModal({ getToken, coaches = [], onClose, onSuccess }) {
                 placeholder="jane@example.com" className={inputCls} />
               <p className="text-[10px] text-gray-400 mt-0.5">Client must sign up with this exact email.</p>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Coaching type</label>
+              <select name="coaching_type" value={form.coaching_type} onChange={setF} className={inputCls}>
+                <option value="vip">VIP</option>
+                <option value="ai">AI</option>
+              </select>
+            </div>
+            {form.coaching_type !== 'ai' && (
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Coaching type</label>
-                <select name="coaching_type" value={form.coaching_type} onChange={setF} className={inputCls}>
-                  <option value="vip">VIP</option>
-                  <option value="ai">AI</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Assign coach</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Assign coach *</label>
                 <select name="assigned_coach_id" value={form.assigned_coach_id} onChange={setF} className={inputCls}>
-                  <option value="">Unassigned</option>
+                  <option value="">Select a coach…</option>
                   {coaches.map(c => (
                     <option key={c.id} value={String(c.id)}>{c.first_name || c.email}</option>
                   ))}
                 </select>
               </div>
-            </div>
+            )}
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">
                 Notes <span className="text-gray-400 font-normal">(optional)</span>
