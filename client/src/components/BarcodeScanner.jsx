@@ -25,29 +25,29 @@ export default function BarcodeScanner({ onScan, onCancel }) {
     setReady(false)
     setError(null)
 
+    const nativeAvailable = typeof BarcodeDetector !== 'undefined'
     console.log('[BarcodeScanner] starting camera, attempt', retry + 1,
-      navigator?.userAgent?.slice(0, 100))
+      '| engine:', nativeAvailable ? 'native BarcodeDetector' : 'zxing-js',
+      '| ua:', navigator?.userAgent?.slice(0, 80))
 
+    // ZXing reader — only used on non-native path (iOS Safari, Firefox, etc.)
     const hints = new Map()
     hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-      BarcodeFormat.UPC_A,
-      BarcodeFormat.UPC_E,
-      BarcodeFormat.EAN_13,
-      BarcodeFormat.EAN_8,
-      BarcodeFormat.CODE_128,
-      BarcodeFormat.CODE_39,
+      BarcodeFormat.UPC_A, BarcodeFormat.UPC_E,
+      BarcodeFormat.EAN_13, BarcodeFormat.EAN_8,
+      BarcodeFormat.CODE_128, BarcodeFormat.CODE_39,
       BarcodeFormat.QR_CODE,
     ])
     hints.set(DecodeHintType.TRY_HARDER, true)
-
     const reader = new BrowserMultiFormatReader(hints, {
       delayBetweenScanAttempts: 150,
       delayBetweenScanSuccess: 500,
     })
+
     const startTimer = setTimeout(() => {
       if (!activeRef.current || startedRef.current) return
       activeRef.current = false
-      console.error('[BarcodeScanner] camera start timeout (20 s) - no start signal received')
+      console.error('[BarcodeScanner] camera start timeout (20 s) — no start signal received')
       try { controlsRef.current?.stop() } catch {}
       stopVideoStream()
       setError('The camera did not start. Try again, or use manual food search if your browser is blocking camera access.')
@@ -93,79 +93,44 @@ export default function BarcodeScanner({ onScan, onCancel }) {
       }
     }
 
-    async function waitForStableDimensions(video) {
-      let stableCount = 0
-      let lastW = 0
-      let lastH = 0
-      for (let i = 0; i < 40; i++) {
-        if (!activeRef.current) return false
-        const w = video?.videoWidth ?? 0
-        const h = video?.videoHeight ?? 0
-        if (w > 0 && h > 0 && w === lastW && h === lastH) {
-          stableCount++
-          console.log('[BarcodeScanner] stable dim check', stableCount, w, h)
-          if (stableCount >= 3) return true
-        } else {
-          if (w !== lastW || h !== lastH) {
-            console.log('[BarcodeScanner] dim changed', lastW, lastH, '->', w, h)
-          }
-          stableCount = 0
-          lastW = w
-          lastH = h
-        }
-        await new Promise(resolve => setTimeout(resolve, 250))
-      }
-      console.warn('[BarcodeScanner] dimensions never stabilized — proceeding anyway')
-      return video?.videoWidth > 0 && video?.videoHeight > 0
-    }
-
+    // Wait for the video element to report non-zero dimensions
     async function waitForVideoDimensions(video) {
       for (let i = 0; i < 80; i++) {
         if (!activeRef.current) return false
-        const videoWidth = video?.videoWidth ?? 0
-        const videoHeight = video?.videoHeight ?? 0
-        if (i === 0 || i % 10 === 0) {
-          console.log('[BarcodeScanner] waiting for video dimensions', {
+        if ((video?.videoWidth ?? 0) > 0 && (video?.videoHeight ?? 0) > 0) return true
+        if (i === 0 || i % 20 === 0) {
+          console.log('[BarcodeScanner] waiting for video dims', {
             readyState: video?.readyState,
-            videoWidth,
-            videoHeight,
+            videoWidth: video?.videoWidth,
+            videoHeight: video?.videoHeight,
           })
         }
-        if (videoWidth > 0 && videoHeight > 0) return true
         await new Promise(resolve => setTimeout(resolve, 100))
       }
       return false
     }
 
+    // Wait for dimensions to stop changing (Samsung can renegotiate resolution)
+    async function waitForStableDimensions(video) {
+      let stableCount = 0; let lastW = 0; let lastH = 0
+      for (let i = 0; i < 40; i++) {
+        if (!activeRef.current) return false
+        const w = video?.videoWidth ?? 0; const h = video?.videoHeight ?? 0
+        if (w > 0 && h > 0 && w === lastW && h === lastH) {
+          if (++stableCount >= 3) return true
+        } else { stableCount = 0; lastW = w; lastH = h }
+        await new Promise(resolve => setTimeout(resolve, 250))
+      }
+      console.warn('[BarcodeScanner] dimensions never stabilized — proceeding anyway')
+      return (video?.videoWidth ?? 0) > 0 && (video?.videoHeight ?? 0) > 0
+    }
+
     async function start() {
       let decodeAttempts = 0
-      const callback = (result, err, scanControls) => {
-        if (!activeRef.current) return
-        const v = videoRef.current
-        if (!result) {
-          decodeAttempts++
-          if (decodeAttempts % 30 === 0) {
-            console.warn('[BarcodeScanner] decode miss/failure', {
-              frame: decodeAttempts,
-              error: err?.name,
-              message: err?.message,
-              readyState: v?.readyState,
-              videoWidth: v?.videoWidth,
-              videoHeight: v?.videoHeight,
-            })
-          }
-          return
-        }
-        console.log('[BarcodeScanner] decoded, firing barcode lookup:', result.getText(), result.getBarcodeFormat())
-        activeRef.current = false
-        try { (scanControls ?? controlsRef.current)?.stop() } catch {}
-        stopVideoStream()
-        onScanRef.current(result.getText())
-      }
-
       try {
         const video = videoRef.current
         if (!video) throw new Error('Scanner video element is not ready')
+
         const stream = await openStreamWithFallbacks()
         video.srcObject = stream
         await video.play().catch(() => {})
@@ -178,37 +143,114 @@ export default function BarcodeScanner({ onScan, onCancel }) {
             console.log('[BarcodeScanner] continuous focus applied')
           }
         } catch (focusErr) {
-          console.log('[BarcodeScanner] continuous focus not supported, skipping:', focusErr?.name)
+          console.log('[BarcodeScanner] continuous focus not supported:', focusErr?.name)
         }
 
-        // Wait for dimensions to appear, then stabilize (Samsung can renegotiate resolution)
         const hasDimensions = await waitForVideoDimensions(video)
         if (!hasDimensions) {
           stopVideoStream()
           throw new Error('Camera video did not become ready for scanning')
         }
         await waitForStableDimensions(video)
-
-        if (!activeRef.current) {
-          stopVideoStream()
-          return
-        }
+        if (!activeRef.current) { stopVideoStream(); return }
 
         console.log('[BarcodeScanner] decode start', {
+          engine: nativeAvailable ? 'native' : 'zxing',
           readyState: video.readyState,
           videoWidth: video.videoWidth,
           videoHeight: video.videoHeight,
         })
+
+        // ── Primary: native BarcodeDetector (Android Chrome 83+, Samsung Internet 14+) ──
+        // Delegates to the device's hardware-accelerated barcode engine (backed by
+        // Google ML Kit on Android). Far more reliable than ZXing JS on Android.
+        if (nativeAvailable) {
+          try {
+            // Filter to formats the device actually supports
+            let formats = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code']
+            try {
+              const supported = await BarcodeDetector.getSupportedFormats()
+              const filtered = formats.filter(f => supported.includes(f))
+              if (filtered.length > 0) formats = filtered
+            } catch { /* keep defaults if getSupportedFormats unavailable */ }
+            console.log('[BarcodeScanner] native BarcodeDetector formats:', formats)
+
+            const detector = new BarcodeDetector({ formats })
+            let rafId
+
+            // rAF loop — ~60fps, native detection does not block the main thread
+            const rafLoop = async () => {
+              if (!activeRef.current) return
+              try {
+                const barcodes = await detector.detect(video)
+                if (!activeRef.current) return        // guard against unmount during async detect
+                if (barcodes.length > 0) {
+                  const code = barcodes[0].rawValue
+                  console.log('[BarcodeScanner] native decoded:', code, barcodes[0].format)
+                  activeRef.current = false
+                  cancelAnimationFrame(rafId)
+                  stopVideoStream()
+                  onScanRef.current(code)
+                  return
+                }
+              } catch (err) {
+                decodeAttempts++
+                if (decodeAttempts % 60 === 0) {
+                  console.warn('[BarcodeScanner] native detect miss', decodeAttempts, err?.name)
+                }
+              }
+              if (activeRef.current) rafId = requestAnimationFrame(rafLoop)
+            }
+
+            controlsRef.current = { stop: () => cancelAnimationFrame(rafId) }
+            startedRef.current = true
+            clearTimeout(startTimer)
+            if (activeRef.current) setReady(true)
+            rafId = requestAnimationFrame(rafLoop)
+            console.log('[BarcodeScanner] native decode loop started')
+            return  // success — don't fall through to ZXing
+          } catch (nativeErr) {
+            // BarcodeDetector existed but failed to init/run — fall through to ZXing
+            console.warn('[BarcodeScanner] native BarcodeDetector setup failed, falling back to ZXing:', nativeErr?.message)
+          }
+        }
+
+        // ── Fallback: ZXing JS (iOS Safari, Firefox, desktop, unsupported browsers) ──
+        const callback = (result, err, scanControls) => {
+          if (!activeRef.current) return
+          const v = videoRef.current
+          if (!result) {
+            decodeAttempts++
+            if (decodeAttempts % 30 === 0) {
+              console.warn('[BarcodeScanner] zxing decode miss', {
+                frame: decodeAttempts,
+                error: err?.name,
+                message: err?.message,
+                readyState: v?.readyState,
+                videoWidth: v?.videoWidth,
+                videoHeight: v?.videoHeight,
+              })
+            }
+            return
+          }
+          console.log('[BarcodeScanner] zxing decoded:', result.getText(), result.getBarcodeFormat())
+          activeRef.current = false
+          try { (scanControls ?? controlsRef.current)?.stop() } catch {}
+          stopVideoStream()
+          onScanRef.current(result.getText())
+        }
+
         const controls = await reader.decodeFromVideoElement(video, callback)
         controlsRef.current = controls
         startedRef.current = true
         clearTimeout(startTimer)
-        console.log('[BarcodeScanner] decode loop started', {
+        console.log('[BarcodeScanner] zxing decode loop started', {
           readyState: video.readyState,
           videoWidth: video.videoWidth,
           videoHeight: video.videoHeight,
         })
         if (activeRef.current) setReady(true)
+
       } catch (err) {
         clearTimeout(startTimer)
         if (!activeRef.current) return
