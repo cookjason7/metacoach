@@ -177,14 +177,6 @@ const STAFF_THREAD_LABELS = {
 }
 const STAFF_VISIBLE_THREADS = ['admin_private', 'coach_thread', 'ai_admin']
 
-// Determine the default thread type to open when composing a new message to a client
-function defaultThreadFor(client, staffRole) {
-  if (!client) return 'admin_private'
-  if (client.coaching_type === 'ai') return 'ai_admin'
-  if (staffRole === 'coach') return 'coach_thread'
-  return 'admin_private'
-}
-
 // ── Staff Inbox component ─────────────────────────────────────────────────────
 // Reused on the Coaching → Messaging tab AND the main Messages page for staff.
 
@@ -210,14 +202,6 @@ export default function StaffInbox({ getToken, role }) {
 
   const [inboxView, setInboxView] = useState('active') // 'active' | 'archived'
   const [availableThreads, setAvailableThreads] = useState([]) // thread types for current client (ignores archive state)
-
-  // Client search / compose
-  const [searchOpen,    setSearchOpen]    = useState(false)
-  const [searchQuery,   setSearchQuery]   = useState('')
-  const [searchResults, setSearchResults] = useState([])
-  const [searchLoading, setSearchLoading] = useState(false)
-  const searchDebounceRef = useRef(null)
-  const searchInputRef    = useRef(null)
 
   const { canRecord, recording, audioBlob, audioPreview, recordError, startRecording, stopRecording, clearAudio } = useVoiceRecorder()
 
@@ -318,47 +302,6 @@ export default function StaffInbox({ getToken, role }) {
   }
 
   useEffect(() => { selectedRef.current = selected }, [selected])
-
-  // ── Client search ─────────────────────────────────────────────────────────
-  function openSearch() {
-    setSearchOpen(true)
-    setSearchQuery('')
-    setSearchResults([])
-    setTimeout(() => searchInputRef.current?.focus(), 50)
-  }
-
-  function closeSearch() {
-    setSearchOpen(false)
-    setSearchQuery('')
-    setSearchResults([])
-  }
-
-  function handleSearchChange(e) {
-    const q = e.target.value
-    setSearchQuery(q)
-    clearTimeout(searchDebounceRef.current)
-    if (!q.trim()) { setSearchResults([]); return }
-    searchDebounceRef.current = setTimeout(async () => {
-      setSearchLoading(true)
-      try {
-        const token = await getToken()
-        const res = await fetch(
-          `${API_URL}/api/coach-admin/messaging/client-search?q=${encodeURIComponent(q.trim())}`,
-          { headers: { Authorization: `Bearer ${token}` } },
-        )
-        if (res.ok) setSearchResults(await res.json())
-      } catch {}
-      finally { setSearchLoading(false) }
-    }, 300)
-  }
-
-  function selectSearchResult(client) {
-    if (!client?.id) return
-    const threadType = defaultThreadFor(client, role)
-    setSelected({ clientId: client.id, clientName: client.full_name ?? client.email ?? 'Client', threadType })
-    closeSearch()
-    setInboxView('active')
-  }
 
   // ── Group inbox rows by client ────────────────────────────────────────────
   const groupedInbox = useMemo(() => {
@@ -576,66 +519,6 @@ export default function StaffInbox({ getToken, role }) {
             </button>
           ))}
         </div>
-
-        {/* New message / client search */}
-        {!searchOpen ? (
-          <button
-            onClick={openSearch}
-            className="w-full flex items-center justify-center gap-1.5 mb-2 py-1.5 rounded-lg text-xs font-semibold bg-white border border-gray-200 text-gray-600 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            New message
-          </button>
-        ) : (
-          <div className="mb-2 relative">
-            <div className="flex gap-1">
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchQuery}
-                onChange={handleSearchChange}
-                placeholder="Search by name or email…"
-                className="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
-              />
-              <button
-                onClick={closeSearch}
-                className="shrink-0 px-2 py-1.5 rounded-lg text-xs text-gray-500 border border-gray-200 hover:bg-gray-100 transition-colors"
-                aria-label="Cancel search"
-              >
-                ✕
-              </button>
-            </div>
-            {/* Search results dropdown */}
-            {(searchLoading || searchResults.length > 0 || (searchQuery.trim().length > 0 && !searchLoading)) && (
-              <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
-                {searchLoading && (
-                  <p className="text-xs text-gray-400 px-3 py-2">Searching…</p>
-                )}
-                {!searchLoading && searchQuery.trim().length > 0 && searchResults.length === 0 && (
-                  <p className="text-xs text-gray-400 px-3 py-2">No clients found.</p>
-                )}
-                {!searchLoading && Array.isArray(searchResults) && searchResults.map(client => (
-                  <button
-                    key={client.id}
-                    onClick={() => selectSearchResult(client)}
-                    className="w-full text-left px-3 py-2.5 hover:bg-orange-50 transition-colors border-b border-gray-100 last:border-0"
-                  >
-                    <p className="text-sm font-semibold text-gray-900 leading-tight">{client.full_name}</p>
-                    <p className="text-[11px] text-gray-400 mt-0.5 leading-tight">
-                      {client.email}
-                      {client.coaching_type === 'ai' && (
-                        <span className="ml-1.5 bg-gray-100 text-gray-500 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide">AI</span>
-                      )}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
         {totalUnread > 0 && inboxView === 'active' && (
           <p className="text-xs font-semibold text-[#E8670A] mb-2 px-1">
             {totalUnread} unread message{totalUnread !== 1 ? 's' : ''}
