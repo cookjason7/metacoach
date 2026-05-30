@@ -173,7 +173,7 @@ function VoiceMessagePlayer({ audioUrl, isMine }) {
 const STAFF_THREAD_LABELS = {
   coach_thread:  'Coach',
   admin_private: 'Jason',
-  ai_admin:      'AI/Admin',
+  ai_admin:      'Support',
 }
 const STAFF_VISIBLE_THREADS = ['admin_private', 'coach_thread', 'ai_admin']
 
@@ -321,6 +321,7 @@ export default function StaffInbox({ getToken, role }) {
           last_message_body:  row.last_message_body,
           last_sender_role:   row.last_sender_role,
           latestThreadType:   row.thread_type,
+          isAssignedCoach:    row.is_assigned_coach === true,
           threads:            [row],
         })
       } else {
@@ -333,6 +334,13 @@ export default function StaffInbox({ getToken, role }) {
           existing.last_sender_role  = row.last_sender_role
           existing.latestThreadType  = row.thread_type
         }
+      }
+    }
+    // When the logged-in admin IS the assigned coach, default to coach_thread so
+    // clicking the client card doesn't open the admin_private (Jason) thread first.
+    for (const g of map.values()) {
+      if (g.isAssignedCoach && g.threads.some(t => t.thread_type === 'coach_thread')) {
+        g.latestThreadType = 'coach_thread'
       }
     }
     return [...map.values()]
@@ -462,6 +470,18 @@ export default function StaffInbox({ getToken, role }) {
     return () => { cancelled = true }
   }, [selected?.clientId, getToken])
 
+  // When admin IS the assigned coach and somehow lands on admin_private,
+  // auto-switch to coach_thread once availableThreads confirms it exists.
+  useEffect(() => {
+    if (
+      selected?.isAssignedCoach &&
+      selected?.threadType === 'admin_private' &&
+      availableThreads.some(t => t.thread_type === 'coach_thread')
+    ) {
+      setSelected(s => s ? { ...s, threadType: 'coach_thread' } : s)
+    }
+  }, [selected?.isAssignedCoach, selected?.threadType, availableThreads])
+
   useEffect(() => {
     if (messages.length > 0 && messages.length >= msgCountRef.current) {
       if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
@@ -536,7 +556,7 @@ export default function StaffInbox({ getToken, role }) {
           return (
             <button
               key={g.client_id}
-              onClick={() => setSelected({ clientId: g.client_id, clientName: g.full_name, threadType: g.latestThreadType })}
+              onClick={() => setSelected({ clientId: g.client_id, clientName: g.full_name, threadType: g.latestThreadType, isAssignedCoach: g.isAssignedCoach })}
               className={`w-full text-left border rounded-xl px-3 py-3 transition-all ${
                 isSelected
                   ? 'bg-[#E8670A] border-[#E8670A] text-white shadow-md'
@@ -631,32 +651,39 @@ export default function StaffInbox({ getToken, role }) {
                   </button>
                 )}
               </div>
-              {availableThreads.length > 1 && (
-                <div className="flex gap-1 mt-2 flex-wrap">
-                  {availableThreads.map(t => {
-                    const threadUnread = Number(t.unread) || 0
-                    const isActive = selected.threadType === t.thread_type
-                    return (
-                      <button
-                        key={t.thread_type}
-                        onClick={() => setSelected(s => ({ ...s, threadType: t.thread_type }))}
-                        className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
-                          isActive
-                            ? 'bg-[#E8670A] text-white'
-                            : 'bg-white border border-gray-300 text-gray-600 hover:border-[#E8670A]'
-                        }`}
-                      >
-                        {STAFF_THREAD_LABELS[t.thread_type] ?? t.thread_type}
-                        {threadUnread > 0 && !isActive && (
-                          <span className="bg-[#E8670A] text-white text-[9px] font-bold rounded-full px-1.5 py-0.5">
-                            {threadUnread}
-                          </span>
-                        )}
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
+              {(() => {
+                // Hide admin_private tab when admin is also the assigned coach —
+                // avoids two sendable tabs for the same person.
+                const visibleThreads = selected?.isAssignedCoach
+                  ? availableThreads.filter(t => t.thread_type !== 'admin_private')
+                  : availableThreads
+                return visibleThreads.length > 1 && (
+                  <div className="flex gap-1 mt-2 flex-wrap">
+                    {visibleThreads.map(t => {
+                      const threadUnread = Number(t.unread) || 0
+                      const isActive = selected.threadType === t.thread_type
+                      return (
+                        <button
+                          key={t.thread_type}
+                          onClick={() => setSelected(s => ({ ...s, threadType: t.thread_type }))}
+                          className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
+                            isActive
+                              ? 'bg-[#E8670A] text-white'
+                              : 'bg-white border border-gray-300 text-gray-600 hover:border-[#E8670A]'
+                          }`}
+                        >
+                          {STAFF_THREAD_LABELS[t.thread_type] ?? t.thread_type}
+                          {threadUnread > 0 && !isActive && (
+                            <span className="bg-[#E8670A] text-white text-[9px] font-bold rounded-full px-1.5 py-0.5">
+                              {threadUnread}
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
             </div>
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 bg-gray-50 space-y-3 max-h-[500px]">
               {hasMore && !loadingMsgs && (
@@ -713,8 +740,8 @@ export default function StaffInbox({ getToken, role }) {
                 )
               })}
             </div>
-            {/* Read-only notice for admins viewing a coach thread */}
-            {role === 'admin' && selected?.threadType === 'coach_thread' ? (
+            {/* Read-only notice: admin viewing another coach's thread (not their own) */}
+            {role === 'admin' && selected?.threadType === 'coach_thread' && !selected?.isAssignedCoach ? (
               <div className="border-t border-gray-100 px-4 py-3">
                 <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
                   👁 Viewing coach–client thread read-only. Switch to the <strong>{STAFF_THREAD_LABELS['admin_private'] ?? 'Account Owner'}</strong> tab to send your own message.

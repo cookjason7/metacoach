@@ -3,6 +3,7 @@ import multer from 'multer'
 import { v2 as cloudinary } from 'cloudinary'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
+import { notifyNewCommunityPost } from '../services/pushService.js'
 
 const router = Router()
 
@@ -311,6 +312,9 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
     }
 
     await createMentionNotifications(content.trim(), post.id, dbUserId)
+
+    // Push: notify community — fire-and-forget
+    notifyNewCommunityPost(dbUserId).catch(() => {})
 
     const { rows: userRows } = await pool.query(
       'SELECT first_name FROM users WHERE id = $1', [dbUserId],

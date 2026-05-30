@@ -279,15 +279,20 @@ export default function Layout() {
     return () => clearInterval(id)
   }, [fetchMsgUnread])
 
-  // Super-admin gets an extra "Usage Analytics" nav entry
+  // AI/Hybrid clients (coaching_type === 'ai') get Katie in the bottom nav; VIP get Messages
+  const isAiClient = !isStaff && coachingType === 'ai'
+
+  // Super-admin gets an extra "Usage Analytics" nav entry.
+  // AI clients see "Support" instead of "Messages" so the label is unambiguous.
   const navItems = isStaff
     ? isAdmin
       ? [...STAFF_NAV_ITEMS, { to: '/admin/usage', label: 'Usage Analytics' }]
       : STAFF_NAV_ITEMS
-    : CLIENT_NAV_ITEMS
-
-  // AI/Hybrid clients (coaching_type === 'ai') get Katie in the bottom nav; VIP get Messages
-  const isAiClient = !isStaff && coachingType === 'ai'
+    : isAiClient
+      ? CLIENT_NAV_ITEMS.map(item =>
+          item.label === 'Messages' ? { ...item, label: 'Support' } : item,
+        )
+      : CLIENT_NAV_ITEMS
 
   // Mobile drawer hides items that already appear in the client bottom nav
   const mobileBottomNavLabels = isAiClient
@@ -348,7 +353,7 @@ export default function Layout() {
                   {katieUnread}
                 </span>
               )}
-              {label === 'Messages' && msgUnread > 0 && (
+              {(label === 'Messages' || label === 'Support') && msgUnread > 0 && (
                 <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-[#E8670A] text-white text-[10px] font-bold px-1">
                   {msgUnread}
                 </span>

@@ -35,7 +35,8 @@ router.get('/me', requireAuth(), async (req, res, next) => {
               onboarding_complete, assessment_complete,
               goal_calories, goal_protein, goal_carbs, goal_fat, goal_fiber, goal_water,
               gender, phone_number, paid, role, coaching_type, coaching_type_source,
-              bloodwork_enabled, food_dislikes, food_allergies
+              bloodwork_enabled, food_dislikes, food_allergies,
+              notif_master_enabled, notif_dm_enabled, notif_community_enabled
        FROM users WHERE id = $1`,
       [dbUserId],
     )
@@ -106,12 +107,16 @@ router.patch('/me', requireAuth(), async (req, res, next) => {
       activity_level, tried_before, why_joined,
       identity_anchors, onboarding_complete, gender, phone_number,
       food_dislikes, food_allergies,
+      notif_master_enabled, notif_dm_enabled, notif_community_enabled,
     } = req.body
 
     // food_dislikes and food_allergies use explicit-flag pattern so an empty string
     // can clear the field (COALESCE can't distinguish "not sent" from "send null").
     const hasDislikes  = Object.hasOwn(req.body, 'food_dislikes')
     const hasAllergies = Object.hasOwn(req.body, 'food_allergies')
+    const hasNotifMaster    = Object.hasOwn(req.body, 'notif_master_enabled')
+    const hasNotifDm        = Object.hasOwn(req.body, 'notif_dm_enabled')
+    const hasNotifCommunity = Object.hasOwn(req.body, 'notif_community_enabled')
 
     const { rows } = await pool.query(
       `UPDATE users SET
@@ -128,8 +133,11 @@ router.patch('/me', requireAuth(), async (req, res, next) => {
          onboarding_complete = COALESCE($11, onboarding_complete),
          gender              = COALESCE($12, gender),
          phone_number        = COALESCE($13, phone_number),
-         food_dislikes  = CASE WHEN $14 THEN $15 ELSE food_dislikes  END,
-         food_allergies = CASE WHEN $16 THEN $17 ELSE food_allergies END
+         food_dislikes           = CASE WHEN $14 THEN $15 ELSE food_dislikes  END,
+         food_allergies          = CASE WHEN $16 THEN $17 ELSE food_allergies END,
+         notif_master_enabled    = CASE WHEN $19 THEN $20 ELSE notif_master_enabled    END,
+         notif_dm_enabled        = CASE WHEN $21 THEN $22 ELSE notif_dm_enabled        END,
+         notif_community_enabled = CASE WHEN $23 THEN $24 ELSE notif_community_enabled END
        WHERE id = $18
        RETURNING *`,
       [
@@ -141,6 +149,9 @@ router.patch('/me', requireAuth(), async (req, res, next) => {
         hasDislikes,  food_dislikes  !== undefined ? (food_dislikes?.trim()  || null) : null,
         hasAllergies, food_allergies !== undefined ? (food_allergies?.trim() || null) : null,
         dbUserId,
+        hasNotifMaster,    typeof notif_master_enabled    === 'boolean' ? notif_master_enabled    : null,
+        hasNotifDm,        typeof notif_dm_enabled        === 'boolean' ? notif_dm_enabled        : null,
+        hasNotifCommunity, typeof notif_community_enabled === 'boolean' ? notif_community_enabled : null,
       ],
     )
     res.json(rows[0])

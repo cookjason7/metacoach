@@ -4,6 +4,7 @@ import { v2 as cloudinary } from 'cloudinary'
 import { pool, getOrCreateUser } from '../db.js'
 import { sendInviteEmail } from '../services/email.js'
 import { getAppBaseUrl } from '../services/appUrl.js'
+import { notifyNewDirectMessage, notifyNewFormDelivery } from '../services/pushService.js'
 
 const router = Router()
 
@@ -1977,6 +1978,7 @@ router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
         COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), ''), u.first_name, 'Client') AS first_name,
         u.last_name,
         m.thread_type,
+        (u.assigned_coach_id = $1) AS is_assigned_coach,
         COUNT(*) FILTER (WHERE m.sender_role = 'client' AND m.read_at IS NULL)::int AS unread,
         COALESCE(sis.marked_unread, FALSE) AS marked_unread,
         COALESCE(sis.archived, FALSE)      AS archived,
@@ -2001,6 +2003,43 @@ router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
         AND COALESCE(sis.archived, FALSE) = $2
       GROUP BY u.id, u.first_name, u.last_name, m.thread_type, sis.marked_unread, sis.archived
       ORDER BY MAX(m.created_at) DESC
+    `, params)
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
+// GET /api/coach-admin/messaging/client-search?q=... — lightweight name/email search for compose
+// Admin: all active clients. Coach: only assigned clients.
+// Returns: [{ id, full_name, email, coaching_type }]
+router.get('/messaging/client-search', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const q = (req.query.q ?? '').trim()
+    if (!q) return res.json([])
+
+    const params = [`%${q}%`, `%${q}%`]
+    let coachFilter = ''
+    if (ctx.role === 'coach') {
+      params.push(ctx.dbUserId)
+      coachFilter = ` AND u.assigned_coach_id = $${params.length}`
+    }
+
+    const { rows } = await pool.query(`
+      SELECT
+        u.id,
+        COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), ''), u.email, 'Client') AS full_name,
+        u.email,
+        u.coaching_type
+      FROM users u
+      WHERE u.role = 'client'
+        AND COALESCE(u.client_status, 'active') = 'active'
+        AND (
+          LOWER(CONCAT_WS(' ', u.first_name, u.last_name)) LIKE LOWER($1)
+          OR LOWER(u.email) LIKE LOWER($2)
+        )
+        ${coachFilter}
+      ORDER BY u.first_name, u.last_name
+      LIMIT 20
     `, params)
     res.json(rows)
   } catch (err) { next(err) }
@@ -2126,6 +2165,9 @@ router.post('/clients/:id/messages', requireAuth(), async (req, res, next) => {
         (client_id, sender_id, sender_role, message_body, thread_type, visibility, image_url, audio_url)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *
     `, [id, ctx.dbUserId, ctx.role, message_body.trim(), thread_type, visibility, image_url ?? null, audio_url ?? null])
+
+    // Push: notify the client — fire-and-forget
+    notifyNewDirectMessage(id).catch(() => {})
 
     res.status(201).json(rows[0])
   } catch (err) { next(err) }
@@ -2606,6 +2648,9 @@ router.post('/forms/:id/send', requireAuth(), async (req, res, next) => {
         thread_type,
         has_form_metadata: Boolean(message.metadata?.form_id && message.metadata?.assignment_id),
       })
+
+      // Push: notify client about the form/check-in delivery — fire-and-forget
+      notifyNewFormDelivery(clientId).catch(() => {})
 
       sent.push({ client_id: clientId, assignment_id: assignment.id })
     }
