@@ -115,7 +115,7 @@ export default function InviteAccept() {
           🏆
         </div>
         <p className="text-xs font-bold text-[#E8670A] uppercase tracking-widest mb-1">
-          Life Warrior Coaching
+          WarriorFIT AI
         </p>
 
         {/* ── Loading invite ── */}
@@ -143,7 +143,7 @@ export default function InviteAccept() {
               Welcome, {invite.first_name}!
             </h1>
             <p className="text-sm text-gray-500 mb-6">
-              You've been invited to join Life Warrior VIP Coaching.
+              You've been invited to join WarriorFIT AI.
               {invite.email && (
                 <> Sign up or sign in with <strong>{invite.email}</strong> to get started.</>
               )}

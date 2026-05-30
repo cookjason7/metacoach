@@ -12,7 +12,7 @@ export default function SignUpPage() {
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-3 inline-block">
         <img
           src="/logo.png"
-          alt="Life Warrior Coaching"
+          alt="WarriorFIT AI"
           className="h-12 object-contain"
           onError={e => { e.currentTarget.style.display = 'none' }}
         />
