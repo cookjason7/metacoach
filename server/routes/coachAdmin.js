@@ -1978,6 +1978,7 @@ router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
         COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), ''), u.first_name, 'Client') AS first_name,
         u.last_name,
         m.thread_type,
+        (u.assigned_coach_id = $1) AS is_assigned_coach,
         COUNT(*) FILTER (WHERE m.sender_role = 'client' AND m.read_at IS NULL)::int AS unread,
         COALESCE(sis.marked_unread, FALSE) AS marked_unread,
         COALESCE(sis.archived, FALSE)      AS archived,

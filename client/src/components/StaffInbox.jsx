@@ -321,6 +321,7 @@ export default function StaffInbox({ getToken, role }) {
           last_message_body:  row.last_message_body,
           last_sender_role:   row.last_sender_role,
           latestThreadType:   row.thread_type,
+          isAssignedCoach:    row.is_assigned_coach === true,
           threads:            [row],
         })
       } else {
@@ -536,7 +537,7 @@ export default function StaffInbox({ getToken, role }) {
           return (
             <button
               key={g.client_id}
-              onClick={() => setSelected({ clientId: g.client_id, clientName: g.full_name, threadType: g.latestThreadType })}
+              onClick={() => setSelected({ clientId: g.client_id, clientName: g.full_name, threadType: g.latestThreadType, isAssignedCoach: g.isAssignedCoach })}
               className={`w-full text-left border rounded-xl px-3 py-3 transition-all ${
                 isSelected
                   ? 'bg-[#E8670A] border-[#E8670A] text-white shadow-md'
@@ -713,8 +714,8 @@ export default function StaffInbox({ getToken, role }) {
                 )
               })}
             </div>
-            {/* Read-only notice for admins viewing a coach thread */}
-            {role === 'admin' && selected?.threadType === 'coach_thread' ? (
+            {/* Read-only notice: admin viewing another coach's thread (not their own) */}
+            {role === 'admin' && selected?.threadType === 'coach_thread' && !selected?.isAssignedCoach ? (
               <div className="border-t border-gray-100 px-4 py-3">
                 <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
                   👁 Viewing coach–client thread read-only. Switch to the <strong>{STAFF_THREAD_LABELS['admin_private'] ?? 'Account Owner'}</strong> tab to send your own message.
