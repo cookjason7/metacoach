@@ -2007,6 +2007,43 @@ router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// GET /api/coach-admin/messaging/client-search?q=... — lightweight name/email search for compose
+// Admin: all active clients. Coach: only assigned clients.
+// Returns: [{ id, full_name, email, coaching_type }]
+router.get('/messaging/client-search', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const q = (req.query.q ?? '').trim()
+    if (!q) return res.json([])
+
+    const params = [`%${q}%`, `%${q}%`]
+    let coachFilter = ''
+    if (ctx.role === 'coach') {
+      params.push(ctx.dbUserId)
+      coachFilter = ` AND u.assigned_coach_id = $${params.length}`
+    }
+
+    const { rows } = await pool.query(`
+      SELECT
+        u.id,
+        COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), ''), u.email, 'Client') AS full_name,
+        u.email,
+        u.coaching_type
+      FROM users u
+      WHERE u.role = 'client'
+        AND COALESCE(u.client_status, 'active') = 'active'
+        AND (
+          LOWER(CONCAT_WS(' ', u.first_name, u.last_name)) LIKE LOWER($1)
+          OR LOWER(u.email) LIKE LOWER($2)
+        )
+        ${coachFilter}
+      ORDER BY u.first_name, u.last_name
+      LIMIT 20
+    `, params)
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
 // GET /api/coach-admin/clients/:id/messages/unread — count unread client messages (staff-side only)
 router.get('/clients/:id/messages/unread', requireAuth(), async (req, res, next) => {
   try {
