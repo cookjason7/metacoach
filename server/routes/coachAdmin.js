@@ -762,10 +762,12 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
         zip:     c.assessment_zip_code || null,
         country: c.assessment_country || null,
       },
-      assessment_has_data: !!(c.assessment_completed_at && (
-        c.assessment_first_name || c.assessment_last_name ||
-        c.assessment_phone      || c.assessment_dob
-      )),
+      // True when the client has actually completed the health assessment form.
+      // Use assessment_complete (users table flag) as the primary signal — it is set
+      // atomically by the completion handler and is more reliable than checking whether
+      // health_assessments contact fields are populated (they can be NULL if an earlier
+      // fire-and-forget autosave failed silently before final completion).
+      assessment_has_data: !!(c.assessment_complete || c.assessment_completed_at),
       nutrition_calculator_defaults: {
         sex:             firstPresent(c.gender, c.confirmed_sex),
         age:             firstPositive(ageFromDob(c.assessment_dob), c.age, c.confirmed_age),

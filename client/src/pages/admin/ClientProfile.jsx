@@ -250,7 +250,7 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                   </div>
                 )}
                 <InfoRow label="Coaching type"   value={client.coaching_type === 'ai' ? 'AI / Hybrid Coaching' : 'VIP / Human Coaching'} />
-                <InfoRow label="Assigned coach"      value={client.assigned_coach_name} emptyText="Not assigned yet" />
+                <InfoRow label="Assigned coach"      value={client.assigned_coach_name} emptyText={client.coaching_type === 'ai' ? 'N/A – AI client' : 'Not assigned yet'} />
                 <InfoRow label="Starting weight"     value={client.starting_weight_lbs != null ? `${client.starting_weight_lbs} lbs` : null} />
                 <InfoRow label="Goal weight"         value={client.goal_weight_lbs != null ? `${client.goal_weight_lbs} lbs` : null} />
                 <InfoRow label="Height"              value={fmtHeight(client.height_inches)} />
@@ -312,15 +312,29 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
               </div>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Assigned coach</label>
-              <select value={form.assigned_coach_id} onChange={e => setForm(f => ({ ...f, assigned_coach_id: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+              <label className={`block text-xs font-medium mb-1 ${form.coaching_type === 'ai' ? 'text-gray-400' : 'text-gray-600'}`}>
+                Assigned coach
+                {form.coaching_type === 'ai' && <span className="ml-1 font-normal italic">(not required for AI clients)</span>}
+              </label>
+              <select
+                value={form.assigned_coach_id}
+                onChange={e => setForm(f => ({ ...f, assigned_coach_id: e.target.value }))}
+                disabled={form.coaching_type === 'ai'}
+                className={`w-full border rounded-lg px-3 py-2 text-sm ${
+                  form.coaching_type === 'ai'
+                    ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed opacity-60'
+                    : 'border-gray-300 bg-white'
+                }`}>
                 <option value="">Unassigned</option>
                 {coaches.map(c => (
                   <option key={c.id} value={c.id}>{c.first_name ?? c.email} {c.email && c.first_name ? `· ${c.email}` : ''}</option>
                 ))}
               </select>
-              <p className="text-[10px] text-gray-400 mt-1">Only this coach (or admins) will see this client.</p>
+              <p className="text-[10px] text-gray-400 mt-1">
+                {form.coaching_type === 'ai'
+                  ? 'AI clients work with Coach Katie — no human coach assignment needed.'
+                  : 'Only this coach (or admins) will see this client.'}
+              </p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
