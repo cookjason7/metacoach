@@ -58,6 +58,7 @@ export default function Layout() {
   const quickPhotoInputRef    = useRef(null)
   const quickPhotoGalleryRef  = useRef(null)
   const [quickFoodMode, setQuickFoodMode] = useState(null) // 'search'|'barcode'|'photo'|'manual'
+  const [quickError,    setQuickError]    = useState(null) // visible error message for failed saves
 
   function resetQuickExtras() {
     setQuickActivityType(''); setQuickActivityDur(''); setQuickActivityNotes('')
@@ -72,6 +73,7 @@ export default function Layout() {
     setQuickValue('')
     setQuickWaterMode('add')
     setQuickDone(false)
+    setQuickError(null)
     resetQuickExtras()
   }
 
@@ -81,12 +83,14 @@ export default function Layout() {
     setQuickValue('')
     setQuickWaterMode('add')
     setQuickDone(false)
+    setQuickError(null)
     resetQuickExtras()
   }
 
   async function submitQuickLog(waterMode = quickWaterMode) {
     if (!quickValue || quickSaving) return
     setQuickSaving(true)
+    setQuickError(null)
     try {
       const token = await getToken()
       let body = {}
@@ -108,12 +112,14 @@ export default function Layout() {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
-      if (!res.ok) throw new Error('Failed to save quick log')
-      const saved = res.ok ? await res.json().catch(() => null) : null
+      if (!res.ok) throw new Error('Failed to save. Please try again.')
+      const saved = await res.json().catch(() => null)
       if (saved) window.dispatchEvent(new CustomEvent('daily-log-updated', { detail: saved }))
       setQuickDone(true)
       setTimeout(() => closeQuickMenu(), 1200)
-    } catch {}
+    } catch (err) {
+      setQuickError(err?.message ?? 'Save failed. Please try again.')
+    }
     finally { setQuickSaving(false) }
   }
 
@@ -121,6 +127,7 @@ export default function Layout() {
   async function clearQuickLog() {
     if (quickSaving) return
     setQuickSaving(true)
+    setQuickError(null)
     try {
       const token = await getToken()
       const body = quickAction === 'steps'
@@ -129,23 +136,27 @@ export default function Layout() {
           ? { sleep_minutes: null }
           : null
       if (!body) return
-      await fetch(`${API_URL}/api/daily-logs`, {
+      const res = await fetch(`${API_URL}/api/daily-logs`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
+      if (!res.ok) throw new Error('Failed to clear. Please try again.')
       setQuickDone(true)
       setTimeout(() => closeQuickMenu(), 1200)
-    } catch {}
+    } catch (err) {
+      setQuickError(err?.message ?? 'Save failed. Please try again.')
+    }
     finally { setQuickSaving(false) }
   }
 
   async function submitQuickActivity() {
     if (!quickActivityType || quickSaving) return
     setQuickSaving(true)
+    setQuickError(null)
     try {
       const token = await getToken()
-      await fetch(`${API_URL}/api/workouts/log-activity`, {
+      const res = await fetch(`${API_URL}/api/workouts/log-activity`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -154,32 +165,39 @@ export default function Layout() {
           notes: quickActivityNotes || null,
         }),
       })
+      if (!res.ok) throw new Error('Failed to save activity. Please try again.')
       setQuickDone(true)
       setTimeout(() => closeQuickMenu(), 1200)
-    } catch {}
+    } catch (err) {
+      setQuickError(err?.message ?? 'Save failed. Please try again.')
+    }
     finally { setQuickSaving(false) }
   }
 
   async function submitQuickPhoto() {
     if (!quickPhotoFile || quickSaving) return
     setQuickSaving(true)
+    setQuickError(null)
     try {
       const token = await getToken()
       const body = new FormData()
       body.append('photo', quickPhotoFile)
       body.append('angle', quickPhotoAngle)
-      await fetch(`${API_URL}/api/progress-photos`, {
+      const res = await fetch(`${API_URL}/api/progress-photos`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body,
       })
+      if (!res.ok) throw new Error('Upload failed. Please try again.')
       if (quickPhotoPreview) URL.revokeObjectURL(quickPhotoPreview)
       setQuickPhotoFile(null)
       setQuickPhotoPreview(null)
       if (quickPhotoInputRef.current) quickPhotoInputRef.current.value = ''
       setQuickDone(true)
-      setTimeout(() => setQuickDone(false), 1200)
-    } catch {}
+      setTimeout(() => closeQuickMenu(), 1200) // was setQuickDone(false) — sheet now closes on success
+    } catch (err) {
+      setQuickError(err?.message ?? 'Upload failed. Please try again.')
+    }
     finally { setQuickSaving(false) }
   }
 
@@ -194,7 +212,7 @@ export default function Layout() {
       }
       const data = await res.json()
       const adminStatus = data.role === 'admin'
-      const staffStatus = adminStatus || data.role === 'coach'
+      const staffStatus = adminStatus || data.role === 'coach' || data.role === 'staff'
       setIsAdmin(adminStatus)
       setIsStaff(staffStatus)
       setCoachingType(data.coaching_type ?? 'vip')
@@ -482,7 +500,7 @@ export default function Layout() {
               {(quickAction || quickFoodMode) ? (
                 <button
                   onClick={() => {
-                    if (quickAction) { setQuickAction(null); setQuickValue(''); setQuickDone(false); resetQuickExtras() }
+                    if (quickAction) { setQuickAction(null); setQuickValue(''); setQuickDone(false); setQuickError(null); resetQuickExtras() }
                     else setQuickFoodMode(null)
                   }}
                   className="flex items-center gap-1 text-sm font-medium text-gray-500 hover:text-gray-800"
@@ -499,6 +517,13 @@ export default function Layout() {
                 ×
               </button>
             </div>
+
+            {/* Error feedback — shown when a save fails */}
+            {quickError && !quickDone && (
+              <div className="mx-5 mb-1 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-medium">
+                {quickError}
+              </div>
+            )}
 
             {/* ── Main tile grid (food + quick logs) ───────────────────── */}
             {!quickAction && !quickFoodMode && (

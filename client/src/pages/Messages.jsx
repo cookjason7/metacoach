@@ -273,7 +273,7 @@ export default function Messages() {
         const res = await fetch(`${API_URL}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
         if (res.ok) {
           const data = await res.json()
-          setIsStaff(data.role === 'admin' || data.role === 'coach')
+          setIsStaff(data.role === 'admin' || data.role === 'coach' || data.role === 'staff')
           setStaffRole(data.role ?? null)
           setCoachingType(data.coaching_type ?? 'vip')
         } else {

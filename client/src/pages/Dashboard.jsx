@@ -976,7 +976,7 @@ export default function Dashboard() {
   ]
 
   // Staff (admin/coach) see the coaching dashboard instead
-  if (!loading && (userProfile?.role === 'admin' || userProfile?.role === 'coach')) {
+  if (!loading && (userProfile?.role === 'admin' || userProfile?.role === 'coach' || userProfile?.role === 'staff')) {
     return <CoachDashboard getToken={getToken} userRole={userProfile.role} />
   }
 

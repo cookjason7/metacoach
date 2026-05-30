@@ -485,7 +485,7 @@ export default function Settings() {
           notif_community_enabled: data.notif_community_enabled ?? true,
         })
 
-        if (loadedProfile?.role === 'admin' || loadedProfile?.role === 'coach') {
+        if (loadedProfile?.role === 'admin' || loadedProfile?.role === 'coach' || loadedProfile?.role === 'staff') {
           loadTeam(token, false)
           return
         }
@@ -1000,7 +1000,7 @@ export default function Settings() {
   }
 
   const anglesWithComparison = ANGLES.filter(a => photos[a].length >= 2)
-  const isStaff = profile?.role === 'admin' || profile?.role === 'coach'
+  const isStaff = profile?.role === 'admin' || profile?.role === 'coach' || profile?.role === 'staff'
 
   return (
     <div className="w-full max-w-lg mx-auto pb-6">
