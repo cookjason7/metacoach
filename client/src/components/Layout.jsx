@@ -261,6 +261,9 @@ export default function Layout() {
     return () => clearInterval(id)
   }, [fetchMsgUnread])
 
+  // AI/Hybrid clients (coaching_type === 'ai') get Katie in the bottom nav; VIP get Messages
+  const isAiClient = !isStaff && coachingType === 'ai'
+
   // Super-admin gets an extra "Usage Analytics" nav entry.
   // AI clients see "Support" instead of "Messages" so the label is unambiguous.
   const navItems = isStaff
@@ -272,9 +275,6 @@ export default function Layout() {
           item.label === 'Messages' ? { ...item, label: 'Support' } : item,
         )
       : CLIENT_NAV_ITEMS
-
-  // AI/Hybrid clients (coaching_type === 'ai') get Katie in the bottom nav; VIP get Messages
-  const isAiClient = !isStaff && coachingType === 'ai'
 
   // Mobile drawer hides items that already appear in the client bottom nav
   const mobileBottomNavLabels = isAiClient
