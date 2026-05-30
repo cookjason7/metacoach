@@ -289,7 +289,7 @@ export default function Layout() {
         <div className="bg-white rounded-xl overflow-hidden px-3 py-2.5">
           <img
             src="/logo.png"
-            alt="Life Warrior Coaching"
+            alt="WarriorFIT AI"
             className="w-full h-11 object-contain"
           />
         </div>

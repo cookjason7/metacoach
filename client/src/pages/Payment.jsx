@@ -44,7 +44,7 @@ export default function Payment() {
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-6 py-3 inline-block">
             <img
               src="/logo.png"
-              alt="Life Warrior Coaching"
+              alt="WarriorFIT AI"
               className="h-12 object-contain"
               onError={e => { e.currentTarget.style.display = 'none' }}
             />

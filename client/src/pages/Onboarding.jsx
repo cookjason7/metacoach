@@ -126,7 +126,7 @@ export default function Onboarding() {
         {/* ── Step 1: Basic Info ── */}
         {step === 1 && (
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-1">Welcome to MetaCoach</h1>
+            <h1 className="text-2xl font-bold text-gray-900 mb-1">Welcome to WarriorFIT AI</h1>
             <p className="text-sm text-gray-500 mb-6">Let's start with the basics.</p>
 
             <div className="space-y-4">
@@ -262,7 +262,7 @@ export default function Onboarding() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Why did you join MetaCoach?</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Why did you join WarriorFIT AI?</label>
                 <textarea
                   rows={2}
                   value={form.why_joined}
