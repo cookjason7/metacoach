@@ -179,6 +179,7 @@ const STAFF_VISIBLE_THREADS = ['admin_private', 'coach_thread', 'ai_admin']
 
 // Determine the default thread type to open when composing a new message to a client
 function defaultThreadFor(client, staffRole) {
+  if (!client) return 'admin_private'
   if (client.coaching_type === 'ai') return 'ai_admin'
   if (staffRole === 'coach') return 'coach_thread'
   return 'admin_private'
@@ -352,8 +353,9 @@ export default function StaffInbox({ getToken, role }) {
   }
 
   function selectSearchResult(client) {
+    if (!client?.id) return
     const threadType = defaultThreadFor(client, role)
-    setSelected({ clientId: client.id, clientName: client.full_name, threadType })
+    setSelected({ clientId: client.id, clientName: client.full_name ?? client.email ?? 'Client', threadType })
     closeSearch()
     setInboxView('active')
   }
@@ -606,15 +608,15 @@ export default function StaffInbox({ getToken, role }) {
               </button>
             </div>
             {/* Search results dropdown */}
-            {(searchLoading || searchResults.length > 0 || (searchQuery.trim() && !searchLoading)) && (
-              <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden max-h-60 overflow-y-auto">
+            {(searchLoading || searchResults.length > 0 || (searchQuery.trim().length > 0 && !searchLoading)) && (
+              <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
                 {searchLoading && (
                   <p className="text-xs text-gray-400 px-3 py-2">Searching…</p>
                 )}
-                {!searchLoading && searchQuery.trim() && searchResults.length === 0 && (
+                {!searchLoading && searchQuery.trim().length > 0 && searchResults.length === 0 && (
                   <p className="text-xs text-gray-400 px-3 py-2">No clients found.</p>
                 )}
-                {!searchLoading && searchResults.map(client => (
+                {!searchLoading && Array.isArray(searchResults) && searchResults.map(client => (
                   <button
                     key={client.id}
                     onClick={() => selectSearchResult(client)}
