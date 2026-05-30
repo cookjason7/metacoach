@@ -167,6 +167,32 @@ router.post('/', requireAuth(), async (req, res, next) => {
           computedAge,
         ],
       )
+
+      // Auto-close any matching pending invite for this user's email.
+      // Handles users who bypass /invite/:token/accept (e.g. Clerk timeout, navigation away).
+      // Uses case-insensitive, trimmed email matching.
+      const { rows: userEmailRows } = await pool.query(
+        'SELECT email FROM users WHERE id = $1',
+        [dbUserId],
+      )
+      const userEmail = userEmailRows[0]?.email?.trim().toLowerCase()
+      if (userEmail) {
+        const { rows: closedInvites } = await pool.query(
+          `UPDATE client_invites
+           SET accepted_at = NOW(), accepted_by_user_id = $1
+           WHERE LOWER(TRIM(email)) = $2 AND accepted_at IS NULL
+           RETURNING assigned_coach_id`,
+          [dbUserId, userEmail],
+        )
+        // Apply coach assignment from the invite if the user has none yet.
+        const inviteCoachId = closedInvites[0]?.assigned_coach_id
+        if (inviteCoachId) {
+          await pool.query(
+            `UPDATE users SET assigned_coach_id = $1 WHERE id = $2 AND assigned_coach_id IS NULL`,
+            [inviteCoachId, dbUserId],
+          )
+        }
+      }
     }
 
     res.json(rows[0])
