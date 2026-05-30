@@ -4,7 +4,7 @@ import { v2 as cloudinary } from 'cloudinary'
 import { pool, getOrCreateUser } from '../db.js'
 import { sendInviteEmail } from '../services/email.js'
 import { getAppBaseUrl } from '../services/appUrl.js'
-import { notifyNewDirectMessage } from '../services/pushService.js'
+import { notifyNewDirectMessage, notifyNewFormDelivery } from '../services/pushService.js'
 
 const router = Router()
 
@@ -2648,8 +2648,8 @@ router.post('/forms/:id/send', requireAuth(), async (req, res, next) => {
         has_form_metadata: Boolean(message.metadata?.form_id && message.metadata?.assignment_id),
       })
 
-      // Push: notify client about the form delivery message — fire-and-forget
-      notifyNewDirectMessage(clientId).catch(() => {})
+      // Push: notify client about the form/check-in delivery — fire-and-forget
+      notifyNewFormDelivery(clientId).catch(() => {})
 
       sent.push({ client_id: clientId, assignment_id: assignment.id })
     }

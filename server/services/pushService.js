@@ -112,6 +112,25 @@ export async function notifyNewDirectMessage(recipientUserId) {
   }
 }
 
+// Notify a client that a form or check-in has been sent to them.
+// Generic copy only — no form title, no health data.
+export async function notifyNewFormDelivery(clientUserId) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT notif_master_enabled, notif_dm_enabled FROM users WHERE id = $1`,
+      [clientUserId],
+    )
+    const prefs = rows[0]
+    if (!prefs || !prefs.notif_master_enabled || !prefs.notif_dm_enabled) return
+    await sendToUser(clientUserId, {
+      title: 'New Form',
+      body:  'You have a new form to complete.',
+    })
+  } catch (err) {
+    console.warn('[push] notifyNewFormDelivery error:', err.message)
+  }
+}
+
 // Notify community members about a new post.
 // Generic copy only — no post content, no health data.
 // v1: notifies staff/admin only to limit spam. Leave a clear note for product.
