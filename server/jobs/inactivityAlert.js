@@ -57,7 +57,7 @@ export async function runInactivityAlert() {
       await transporter.sendMail({
         from:    process.env.EMAIL_USER,
         to:      ADMIN_EMAIL,
-        subject: `MetaCoach: ${inactive.length} inactive client${inactive.length !== 1 ? 's' : ''}`,
+        subject: `WarriorFIT AI: ${inactive.length} inactive client${inactive.length !== 1 ? 's' : ''}`,
         html:    `<h2>Inactive Clients (no log in ${INACTIVE_DAYS}+ days)</h2><ul>${listHtml}</ul>`,
       })
       console.log(`[inactivity] Admin email sent — ${inactive.length} client(s)`)

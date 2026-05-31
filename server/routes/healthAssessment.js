@@ -143,6 +143,9 @@ router.post('/', requireAuth(), async (req, res, next) => {
         if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) years -= 1
         return years > 0 ? years : null
       })()
+      const identityTraitsForAnchors = Array.isArray(aRow.identity_traits)
+        ? JSON.stringify(aRow.identity_traits)
+        : null
 
       await pool.query(
         `UPDATE users
@@ -157,7 +160,14 @@ router.post('/', requireAuth(), async (req, res, next) => {
              first_name     = CASE WHEN first_name     IS NULL OR first_name     = '' THEN COALESCE($2, first_name)     ELSE first_name     END,
              last_name      = CASE WHEN last_name      IS NULL OR last_name      = '' THEN COALESCE($3, last_name)      ELSE last_name      END,
              activity_level = CASE WHEN activity_level IS NULL OR activity_level = '' THEN COALESCE($4, activity_level) ELSE activity_level END,
-             age            = CASE WHEN age            IS NULL                        THEN $5                           ELSE age            END
+             age            = CASE WHEN age            IS NULL                        THEN $5                           ELSE age            END,
+             identity_anchors = CASE
+               WHEN (identity_anchors IS NULL OR cardinality(identity_anchors) = 0)
+                    AND jsonb_typeof($6::jsonb) = 'array'
+                    AND jsonb_array_length($6::jsonb) > 0
+                 THEN ARRAY(SELECT jsonb_array_elements_text($6::jsonb))
+               ELSE identity_anchors
+             END
          WHERE id = $1`,
         [
           dbUserId,
@@ -165,8 +175,25 @@ router.post('/', requireAuth(), async (req, res, next) => {
           aRow.last_name      ? String(aRow.last_name).trim()      : null,
           aRow.activity_level ? String(aRow.activity_level).trim() : null,
           computedAge,
+          identityTraitsForAnchors,
         ],
       )
+
+      // One-time-safe backfill for existing completed assessments.
+      // This fills only users with null/empty anchors and never overwrites selections.
+      await pool.query(`
+        UPDATE users u
+        SET identity_anchors = ARRAY(
+          SELECT jsonb_array_elements_text(ha.identity_traits)
+        )
+        FROM health_assessments ha
+        WHERE ha.user_id = u.id
+          AND ha.completed_at IS NOT NULL
+          AND ha.identity_traits IS NOT NULL
+          AND jsonb_typeof(ha.identity_traits) = 'array'
+          AND jsonb_array_length(ha.identity_traits) > 0
+          AND (u.identity_anchors IS NULL OR cardinality(u.identity_anchors) = 0)
+      `)
     }
 
     res.json(rows[0])
