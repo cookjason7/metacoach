@@ -1271,7 +1271,16 @@ function InviteModal({ getToken, coaches = [], onClose, onSuccess }) {
   const [result,     setResult]     = useState(null)
   const [copied,     setCopied]     = useState(false)
 
-  function setF(e) { setForm(f => ({ ...f, [e.target.name]: e.target.value })) }
+  const isAI = form.coaching_type === 'ai'
+
+  function setF(e) {
+    const { name, value } = e.target
+    setForm(f => {
+      const next = { ...f, [name]: value }
+      if (name === 'coaching_type' && value === 'ai') next.assigned_coach_id = ''
+      return next
+    })
+  }
 
   async function submit(e) {
     e.preventDefault()
@@ -1286,7 +1295,7 @@ function InviteModal({ getToken, coaches = [], onClose, onSuccess }) {
           last_name:         form.last_name.trim()  || undefined,
           email:             form.email.trim(),
           coaching_type:     form.coaching_type || 'vip',
-          assigned_coach_id: form.assigned_coach_id || undefined,
+          assigned_coach_id: isAI ? null : (form.assigned_coach_id || undefined),
           notes:             form.notes.trim()   || undefined,
         }),
       })
@@ -1381,13 +1390,22 @@ function InviteModal({ getToken, coaches = [], onClose, onSuccess }) {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Assign coach</label>
-                <select name="assigned_coach_id" value={form.assigned_coach_id} onChange={setF} className={inputCls}>
+                <label className={`block text-xs font-medium mb-1 ${isAI ? 'text-gray-400' : 'text-gray-600'}`}>Assign coach</label>
+                <select
+                  name="assigned_coach_id"
+                  value={form.assigned_coach_id}
+                  onChange={setF}
+                  disabled={isAI}
+                  className={`${inputCls} ${isAI ? 'opacity-50 cursor-not-allowed bg-gray-100' : ''}`}
+                >
                   <option value="">Unassigned</option>
                   {coaches.map(c => (
                     <option key={c.id} value={String(c.id)}>{c.first_name || c.email}</option>
                   ))}
                 </select>
+                {isAI && (
+                  <p className="text-[10px] text-gray-400 mt-0.5">AI clients work with Coach Katie — no human coach assignment needed.</p>
+                )}
               </div>
             </div>
             <div>

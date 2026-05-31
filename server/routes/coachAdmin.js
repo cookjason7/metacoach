@@ -510,7 +510,7 @@ router.post('/clients/invite', requireAuth(), async (req, res, next) => {
       [normalizedEmail],
     )
 
-    const coachId = assigned_coach_id ? parseInt(assigned_coach_id, 10) : null
+    const coachId = (resolvedType === 'ai' || !assigned_coach_id) ? null : parseInt(assigned_coach_id, 10)
 
     const { rows: [invite] } = await pool.query(
       `INSERT INTO client_invites
