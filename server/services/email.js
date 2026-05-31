@@ -37,7 +37,7 @@ export async function sendAiSetupEmail({ to, firstName, setupUrl }) {
         <tr>
           <td style="background:#1e2a3a;padding:28px 32px;">
             <p style="margin:0;color:#f97316;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;">
-              Life Warrior Coaching
+              WarriorFIT AI
             </p>
           </td>
         </tr>
@@ -72,7 +72,7 @@ export async function sendAiSetupEmail({ to, firstName, setupUrl }) {
         <tr>
           <td style="background:#f9fafb;padding:16px 32px;border-top:1px solid #e5e7eb;">
             <p style="margin:0;font-size:11px;color:#9ca3af;">
-              Life Warrior Coaching · You're receiving this because you purchased AI coaching.
+              WarriorFIT AI · You're receiving this because you purchased AI coaching.
             </p>
           </td>
         </tr>
@@ -88,7 +88,7 @@ export async function sendAiSetupEmail({ to, firstName, setupUrl }) {
     const { error } = await resend.emails.send({
       from:    fromAddr,
       to:      [to],
-      subject: "You're in — set up your Life Warrior AI coaching account",
+      subject: "You're in — set up your WarriorFIT AI coaching account",
       html,
       text,
     })
@@ -129,7 +129,7 @@ export async function sendInviteEmail({ to, firstName, inviteUrl }) {
       <table width="100%" style="max-width:520px;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;">
         <tr>
           <td style="background:#1e2a3a;padding:24px 32px;text-align:center;">
-            <img src="${logoUrl}" alt="Life Warrior Coaching"
+            <img src="${logoUrl}" alt="WarriorFIT AI"
                  style="height:48px;width:auto;display:inline-block;" />
           </td>
         </tr>
@@ -139,7 +139,7 @@ export async function sendInviteEmail({ to, firstName, inviteUrl }) {
               Welcome, ${firstName}!
             </h1>
             <p style="margin:0 0 24px;font-size:15px;color:#4b5563;line-height:1.6;">
-              You've been personally invited to join Life Warrior VIP Coaching.
+              You've been personally invited to join WarriorFIT AI coaching.
               Click the button below to set up your account and get started.
             </p>
             <table cellpadding="0" cellspacing="0" style="margin:0 0 28px;">
@@ -162,7 +162,7 @@ export async function sendInviteEmail({ to, firstName, inviteUrl }) {
         <tr>
           <td style="background:#f9fafb;padding:16px 32px;border-top:1px solid #e5e7eb;">
             <p style="margin:0;font-size:11px;color:#9ca3af;">
-              Life Warrior Coaching · You're receiving this because an admin sent you a personal invite.
+              WarriorFIT AI · You're receiving this because an admin sent you a personal invite.
             </p>
           </td>
         </tr>
@@ -172,13 +172,13 @@ export async function sendInviteEmail({ to, firstName, inviteUrl }) {
 </body>
 </html>`
 
-  const text = `Welcome to Life Warrior Coaching, ${firstName}!\n\nYou've been personally invited to join as a VIP coaching client.\n\nSet up your account here:\n${inviteUrl}\n\nThis invite expires in 24 hours.`
+  const text = `Welcome to WarriorFIT AI, ${firstName}!\n\nYou've been personally invited to join as a coaching client.\n\nSet up your account here:\n${inviteUrl}\n\nThis invite expires in 24 hours.`
 
   try {
     const { error } = await resend.emails.send({
       from:    fromAddr,
       to:      [to],
-      subject: 'Set up your Life Warrior Coaching app',
+      subject: 'Set up your WarriorFIT AI account',
       html,
       text,
     })
