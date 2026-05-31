@@ -5,7 +5,7 @@ export default function Terms() {
     <div className="min-h-screen bg-white py-8 px-4 sm:px-6">
     <div className="w-full max-w-2xl mx-auto pb-10">
       <Link to="/about" className="text-sm text-[#E8670A] hover:text-[#c45e09] mb-6 inline-block">
-        ← Back
+        &lt; Back
       </Link>
 
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Terms of Service</h1>
