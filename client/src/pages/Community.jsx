@@ -2294,7 +2294,7 @@ export default function Community() {
       const res = await fetch(`${API_URL}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
       if (!res.ok) throw new Error(`Server error ${res.status}`)
       const data = await res.json()
-      const staff = data.role === 'admin' || data.role === 'coach'
+      const staff = data.role === 'admin' || data.role === 'coach' || data.role === 'staff'
       const ch    = normalizeChannel(data.coaching_type)
       setIsAdmin(data.role === 'admin')
       setIsStaff(staff)

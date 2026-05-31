@@ -21,7 +21,11 @@ const ENCOURAGE_REBUILD = [
   'Every restart counts.',
 ]
 
-function isoDate(d) { return d.toISOString().slice(0, 10) }
+function isoDate(d) {
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
+}
 function todayISO() { return isoDate(new Date()) }
 
 // Pad to Monday-first grid: returns offset (0-6) for first day of month

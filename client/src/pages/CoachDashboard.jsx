@@ -1271,25 +1271,20 @@ function InviteModal({ getToken, coaches = [], onClose, onSuccess }) {
   const [result,     setResult]     = useState(null)
   const [copied,     setCopied]     = useState(false)
 
+  const isAI = form.coaching_type === 'ai'
+
   function setF(e) {
     const { name, value } = e.target
-    setForm(f => ({
-      ...f,
-      [name]: value,
-      // Switching to AI clears any selected coach so it isn't accidentally submitted
-      ...(name === 'coaching_type' && value === 'ai' ? { assigned_coach_id: '' } : {}),
-    }))
+    setForm(f => {
+      const next = { ...f, [name]: value }
+      if (name === 'coaching_type' && value === 'ai') next.assigned_coach_id = ''
+      return next
+    })
   }
 
   async function submit(e) {
     e.preventDefault()
     setSaving(true); setError(null); setIsArchived(false)
-    // VIP clients must have an assigned coach
-    if ((form.coaching_type || 'vip') === 'vip' && !form.assigned_coach_id) {
-      setError('Please assign a coach for VIP clients.')
-      setSaving(false)
-      return
-    }
     try {
       const token = await getToken()
       const res = await fetch(`${API_URL}/api/coach-admin/clients/invite`, {
@@ -1300,7 +1295,7 @@ function InviteModal({ getToken, coaches = [], onClose, onSuccess }) {
           last_name:         form.last_name.trim()  || undefined,
           email:             form.email.trim(),
           coaching_type:     form.coaching_type || 'vip',
-          assigned_coach_id: form.assigned_coach_id || undefined,
+          assigned_coach_id: isAI ? null : (form.assigned_coach_id || undefined),
           notes:             form.notes.trim()   || undefined,
         }),
       })
@@ -1386,24 +1381,33 @@ function InviteModal({ getToken, coaches = [], onClose, onSuccess }) {
                 placeholder="jane@example.com" className={inputCls} />
               <p className="text-[10px] text-gray-400 mt-0.5">Client must sign up with this exact email.</p>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Coaching type</label>
-              <select name="coaching_type" value={form.coaching_type} onChange={setF} className={inputCls}>
-                <option value="vip">VIP</option>
-                <option value="ai">AI</option>
-              </select>
-            </div>
-            {form.coaching_type !== 'ai' && (
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Assign coach *</label>
-                <select name="assigned_coach_id" value={form.assigned_coach_id} onChange={setF} className={inputCls}>
-                  <option value="">Select a coach…</option>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Coaching type</label>
+                <select name="coaching_type" value={form.coaching_type} onChange={setF} className={inputCls}>
+                  <option value="vip">VIP</option>
+                  <option value="ai">AI</option>
+                </select>
+              </div>
+              <div>
+                <label className={`block text-xs font-medium mb-1 ${isAI ? 'text-gray-400' : 'text-gray-600'}`}>Assign coach</label>
+                <select
+                  name="assigned_coach_id"
+                  value={form.assigned_coach_id}
+                  onChange={setF}
+                  disabled={isAI}
+                  className={`${inputCls} ${isAI ? 'opacity-50 cursor-not-allowed bg-gray-100' : ''}`}
+                >
+                  <option value="">Unassigned</option>
                   {coaches.map(c => (
                     <option key={c.id} value={String(c.id)}>{c.first_name || c.email}</option>
                   ))}
                 </select>
+                {isAI && (
+                  <p className="text-[10px] text-gray-400 mt-0.5">AI clients work with Coach Katie — no human coach assignment needed.</p>
+                )}
               </div>
-            )}
+            </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">
                 Notes <span className="text-gray-400 font-normal">(optional)</span>

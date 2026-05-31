@@ -40,7 +40,7 @@ export default function AiWelcome() {
         </div>
 
         <p className="text-xs font-bold text-[#E8670A] uppercase tracking-widest mb-1">
-          Life Warrior Coaching
+          WarriorFIT AI
         </p>
 
         <h1 className="text-xl font-bold text-gray-900 mb-3 mt-2">
@@ -69,7 +69,7 @@ export default function AiWelcome() {
         </p>
 
         <p className="text-xs text-gray-400 leading-relaxed mb-7">
-          The email comes from Life Warrior Coaching. If you don't see it in a minute or two, check your spam folder.
+          The email comes from WarriorFIT AI. If you don't see it in a minute or two, check your spam folder.
         </p>
 
         <div className="bg-[#fff7ed] rounded-xl p-4 text-left mb-6">

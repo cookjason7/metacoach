@@ -517,7 +517,57 @@ export default function HealthAssessment() {
     setError(null)
     try {
       const token = await getToken()
+
+      // Flush users-table fields (blocking) in case fire-and-forget autosaves from earlier
+      // sections failed silently. This guarantees gender, height, weights, and food prefs
+      // are always written on final completion regardless of intermediate autosave success.
+      const height_inches_final = parseInt(form.height_feet, 10) * 12 + parseInt(form.height_in, 10)
+      await fetch(`${API_URL}/api/users/me`, {
+        method:  'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          gender:              form.gender              || null,
+          height_inches:       height_inches_final > 0 ? height_inches_final : null,
+          starting_weight_lbs: form.starting_weight_lbs ? Number(form.starting_weight_lbs) : null,
+          goal_weight_lbs:     form.goal_weight_lbs     ? Number(form.goal_weight_lbs)      : null,
+          food_allergies:      form.food_allergies,
+          food_dislikes:       form.food_dislikes,
+        }),
+      })
+
+      // Final health assessment completion — include all fields as COALESCE fallback so that
+      // any section whose fire-and-forget autosave failed silently still ends up persisted.
       const payload = {
+        // Section 1 — contact & physical stats
+        first_name:           form.first_name.trim()      || null,
+        last_name:            form.last_name.trim()       || null,
+        email,
+        phone:                form.phone.trim()           || null,
+        street_address:       form.street_address.trim()  || null,
+        city:                 form.city.trim()             || null,
+        state:                form.state.trim()            || null,
+        zip_code:             form.zip_code.trim()         || null,
+        country:              form.country.trim()          || 'United States',
+        date_of_birth:        form.date_of_birth           || null,
+        shirt_size:           form.shirt_size              || null,
+        // Section 2 — about you
+        supplements:          form.supplements.trim()          || null,
+        goals_6_months:       form.goals_6_months.trim()       || null,
+        injuries_limitations: form.injuries_limitations.trim() || null,
+        num_kids:             form.num_kids !== '' && form.num_kids != null ? Number(form.num_kids) : null,
+        occupation:           form.occupation.trim()           || null,
+        // Section 3 — lifestyle
+        energy_level:         form.energy_level      != null ? form.energy_level      : null,
+        sleep_hours:          form.sleep_hours        || null,
+        stress_management:    form.stress_management  != null ? form.stress_management  : null,
+        sleep_quality:        form.sleep_quality      != null ? form.sleep_quality      : null,
+        daily_water:          form.daily_water        || null,
+        alcohol_weekdays:     form.alcohol_weekdays !== '' ? Number(form.alcohol_weekdays) : null,
+        alcohol_weekends:     form.alcohol_weekends !== '' ? Number(form.alcohol_weekends) : null,
+        happiness_level:      form.happiness_level   != null ? form.happiness_level   : null,
+        confidence_level:     form.confidence_level  != null ? form.confidence_level  : null,
+        activity_level:       form.activity_level    || null,
+        // Section 4 — identity
         identity_traits: form.identity_traits,
         completed: true,
       }
@@ -564,7 +614,7 @@ export default function HealthAssessment() {
               <div className="bg-white rounded-xl px-4 py-2.5 inline-block mb-5 shadow-sm">
                 <img
                   src="/logo.png"
-                  alt="Life Warrior Coaching"
+                  alt="WarriorFIT AI"
                   className="h-10 w-auto object-contain"
                   onError={e => { e.currentTarget.style.display = 'none' }}
                 />
@@ -1027,7 +1077,7 @@ export default function HealthAssessment() {
                 <p className="text-sm font-semibold text-[#E8670A] mb-1">What happens next?</p>
                 {coachingType === 'ai' ? (
                   <ul className="space-y-1.5 text-xs text-gray-600">
-                    <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> Enter Meta Coach to start using your AI-powered coaching tools.</li>
+                    <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> Enter WarriorFIT AI to start using your AI-powered coaching tools.</li>
                     <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> You can access Katie, food tracking, Brain Mapping, resources, and community support.</li>
                     <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> You can update your assessment anytime in Settings.</li>
                   </ul>
@@ -1044,7 +1094,7 @@ export default function HealthAssessment() {
                 onClick={handleEnterApp}
                 className="w-full py-4 bg-[#E8670A] hover:bg-[#d45a08] text-white font-bold text-base rounded-xl shadow-lg transition-all hover:shadow-xl active:scale-[0.98]"
               >
-                Enter Meta Coach →
+                Enter WarriorFIT AI →
               </button>
             </div>
           </div>
@@ -1053,7 +1103,7 @@ export default function HealthAssessment() {
         {/* Bottom brand note */}
         {step < 5 && (
           <p className="text-center text-white/30 text-xs mt-4">
-            Meta Coach · Your data is secure and private
+            WarriorFIT AI · Your data is secure and private
           </p>
         )}
 
