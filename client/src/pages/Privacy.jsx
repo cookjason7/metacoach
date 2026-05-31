@@ -4,8 +4,8 @@ export default function Privacy() {
   return (
     <div className="min-h-screen bg-white py-8 px-4 sm:px-6">
     <div className="w-full max-w-2xl mx-auto pb-10">
-      <Link to="/settings" className="text-sm text-[#E8670A] hover:text-[#c45e09] mb-6 inline-block">
-        ← Back to Settings
+      <Link to="/about" className="text-sm text-[#E8670A] hover:text-[#c45e09] mb-6 inline-block">
+        ← Back
       </Link>
 
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Privacy Policy</h1>
@@ -14,7 +14,7 @@ export default function Privacy() {
       <div className="space-y-8 text-sm text-gray-700 leading-relaxed">
         <section>
           <h2 className="text-base font-semibold text-gray-900 mb-2">1. Information We Collect</h2>
-          <p className="mb-2">When you use Meta Coach, we collect the following types of information:</p>
+          <p className="mb-2">When you use WarriorFIT AI, we collect the following types of information:</p>
           <ul className="list-disc list-inside space-y-1 text-gray-600 pl-2">
             <li>Account information (name, email address)</li>
             <li>Health and wellness data you log (meals, steps, weight, sleep, workouts)</li>

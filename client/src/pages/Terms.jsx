@@ -4,8 +4,8 @@ export default function Terms() {
   return (
     <div className="min-h-screen bg-white py-8 px-4 sm:px-6">
     <div className="w-full max-w-2xl mx-auto pb-10">
-      <Link to="/settings" className="text-sm text-[#E8670A] hover:text-[#c45e09] mb-6 inline-block">
-        ← Back to Settings
+      <Link to="/about" className="text-sm text-[#E8670A] hover:text-[#c45e09] mb-6 inline-block">
+        ← Back
       </Link>
 
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Terms of Service</h1>
@@ -15,7 +15,7 @@ export default function Terms() {
         <section>
           <h2 className="text-base font-semibold text-gray-900 mb-2">1. Acceptance of Terms</h2>
           <p>
-            By accessing or using Meta Coach ("the Service"), you agree to be bound by these Terms of Service.
+            By accessing or using WarriorFIT AI ("the Service"), you agree to be bound by these Terms of Service.
             If you do not agree to these terms, please do not use the Service.
           </p>
         </section>
@@ -23,7 +23,7 @@ export default function Terms() {
         <section>
           <h2 className="text-base font-semibold text-gray-900 mb-2">2. Description of Service</h2>
           <p>
-            Meta Coach is a health and wellness coaching platform that provides nutrition tracking, habit monitoring,
+            WarriorFIT AI is a health and wellness coaching platform that provides nutrition tracking, habit monitoring,
             fitness logging, and coaching support. The Service is intended for informational and personal wellness
             purposes only and does not constitute medical advice.
           </p>
@@ -53,7 +53,7 @@ export default function Terms() {
         <section>
           <h2 className="text-base font-semibold text-gray-900 mb-2">5. Health Disclaimer</h2>
           <p>
-            The content provided through Meta Coach, including coaching messages, nutrition plans, and fitness
+            The content provided through WarriorFIT AI, including coaching messages, nutrition plans, and fitness
             recommendations, is for general wellness purposes only. Always consult a qualified healthcare
             professional before making significant changes to your diet, exercise routine, or health practices.
           </p>
@@ -62,7 +62,7 @@ export default function Terms() {
         <section>
           <h2 className="text-base font-semibold text-gray-900 mb-2">6. Limitation of Liability</h2>
           <p>
-            To the fullest extent permitted by law, Meta Coach and its operators shall not be liable for any
+            To the fullest extent permitted by law, WarriorFIT AI and its operators shall not be liable for any
             indirect, incidental, special, or consequential damages arising from your use of the Service.
             Your use of the Service is at your own risk.
           </p>

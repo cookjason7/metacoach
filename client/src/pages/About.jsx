@@ -8,7 +8,7 @@ export default function About() {
           <Link to="/about" className="flex items-center gap-3">
             <img
               src="/logo.png"
-              alt="Life Warrior Coaching"
+              alt="WarriorFIT AI"
               className="h-11 w-auto object-contain"
               onError={e => { e.currentTarget.style.display = 'none' }}
             />
@@ -24,13 +24,13 @@ export default function About() {
         <section className="flex flex-1 flex-col justify-center py-12">
           <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
             <p className="mb-3 text-xs font-bold uppercase tracking-widest text-[#f97316]">
-              Life Warrior Coaching
+              WarriorFIT AI
             </p>
             <h1 className="mb-4 text-3xl font-bold tracking-normal text-gray-950 sm:text-4xl">
-              Life Warrior Coaching App
+              WarriorFIT AI App
             </h1>
             <p className="max-w-2xl text-base leading-7 text-gray-600">
-              Life Warrior Coaching App helps clients track nutrition, hydration, habits, progress, check-ins, messaging, and coaching support.
+              WarriorFIT AI App helps clients track nutrition, hydration, habits, progress, check-ins, messaging, and coaching support.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
