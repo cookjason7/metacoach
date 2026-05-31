@@ -1,19 +1,21 @@
 {
   "name": "WarriorFIT AI",
   "short_name": "WarriorFIT AI",
+  "description": "WarriorFIT AI coaching app for nutrition, habits, progress, and support.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#1e2a3a",
   "theme_color": "#1e2a3a",
   "icons": [
     {
       "src": "/logo.png",
-      "sizes": "192x192",
+      "sizes": "953x593",
       "type": "image/png"
     },
     {
       "src": "/logo.png",
-      "sizes": "512x512",
+      "sizes": "953x593",
       "type": "image/png"
     }
   ]
