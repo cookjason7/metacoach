@@ -389,12 +389,17 @@ Format the response exactly like this:
 One paragraph, 2-3 sentences max. Tell her how she's doing overall in plain English. Start with the good news.
 
 **Your Results by Area**
-For each area show a status indicator and one plain English sentence.
+Each area must be on its own separate line with a blank line between each one. Do not run them together.
+
 🟢 Metabolic Health — [one sentence]
+
 🟢 Liver Health — [one sentence]
+
 🟡 Heart Health — [one sentence]
+
 🔴 Inflammation — [one sentence]
-Only include areas that have data.
+
+Only include areas that have data. Each indicator must be its own paragraph, not concatenated into one block of text.
 
 **Your Biggest Win**
 One sentence. What is she doing really well?
