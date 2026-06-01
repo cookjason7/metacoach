@@ -113,7 +113,7 @@ function MomentumCard({ data, loading }) {
               </p>
             ))}
             <p className="text-[10px] text-gray-400 pl-3">
-              Share your answers in your weekly check-in with your coach.
+              Complete your weekly check-in by sending your answers to your coach in Messages.
             </p>
           </div>
         )}

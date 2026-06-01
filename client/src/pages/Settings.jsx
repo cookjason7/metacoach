@@ -1296,12 +1296,12 @@ export default function Settings() {
           <h2 className="text-sm font-semibold text-gray-700 mb-3">Health Profile</h2>
           <div className="bg-white rounded-xl border border-gray-200 p-5 mb-8">
             <p className="text-sm text-gray-500 mb-4">Your personal, health, and progress information is managed in your Health Profile.</p>
-            <a
-              href="/health-assessment"
+            <Link
+              to="/health-assessment"
               className="flex items-center justify-center w-full py-2.5 rounded-lg text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors"
             >
               Edit Health Profile
-            </a>
+            </Link>
           </div>
 
           {profile?.bloodwork_enabled && (
@@ -1453,7 +1453,7 @@ export default function Settings() {
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-800">Push notifications</p>
-                <p className="text-xs text-gray-500 mt-0.5">Receive push notifications on this device</p>
+                <p className="text-xs text-gray-500 mt-0.5">Push notifications will be available in the mobile app. For now, you'll still receive in-app updates.</p>
               </div>
               <button
                 type="button"
@@ -1624,7 +1624,7 @@ export default function Settings() {
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-800">Push notifications</p>
-                <p className="text-xs text-gray-500 mt-0.5">Receive push notifications on this device</p>
+                <p className="text-xs text-gray-500 mt-0.5">Push notifications will be available in the mobile app. For now, you'll still receive in-app updates.</p>
               </div>
               <button
                 type="button"

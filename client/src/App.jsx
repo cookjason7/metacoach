@@ -185,8 +185,8 @@ export default function App() {
         <Route element={<ProtectedLayout />}>
           <Route path="/"             element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard"    element={<Dashboard />} />
-          <Route path="/log-meal"     element={<LogMeal />} />
-          <Route path="/meal-history" element={<MealHistory />} />
+          <Route path="/log-meal"     element={<Navigate to="/journal" replace />} />
+          <Route path="/meal-history" element={<Navigate to="/journal" replace />} />
           <Route path="/ai-coach"     element={<AICoach />} />
           <Route path="/community"    element={<Community />} />
           <Route path="/journal"      element={<Journal />} />
