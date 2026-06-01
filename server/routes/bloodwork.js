@@ -379,6 +379,44 @@ SAFETY — END EVERY REPORT WITH THIS DISCLAIMER VERBATIM
 
 `
 
+const CLIENT_SUMMARY_PROMPT = `You are a health coach AI helping women understand their bloodwork in plain, encouraging language. Your job is not to diagnose or replace a doctor. Your job is to help her understand what her labs mean, what to focus on, and what to do next.
+Keep the entire summary under 400 words. No clinical language. No hedging. No "discuss with your clinician" on every point.
+Format the response exactly like this:
+
+## Overall Status
+One paragraph, 2-3 sentences max. Tell her how she's doing overall in plain English. Start with the good news.
+
+## Your Results by Area
+For each area, show a status indicator and one plain English sentence.
+🟢 Metabolic Health — [one sentence]
+🟢 Liver Health — [one sentence]
+🟡 Heart Health — [one sentence]
+🔴 Inflammation — [one sentence]
+Only include areas that have data.
+
+## Your Biggest Win
+One sentence. What is she doing really well?
+
+## Your Top Focus Right Now
+The single most important thing to address. Two sentences max.
+
+## What To Do This Week
+3 action items only. Plain English. Specific and actionable.
+
+## Supplements Worth Considering
+Only suggest supplements supported by her actual results. Format as:
+| Supplement | Why it matters for you | Suggested amount |
+|---|---|---|
+No more than 4 supplements. Skip this section if nothing is clearly indicated.
+
+## One Coaching Insight
+One or two sentences connecting her labs to how she's actually feeling in real life. Make it personal and real.
+
+Do not add extra sections. Do not add follow-up questions. Do not use tables except for the supplement section. Do not use clinical reference ranges in the output.
+
+This summary is for informational purposes only and is not medical advice, a diagnosis, or a treatment plan.
+`
+
 // ── Client routes (feature-flag gated) ────────────────────────────────────────
 
 // GET /api/bloodwork — list own uploads
@@ -392,6 +430,7 @@ router.get('/', requireAuth(), async (req, res, next) => {
       `SELECT id, original_filename, mime_type, lab_date, notes,
               extracted_text IS NOT NULL AS has_text,
               ai_summary IS NOT NULL AS has_summary,
+              ai_client_summary IS NOT NULL AS has_client_summary,
               status, created_at
        FROM bloodwork_uploads
        WHERE user_id = $1 AND deleted = FALSE
@@ -818,6 +857,26 @@ router.get('/:id/file', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// GET /api/bloodwork/:id/summary — client reads own client-friendly AI summary
+router.get('/:id/summary', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await getCtx(req)
+    const { rows } = await pool.query(
+      'SELECT id, user_id, ai_client_summary, deleted FROM bloodwork_uploads WHERE id = $1',
+      [Number(req.params.id)],
+    )
+    if (!rows[0] || rows[0].deleted) return res.status(404).json({ error: 'Not found.' })
+    const rec = rows[0]
+    const isOwner = rec.user_id === ctx.dbUserId
+    const staffAccess = isPrivileged(ctx.role) && (await canAccessClient(ctx, rec.user_id))
+    if (!isOwner && !staffAccess) return res.status(403).json({ error: 'Access denied.' })
+    if (isOwner && !isPrivileged(ctx.role) && !(await isBloodworkEnabled(ctx.dbUserId))) {
+      return res.status(403).json({ error: 'Bloodwork feature not yet available.' })
+    }
+    res.json({ ai_client_summary: rec.ai_client_summary ?? null })
+  } catch (err) { next(err) }
+})
+
 // POST /api/bloodwork/:id/summarize — staff generates AI summary
 router.post('/:id/summarize', requireAuth(), async (req, res, next) => {
   try {
@@ -839,12 +898,23 @@ router.post('/:id/summarize', requireAuth(), async (req, res, next) => {
       ? `\n\n══════════════════════════════════════════════════\nCLIENT CONTEXT (provided by their coaching program):\n══════════════════════════════════════════════════\n${clientContext}\n\n`
       : ''
     const labBlock = `\n\n══════════════════════════════════════════════════\nLAB RESULTS TO INTERPRET:\n══════════════════════════════════════════════════\n${rows[0].extracted_text}`
+
+    // Run deep (staff) and client-friendly summaries in parallel
     const sumT0 = Date.now()
-    const msg = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 8000,
-      messages: [{ role: 'user', content: SUMMARY_PROMPT + contextBlock + labBlock }],
-    })
+    const [staffMsg, clientMsg] = await Promise.all([
+      anthropic.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 8000,
+        messages: [{ role: 'user', content: SUMMARY_PROMPT + contextBlock + labBlock }],
+      }),
+      anthropic.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1500,
+        messages: [{ role: 'user', content: CLIENT_SUMMARY_PROMPT + contextBlock + labBlock }],
+      }),
+    ])
+    const durationMs = Date.now() - sumT0
+
     // Track AI summary call — actor=staff, target=client (non-blocking)
     trackEvent({
       actorUserId:  ctx.dbUserId,
@@ -854,15 +924,18 @@ router.post('/:id/summarize', requireAuth(), async (req, res, next) => {
       provider:     'anthropic',
       providerOp:   'messages.create',
       model:        'claude-sonnet-4-6',
-      inputTokens:  msg.usage?.input_tokens,
-      outputTokens: msg.usage?.output_tokens,
-      durationMs:   Date.now() - sumT0,
+      inputTokens:  (staffMsg.usage?.input_tokens ?? 0) + (clientMsg.usage?.input_tokens ?? 0),
+      outputTokens: (staffMsg.usage?.output_tokens ?? 0) + (clientMsg.usage?.output_tokens ?? 0),
+      durationMs,
     })
-    const summary = msg.content[0]?.text?.trim()
+
+    const summary = staffMsg.content[0]?.text?.trim()
     if (!summary) return res.status(500).json({ error: 'AI did not return a summary.' })
+    const clientSummary = clientMsg.content[0]?.text?.trim() ?? null
+
     await pool.query(
-      'UPDATE bloodwork_uploads SET ai_summary = $1, updated_at = NOW() WHERE id = $2',
-      [summary, rows[0].id],
+      'UPDATE bloodwork_uploads SET ai_summary = $1, ai_client_summary = $2, updated_at = NOW() WHERE id = $3',
+      [summary, clientSummary, rows[0].id],
     )
     res.json({ ai_summary: summary })
   } catch (err) { next(err) }

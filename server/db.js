@@ -1176,6 +1176,7 @@ export async function migrate() {
     )
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_bloodwork_user_date ON bloodwork_uploads (user_id, lab_date DESC, created_at DESC)`)
+  await pool.query(`ALTER TABLE bloodwork_uploads ADD COLUMN IF NOT EXISTS ai_client_summary TEXT`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bloodwork_enabled BOOLEAN NOT NULL DEFAULT FALSE`)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS bloodwork_intake (
