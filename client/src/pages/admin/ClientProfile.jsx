@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, Fragment, useRef } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { API_URL } from '../../config.js'
 import BloodworkIntakeForm from '../../components/BloodworkIntakeForm.jsx'
 
@@ -4406,10 +4408,16 @@ function BloodworkTab({ clientId, getToken, bloodworkEnabled = false, onClientUp
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
-      const data = await res.json()
-      if (!res.ok) { alert(data.error ?? 'Summary failed.'); return }
+      let data = {}
+      try { data = await res.json() } catch { /* non-JSON body */ }
+      if (!res.ok) {
+        alert(data.error ?? `Summary failed (${res.status}). Please try again.`)
+        return
+      }
       setUploads(prev => prev.map(u => u.id === id ? { ...u, ai_summary: data.ai_summary } : u))
-    } catch { alert('Summary failed. Please try again.') }
+    } catch {
+      alert('Summary request failed — the server did not respond. This can happen if the AI call timed out. Please try again in a moment.')
+    }
     finally { setSummarizingId(null) }
   }
 
@@ -4629,7 +4637,9 @@ function BloodworkTab({ clientId, getToken, bloodworkEnabled = false, onClientUp
                 {u.ai_summary ? (
                   <div>
                     <p className="text-[10px] font-semibold text-blue-600 uppercase tracking-wide mb-2">AI Educational Summary</p>
-                    <div className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">{u.ai_summary}</div>
+                    <div className="text-xs text-gray-700 leading-relaxed prose prose-xs max-w-none prose-headings:text-gray-800 prose-headings:font-semibold prose-strong:text-gray-800 prose-table:text-xs prose-td:py-1 prose-th:py-1 prose-hr:my-2">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{u.ai_summary}</ReactMarkdown>
+                    </div>
                     <div className="mt-3 p-2.5 bg-amber-50 border border-amber-100 rounded-lg">
                       <p className="text-[10px] text-amber-700 leading-snug">{BLOODWORK_DISCLAIMER}</p>
                     </div>
