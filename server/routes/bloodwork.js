@@ -893,6 +893,11 @@ router.post('/:id/summarize', requireAuth(), async (req, res, next) => {
         error: 'Could not extract readable lab text from this file. Please upload a clearer image or text-based PDF.',
       })
     }
+
+    const uploadId   = rows[0].id
+    const textLength = rows[0].extracted_text.length
+    console.log(`[bloodwork:summarize] start id=${uploadId} text_length=${textLength} model=claude-sonnet-4-6`)
+
     const clientContext = await buildClientContext(rows[0].user_id)
     const contextBlock = clientContext
       ? `\n\n══════════════════════════════════════════════════\nCLIENT CONTEXT (provided by their coaching program):\n══════════════════════════════════════════════════\n${clientContext}\n\n`
@@ -907,6 +912,7 @@ router.post('/:id/summarize', requireAuth(), async (req, res, next) => {
       messages: [{ role: 'user', content: SUMMARY_PROMPT + contextBlock + labBlock }],
     })
     const durationMs = Date.now() - sumT0
+    console.log(`[bloodwork:summarize] ai_call done id=${uploadId} duration_ms=${durationMs} input_tokens=${staffMsg.usage?.input_tokens} output_tokens=${staffMsg.usage?.output_tokens}`)
 
     const summary = staffMsg.content[0]?.text?.trim()
     if (!summary) return res.status(500).json({ error: 'AI did not return a summary.' })
@@ -950,7 +956,10 @@ router.post('/:id/summarize', requireAuth(), async (req, res, next) => {
     } catch (clientErr) {
       console.error('[bloodwork] client summary generation failed (non-fatal):', clientErr?.message)
     }
-  } catch (err) { next(err) }
+  } catch (err) {
+    console.error(`[bloodwork:summarize] failed: ${err?.message} | status=${err?.status ?? err?.statusCode ?? 'n/a'} | type=${err?.name ?? 'unknown'} | code=${err?.error?.type ?? err?.code ?? 'n/a'}`)
+    next(err)
+  }
 })
 
 // DELETE /api/bloodwork/:id — staff soft delete

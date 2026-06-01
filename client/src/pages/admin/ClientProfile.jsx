@@ -4406,10 +4406,16 @@ function BloodworkTab({ clientId, getToken, bloodworkEnabled = false, onClientUp
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
-      const data = await res.json()
-      if (!res.ok) { alert(data.error ?? 'Summary failed.'); return }
+      let data = {}
+      try { data = await res.json() } catch { /* non-JSON body */ }
+      if (!res.ok) {
+        alert(data.error ?? `Summary failed (${res.status}). Please try again.`)
+        return
+      }
       setUploads(prev => prev.map(u => u.id === id ? { ...u, ai_summary: data.ai_summary } : u))
-    } catch { alert('Summary failed. Please try again.') }
+    } catch {
+      alert('Summary request failed — the server did not respond. This can happen if the AI call timed out. Please try again in a moment.')
+    }
     finally { setSummarizingId(null) }
   }
 
