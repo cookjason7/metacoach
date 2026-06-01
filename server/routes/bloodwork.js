@@ -899,23 +899,24 @@ router.post('/:id/summarize', requireAuth(), async (req, res, next) => {
       : ''
     const labBlock = `\n\n══════════════════════════════════════════════════\nLAB RESULTS TO INTERPRET:\n══════════════════════════════════════════════════\n${rows[0].extracted_text}`
 
-    // Run deep (staff) and client-friendly summaries in parallel
+    // ── Primary: staff deep summary ───────────────────────────────────────────
     const sumT0 = Date.now()
-    const [staffMsg, clientMsg] = await Promise.all([
-      anthropic.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 8000,
-        messages: [{ role: 'user', content: SUMMARY_PROMPT + contextBlock + labBlock }],
-      }),
-      anthropic.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1500,
-        messages: [{ role: 'user', content: CLIENT_SUMMARY_PROMPT + contextBlock + labBlock }],
-      }),
-    ])
+    const staffMsg = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 8000,
+      messages: [{ role: 'user', content: SUMMARY_PROMPT + contextBlock + labBlock }],
+    })
     const durationMs = Date.now() - sumT0
 
-    // Track AI summary call — actor=staff, target=client (non-blocking)
+    const summary = staffMsg.content[0]?.text?.trim()
+    if (!summary) return res.status(500).json({ error: 'AI did not return a summary.' })
+
+    await pool.query(
+      'UPDATE bloodwork_uploads SET ai_summary = $1, updated_at = NOW() WHERE id = $2',
+      [summary, rows[0].id],
+    )
+
+    // Track staff summary call (non-blocking)
     trackEvent({
       actorUserId:  ctx.dbUserId,
       targetUserId: rows[0].user_id,
@@ -924,20 +925,31 @@ router.post('/:id/summarize', requireAuth(), async (req, res, next) => {
       provider:     'anthropic',
       providerOp:   'messages.create',
       model:        'claude-sonnet-4-6',
-      inputTokens:  (staffMsg.usage?.input_tokens ?? 0) + (clientMsg.usage?.input_tokens ?? 0),
-      outputTokens: (staffMsg.usage?.output_tokens ?? 0) + (clientMsg.usage?.output_tokens ?? 0),
+      inputTokens:  staffMsg.usage?.input_tokens,
+      outputTokens: staffMsg.usage?.output_tokens,
       durationMs,
     })
 
-    const summary = staffMsg.content[0]?.text?.trim()
-    if (!summary) return res.status(500).json({ error: 'AI did not return a summary.' })
-    const clientSummary = clientMsg.content[0]?.text?.trim() ?? null
-
-    await pool.query(
-      'UPDATE bloodwork_uploads SET ai_summary = $1, ai_client_summary = $2, updated_at = NOW() WHERE id = $3',
-      [summary, clientSummary, rows[0].id],
-    )
+    // Return to staff immediately — client summary generated below, non-blocking
     res.json({ ai_summary: summary })
+
+    // ── Secondary: client-friendly summary (failure must not affect staff response) ──
+    try {
+      const clientMsg = await anthropic.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1500,
+        messages: [{ role: 'user', content: CLIENT_SUMMARY_PROMPT + contextBlock + labBlock }],
+      })
+      const clientSummary = clientMsg.content[0]?.text?.trim()
+      if (clientSummary) {
+        await pool.query(
+          'UPDATE bloodwork_uploads SET ai_client_summary = $1, updated_at = NOW() WHERE id = $2',
+          [clientSummary, rows[0].id],
+        )
+      }
+    } catch (clientErr) {
+      console.error('[bloodwork] client summary generation failed (non-fatal):', clientErr?.message)
+    }
   } catch (err) { next(err) }
 })
 
