@@ -2898,33 +2898,53 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
         <div className="flex items-center gap-3">
           <button onClick={() => { setFoodView(null); clearLabelState() }}
             className="text-sm text-gray-500 hover:text-gray-700">← Back</button>
-          <p className="text-sm font-semibold text-gray-900">Scan Nutrition Label</p>
+          <p className="text-sm font-semibold text-gray-900">Add Label Photo</p>
         </div>
         <p className="text-xs text-gray-500 leading-relaxed">
           Upload a nutrition facts or supplement facts label. Katie will read the data and pre-fill a food for you to review before saving.
         </p>
         {!labelFile ? (
-          <label className="flex flex-col items-center justify-center w-full h-36 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-[#E8670A] hover:bg-orange-50/30 transition-colors">
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-gray-300 mb-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-            </svg>
-            <p className="text-sm font-medium text-gray-500">Tap to choose label photo</p>
-            <p className="text-xs text-gray-400 mt-1">JPG, PNG or WEBP · max 10 MB</p>
-            <input
-              type="file"
-              accept="image/jpeg,image/jpg,image/png,image/webp"
-              className="hidden"
-              onChange={e => {
-                const file = e.target.files?.[0]
-                if (!file) return
-                if (labelPreview) URL.revokeObjectURL(labelPreview)
-                setLabelFile(file)
-                setLabelPreview(URL.createObjectURL(file))
-                setFError(null)
-                e.target.value = ''
-              }}
-            />
-          </label>
+          <div className="grid grid-cols-2 gap-3">
+            {/* Take Photo — opens camera on mobile */}
+            <label className="flex flex-col items-center justify-center gap-2 h-28 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-[#E8670A] hover:bg-orange-50/30 transition-colors">
+              <span className="text-2xl">📷</span>
+              <span className="text-sm font-medium text-gray-600">Take Photo</span>
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={e => {
+                  const file = e.target.files?.[0]
+                  if (!file) return
+                  if (labelPreview) URL.revokeObjectURL(labelPreview)
+                  setLabelFile(file)
+                  setLabelPreview(URL.createObjectURL(file))
+                  setFError(null)
+                  e.target.value = ''
+                }}
+              />
+            </label>
+            {/* Choose from Gallery — normal image picker */}
+            <label className="flex flex-col items-center justify-center gap-2 h-28 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-[#E8670A] hover:bg-orange-50/30 transition-colors">
+              <span className="text-2xl">🖼️</span>
+              <span className="text-sm font-medium text-gray-600">Choose from Gallery</span>
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={e => {
+                  const file = e.target.files?.[0]
+                  if (!file) return
+                  if (labelPreview) URL.revokeObjectURL(labelPreview)
+                  setLabelFile(file)
+                  setLabelPreview(URL.createObjectURL(file))
+                  setFError(null)
+                  e.target.value = ''
+                }}
+              />
+            </label>
+          </div>
         ) : (
           <div className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
             <img src={labelPreview} alt="Nutrition label" className="w-full max-h-56 object-contain" />
@@ -3388,7 +3408,7 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
             <button
               onClick={() => { clearLabelState(); setFoodView('scan') }}
               className="text-xs font-semibold text-gray-500 hover:text-[#E8670A] transition-colors">
-              Scan Label
+              📷 Label Photo
             </button>
             <button
               onClick={() => { setFForm({ ...EMPTY_FOOD_FORM }); setEditingFood(null); setFError(null); setFoodView('create') }}
