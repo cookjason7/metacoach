@@ -49,6 +49,7 @@ app.use(cors({
     'http://localhost:5173',
     'https://app.lwcvip.com',
     'https://metacoach-production.up.railway.app',
+    'https://metacoach-staging.up.railway.app',
   ],
   credentials: true,
 }))
@@ -130,7 +131,7 @@ migrate()
   })
   .finally(() => {
     app.listen(PORT, () => {
-      console.log(`MetaCoach server running on http://localhost:${PORT}`)
+      console.log(`WarriorFIT AI server running on http://localhost:${PORT}`)
       initPush()
       if (process.env.DISABLE_BACKGROUND_JOBS === 'true') {
         console.log('Background jobs disabled by DISABLE_BACKGROUND_JOBS=true')
