@@ -25,13 +25,14 @@ router.post('/seed', async (req, res) => {
     return res.status(403).json({ error: 'Demo seed not allowed in this environment.' })
   }
 
-  // Secret check — require matching X-Seed-Secret header
+  // Secret check — SEED_SECRET must be set in the environment and match the header exactly
   const secret = process.env.SEED_SECRET
-  if (secret) {
-    const provided = req.headers['x-seed-secret']
-    if (!provided || provided !== secret) {
-      return res.status(403).json({ error: 'Invalid or missing X-Seed-Secret header.' })
-    }
+  if (!secret) {
+    return res.status(403).json({ error: 'SEED_SECRET is not configured. Demo seed is disabled.' })
+  }
+  const provided = req.headers['x-seed-secret']
+  if (!provided || provided !== secret) {
+    return res.status(403).json({ error: 'Invalid or missing X-Seed-Secret header.' })
   }
 
   const wipe = req.query.wipe === 'true'
