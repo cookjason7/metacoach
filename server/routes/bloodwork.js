@@ -380,41 +380,40 @@ SAFETY — END EVERY REPORT WITH THIS DISCLAIMER VERBATIM
 `
 
 const CLIENT_SUMMARY_PROMPT = `You are a health coach AI helping women understand their bloodwork in plain, encouraging language. Your job is not to diagnose or replace a doctor. Your job is to help her understand what her labs mean, what to focus on, and what to do next.
+
 Keep the entire summary under 400 words. No clinical language. No hedging. No "discuss with your clinician" on every point.
+
 Format the response exactly like this:
 
-## Overall Status
+**Overall Status**
 One paragraph, 2-3 sentences max. Tell her how she's doing overall in plain English. Start with the good news.
 
-## Your Results by Area
-For each area, show a status indicator and one plain English sentence.
+**Your Results by Area**
+For each area show a status indicator and one plain English sentence.
 🟢 Metabolic Health — [one sentence]
 🟢 Liver Health — [one sentence]
 🟡 Heart Health — [one sentence]
 🔴 Inflammation — [one sentence]
 Only include areas that have data.
 
-## Your Biggest Win
+**Your Biggest Win**
 One sentence. What is she doing really well?
 
-## Your Top Focus Right Now
+**Your Top Focus Right Now**
 The single most important thing to address. Two sentences max.
 
-## What To Do This Week
+**What To Do This Week**
 3 action items only. Plain English. Specific and actionable.
 
-## Supplements Worth Considering
-Only suggest supplements supported by her actual results. Format as:
-| Supplement | Why it matters for you | Suggested amount |
-|---|---|---|
+**Supplements Worth Considering**
+Only suggest supplements supported by her actual results.
+Format: Supplement | Why it matters for you | Suggested amount
 No more than 4 supplements. Skip this section if nothing is clearly indicated.
 
-## One Coaching Insight
+**One Coaching Insight**
 One or two sentences connecting her labs to how she's actually feeling in real life. Make it personal and real.
 
 Do not add extra sections. Do not add follow-up questions. Do not use tables except for the supplement section. Do not use clinical reference ranges in the output.
-
-This summary is for informational purposes only and is not medical advice, a diagnosis, or a treatment plan.
 `
 
 // ── Client routes (feature-flag gated) ────────────────────────────────────────
@@ -904,12 +903,12 @@ router.post('/:id/summarize', requireAuth(), async (req, res, next) => {
       : ''
     const labBlock = `\n\n══════════════════════════════════════════════════\nLAB RESULTS TO INTERPRET:\n══════════════════════════════════════════════════\n${rows[0].extracted_text}`
 
-    // ── Primary: staff deep summary ───────────────────────────────────────────
+    // ── Primary: client-friendly summary (shown to staff; rendered in client view) ──
     const sumT0 = Date.now()
     const staffMsg = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 8000,
-      messages: [{ role: 'user', content: SUMMARY_PROMPT + contextBlock + labBlock }],
+      max_tokens: 1500,
+      messages: [{ role: 'user', content: CLIENT_SUMMARY_PROMPT + contextBlock + labBlock }],
     })
     const durationMs = Date.now() - sumT0
     console.log(`[bloodwork:summarize] ai_call done id=${uploadId} duration_ms=${durationMs} input_tokens=${staffMsg.usage?.input_tokens} output_tokens=${staffMsg.usage?.output_tokens}`)
