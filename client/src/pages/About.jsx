@@ -7,7 +7,7 @@ export default function About() {
         <header className="flex items-center justify-between gap-4">
           <Link to="/about" className="flex items-center gap-3">
             <img
-              src="/logo.png"
+              src="/brand/warriorfit-logo-full.png"
               alt="WarriorFIT AI"
               className="h-11 w-auto object-contain"
               onError={e => { e.currentTarget.style.display = 'none' }}

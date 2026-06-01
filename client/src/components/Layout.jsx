@@ -306,9 +306,9 @@ export default function Layout() {
       <div className="mx-4 mt-5 mb-4">
         <div className="bg-white rounded-xl overflow-hidden px-3 py-2.5">
           <img
-            src="/logo.png"
+            src="/brand/warriorfit-logo-full.png"
             alt="WarriorFIT AI"
-            className="w-full h-11 object-contain"
+            className="w-full h-16 object-contain"
           />
         </div>
       </div>

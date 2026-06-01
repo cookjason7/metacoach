@@ -613,7 +613,7 @@ export default function HealthAssessment() {
               {/* Logo — white pill container matches sidebar treatment */}
               <div className="bg-white rounded-xl px-4 py-2.5 inline-block mb-5 shadow-sm">
                 <img
-                  src="/logo.png"
+                  src="/brand/warriorfit-logo-full.png"
                   alt="WarriorFIT AI"
                   className="h-10 w-auto object-contain"
                   onError={e => { e.currentTarget.style.display = 'none' }}

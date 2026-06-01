@@ -9,14 +9,16 @@
   "theme_color": "#1e2a3a",
   "icons": [
     {
-      "src": "/logo.png",
-      "sizes": "953x593",
-      "type": "image/png"
+      "src": "/brand/warriorfit-icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
-      "src": "/logo.png",
-      "sizes": "953x593",
-      "type": "image/png"
+      "src": "/brand/warriorfit-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }
