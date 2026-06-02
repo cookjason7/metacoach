@@ -9,13 +9,13 @@
   "theme_color": "#1e2a3a",
   "icons": [
     {
-      "src": "/brand/warriorfit-icon.png",
+      "src": "/brand/warriorfit-app-icon.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/brand/warriorfit-icon.png",
+      "src": "/brand/warriorfit-app-icon.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
