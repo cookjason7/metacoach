@@ -19,7 +19,7 @@ async function getCurrentStaff(req) {
 
 async function requireStaff(req, res) {
   const ctx = await getCurrentStaff(req)
-  if (ctx.role !== 'admin' && ctx.role !== 'coach') {
+  if (ctx.role !== 'admin' && ctx.role !== 'coach' && ctx.role !== 'staff') {
     res.status(403).json({ error: 'Staff only' })
     return null
   }
