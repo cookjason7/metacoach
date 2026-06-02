@@ -241,26 +241,35 @@ export default function Calendar() {
 
   useEffect(() => { loadCalendar() }, [loadCalendar])
 
-  // When Quick Log or Dashboard updates water/steps, refetch today's
-  // habit completions so Calendar stays in sync with the same data source.
-  useEffect(() => {
-    async function onDailyLogUpdated() {
-      const today = todayISO()
-      try {
-        const token = await getToken()
-        const res = await fetch(
-          `${API_URL}/api/client-habits/me/calendar?start=${today}&end=${today}`,
-          { headers: { Authorization: `Bearer ${token}` } },
-        )
-        if (res.ok) {
-          const data = await res.json()
-          setCalendar(prev => ({ ...prev, [today]: data.calendar[today] ?? [] }))
-        }
-      } catch {}
-    }
-    window.addEventListener('daily-log-updated', onDailyLogUpdated)
-    return () => window.removeEventListener('daily-log-updated', onDailyLogUpdated)
+  // Refetch today's habit completions so Calendar stays in sync with
+  // Dashboard auto-completes and Quick Log updates.
+  const refetchToday = useCallback(async () => {
+    const today = todayISO()
+    try {
+      const token = await getToken()
+      const res = await fetch(
+        `${API_URL}/api/client-habits/me/calendar?start=${today}&end=${today}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      if (res.ok) {
+        const data = await res.json()
+        setCalendar(prev => ({ ...prev, [today]: data.calendar[today] ?? [] }))
+      }
+    } catch {}
   }, [getToken])
+
+  // daily-log-updated: fired by Quick Log (water/steps) or Calendar's handleComplete
+  useEffect(() => {
+    window.addEventListener('daily-log-updated', refetchToday)
+    return () => window.removeEventListener('daily-log-updated', refetchToday)
+  }, [refetchToday])
+
+  // habit-completion-updated: fired by Dashboard auto-complete (water, steps, fiber)
+  // and by Calendar's handleComplete after every successful completion.
+  useEffect(() => {
+    window.addEventListener('habit-completion-updated', refetchToday)
+    return () => window.removeEventListener('habit-completion-updated', refetchToday)
+  }, [refetchToday])
 
   function showToast(message) {
     setToast(message)
@@ -290,8 +299,12 @@ export default function Calendar() {
         showToast(pickMessage(wasRebuild ? ENCOURAGE_REBUILD : ENCOURAGE_DEFAULT))
       }
 
-      // For today's progress habits (water/steps), also write to daily_logs so
-      // Dashboard stays in sync with the same underlying data source.
+      // Notify all listeners (Dashboard auto-complete, Calendar self) that a
+      // habit completion changed — covers fiber and any other habit type.
+      window.dispatchEvent(new CustomEvent('habit-completion-updated'))
+
+      // For today's water/steps habits, also write to daily_logs so Dashboard's
+      // todayLog (and progress rings) stay in sync with the same value.
       if (dateISO === todayISO()) {
         const habit = (calendar[dateISO] ?? []).find(e => e.habit.id === habitId)?.habit
         if (habit) {
@@ -308,7 +321,6 @@ export default function Calendar() {
               })
               if (logRes.ok) {
                 const updatedLog = await logRes.json()
-                // Notify Dashboard (and self) so progress rings + habits stay in sync
                 window.dispatchEvent(new CustomEvent('daily-log-updated', { detail: updatedLog }))
               }
             } catch {}

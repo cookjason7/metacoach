@@ -303,6 +303,8 @@ function TodayHabits({ getToken, todayLog, todayMeals }) {
           const u = updates.find(x => x.habitId === h.habit.id)
           return u ? { ...h, completion: u.comp } : h
         }))
+        // Notify Calendar so it refetches today's habits and sees the new completion
+        window.dispatchEvent(new CustomEvent('habit-completion-updated'))
       }
     })()
   }, [habits, todayLog, todayMeals, loading, today, getToken])
