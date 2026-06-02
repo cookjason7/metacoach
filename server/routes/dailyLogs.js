@@ -53,10 +53,10 @@ router.get('/progress', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const dbUserId   = await getOrCreateUser(userId)
-    const rangeParam = ['30d', '90d', '6m', 'custom'].includes(req.query.range) ? req.query.range : '30d'
+    const rangeParam = ['7d', '30d', '90d', 'custom'].includes(req.query.range) ? req.query.range : '7d'
     const validDate = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)
     const isoDate = d => d.toISOString().slice(0, 10)
-    const days       = rangeParam === '90d' ? 90 : rangeParam === '6m' ? 180 : 30
+    const days       = rangeParam === '90d' ? 90 : rangeParam === '30d' ? 30 : 7
     let startDate
     let endDate = isoDate(new Date())
 
@@ -75,7 +75,7 @@ router.get('/progress', requireAuth(), async (req, res, next) => {
 
     const md = `COALESCE(log_date, logged_at::date)`
 
-    const [sumR, wtR, stpR, slpR, macR, photoR] = await Promise.all([
+    const [sumR, wtR, stpR, slpR, macR, waterR, photoR] = await Promise.all([
       pool.query(`
         SELECT
           (SELECT ROUND(weight_lbs::numeric,1) FROM daily_logs WHERE user_id=$1
@@ -95,6 +95,8 @@ router.get('/progress', requireAuth(), async (req, res, next) => {
                 AND ${md} BETWEEN $2::date AND $3::date GROUP BY ${md}) t) AS avg_protein,
           (SELECT ROUND(AVG(steps)) FROM daily_logs WHERE user_id=$1
              AND steps IS NOT NULL AND logged_date BETWEEN $2::date AND $3::date) AS avg_steps,
+          (SELECT ROUND(AVG(water_oz)::numeric,1) FROM daily_logs WHERE user_id=$1
+             AND water_oz IS NOT NULL AND logged_date BETWEEN $2::date AND $3::date) AS avg_water_oz,
           (SELECT ROUND(AVG(sleep_minutes)) FROM daily_logs WHERE user_id=$1
              AND sleep_minutes IS NOT NULL AND logged_date BETWEEN $2::date AND $3::date) AS avg_sleep_minutes,
           (SELECT COUNT(*)::int FROM workout_logs WHERE user_id=$1
@@ -139,6 +141,13 @@ router.get('/progress', requireAuth(), async (req, res, next) => {
       `, [dbUserId, startDate, endDate]),
 
       pool.query(`
+        SELECT logged_date AS date, ROUND(water_oz::numeric,1) AS value
+        FROM daily_logs WHERE user_id=$1 AND water_oz IS NOT NULL
+          AND logged_date BETWEEN $2::date AND $3::date
+        ORDER BY logged_date
+      `, [dbUserId, startDate, endDate]),
+
+      pool.query(`
         SELECT photo_session_id AS session_id, MIN(taken_at) AS session_date,
           json_agg(json_build_object(
             'id', id, 'photo_url', photo_url, 'angle', angle, 'taken_at', taken_at
@@ -171,10 +180,11 @@ router.get('/progress', requireAuth(), async (req, res, next) => {
       start_date: startDate,
       end_date: endDate,
       summary,
-      weight_series: wtR.rows,
-      step_series:   stpR.rows,
-      sleep_series:  slpR.rows,
-      macro_series:  macR.rows,
+      weight_series:   wtR.rows,
+      step_series:     stpR.rows,
+      sleep_series:    slpR.rows,
+      macro_series:    macR.rows,
+      water_series:    waterR.rows,
       progress_photos: photoSessions,
     })
   } catch (err) {
