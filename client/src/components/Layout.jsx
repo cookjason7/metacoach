@@ -467,13 +467,16 @@ export default function Layout() {
       {/* Floating quick-log button — client only, above bottom nav on the right */}
       {!isStaff && (
         <button
-          className="lg:hidden fixed right-4 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-50 w-14 h-14 rounded-full bg-[#E8670A] shadow-lg flex items-center justify-center active:scale-95 transition-transform"
+          className="lg:hidden fixed right-4 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-50 flex flex-col items-center gap-1 active:scale-95 transition-transform"
           onClick={openQuickMenu}
           aria-label="Quick log"
         >
-          <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
+          <div className="w-14 h-14 rounded-full bg-[#E8670A] shadow-lg flex items-center justify-center">
+            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+          </div>
+          <span className="text-[11px] font-semibold text-[#E8670A] leading-none drop-shadow-sm">Log</span>
         </button>
       )}
       {/* Quick-log bottom sheet */}
