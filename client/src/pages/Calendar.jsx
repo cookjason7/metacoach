@@ -66,7 +66,8 @@ function pickMessage(pool) {
 
 // liveCurrent: pre-computed live value from daily_logs/meals for today's progress habits.
 // null → use stored completion data (past days, non-progress habits).
-function HabitPill({ entry, dateISO, onComplete, isPast, liveCurrent = null }) {
+// compact: true for 14d/month grid cells; false (default) for the expanded 7d list.
+function HabitPill({ entry, dateISO, onComplete, isPast, liveCurrent = null, compact = false }) {
   const { habit, completion } = entry
   const isNumeric = habit.habit_type === 'numeric'
 
@@ -86,18 +87,17 @@ function HabitPill({ entry, dateISO, onComplete, isPast, liveCurrent = null }) {
     completion?.completion_percentage != null ? Number(completion.completion_percentage) : 0
   )
 
-  // Seed the inline edit with the live value when no completion record exists yet
-  const [editing, setEditing] = useState(false)
-  const [value, setValue] = useState(
-    completion?.completed_value != null
-      ? String(completion.completed_value)
-      : liveCurrent != null ? String(Math.round(liveCurrent)) : '',
-  )
+  // Current value to display alongside target
+  const displayCurrent = liveCurrent !== null
+    ? Math.round(liveCurrent)
+    : completion?.completed_value != null
+      ? Math.round(Number(completion.completed_value))
+      : null
 
-  const containerClass = {
-    complete:     'bg-emerald-50 border-emerald-200 hover:bg-emerald-100',
-    partial:      'bg-amber-50  border-amber-200  hover:bg-amber-100',
-    not_started:  'bg-white     border-gray-200   hover:bg-orange-50',
+  const baseClass = {
+    complete:    'bg-emerald-50 border-emerald-200',
+    partial:     'bg-amber-50  border-amber-200',
+    not_started: 'bg-white     border-gray-200',
   }[status]
 
   function CircleIcon() {
@@ -116,57 +116,88 @@ function HabitPill({ entry, dateISO, onComplete, isPast, liveCurrent = null }) {
     )
   }
 
-  function commit(newValue) {
-    onComplete(habit.id, dateISO, newValue)
-    setEditing(false)
-  }
+  // ── Progress/numeric habits — read-only display ────────────────────────────
+  // These auto-complete via Dashboard + Quick Log; no manual entry in Calendar.
+  if (isNumeric) {
+    if (compact) {
+      // Compact pill for 14d / month grid cells
+      return (
+        <div className={`w-full rounded-md border px-1.5 py-1 ${baseClass}`}>
+          <div className="flex items-center gap-1.5">
+            <CircleIcon />
+            <span className={`text-[11px] truncate flex-1 ${status === 'complete' ? 'text-emerald-800 line-through' : 'text-gray-800'}`}>
+              {habit.habit_name}
+            </span>
+            <span className="ml-auto text-[10px] font-semibold text-gray-500 shrink-0">
+              {Math.round(pct)}%
+            </span>
+          </div>
+          {habit.target_value && pct > 0 && (
+            <div className="mt-0.5 w-full h-1 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full ${status === 'complete' ? 'bg-emerald-500' : 'bg-[#E8670A]'}`}
+                style={{ width: `${Math.min(100, pct)}%` }}
+              />
+            </div>
+          )}
+        </div>
+      )
+    }
 
-  // For numeric habits: clicking circle opens an inline input
-  if (editing && isNumeric) {
+    // Full read-only pill for 7d list view
     return (
-      <div className={`flex items-center gap-1.5 rounded-md border px-1.5 py-1 ${containerClass}`}>
-        <CircleIcon />
-        <input
-          type="number"
-          autoFocus
-          value={value}
-          onChange={e => setValue(e.target.value)}
-          onBlur={() => commit(value === '' ? 0 : Number(value))}
-          onKeyDown={e => {
-            if (e.key === 'Enter') commit(value === '' ? 0 : Number(value))
-            if (e.key === 'Escape') setEditing(false)
-          }}
-          className="w-12 text-xs px-1 py-0.5 border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-[#E8670A]"
-        />
-        <span className="text-[10px] text-gray-500">/ {habit.target_value}</span>
+      <div className={`w-full rounded-md border px-1.5 py-1.5 ${baseClass}`}>
+        <div className="flex items-center gap-1.5">
+          <CircleIcon />
+          <span className={`text-[11px] truncate flex-1 font-medium ${status === 'complete' ? 'text-emerald-800 line-through' : 'text-gray-800'}`}>
+            {habit.habit_name}
+          </span>
+          <span className="ml-auto text-[10px] font-semibold text-gray-500 shrink-0">
+            {Math.round(pct)}%
+          </span>
+        </div>
+        {habit.target_value && (
+          <>
+            <div className="mt-1 flex justify-between text-[10px] text-gray-400 mb-0.5 px-0.5">
+              <span>
+                {displayCurrent !== null ? displayCurrent : '—'}
+                {' '}/ {habit.target_value}{habit.unit ? ` ${habit.unit}` : ''}
+              </span>
+              <span>
+                {status === 'complete' ? 'Done ✓' : status === 'partial' ? 'In progress' : 'Auto-tracked'}
+              </span>
+            </div>
+            <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${status === 'complete' ? 'bg-emerald-500' : 'bg-[#E8670A]'}`}
+                style={{ width: `${Math.min(100, pct)}%` }}
+              />
+            </div>
+          </>
+        )}
       </div>
     )
   }
 
+  // ── Completion habits — tap to toggle ──────────────────────────────────────
   return (
     <button
       type="button"
       onClick={() => {
-        if (isNumeric) {
-          setEditing(true)
-        } else {
-          // boolean / completion — toggle
-          const newVal = status === 'complete' ? 0 : 1
-          commit(newVal)
-        }
+        const newVal = status === 'complete' ? 0 : 1
+        onComplete(habit.id, dateISO, newVal)
       }}
-      className={`w-full flex items-center gap-1.5 rounded-md border px-1.5 py-1 text-left transition-colors ${containerClass}`}
+      className={`w-full flex items-center gap-1.5 rounded-md border px-1.5 py-1 text-left transition-colors ${baseClass} ${
+        status === 'complete' ? 'hover:bg-emerald-100' :
+        status === 'partial'  ? 'hover:bg-amber-100'  :
+                                'hover:bg-orange-50'
+      }`}
       title={habit.habit_name}
     >
       <CircleIcon />
       <span className={`text-[11px] truncate ${status === 'complete' ? 'text-emerald-800 line-through' : 'text-gray-800'}`}>
         {habit.habit_name}
       </span>
-      {isNumeric && (livePct !== null || completion) && (
-        <span className="ml-auto text-[10px] font-semibold text-gray-500 shrink-0">
-          {Math.round(pct)}%
-        </span>
-      )}
     </button>
   )
 }
@@ -202,6 +233,7 @@ function DayCell({ date, inMonth, entries, onComplete, isToday, todayLog = null,
             onComplete={onComplete}
             isPast={isPast}
             liveCurrent={getProgressCurrent(entry.habit, todayLog, todayMeals)}
+            compact={true}
           />
         ))}
       </div>
@@ -373,31 +405,6 @@ export default function Calendar() {
       // Notify all listeners (Dashboard auto-complete, Calendar self) that a
       // habit completion changed — covers fiber and any other habit type.
       window.dispatchEvent(new CustomEvent('habit-completion-updated'))
-
-      // For today's water/steps habits, also write to daily_logs so Dashboard's
-      // todayLog (and progress rings) stay in sync with the same value.
-      if (dateISO === todayISO()) {
-        const habit = (calendar[dateISO] ?? []).find(e => e.habit.id === habitId)?.habit
-        if (habit) {
-          const unit  = (habit.unit ?? '').trim().toLowerCase()
-          const field = unit === 'oz' ? 'water_oz'
-                      : /^steps?$/.test(unit) ? 'steps'
-                      : null
-          if (field) {
-            try {
-              const logRes = await fetch(`${API_URL}/api/daily-logs`, {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ [field]: value }),
-              })
-              if (logRes.ok) {
-                const updatedLog = await logRes.json()
-                window.dispatchEvent(new CustomEvent('daily-log-updated', { detail: updatedLog }))
-              }
-            } catch {}
-          }
-        }
-      }
     }
   }
 
@@ -473,7 +480,7 @@ export default function Calendar() {
       <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Calendar</h1>
-          <p className="text-sm text-gray-500">Tap a circle to mark a habit done.</p>
+          <p className="text-sm text-gray-500">Tap a circle to complete a habit. Progress goals update automatically.</p>
         </div>
         {/* View mode switcher */}
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
