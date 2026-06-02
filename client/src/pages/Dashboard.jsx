@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { Link } from 'react-router-dom'
 import { API_URL } from '../config.js'
-import { calculateMicronutrientTotals } from '../components/MicronutrientTotals.jsx'
 import CoachDashboard from './CoachDashboard'
 
 // ── Stage colours ─────────────────────────────────────────────────────────────
@@ -70,19 +69,19 @@ function MomentumCard({ data, loading }) {
         </div>
       )}
 
-      {/* One coaching / momentum line */}
-      {(data.stage_description ?? data.message) && (
-        <p className="text-xs text-gray-500 leading-relaxed">
-          {data.stage_description ?? data.message}
-        </p>
-      )}
-
-      {/* Comeback banner */}
-      {data.is_comeback && data.comeback_message && (
-        <div className="mt-2 rounded-lg px-3 py-2 bg-emerald-50 border border-emerald-100">
-          <p className="text-xs font-semibold text-emerald-700">{data.comeback_message}</p>
-        </div>
-      )}
+      {/* Coaching line — hide the comeback-specific sentence; show other stage descriptions */}
+      {(() => {
+        const COMEBACK_SENTENCE = "Coming back is a choice — and you made it. That's self-trust in action."
+        const desc = data.stage_description ?? data.message
+        if (desc && desc !== COMEBACK_SENTENCE) {
+          return <p className="text-xs text-gray-500 leading-relaxed">{desc}</p>
+        }
+        // For comeback users replace the removed sentence with a simple status line
+        if (data.is_comeback) {
+          return <p className="text-xs text-gray-500">Current identity: <span className="font-semibold text-gray-700">{data.identity_stage ?? 'Resilient Warrior'}</span></p>
+        }
+        return null
+      })()}
     </div>
   )
 }
@@ -277,18 +276,25 @@ function TodayHabits({ getToken }) {
     )
   }
 
-  if (habits.length === 0) return null
+  // Filter out habits with blank or raw-numeric titles (e.g. "90.00 oz", "9000.00 steps")
+  const NUMERIC_TITLE = /^\d+(\.\d+)?(\s*(oz|steps|lbs|g|mg|ml|kcal|cal|min|hrs|minutes|hours))?$/i
+  const visibleHabits = habits.filter(item => {
+    const t = item.habit?.title?.trim()
+    return t && !NUMERIC_TITLE.test(t)
+  })
 
-  const doneCount = habits.filter(h => h.completion?.status === 'complete').length
+  if (visibleHabits.length === 0) return null
+
+  const doneCount = visibleHabits.filter(h => h.completion?.status === 'complete').length
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 mb-4 overflow-hidden">
       <div className="flex items-center justify-between px-4 pt-3.5 pb-2.5 border-b border-gray-100">
         <h2 className="text-sm font-bold text-gray-900">Today's Habits</h2>
-        <span className="text-xs font-semibold text-gray-400">{doneCount}/{habits.length}</span>
+        <span className="text-xs font-semibold text-gray-400">{doneCount}/{visibleHabits.length}</span>
       </div>
       <div className="px-4 py-1">
-        {habits.map(item => {
+        {visibleHabits.map(item => {
           const { habit, completion } = item
           const done    = completion?.status === 'complete'
           const partial = completion?.status === 'partial'
@@ -356,78 +362,7 @@ function KatieBanner({ message, onDismiss }) {
   )
 }
 
-// ── StatCard — Weight Journey ─────────────────────────────────────────────────
-
-function StatCard({ label, value, color = 'text-gray-900' }) {
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4">
-      <p className="text-xs text-gray-500 mb-1">{label}</p>
-      <p className={`text-2xl font-bold ${color}`}>{value}</p>
-    </div>
-  )
-}
-
-// ── Women's Health Foundation ─────────────────────────────────────────────────
-
-function FoundationRing({ label, value, goal, color, unit }) {
-  const r      = 27
-  const circ   = 2 * Math.PI * r
-  const pct    = goal > 0 ? Math.min(value / goal, 1) : 0
-  const offset = circ * (1 - pct)
-  const over   = goal > 0 && value > goal
-  const fmtVal = unit === 'mcg' ? Number(value).toFixed(1).replace(/\.0$/, '') : Math.round(value)
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <div className="relative w-[62px] h-[62px]">
-        <svg className="w-full h-full" viewBox="0 0 62 62" style={{ transform: 'rotate(-90deg)' }}>
-          <circle cx="31" cy="31" r={r} fill="none" stroke="#f3f4f6" strokeWidth="6" />
-          <circle cx="31" cy="31" r={r} fill="none"
-            stroke={over ? '#ef4444' : color}
-            strokeWidth="6" strokeLinecap="round"
-            strokeDasharray={circ} strokeDashoffset={offset}
-            style={{ transition: 'stroke-dashoffset 0.5s ease' }}
-          />
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-px">
-          <span className="text-[11px] font-bold text-gray-900 leading-none">{fmtVal}</span>
-          {unit && <span className="text-[8px] text-gray-400 leading-none">{unit}</span>}
-        </div>
-      </div>
-      <span className="text-[10px] font-semibold text-gray-600 text-center leading-tight">{label}</span>
-      <span className="text-[9px] text-gray-400 leading-none">/ {goal}{unit}</span>
-    </div>
-  )
-}
-
-function WomensHealthFoundation({ meals, waterOz }) {
-  const micros    = calculateMicronutrientTotals(meals)
-  const getMicro  = key => micros.find(m => m.key === key)?.value ?? 0
-  const rings = [
-    { label: 'Water',     value: parseFloat(waterOz) || 0, goal: 64,   unit: 'oz',  color: '#60A5FA' },
-    { label: 'Calcium',   value: getMicro('calcium_mg'),    goal: 1200, unit: 'mg',  color: '#3B82F6' },
-    { label: 'Vitamin D', value: getMicro('vitamin_d_mcg'), goal: 20,   unit: 'mcg', color: '#F59E0B' },
-    { label: 'Iron',      value: getMicro('iron_mg'),       goal: 18,   unit: 'mg',  color: '#8B5CF6' },
-  ]
-  const overallPct   = rings.reduce((s, r) => s + Math.min(r.goal > 0 ? r.value / r.goal : 0, 1), 0) / rings.length
-  const statusLabel  = p => p >= 0.8 ? 'On track' : p >= 0.5 ? 'Strong start' : p >= 0.2 ? 'Needs attention' : 'Low today'
-  return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-6">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-sm font-bold text-gray-900">Women's Health</h2>
-          <p className="text-[11px] text-gray-400 mt-0.5">{statusLabel(overallPct)}</p>
-        </div>
-        <div className="text-right">
-          <p className="text-lg font-bold" style={{ color: '#3B82F6' }}>{Math.round(overallPct * 100)}%</p>
-          <p className="text-[10px] text-gray-400">complete</p>
-        </div>
-      </div>
-      <div className="grid grid-cols-4 gap-y-4 gap-x-2">
-        {rings.map(r => <FoundationRing key={r.label} {...r} />)}
-      </div>
-    </div>
-  )
-}
+// (StatCard, FoundationRing, WomensHealthFoundation removed — not on Dashboard)
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
@@ -435,9 +370,7 @@ export default function Dashboard() {
   const { getToken } = useAuth()
 
   const [todayMeals,  setTodayMeals]  = useState(null)
-  const [mealRows,    setMealRows]    = useState([])
   const [todayLog,    setTodayLog]    = useState(null)
-  const [weekLog,     setWeekLog]     = useState(null)
   const [userProfile, setUserProfile] = useState(null)
   const [loading,     setLoading]     = useState(true)
   const [error,       setError]       = useState(null)
@@ -455,29 +388,23 @@ export default function Dashboard() {
 
         fetch(`${API_URL}/api/coach/check-proactive`, { method: 'POST', headers }).catch(() => {})
 
-        const [r1, r2, r3, r4, r5, r6, r7] = await Promise.all([
+        const [r1, r2, r3, r4, r5] = await Promise.all([
           fetch(`${API_URL}/api/meals/today?date=${today}`, { headers }),  // todayMeals
           fetch(`${API_URL}/api/daily-logs/today`,          { headers }),  // todayLog
-          fetch(`${API_URL}/api/daily-logs/week`,           { headers }),  // weekLog (Weight Journey)
           fetch(`${API_URL}/api/users/me`,                  { headers }),  // userProfile
-          fetch(`${API_URL}/api/meals?date=${today}`,       { headers }),  // mealRows (Women's Health)
           fetch(`${API_URL}/api/coach/latest-proactive`,    { headers }),  // katie banner
           fetch(`${API_URL}/api/gamification/momentum`,     { headers }),  // gamData
         ])
 
-        if (!r1.ok || !r2.ok || !r3.ok || !r4.ok || !r5.ok) throw new Error('Failed to load dashboard data')
+        if (!r1.ok || !r2.ok || !r3.ok) throw new Error('Failed to load dashboard data')
 
         if (!cancelled) {
-          const [m, l, wl, u, rows] = await Promise.all([
-            r1.json(), r2.json(), r3.json(), r4.json(), r5.json(),
-          ])
+          const [m, l, u] = await Promise.all([r1.json(), r2.json(), r3.json()])
           setTodayMeals(m)
-          setMealRows(rows)
           setTodayLog(l)
-          setWeekLog(wl)
           setUserProfile(u)
-          if (r6.ok) setKatieBanner((await r6.json()).message ?? null)
-          if (r7.ok) setGamData(await r7.json())
+          if (r4.ok) setKatieBanner((await r4.json()).message ?? null)
+          if (r5.ok) setGamData(await r5.json())
           setGamLoading(false)
         }
       } catch (err) {
@@ -534,36 +461,6 @@ export default function Dashboard() {
 
       {/* Today's habits — syncs with Calendar */}
       <TodayHabits getToken={getToken} />
-
-      {/* Women's Health Foundation */}
-      <WomensHealthFoundation meals={mealRows} waterOz={todayLog?.water_oz} />
-
-      {/* Weight Journey */}
-      {!loading && userProfile?.starting_weight_lbs != null && (
-        <>
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">Weight Journey</h2>
-          <div className="grid grid-cols-3 gap-3 mb-6">
-            <StatCard label="Starting Weight" value={`${userProfile.starting_weight_lbs} lbs`} color="text-gray-700" />
-            <StatCard
-              label="Current Weight"
-              value={
-                todayLog?.weight_lbs != null ? `${todayLog.weight_lbs} lbs` :
-                weekLog?.avg_weight  != null ? `${weekLog.avg_weight} lbs`  : '—'
-              }
-              color="text-purple-500"
-            />
-            <StatCard
-              label="Total Lost"
-              value={(() => {
-                const cur = todayLog?.weight_lbs ?? weekLog?.avg_weight
-                if (cur == null) return '—'
-                return `${(userProfile.starting_weight_lbs - cur).toFixed(1)} lbs`
-              })()}
-              color="text-[#E8670A]"
-            />
-          </div>
-        </>
-      )}
 
     </div>
   )
