@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { Link } from 'react-router-dom'
 import { API_URL } from '../config.js'
@@ -149,37 +149,41 @@ function GoalRing({ label, current, goal, color, unit, dim = 68 }) {
   )
 }
 
-function TodayGoals({ userProfile, todayMeals, todayLog, loading }) {
-  const hasCarbs  = (userProfile?.goal_carbs ?? 0) > 0
-  const hasFat    = (userProfile?.goal_fat   ?? 0) > 0
-  const fullMacro = hasCarbs || hasFat
-  const waterGoal = (userProfile?.goal_water ?? 0) > 0 ? userProfile.goal_water : 64
+// Returns which nutrition-target mode is active based on set goals.
+// Mirrors the 3 modes in the coach's Nutrition Targets card.
+function nutritionMode(userProfile) {
+  const hasProtein = (userProfile?.goal_protein ?? 0) > 0
+  const hasCarbs   = (userProfile?.goal_carbs   ?? 0) > 0
+  const hasFat     = (userProfile?.goal_fat     ?? 0) > 0
+  if (hasCarbs || hasFat) return 'full_macros'
+  if (hasProtein)         return 'calories_protein'
+  return 'calories_only'
+}
 
-  const rings = fullMacro ? [
-    { label: 'Calories', current: todayMeals?.total_calories ?? 0, goal: userProfile?.goal_calories ?? 0, color: '#f97316', unit: 'cal' },
-    { label: 'Protein',  current: todayMeals?.total_protein  ?? 0, goal: userProfile?.goal_protein  ?? 0, color: '#3b82f6', unit: 'g'   },
-    { label: 'Carbs',    current: todayMeals?.total_carbs    ?? 0, goal: userProfile?.goal_carbs    ?? 0, color: '#eab308', unit: 'g'   },
-    { label: 'Fat',      current: todayMeals?.total_fat      ?? 0, goal: userProfile?.goal_fat      ?? 0, color: '#ec4899', unit: 'g'   },
-    { label: 'Water',    current: parseFloat(todayLog?.water_oz ?? 0), goal: waterGoal,                   color: '#06b6d4', unit: 'oz'  },
-    { label: 'Steps',    current: todayLog?.steps ?? 0,               goal: 10000,                        color: '#a855f7', unit: ''    },
-  ] : [
-    { label: 'Calories', current: todayMeals?.total_calories ?? 0, goal: userProfile?.goal_calories ?? 0, color: '#f97316', unit: 'cal' },
-    { label: 'Protein',  current: todayMeals?.total_protein  ?? 0, goal: userProfile?.goal_protein  ?? 0, color: '#3b82f6', unit: 'g'   },
-    { label: 'Water',    current: parseFloat(todayLog?.water_oz ?? 0), goal: waterGoal,                   color: '#06b6d4', unit: 'oz'  },
-    { label: 'Steps',    current: todayLog?.steps ?? 0,               goal: 10000,                        color: '#a855f7', unit: ''    },
-  ]
+function TodayGoals({ userProfile, todayMeals, loading }) {
+  const mode = nutritionMode(userProfile)
 
-  const cols = fullMacro ? 'grid-cols-3' : 'grid-cols-4'
-  const dim  = fullMacro ? 68 : 64
+  const macroRings = {
+    calories: { label: 'Calories', current: todayMeals?.total_calories ?? 0, goal: userProfile?.goal_calories ?? 0, color: '#f97316', unit: 'cal' },
+    protein:  { label: 'Protein',  current: todayMeals?.total_protein  ?? 0, goal: userProfile?.goal_protein  ?? 0, color: '#3b82f6', unit: 'g'   },
+    carbs:    { label: 'Carbs',    current: todayMeals?.total_carbs    ?? 0, goal: userProfile?.goal_carbs    ?? 0, color: '#eab308', unit: 'g'   },
+    fat:      { label: 'Fat',      current: todayMeals?.total_fat      ?? 0, goal: userProfile?.goal_fat      ?? 0, color: '#ec4899', unit: 'g'   },
+  }
+
+  const rings =
+    mode === 'full_macros'      ? [macroRings.calories, macroRings.protein, macroRings.carbs, macroRings.fat] :
+    mode === 'calories_protein' ? [macroRings.calories, macroRings.protein] :
+    /* calories_only */           [macroRings.calories]
 
   if (loading) {
+    // Default skeleton: 2 circles while data loads
     return (
       <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-4 animate-pulse">
         <div className="h-4 bg-gray-100 rounded w-28 mb-4" />
-        <div className={`grid ${cols} gap-3 justify-items-center`}>
-          {rings.map((_, i) => (
+        <div className="grid grid-cols-2 gap-3 max-w-[200px] mx-auto justify-items-center">
+          {[0, 1].map(i => (
             <div key={i} className="flex flex-col items-center gap-1.5">
-              <div className="rounded-full bg-gray-100" style={{ width: dim, height: dim }} />
+              <div className="rounded-full bg-gray-100" style={{ width: 80, height: 80 }} />
               <div className="h-2.5 bg-gray-100 rounded w-10" />
             </div>
           ))}
@@ -191,20 +195,53 @@ function TodayGoals({ userProfile, todayMeals, todayLog, loading }) {
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-4">
       <h2 className="text-sm font-bold text-gray-900 mb-4">Today's Goals</h2>
-      <div className={`grid ${cols} gap-y-5 gap-x-1 justify-items-center`}>
-        {rings.map(ring => <GoalRing key={ring.label} {...ring} dim={dim} />)}
-      </div>
+      {rings.length === 1 ? (
+        <div className="flex justify-center py-1">
+          <GoalRing {...rings[0]} dim={92} />
+        </div>
+      ) : rings.length === 2 ? (
+        <div className="grid grid-cols-2 gap-6 max-w-[220px] mx-auto justify-items-center">
+          {rings.map(ring => <GoalRing key={ring.label} {...ring} dim={80} />)}
+        </div>
+      ) : (
+        <div className="grid grid-cols-4 gap-y-5 gap-x-1 justify-items-center">
+          {rings.map(ring => <GoalRing key={ring.label} {...ring} dim={68} />)}
+        </div>
+      )}
     </div>
   )
 }
 
 // ── Today's Habits ────────────────────────────────────────────────────────────
 
-function TodayHabits({ getToken }) {
-  const today = new Date().toLocaleDateString('sv')
+// For numeric habits whose unit maps to a live-tracked metric, return the
+// current real-time value from todayLog / todayMeals. Returns null for habits
+// that are NOT auto-tracked (they stay as plain checkboxes).
+function getProgressCurrent(habit, todayLog, todayMeals) {
+  if (habit.habit_type !== 'numeric' || !habit.target_value) return null
+  const unit = (habit.unit ?? '').trim().toLowerCase()
+  if (unit === 'oz')    return parseFloat(todayLog?.water_oz ?? 0)
+  if (/^steps?$/.test(unit)) return todayLog?.steps ?? 0
+  if (unit === 'g' && /fiber/i.test(habit.habit_name ?? '')) {
+    return parseFloat(todayMeals?.total_fiber ?? 0)
+  }
+  return null  // not auto-tracked — stays as a manual checkbox
+}
+
+function fmtProgress(val) {
+  if (val == null) return '—'
+  const v = Math.round(val)
+  return v >= 1000 ? `${(v / 1000).toFixed(1).replace(/\.0$/, '')}k` : String(v)
+}
+
+function TodayHabits({ getToken, todayLog, todayMeals }) {
+  const today           = new Date().toLocaleDateString('sv')
   const [habits,   setHabits]   = useState([])
   const [loading,  setLoading]  = useState(true)
   const [toggling, setToggling] = useState(null)
+  // Tracks habit IDs we've already auto-completed this session to avoid
+  // repeated API calls when live data re-renders after the target is met.
+  const autoCompletedRef = useRef(new Set())
 
   useEffect(() => {
     let cancelled = false
@@ -225,6 +262,49 @@ function TodayHabits({ getToken }) {
     return () => { cancelled = true }
   }, [getToken, today])
 
+  // Auto-complete progress habits when live data shows target reached.
+  // Fires at most once per habit per session (autoCompletedRef guard).
+  // Uses ON CONFLICT DO UPDATE on the server so repeated calls are idempotent,
+  // but we avoid the extra round-trips with the ref.
+  useEffect(() => {
+    if (!habits.length || loading) return
+    const toComplete = []
+    for (const item of habits) {
+      const { habit, completion } = item
+      const currentVal = getProgressCurrent(habit, todayLog, todayMeals)
+      if (currentVal === null) continue
+      if (completion?.status === 'complete') continue  // already done
+      if (autoCompletedRef.current.has(habit.id)) continue  // already fired this session
+      const pct = (currentVal / Number(habit.target_value)) * 100
+      if (pct >= 80) toComplete.push({ habit, currentVal })
+    }
+    if (!toComplete.length) return
+
+    toComplete.forEach(({ habit }) => autoCompletedRef.current.add(habit.id))
+
+    ;(async () => {
+      const token = await getToken()
+      const results = await Promise.all(toComplete.map(async ({ habit, currentVal }) => {
+        try {
+          const res = await fetch(`${API_URL}/api/client-habits/me/completions`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ habit_id: habit.id, completion_date: today, completed_value: currentVal }),
+          })
+          if (res.ok) return { habitId: habit.id, comp: await res.json() }
+        } catch {}
+        return null
+      }))
+      const updates = results.filter(Boolean)
+      if (updates.length) {
+        setHabits(prev => prev.map(h => {
+          const u = updates.find(x => x.habitId === h.habit.id)
+          return u ? { ...h, completion: u.comp } : h
+        }))
+      }
+    })()
+  }, [habits, todayLog, todayMeals, loading, today, getToken])
+
   async function toggle(item) {
     const { habit, completion } = item
     const isDone = completion?.status === 'complete'
@@ -236,6 +316,8 @@ function TodayHabits({ getToken }) {
           `${API_URL}/api/client-habits/me/completions/${habit.id}/${today}`,
           { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
         )
+        // Remove from auto-completed set so it can fire again if target is still met
+        autoCompletedRef.current.delete(habit.id)
         setHabits(prev => prev.map(h =>
           h.habit.id === habit.id ? { ...h, completion: null } : h,
         ))
@@ -300,17 +382,28 @@ function TodayHabits({ getToken }) {
         <div className="px-4 py-1">
           {visibleHabits.map(item => {
             const { habit, completion } = item
-            const done    = completion?.status === 'complete'
-            const partial = completion?.status === 'partial'
-            const busy    = toggling === habit.id
+            const busy        = toggling === habit.id
+
+            // Determine if this is a live-tracked progress habit
+            const currentVal  = getProgressCurrent(habit, todayLog, todayMeals)
+            const isProgress  = currentVal !== null
+            const target      = isProgress ? Number(habit.target_value) : null
+            const livePct     = isProgress ? Math.min(100, (currentVal / target) * 100) : 0
+            const dbPct       = completion?.completion_percentage ?? 0
+            // Display uses the higher of live data or stored percentage
+            const displayPct  = isProgress ? Math.max(livePct, dbPct) : dbPct
+            const done        = displayPct >= 80 || completion?.status === 'complete'
+            const partial     = !done && (displayPct >= 50 || completion?.status === 'partial')
+
             return (
               <button
                 key={habit.id}
                 onClick={() => !busy && toggle(item)}
                 disabled={busy}
-                className="w-full flex items-center gap-3 py-3 border-b border-gray-50 last:border-0 text-left active:bg-gray-50 rounded-lg transition-colors disabled:opacity-60"
+                className="w-full flex items-start gap-3 py-3 border-b border-gray-50 last:border-0 text-left active:bg-gray-50 rounded-lg transition-colors disabled:opacity-60"
               >
-                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
+                {/* Circle indicator */}
+                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all ${
                   done    ? 'bg-[#E8670A] border-[#E8670A]' :
                   partial ? 'bg-orange-100 border-orange-300' : 'border-gray-300'
                 }`}>
@@ -319,18 +412,43 @@ function TodayHabits({ getToken }) {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
                   )}
-                  {partial && <div className="w-2 h-2 rounded-full bg-orange-400" />}
+                  {!done && partial && <div className="w-2 h-2 rounded-full bg-orange-400" />}
                 </div>
+
                 <div className="flex-1 min-w-0">
+                  {/* Habit name */}
                   <p className={`text-sm font-medium leading-snug ${done ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
                     {habit.habit_name}
                   </p>
                   {habit.notes && !done && (
                     <p className="text-xs text-gray-400 leading-snug mt-0.5 truncate">{habit.notes}</p>
                   )}
+
+                  {/* Progress bar + values for auto-tracked habits */}
+                  {isProgress && !done && (
+                    <div className="mt-2">
+                      <div className="flex justify-between text-[11px] text-gray-400 mb-1">
+                        <span>{fmtProgress(currentVal)} / {fmtProgress(target)}{habit.unit ? ` ${habit.unit}` : ''}</span>
+                        <span>{Math.round(displayPct)}%</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-500 bg-[#E8670A]"
+                          style={{ width: `${displayPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {isProgress && done && (
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {fmtProgress(currentVal)} / {fmtProgress(target)}{habit.unit ? ` ${habit.unit}` : ''} · Goal reached ✓
+                    </p>
+                  )}
                 </div>
-                {habit.habit_type === 'numeric' && habit.target_value != null && !done && (
-                  <span className="text-[11px] font-medium text-gray-400 shrink-0">
+
+                {/* Target badge for non-progress numeric habits */}
+                {!isProgress && habit.habit_type === 'numeric' && habit.target_value != null && !done && (
+                  <span className="text-[11px] font-medium text-gray-400 shrink-0 mt-0.5">
                     {habit.target_value}{habit.unit ? ` ${habit.unit}` : ''}
                   </span>
                 )}
@@ -456,16 +574,15 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Circular goal progress rings */}
+      {/* Circular goal progress rings — nutrition targets only */}
       <TodayGoals
         userProfile={userProfile}
         todayMeals={todayMeals}
-        todayLog={todayLog}
         loading={loading}
       />
 
-      {/* Today's habits — syncs with Calendar */}
-      <TodayHabits getToken={getToken} />
+      {/* Today's habits — syncs with Calendar; progress habits auto-update */}
+      <TodayHabits getToken={getToken} todayLog={todayLog} todayMeals={todayMeals} />
 
     </div>
   )
