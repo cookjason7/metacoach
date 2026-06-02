@@ -5,13 +5,15 @@ const GOOGLE_HEALTH_API_URL  = 'https://health.googleapis.com'
 const TOKEN_REFRESH_WINDOW_MS = 5 * 60 * 1000
 
 function googleHealthConfig() {
-  const { GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_CLIENT_SECRET, GOOGLE_HEALTH_REDIRECT_URI } = process.env
-  if (!GOOGLE_HEALTH_CLIENT_ID || !GOOGLE_HEALTH_CLIENT_SECRET || !GOOGLE_HEALTH_REDIRECT_URI) {
+  const { GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_CLIENT_SECRET } = process.env
+  // GOOGLE_HEALTH_REDIRECT_URI is NOT required here — exchangeToken receives it
+  // as a param from the caller (fitbit.js), which computes it via getAppBaseUrl().
+  if (!GOOGLE_HEALTH_CLIENT_ID || !GOOGLE_HEALTH_CLIENT_SECRET) {
     const err = new Error('Google Health OAuth is not configured')
     err.status = 503
     throw err
   }
-  return { GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_CLIENT_SECRET, GOOGLE_HEALTH_REDIRECT_URI }
+  return { GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_CLIENT_SECRET }
 }
 
 function addSeconds(seconds) {
