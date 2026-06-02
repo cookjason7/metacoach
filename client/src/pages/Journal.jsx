@@ -1156,7 +1156,8 @@ function CopySlotModal({ sourceDate, sourceSlot, getToken, onClose, onSuccess })
 
 function PhotoLogger({ slotName, onSaved, logDate, initialFile = null }) {
   const { getToken } = useAuth()
-  const inputRef = useRef(null)
+  const inputRef   = useRef(null)  // camera (capture="environment")
+  const galleryRef = useRef(null)  // gallery (no capture)
   const [photo,       setPhoto]       = useState(null)
   const [preview,     setPreview]     = useState(null)
   const [description, setDescription] = useState('')
@@ -1253,17 +1254,42 @@ function PhotoLogger({ slotName, onSaved, logDate, initialFile = null }) {
   return (
     <div className="space-y-4">
       {!preview ? (
-        <div
-          className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-[#E8670A] hover:bg-[#fff7ed] transition-colors"
-          onClick={() => inputRef.current?.click()}
-          onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files[0]) }}
-          onDragOver={e => e.preventDefault()}
-        >
-          <p className="text-3xl mb-2">📷</p>
-          <p className="text-sm font-medium text-gray-700">Drop a photo or tap to upload</p>
-          <p className="text-xs text-gray-400 mt-1">JPEG, PNG — max 10 MB</p>
-          <input ref={inputRef} type="file" accept="image/*" capture="environment"
-            className="hidden" onChange={e => handleFile(e.target.files[0])} />
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            {/* Take Photo — opens native camera */}
+            <label className="flex flex-col items-center justify-center gap-2 h-28 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-[#E8670A] hover:bg-orange-50/30 transition-colors">
+              <span className="text-2xl">📷</span>
+              <span className="text-sm font-medium text-gray-600">Take Photo</span>
+              <input
+                ref={inputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleFile(f) }}
+              />
+            </label>
+            {/* Choose from Gallery — normal image picker, no capture */}
+            <label className="flex flex-col items-center justify-center gap-2 h-28 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-[#E8670A] hover:bg-orange-50/30 transition-colors">
+              <span className="text-2xl">🖼️</span>
+              <span className="text-sm font-medium text-gray-600">Choose from Gallery</span>
+              <input
+                ref={galleryRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleFile(f) }}
+              />
+            </label>
+          </div>
+          {/* Drop zone for desktop */}
+          <div
+            className="border border-dashed border-gray-200 rounded-xl px-4 py-3 text-center text-xs text-gray-400 hidden sm:block"
+            onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files[0]) }}
+            onDragOver={e => e.preventDefault()}
+          >
+            Or drag &amp; drop a photo here
+          </div>
         </div>
       ) : (
         <div className="rounded-xl overflow-hidden border border-gray-200">
@@ -3593,8 +3619,7 @@ function AddFoodDrawer({ slotName, onClose, onSaved, logDate, initialMode = null
   const isSnack = slotName === 'Snack'
   // For snack slots, user picks a timing before choosing a logger
   const [snackTiming, setSnackTiming] = useState(null)
-  const photoInputRef = useRef(null)
-  const [photoFile,   setPhotoFile]   = useState(null)
+  // photoInputRef / photoFile removed — camera vs gallery choice handled inside PhotoLogger
 
   // The DB slot we actually store (e.g. 'AM Snack', 'Lunch', etc.)
   const effectiveSlot = isSnack
@@ -3611,7 +3636,7 @@ function AddFoodDrawer({ slotName, onClose, onSaved, logDate, initialMode = null
   // Step back: from mode → timing (snack) or mode picker; mode picker → close
   function handleBack() {
     if (mode && initialMode) { onClose(); return }  // direct-open: back = close
-    if (mode) { setMode(null); setPhotoFile(null); return }
+    if (mode) { setMode(null); return }
     if (isSnack && snackTiming) { setSnackTiming(null); return }
     onClose()
   }
@@ -3670,22 +3695,9 @@ function AddFoodDrawer({ slotName, onClose, onSaved, logDate, initialMode = null
           {/* Step 2: pick logger mode */}
           {showModePicker && (
             <div className="grid grid-cols-3 gap-3">
-              {/* Hidden file input — triggered directly when Photo is tapped */}
-              <input
-                ref={photoInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={e => {
-                  const file = e.target.files?.[0]
-                  if (file) { setPhotoFile(file); setMode('photo') }
-                  e.target.value = ''
-                }}
-              />
               {ADD_OPTIONS.map(opt => (
                 <button key={opt.id}
-                  onClick={() => opt.id === 'photo' ? photoInputRef.current?.click() : setMode(opt.id)}
+                  onClick={() => setMode(opt.id)}
                   className="flex flex-col items-center gap-2 bg-gray-50 hover:bg-orange-50 hover:border-[#E8670A] border border-gray-200 rounded-2xl py-4 transition-all">
                   <span className="text-2xl">{opt.icon}</span>
                   <span className="text-xs font-semibold text-gray-700">{opt.label}</span>
@@ -3700,7 +3712,6 @@ function AddFoodDrawer({ slotName, onClose, onSaved, logDate, initialMode = null
               slotName={effectiveSlot}
               logDate={logDate}
               onSaved={(meal, analysis) => { onSaved(meal, analysis); }}
-              {...(mode === 'photo' && photoFile ? { initialFile: photoFile } : {})}
             />
           )}
         </div>

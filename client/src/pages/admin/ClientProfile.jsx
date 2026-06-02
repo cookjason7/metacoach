@@ -410,12 +410,10 @@ function InfoRow({ label, value, emptyText = 'Not provided yet' }) {
 // ─── Nutrition Targets Card ───────────────────────────────────────────────────
 
 const MACRO_TARGET_FIELDS = [
-  { key: 'goal_calories', label: 'Calories',     unit: 'kcal' },
-  { key: 'goal_protein',  label: 'Protein',      unit: 'g' },
-  { key: 'goal_carbs',    label: 'Carbs',        unit: 'g' },
-  { key: 'goal_fat',      label: 'Fat',          unit: 'g' },
-  { key: 'goal_fiber',    label: 'Fiber',        unit: 'g' },
-  { key: 'goal_water',    label: 'Water',        unit: 'oz' },
+  { key: 'goal_calories', label: 'Calories', unit: 'kcal' },
+  { key: 'goal_protein',  label: 'Protein',  unit: 'g' },
+  { key: 'goal_carbs',    label: 'Carbs',    unit: 'g' },
+  { key: 'goal_fat',      label: 'Fat',      unit: 'g' },
 ]
 
 function NutritionTargetsCard({ client, getToken, onUpdate }) {
@@ -430,8 +428,6 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
     goal_protein:  client.goal_protein  ?? '',
     goal_carbs:    client.goal_carbs    ?? '',
     goal_fat:      client.goal_fat      ?? '',
-    goal_fiber:    client.goal_fiber    ?? '',
-    goal_water:    client.goal_water    ?? '',
   })
   const [pct, setPct] = useState({ protein: 30, carbs: 40, fat: 30 })
 
@@ -469,8 +465,6 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
       const toInt = v => v !== '' ? Math.max(0, Math.round(Number(v))) : null
       const body = {
         goal_calories: toInt(form.goal_calories),
-        goal_fiber:    toInt(form.goal_fiber),
-        goal_water:    toInt(form.goal_water),
         goal_protein:  null,
         goal_carbs:    null,
         goal_fat:      null,
@@ -504,23 +498,11 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
   const computedErrCls = 'w-full border border-red-200 bg-red-50 rounded-lg px-3 py-2 text-sm font-semibold text-red-600'
 
   const GOAL_TYPES = [
-    { id: 'calories_only',    label: 'Calories Only',       desc: 'Track calories, fiber, and water.' },
+    { id: 'calories_only',    label: 'Calories Only',       desc: 'Track calories only.' },
     { id: 'calories_protein', label: 'Calories + Protein',  desc: 'Most common. Add a protein target.' },
     { id: 'full_macros',      label: 'Full Macros',         desc: 'Set all macros with auto-calculation.' },
   ]
 
-  const fiberWater = (
-    <div className="grid grid-cols-2 gap-3 pt-1">
-      {[['goal_fiber','Fiber','g'],['goal_water','Water','oz']].map(([fkey, label, unit]) => (
-        <div key={fkey}>
-          <label className="block text-xs font-medium text-gray-600 mb-1">{label} <span className="text-gray-400">({unit})</span></label>
-          <input type="number" min="0" value={form[fkey]}
-            onChange={e => setForm(f => ({ ...f, [fkey]: e.target.value }))}
-            placeholder="—" className={inputCls} />
-        </div>
-      ))}
-    </div>
-  )
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-5">
@@ -562,35 +544,29 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
 
           {/* ── Calories Only ── */}
           {goalType === 'calories_only' && (
-            <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Calories <span className="text-gray-400">(kcal)</span></label>
+              <input type="number" min="0" value={form.goal_calories}
+                onChange={e => setForm(f => ({ ...f, goal_calories: e.target.value }))}
+                placeholder="—" className={inputCls} />
+            </div>
+          )}
+
+          {/* ── Calories + Protein ── */}
+          {goalType === 'calories_protein' && (
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Calories <span className="text-gray-400">(kcal)</span></label>
                 <input type="number" min="0" value={form.goal_calories}
                   onChange={e => setForm(f => ({ ...f, goal_calories: e.target.value }))}
                   placeholder="—" className={inputCls} />
               </div>
-              {fiberWater}
-            </div>
-          )}
-
-          {/* ── Calories + Protein ── */}
-          {goalType === 'calories_protein' && (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Calories <span className="text-gray-400">(kcal)</span></label>
-                  <input type="number" min="0" value={form.goal_calories}
-                    onChange={e => setForm(f => ({ ...f, goal_calories: e.target.value }))}
-                    placeholder="—" className={inputCls} />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Protein <span className="text-gray-400">(g)</span></label>
-                  <input type="number" min="0" value={form.goal_protein}
-                    onChange={e => setForm(f => ({ ...f, goal_protein: e.target.value }))}
-                    placeholder="—" className={inputCls} />
-                </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Protein <span className="text-gray-400">(g)</span></label>
+                <input type="number" min="0" value={form.goal_protein}
+                  onChange={e => setForm(f => ({ ...f, goal_protein: e.target.value }))}
+                  placeholder="—" className={inputCls} />
               </div>
-              {fiberWater}
             </div>
           )}
 
@@ -695,7 +671,6 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
                 </div>
               )}
 
-              {fiberWater}
             </div>
           )}
 
@@ -1423,7 +1398,7 @@ const QUICK_PRESETS = [
   { label: 'Drink water',     habit_name: 'Drink water',     habit_type: 'numeric',    unit: 'oz',    identity_category: 'food_tracking' },
   { label: 'Step goal',       habit_name: 'Step goal',       habit_type: 'numeric',    unit: 'steps', identity_category: 'movement' },
   { label: 'Complete workout',habit_name: 'Complete workout',habit_type: 'completion',                identity_category: 'movement' },
-  { label: 'Journal',         habit_name: 'Journal',         habit_type: 'boolean',                  identity_category: 'mindset' },
+  { label: 'Fiber goal',       habit_name: 'Fiber goal',       habit_type: 'numeric',    unit: 'g',     identity_category: 'food_tracking' },
   { label: 'Log food ahead',  habit_name: 'Log food ahead',  habit_type: 'boolean',                  identity_category: 'food_tracking' },
 ]
 
@@ -1434,6 +1409,7 @@ const HABIT_LIBRARY = [
     identity_category: 'food_tracking',
     items: [
       { habit_name: 'Hit protein goal',         habit_type: 'numeric', unit: 'g' },
+      { habit_name: 'Fiber goal',               habit_type: 'numeric', unit: 'g' },
       { habit_name: 'Log food',                 habit_type: 'boolean' },
       { habit_name: 'Log food ahead',           habit_type: 'boolean' },
       { habit_name: 'Eat vegetables',           habit_type: 'boolean' },
@@ -1684,6 +1660,7 @@ function HabitsTab({ clientId, getToken }) {
     setEditingId(h.id)
     setEditForm({
       habit_name:   h.habit_name,
+      habit_type:   h.habit_type ?? 'boolean',
       target_value: h.target_value != null ? String(h.target_value) : '',
       unit:         h.unit ?? '',
       frequency:    h.frequency ?? 'daily',
@@ -1701,6 +1678,7 @@ function HabitsTab({ clientId, getToken }) {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         habit_name:   editForm.habit_name.trim() || undefined,
+        habit_type:   editForm.habit_type || undefined,
         target_value: editForm.target_value !== '' ? Number(editForm.target_value) : null,
         unit:         editForm.unit || undefined,
         frequency:    editForm.frequency || undefined,
@@ -1932,6 +1910,15 @@ function HabitsTab({ clientId, getToken }) {
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                      <select value={editForm.habit_type} onChange={e => setEditForm(f => ({ ...f, habit_type: e.target.value }))}
+                        className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white">
+                        <option value="boolean">Boolean (yes/no)</option>
+                        <option value="numeric">Numeric (count/oz)</option>
+                        <option value="completion">Completion</option>
+                      </select>
+                    </div>
+                    <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Target</label>
                       <input type="number" value={editForm.target_value} onChange={e => setEditForm(f => ({ ...f, target_value: e.target.value }))}
                         placeholder="—" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
@@ -1941,15 +1928,15 @@ function HabitsTab({ clientId, getToken }) {
                       <input value={editForm.unit} onChange={e => setEditForm(f => ({ ...f, unit: e.target.value }))}
                         placeholder="oz / steps" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Frequency</label>
-                      <select value={editForm.frequency} onChange={e => setEditForm(f => ({ ...f, frequency: e.target.value }))}
-                        className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white">
-                        <option value="daily">Daily</option>
-                        <option value="specific_days">Specific days</option>
-                        <option value="weekly">Weekly</option>
-                      </select>
-                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Frequency</label>
+                    <select value={editForm.frequency} onChange={e => setEditForm(f => ({ ...f, frequency: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white">
+                      <option value="daily">Daily</option>
+                      <option value="specific_days">Specific days</option>
+                      <option value="weekly">Weekly</option>
+                    </select>
                   </div>
                   {editForm.frequency === 'specific_days' && (
                     <div>
