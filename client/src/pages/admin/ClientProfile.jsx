@@ -1409,6 +1409,7 @@ const HABIT_LIBRARY = [
     identity_category: 'food_tracking',
     items: [
       { habit_name: 'Hit protein goal',         habit_type: 'numeric', unit: 'g' },
+      { habit_name: 'Fiber goal',               habit_type: 'numeric', unit: 'g' },
       { habit_name: 'Log food',                 habit_type: 'boolean' },
       { habit_name: 'Log food ahead',           habit_type: 'boolean' },
       { habit_name: 'Eat vegetables',           habit_type: 'boolean' },
