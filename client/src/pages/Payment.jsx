@@ -43,7 +43,7 @@ export default function Payment() {
         <div className="mb-8 flex justify-center">
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-6 py-3 inline-block">
             <img
-              src="/logo.png"
+              src="/brand/warriorfit-logo-full.png"
               alt="WarriorFIT AI"
               className="h-12 object-contain"
               onError={e => { e.currentTarget.style.display = 'none' }}

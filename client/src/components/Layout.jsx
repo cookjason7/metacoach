@@ -318,17 +318,15 @@ export default function Layout() {
     : new Set(['Food Log', 'Messages', 'Community'])     // VIP: Messages is in bottom nav
   const mobileNavItems = isStaff ? navItems : navItems.filter(i => !mobileBottomNavLabels.has(i.label))
 
-  function buildSidebarContent(items) { return (
+  function buildSidebarContent(items, isMobile = false) { return (
     <>
       {/* Logo */}
-      <div className="mx-4 mt-5 mb-4">
-        <div className="bg-white rounded-xl overflow-hidden px-3 py-2.5">
-          <img
-            src="/logo.png"
-            alt="WarriorFIT AI"
-            className="w-full h-11 object-contain"
-          />
-        </div>
+      <div className="flex justify-center mt-6 mb-5 px-3">
+        <img
+          src="/brand/warriorfit-logo-full-sidebar.png"
+          alt="WarriorFIT AI"
+          className={isMobile ? "w-[59px] h-auto block" : "w-[102px] h-auto block"}
+        />
       </div>
 
       {/* Nav */}
@@ -425,7 +423,7 @@ export default function Layout() {
             onClick={() => setSidebarOpen(false)}
           />
           <aside className="relative z-50 w-60 flex flex-col flex-shrink-0" style={{ backgroundColor: SIDEBAR_BG }}>
-            {buildSidebarContent(mobileNavItems)}
+            {buildSidebarContent(mobileNavItems, true)}
           </aside>
         </div>
       )}
