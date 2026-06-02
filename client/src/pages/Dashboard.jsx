@@ -276,14 +276,12 @@ function TodayHabits({ getToken }) {
     )
   }
 
-  // Filter out habits with blank or raw-numeric titles (e.g. "90.00 oz", "9000.00 steps")
-  const NUMERIC_TITLE = /^\d+(\.\d+)?(\s*(oz|steps|lbs|g|mg|ml|kcal|cal|min|hrs|minutes|hours))?$/i
+  // Filter out habits with blank habit_name or raw-numeric-only names (safety net)
+  const NUMERIC_ONLY = /^\d+(\.\d+)?(\s*(oz|steps|lbs|g|mg|ml|kcal|cal|min|hrs|minutes|hours))?$/i
   const visibleHabits = habits.filter(item => {
-    const t = item.habit?.title?.trim()
-    return t && !NUMERIC_TITLE.test(t)
+    const name = item.habit?.habit_name?.trim()
+    return name && !NUMERIC_ONLY.test(name)
   })
-
-  if (visibleHabits.length === 0) return null
 
   const doneCount = visibleHabits.filter(h => h.completion?.status === 'complete').length
 
@@ -291,49 +289,56 @@ function TodayHabits({ getToken }) {
     <div className="bg-white rounded-2xl border border-gray-200 mb-4 overflow-hidden">
       <div className="flex items-center justify-between px-4 pt-3.5 pb-2.5 border-b border-gray-100">
         <h2 className="text-sm font-bold text-gray-900">Today's Habits</h2>
-        <span className="text-xs font-semibold text-gray-400">{doneCount}/{visibleHabits.length}</span>
+        {visibleHabits.length > 0 && (
+          <span className="text-xs font-semibold text-gray-400">{doneCount}/{visibleHabits.length}</span>
+        )}
       </div>
-      <div className="px-4 py-1">
-        {visibleHabits.map(item => {
-          const { habit, completion } = item
-          const done    = completion?.status === 'complete'
-          const partial = completion?.status === 'partial'
-          const busy    = toggling === habit.id
-          return (
-            <button
-              key={habit.id}
-              onClick={() => !busy && toggle(item)}
-              disabled={busy}
-              className="w-full flex items-center gap-3 py-3 border-b border-gray-50 last:border-0 text-left active:bg-gray-50 rounded-lg transition-colors disabled:opacity-60"
-            >
-              <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
-                done    ? 'bg-[#E8670A] border-[#E8670A]' :
-                partial ? 'bg-orange-100 border-orange-300' : 'border-gray-300'
-              }`}>
-                {done && (
-                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
+
+      {visibleHabits.length === 0 ? (
+        <p className="px-4 py-5 text-sm text-gray-400 text-center">No habits scheduled for today.</p>
+      ) : (
+        <div className="px-4 py-1">
+          {visibleHabits.map(item => {
+            const { habit, completion } = item
+            const done    = completion?.status === 'complete'
+            const partial = completion?.status === 'partial'
+            const busy    = toggling === habit.id
+            return (
+              <button
+                key={habit.id}
+                onClick={() => !busy && toggle(item)}
+                disabled={busy}
+                className="w-full flex items-center gap-3 py-3 border-b border-gray-50 last:border-0 text-left active:bg-gray-50 rounded-lg transition-colors disabled:opacity-60"
+              >
+                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
+                  done    ? 'bg-[#E8670A] border-[#E8670A]' :
+                  partial ? 'bg-orange-100 border-orange-300' : 'border-gray-300'
+                }`}>
+                  {done && (
+                    <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                  {partial && <div className="w-2 h-2 rounded-full bg-orange-400" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-medium leading-snug ${done ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
+                    {habit.habit_name}
+                  </p>
+                  {habit.notes && !done && (
+                    <p className="text-xs text-gray-400 leading-snug mt-0.5 truncate">{habit.notes}</p>
+                  )}
+                </div>
+                {habit.habit_type === 'numeric' && habit.target_value != null && !done && (
+                  <span className="text-[11px] font-medium text-gray-400 shrink-0">
+                    {habit.target_value}{habit.unit ? ` ${habit.unit}` : ''}
+                  </span>
                 )}
-                {partial && <div className="w-2 h-2 rounded-full bg-orange-400" />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className={`text-sm font-medium leading-snug ${done ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
-                  {habit.title}
-                </p>
-                {habit.description && !done && (
-                  <p className="text-xs text-gray-400 leading-snug mt-0.5 truncate">{habit.description}</p>
-                )}
-              </div>
-              {habit.habit_type === 'numeric' && habit.target_value != null && !done && (
-                <span className="text-[11px] font-medium text-gray-400 shrink-0">
-                  {habit.target_value}{habit.unit ? ` ${habit.unit}` : ''}
-                </span>
-              )}
-            </button>
-          )
-        })}
-      </div>
+              </button>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
