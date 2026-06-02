@@ -35,7 +35,9 @@ function frontendUrl(path, params = {}) {
 }
 
 function redirectToSettingsError(res, message) {
-  return res.redirect(frontendUrl('/settings', { fitbit_error: message || 'connection_failed' }))
+  const reason = message || 'connection_failed'
+  console.warn('[fitbit redirect] settings error:', reason)
+  return res.redirect(frontendUrl('/settings', { fitbit_error: reason }))
 }
 
 function addSeconds(seconds) {
@@ -47,30 +49,49 @@ async function currentDbUserId(req) {
   return getOrCreateUser(userId)
 }
 
+async function createGoogleHealthOAuthUrl(req) {
+  const { GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_REDIRECT_URI } = googleHealthConfig()
+  console.log('[fitbit connect] config:', {
+    appBaseUrl: getAppBaseUrl(),
+    redirectUri: GOOGLE_HEALTH_REDIRECT_URI,
+    hasClientId: Boolean(GOOGLE_HEALTH_CLIENT_ID),
+    hasClientSecret: Boolean(process.env.GOOGLE_HEALTH_CLIENT_SECRET),
+    hasExplicitRedirectUri: Boolean(process.env.GOOGLE_HEALTH_REDIRECT_URI),
+  })
+  const dbUserId = await currentDbUserId(req)
+  const state = crypto.randomBytes(32).toString('hex')
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
+
+  await pool.query('DELETE FROM fitbit_oauth_state WHERE user_id=$1 OR expires_at < NOW()', [dbUserId])
+  await pool.query(
+    'INSERT INTO fitbit_oauth_state (state, user_id, expires_at) VALUES ($1, $2, $3)',
+    [state, dbUserId, expiresAt],
+  )
+
+  const url = new URL(GOOGLE_AUTHORIZE_URL)
+  url.searchParams.set('response_type', 'code')
+  url.searchParams.set('client_id', GOOGLE_HEALTH_CLIENT_ID)
+  url.searchParams.set('redirect_uri', GOOGLE_HEALTH_REDIRECT_URI)
+  url.searchParams.set('scope', SCOPES)
+  url.searchParams.set('state', state)
+  url.searchParams.set('access_type', 'offline')
+  url.searchParams.set('prompt', 'consent')
+  return url.toString()
+}
+
 // GET /api/fitbit/connect
 router.get('/connect', requireAuth(), async (req, res, next) => {
   try {
-    const { GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_REDIRECT_URI } = googleHealthConfig()
-    console.log('[fitbit connect] redirect_uri:', GOOGLE_HEALTH_REDIRECT_URI)
-    const dbUserId = await currentDbUserId(req)
-    const state = crypto.randomBytes(32).toString('hex')
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
+    res.redirect(await createGoogleHealthOAuthUrl(req))
+  } catch (err) {
+    next(err)
+  }
+})
 
-    await pool.query('DELETE FROM fitbit_oauth_state WHERE user_id=$1 OR expires_at < NOW()', [dbUserId])
-    await pool.query(
-      'INSERT INTO fitbit_oauth_state (state, user_id, expires_at) VALUES ($1, $2, $3)',
-      [state, dbUserId, expiresAt],
-    )
-
-    const url = new URL(GOOGLE_AUTHORIZE_URL)
-    url.searchParams.set('response_type', 'code')
-    url.searchParams.set('client_id', GOOGLE_HEALTH_CLIENT_ID)
-    url.searchParams.set('redirect_uri', GOOGLE_HEALTH_REDIRECT_URI)
-    url.searchParams.set('scope', SCOPES)
-    url.searchParams.set('state', state)
-    url.searchParams.set('access_type', 'offline')
-    url.searchParams.set('prompt', 'consent')
-    res.redirect(url.toString())
+// POST /api/fitbit/connect
+router.post('/connect', requireAuth(), async (req, res, next) => {
+  try {
+    res.json({ url: await createGoogleHealthOAuthUrl(req) })
   } catch (err) {
     next(err)
   }
@@ -82,8 +103,18 @@ router.get('/callback', async (req, res, next) => {
     const { GOOGLE_HEALTH_REDIRECT_URI } = googleHealthConfig()
     console.log('[fitbit callback] token exchange redirect_uri:', GOOGLE_HEALTH_REDIRECT_URI)
     const { code, state, error, error_description } = req.query
-    if (error) return redirectToSettingsError(res, error_description || error)
-    if (!code || !state) return redirectToSettingsError(res, 'missing_authorization_code_or_state')
+    if (error) {
+      const reason = error_description || error
+      console.warn('[fitbit callback] oauth error:', reason)
+      return redirectToSettingsError(res, reason)
+    }
+    if (!code || !state) {
+      console.warn('[fitbit callback] missing callback params:', {
+        hasCode: Boolean(code),
+        hasState: Boolean(state),
+      })
+      return redirectToSettingsError(res, 'missing_authorization_code_or_state')
+    }
 
     const { rows } = await pool.query(
       `DELETE FROM fitbit_oauth_state
@@ -92,7 +123,10 @@ router.get('/callback', async (req, res, next) => {
       [state],
     )
     const dbUserId = rows[0]?.user_id
-    if (!dbUserId) return redirectToSettingsError(res, 'invalid_or_expired_state')
+    if (!dbUserId) {
+      console.warn('[fitbit callback] invalid or expired oauth state')
+      return redirectToSettingsError(res, 'invalid_or_expired_state')
+    }
 
     const data = await exchangeToken({
       grant_type:   'authorization_code',
@@ -100,6 +134,7 @@ router.get('/callback', async (req, res, next) => {
       code:         String(code),
     })
     if (!data.refresh_token) {
+      console.warn('[fitbit callback] token response missing refresh token')
       return redirectToSettingsError(res, 'missing_refresh_token')
     }
 
@@ -121,7 +156,7 @@ router.get('/callback', async (req, res, next) => {
     res.redirect(frontendUrl('/settings', { connected: 'fitbit' }))
   } catch (err) {
     console.error('[fitbit callback]', err.message)
-    return redirectToSettingsError(res, 'connection_failed')
+    return redirectToSettingsError(res, err.message || 'connection_failed')
   }
 })
 

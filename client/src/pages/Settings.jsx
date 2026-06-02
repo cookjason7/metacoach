@@ -447,6 +447,15 @@ export default function Settings() {
   useEffect(() => {
     const params = new URLSearchParams(location.search)
     if (params.get('section') === 'bloodwork' && profile?.bloodwork_enabled) setBloodworkOpen(true)
+    const fitbitErrorParam = params.get('fitbit_error')
+    const fitbitConnectedParam = params.get('connected')
+    if (fitbitErrorParam) {
+      setFitbitError(`Google Health connection failed: ${fitbitErrorParam}`)
+      setFitbitMessage('')
+    } else if (fitbitConnectedParam === 'fitbit') {
+      setFitbitMessage('Google Health connected.')
+      setFitbitError('')
+    }
   }, [location.search, profile])
 
   useEffect(() => {
@@ -799,10 +808,25 @@ export default function Settings() {
     }
   }
 
-  function connectFitbit() {
+  async function connectFitbit() {
+    setFitbitLoading(true)
     setFitbitError('')
     setFitbitMessage('')
-    window.location.href = `${API_URL}/api/fitbit/connect`
+    try {
+      const token = await getToken()
+      const res = await fetch('/api/fitbit/connect', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.url) {
+        throw new Error(data.error ?? 'Unable to start Google Health connection')
+      }
+      window.location.assign(data.url)
+    } catch (err) {
+      setFitbitError(err.message)
+      setFitbitLoading(false)
+    }
   }
 
   async function refreshFitbitStatus() {
