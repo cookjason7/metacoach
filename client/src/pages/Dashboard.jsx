@@ -69,14 +69,16 @@ function MomentumCard({ data, loading }) {
         </div>
       )}
 
-      {/* Coaching line — hide the comeback-specific sentence; show other stage descriptions */}
+      {/* Coaching line — hide noisy auto-generated sentences */}
       {(() => {
-        const COMEBACK_SENTENCE = "Coming back is a choice — and you made it. That's self-trust in action."
+        const FILTERED = new Set([
+          "Coming back is a choice — and you made it. That's self-trust in action.",
+          "Every Life Warrior starts with a single consistent week. This is yours.",
+        ])
         const desc = data.stage_description ?? data.message
-        if (desc && desc !== COMEBACK_SENTENCE) {
+        if (desc && !FILTERED.has(desc)) {
           return <p className="text-xs text-gray-500 leading-relaxed">{desc}</p>
         }
-        // For comeback users replace the removed sentence with a simple status line
         if (data.is_comeback) {
           return <p className="text-xs text-gray-500">Current identity: <span className="font-semibold text-gray-700">{data.identity_stage ?? 'Resilient Warrior'}</span></p>
         }

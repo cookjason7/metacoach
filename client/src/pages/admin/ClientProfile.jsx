@@ -1398,7 +1398,7 @@ const QUICK_PRESETS = [
   { label: 'Drink water',     habit_name: 'Drink water',     habit_type: 'numeric',    unit: 'oz',    identity_category: 'food_tracking' },
   { label: 'Step goal',       habit_name: 'Step goal',       habit_type: 'numeric',    unit: 'steps', identity_category: 'movement' },
   { label: 'Complete workout',habit_name: 'Complete workout',habit_type: 'completion',                identity_category: 'movement' },
-  { label: 'Journal',         habit_name: 'Journal',         habit_type: 'boolean',                  identity_category: 'mindset' },
+  { label: 'Fiber goal',       habit_name: 'Fiber goal',       habit_type: 'numeric',    unit: 'g',     identity_category: 'food_tracking' },
   { label: 'Log food ahead',  habit_name: 'Log food ahead',  habit_type: 'boolean',                  identity_category: 'food_tracking' },
 ]
 
