@@ -84,7 +84,7 @@ app.use('/api/forms',            clerkMiddleware(), formsRouter)
 app.use('/api/measurements',     clerkMiddleware(), measurementsRouter)
 app.use('/api/mindset-videos',        clerkMiddleware(), mindsetVideosRouter)
 app.use('/api/community-resources',   clerkMiddleware(), communityResourcesRouter)
-app.use('/api/fitbit',                fitbitRouter)
+app.use('/api/fitbit',                clerkMiddleware(), fitbitRouter)
 app.use('/api/bloodwork',             clerkMiddleware(), bloodworkRouter)
 app.use('/api/push',                  clerkMiddleware(), pushRouter)
 
