@@ -1602,7 +1602,7 @@ function HabitsTab({ clientId, getToken }) {
     setForm(f => ({
       ...f,
       habit_name:        p.habit_name,
-      habit_type:        p.habit_type,
+      habit_type:        p.habit_type === 'completion' ? 'boolean' : p.habit_type,
       target_value:      '',  // coach sets the goal
       unit:              p.unit ?? '',
       frequency:         'daily',
@@ -1660,7 +1660,7 @@ function HabitsTab({ clientId, getToken }) {
     setEditingId(h.id)
     setEditForm({
       habit_name:   h.habit_name,
-      habit_type:   h.habit_type ?? 'boolean',
+      habit_type:   (h.habit_type === 'completion' ? 'boolean' : h.habit_type) ?? 'boolean',
       target_value: h.target_value != null ? String(h.target_value) : '',
       unit:         h.unit ?? '',
       frequency:    h.frequency ?? 'daily',
@@ -1806,28 +1806,31 @@ function HabitsTab({ clientId, getToken }) {
               placeholder="e.g. Drink 48 oz of water"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div className={`grid gap-2 ${form.habit_type === 'numeric' ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-1'}`}>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
               <select value={form.habit_type} onChange={e => setForm(f => ({ ...f, habit_type: e.target.value }))}
                 className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white">
-                <option value="boolean">Boolean (yes/no)</option>
-                <option value="numeric">Numeric (count/oz)</option>
-                <option value="completion">Completion</option>
+                <option value="boolean">Completion</option>
+                <option value="numeric">Progress goal</option>
               </select>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Target</label>
-              <input type="number" value={form.target_value} onChange={e => setForm(f => ({ ...f, target_value: e.target.value }))}
-                placeholder="48"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Unit</label>
-              <input value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))}
-                placeholder="oz / steps"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-            </div>
+            {form.habit_type === 'numeric' && (
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Target</label>
+                <input type="number" value={form.target_value} onChange={e => setForm(f => ({ ...f, target_value: e.target.value }))}
+                  placeholder="48"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </div>
+            )}
+            {form.habit_type === 'numeric' && (
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Unit</label>
+                <input value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))}
+                  placeholder="oz / steps"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </div>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Frequency</label>
@@ -1908,26 +1911,29 @@ function HabitsTab({ clientId, getToken }) {
                     <input value={editForm.habit_name} onChange={e => setEditForm(f => ({ ...f, habit_name: e.target.value }))}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <div className={`grid gap-2 ${editForm.habit_type === 'numeric' ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-1'}`}>
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
                       <select value={editForm.habit_type} onChange={e => setEditForm(f => ({ ...f, habit_type: e.target.value }))}
                         className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white">
-                        <option value="boolean">Boolean (yes/no)</option>
-                        <option value="numeric">Numeric (count/oz)</option>
-                        <option value="completion">Completion</option>
+                        <option value="boolean">Completion</option>
+                        <option value="numeric">Progress goal</option>
                       </select>
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Target</label>
-                      <input type="number" value={editForm.target_value} onChange={e => setEditForm(f => ({ ...f, target_value: e.target.value }))}
-                        placeholder="—" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Unit</label>
-                      <input value={editForm.unit} onChange={e => setEditForm(f => ({ ...f, unit: e.target.value }))}
-                        placeholder="oz / steps" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-                    </div>
+                    {editForm.habit_type === 'numeric' && (
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Target</label>
+                        <input type="number" value={editForm.target_value} onChange={e => setEditForm(f => ({ ...f, target_value: e.target.value }))}
+                          placeholder="—" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                      </div>
+                    )}
+                    {editForm.habit_type === 'numeric' && (
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Unit</label>
+                        <input value={editForm.unit} onChange={e => setEditForm(f => ({ ...f, unit: e.target.value }))}
+                          placeholder="oz / steps" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                      </div>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Frequency</label>
