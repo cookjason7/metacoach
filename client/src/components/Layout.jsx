@@ -312,10 +312,12 @@ export default function Layout() {
         )
       : CLIENT_NAV_ITEMS
 
-  // Mobile drawer hides items that already appear in the client bottom nav
+  // Mobile drawer hides items already in the client bottom nav.
+  // AI navItems maps Messages → 'Support', so filter by 'Support' for AI.
+  // Calendar is now in the bottom nav so it is removed from the mobile sidebar too.
   const mobileBottomNavLabels = isAiClient
-    ? new Set(['Food Log', 'Coach Katie', 'Community'])  // Messages stays in sidebar for AI clients
-    : new Set(['Food Log', 'Messages', 'Community'])     // VIP: Messages is in bottom nav
+    ? new Set(['Food Log', 'Support', 'Community', 'Calendar'])  // Coach Katie stays in sidebar
+    : new Set(['Food Log', 'Messages', 'Community', 'Calendar']) // VIP
   const mobileNavItems = isStaff ? navItems : navItems.filter(i => !mobileBottomNavLabels.has(i.label))
 
   function buildSidebarContent(items, isMobile = false) { return (
@@ -428,7 +430,7 @@ export default function Layout() {
         </div>
       )}
 
-      <main className="flex-1 overflow-y-auto p-4 lg:p-8 pb-[calc(5.75rem+env(safe-area-inset-bottom))] lg:pb-8">
+      <main className="flex-1 overflow-y-auto p-4 lg:p-8 pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-8">
         {/* Mobile hamburger */}
         <button
           className="lg:hidden mb-4 p-2 rounded-lg text-gray-500 hover:bg-gray-200 transition-colors"
@@ -442,66 +444,59 @@ export default function Layout() {
         <Outlet />
       </main>
 
-      {/* Mobile bottom nav */}
+      {/* Mobile bottom nav — 5 tabs: Home | Calendar | Food Log | Messages | Community */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200 flex pb-[env(safe-area-inset-bottom)]">
         {(isStaff ? [
-          // Staff bottom nav
+          // Staff bottom nav (unchanged)
           { to: '/dashboard',     label: 'Coaching',  badge: false,          icon: <path strokeLinecap="round" strokeLinejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" /> },
           { to: '/admin/clients', label: 'Clients',   badge: false,          icon: <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /> },
           { to: '/messages',      label: 'Messages',  badge: msgUnread > 0,  icon: <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /> },
           { to: '/community',     label: 'Community', badge: notifCount > 0, icon: <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /> },
-        ] : isAiClient ? [
-          // AI/Hybrid client bottom nav: Home | Food Log | [Log+] | Katie | Community
-          { to: '/dashboard', label: 'Home',      badge: false,            icon: <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /> },
-          { to: '/journal',   label: 'Food Log',  badge: false,            icon: <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /> },
-          { to: '/ai-coach',  label: 'Katie',     badge: katieUnread > 0,  icon: <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /> },
-          { to: '/community', label: 'Community', badge: notifCount > 0,   icon: <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /> },
         ] : [
-          // VIP client bottom nav: Home | Food Log | [Log+] | Messages | Community
-          { to: '/dashboard', label: 'Home',      badge: false,           icon: <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /> },
-          { to: '/journal',   label: 'Food Log',  badge: false,           icon: <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /> },
-          { to: '/messages',  label: 'Messages',  badge: msgUnread > 0,   icon: <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /> },
-          { to: '/community', label: 'Community', badge: notifCount > 0,  icon: <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /> },
-        ]).reduce((acc, { to, label, icon, badge }, i) => {
-          // Inject the plus button in the middle (after Food Log, index 1)
-          if (i === 1 && !isStaff) acc.push(
-            <button
-              key="quick-log"
-              onClick={openQuickMenu}
-              className="flex-1 flex flex-col items-center justify-center py-2 gap-0.5 min-w-0"
-            >
-              <div className="w-11 h-11 rounded-full bg-[#E8670A] flex items-center justify-center shadow-md -mt-5">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                </svg>
-              </div>
-              <span className="text-xs font-medium text-gray-400">Log</span>
-            </button>
-          )
-          acc.push(
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) =>
-                `flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-[11px] font-medium transition-colors min-w-0 ${
-                  isActive ? 'text-[#E8670A]' : 'text-gray-400'
-                }`
-              }
-            >
-              <div className="relative">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  {icon}
-                </svg>
-                {badge && (
-                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-[#E8670A] rounded-full" />
-                )}
-              </div>
-              <span className="max-w-full truncate">{label}</span>
-            </NavLink>
-          )
-          return acc
-        }, [])}
+          // Client bottom nav: Home | Calendar | Food Log | Messages | Community
+          { to: '/dashboard', label: 'Home',      badge: false,          icon: <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /> },
+          { to: '/calendar',  label: 'Calendar',  badge: false,          icon: <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /> },
+          { to: '/journal',   label: 'Food Log',  badge: false,          icon: <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /> },
+          { to: '/messages',  label: 'Messages',  badge: msgUnread > 0,  icon: <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /> },
+          { to: '/community', label: 'Community', badge: notifCount > 0, icon: <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /> },
+        ]).map(({ to, label, icon, badge }) => (
+          <NavLink
+            key={to}
+            to={to}
+            className={({ isActive }) =>
+              `flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-[11px] font-medium transition-colors min-w-0 ${
+                isActive ? 'text-[#E8670A]' : 'text-gray-400'
+              }`
+            }
+          >
+            <div className="relative">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                {icon}
+              </svg>
+              {badge && (
+                <span className="absolute -top-1 -right-1 w-2 h-2 bg-[#E8670A] rounded-full" />
+              )}
+            </div>
+            <span className="max-w-full truncate">{label}</span>
+          </NavLink>
+        ))}
       </nav>
+
+      {/* Floating quick-log button — client only, above bottom nav on the right */}
+      {!isStaff && (
+        <button
+          className="lg:hidden fixed right-4 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-50 flex flex-col items-center gap-1 active:scale-95 transition-transform"
+          onClick={openQuickMenu}
+          aria-label="Quick log"
+        >
+          <div className="w-14 h-14 rounded-full bg-[#E8670A] shadow-lg flex items-center justify-center">
+            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+          </div>
+          <span className="text-[11px] font-semibold text-[#E8670A] leading-none drop-shadow-sm">Log</span>
+        </button>
+      )}
       {/* Quick-log bottom sheet */}
       {quickMenuOpen && (
         <>
