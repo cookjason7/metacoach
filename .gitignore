@@ -3,3 +3,8 @@ node_modules/
 .env.local
 *.local.txt
 backups/*.json.gz
+
+# Capacitor Android build artifacts (project files are committed)
+android/.gradle/
+android/app/build/
+android/build/

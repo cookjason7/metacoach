@@ -1,0 +1,8 @@
+{
+  "appId": "com.warriorfitai.app",
+  "appName": "WarriorFIT AI",
+  "webDir": "client/dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}
