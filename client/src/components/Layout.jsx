@@ -304,11 +304,11 @@ export default function Layout() {
     <>
       {/* Logo */}
       <div className="mx-2 mt-5 mb-4">
-        <div className="bg-[#E8ECEF] rounded-xl p-2">
+        <div className="bg-[#E8ECEF] rounded-xl overflow-hidden py-2 px-0">
           <img
             src="/brand/warriorfit-logo-full-sidebar.png"
             alt="WarriorFIT AI"
-            className="w-full h-auto object-contain"
+            className="w-full h-auto block"
           />
         </div>
       </div>
