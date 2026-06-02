@@ -433,7 +433,7 @@ export default function Layout() {
       <main className="flex-1 overflow-y-auto p-4 lg:p-8 pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-8">
         {/* Mobile hamburger */}
         <button
-          className="lg:hidden mb-4 p-2 rounded-lg text-gray-500 hover:bg-gray-200 transition-colors"
+          className="lg:hidden mb-4 p-2 min-w-[44px] min-h-[44px] rounded-lg text-gray-500 hover:bg-gray-200 transition-colors"
           onClick={() => setSidebarOpen(true)}
           aria-label="Open menu"
         >
@@ -528,7 +528,7 @@ export default function Layout() {
               ) : (
                 <h2 className="text-base font-bold text-gray-900">Quick Log</h2>
               )}
-              <button onClick={closeQuickMenu} className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 text-lg leading-none">
+              <button onClick={closeQuickMenu} className="w-11 h-11 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 text-lg leading-none">
                 ×
               </button>
             </div>
