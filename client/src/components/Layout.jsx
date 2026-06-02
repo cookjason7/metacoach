@@ -303,14 +303,12 @@ export default function Layout() {
   function buildSidebarContent(items) { return (
     <>
       {/* Logo */}
-      <div className="mx-2 mt-5 mb-4">
-        <div className="bg-[#E8ECEF] rounded-xl overflow-hidden py-2 px-0">
-          <img
-            src="/brand/warriorfit-logo-full-sidebar.png"
-            alt="WarriorFIT AI"
-            className="w-full h-auto block"
-          />
-        </div>
+      <div className="flex justify-center mt-6 mb-5 px-3">
+        <img
+          src="/brand/warriorfit-logo-full-sidebar.png"
+          alt="WarriorFIT AI"
+          className="w-32 h-auto block"
+        />
       </div>
 
       {/* Nav */}
