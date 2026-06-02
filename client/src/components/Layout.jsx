@@ -308,7 +308,7 @@ export default function Layout() {
           <img
             src="/brand/warriorfit-logo-full-transparent.png"
             alt="WarriorFIT AI"
-            className="w-full h-44 object-contain"
+            className="w-full h-[194px] object-contain"
           />
         </div>
       </div>
