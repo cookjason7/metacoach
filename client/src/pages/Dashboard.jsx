@@ -79,9 +79,6 @@ function MomentumCard({ data, loading }) {
         if (desc && !FILTERED.has(desc)) {
           return <p className="text-xs text-gray-500 leading-relaxed">{desc}</p>
         }
-        if (data.is_comeback) {
-          return <p className="text-xs text-gray-500">Current identity: <span className="font-semibold text-gray-700">{data.identity_stage ?? 'Resilient Warrior'}</span></p>
-        }
         return null
       })()}
     </div>

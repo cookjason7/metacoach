@@ -316,8 +316,8 @@ export default function Layout() {
   // AI navItems maps Messages → 'Support', so filter by 'Support' for AI.
   // Calendar is now in the bottom nav so it is removed from the mobile sidebar too.
   const mobileBottomNavLabels = isAiClient
-    ? new Set(['Food Log', 'Support', 'Community', 'Calendar'])  // Coach Katie stays in sidebar
-    : new Set(['Food Log', 'Messages', 'Community', 'Calendar']) // VIP
+    ? new Set(['Dashboard', 'Food Log', 'Support', 'Community', 'Calendar'])  // Dashboard = Home in bottom nav
+    : new Set(['Dashboard', 'Food Log', 'Messages', 'Community', 'Calendar']) // VIP
   const mobileNavItems = isStaff ? navItems : navItems.filter(i => !mobileBottomNavLabels.has(i.label))
 
   function buildSidebarContent(items, isMobile = false) { return (

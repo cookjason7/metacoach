@@ -2,6 +2,18 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 
+// Same mapping as Dashboard's getProgressCurrent — keeps both pages in sync.
+// Returns the current live value for a progress habit, or null for plain checkboxes.
+function getProgressCurrent(habit, todayLog, todayMeals) {
+  if (habit.habit_type !== 'numeric' || !habit.target_value) return null
+  const unit = (habit.unit ?? '').trim().toLowerCase()
+  if (unit === 'oz')                return parseFloat(todayLog?.water_oz ?? 0)
+  if (/^steps?$/.test(unit))        return todayLog?.steps ?? 0
+  if (unit === 'g' && /fiber/i.test(habit.habit_name ?? ''))
+    return parseFloat(todayMeals?.total_fiber ?? 0)
+  return null
+}
+
 // Monday-first week order
 const WEEKDAY_HEADERS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -52,16 +64,35 @@ function pickMessage(pool) {
 
 // ─── Habit pill (one habit on one day) ────────────────────────────────────────
 
-function HabitPill({ entry, dateISO, onComplete, isPast }) {
+// liveCurrent: pre-computed live value from daily_logs/meals for today's progress habits.
+// null → use stored completion data (past days, non-progress habits).
+function HabitPill({ entry, dateISO, onComplete, isPast, liveCurrent = null }) {
   const { habit, completion } = entry
   const isNumeric = habit.habit_type === 'numeric'
-  const [editing, setEditing] = useState(false)
-  const [value, setValue] = useState(
-    completion?.completed_value != null ? String(completion.completed_value) : '',
+
+  // Live percentage — same formula as Dashboard
+  const livePct = liveCurrent !== null && habit.target_value
+    ? Math.min(100, (liveCurrent / Number(habit.target_value)) * 100)
+    : null
+
+  // When live data is available, derive status from it so Calendar matches Dashboard
+  const storedStatus = completion?.status ?? 'not_started'
+  const status = livePct !== null
+    ? (livePct >= 80 ? 'complete' : livePct >= 50 ? 'partial' : 'not_started')
+    : storedStatus
+
+  // Percentage to display — prefer live, fall back to stored
+  const pct = livePct ?? (
+    completion?.completion_percentage != null ? Number(completion.completion_percentage) : 0
   )
 
-  const status = completion?.status ?? 'not_started'
-  const pct    = completion?.completion_percentage != null ? Number(completion.completion_percentage) : 0
+  // Seed the inline edit with the live value when no completion record exists yet
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(
+    completion?.completed_value != null
+      ? String(completion.completed_value)
+      : liveCurrent != null ? String(Math.round(liveCurrent)) : '',
+  )
 
   const containerClass = {
     complete:     'bg-emerald-50 border-emerald-200 hover:bg-emerald-100',
@@ -131,7 +162,7 @@ function HabitPill({ entry, dateISO, onComplete, isPast }) {
       <span className={`text-[11px] truncate ${status === 'complete' ? 'text-emerald-800 line-through' : 'text-gray-800'}`}>
         {habit.habit_name}
       </span>
-      {isNumeric && completion && (
+      {isNumeric && (livePct !== null || completion) && (
         <span className="ml-auto text-[10px] font-semibold text-gray-500 shrink-0">
           {Math.round(pct)}%
         </span>
@@ -142,7 +173,7 @@ function HabitPill({ entry, dateISO, onComplete, isPast }) {
 
 // ─── Day cell ─────────────────────────────────────────────────────────────────
 
-function DayCell({ date, inMonth, entries, onComplete, isToday }) {
+function DayCell({ date, inMonth, entries, onComplete, isToday, todayLog = null, todayMeals = null }) {
   const dateISO = isoDate(date)
   const dayNum = date.getDate()
   const isPast = date < new Date(new Date().toDateString())
@@ -164,7 +195,14 @@ function DayCell({ date, inMonth, entries, onComplete, isToday }) {
       </div>
       <div className="flex-1 space-y-0.5 overflow-hidden">
         {entries.map((entry, i) => (
-          <HabitPill key={`${entry.habit.id}-${i}`} entry={entry} dateISO={dateISO} onComplete={onComplete} isPast={isPast} />
+          <HabitPill
+            key={`${entry.habit.id}-${i}`}
+            entry={entry}
+            dateISO={dateISO}
+            onComplete={onComplete}
+            isPast={isPast}
+            liveCurrent={getProgressCurrent(entry.habit, todayLog, todayMeals)}
+          />
         ))}
       </div>
     </div>
@@ -188,9 +226,11 @@ export default function Calendar() {
     d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
     return d
   })
-  const [calendar, setCalendar] = useState({})
-  const [loading, setLoading]   = useState(true)
-  const [toast, setToast]       = useState(null)
+  const [calendar,    setCalendar]    = useState({})
+  const [loading,     setLoading]     = useState(true)
+  const [toast,       setToast]       = useState(null)
+  const [todayLog,    setTodayLog]    = useState(null)   // live daily_logs row for today
+  const [todayMeals,  setTodayMeals]  = useState(null)   // live meal totals for today
 
   // Compute the visible window based on view mode
   let gridStart, gridEnd, gridCells
@@ -241,31 +281,62 @@ export default function Calendar() {
 
   useEffect(() => { loadCalendar() }, [loadCalendar])
 
-  // Refetch today's habit completions so Calendar stays in sync with
-  // Dashboard auto-completes and Quick Log updates.
+  // Fetch today's live daily_logs + meal totals once on mount.
+  // These are the same sources Dashboard uses for progress habits.
+  useEffect(() => {
+    let cancelled = false
+    async function loadLiveData() {
+      try {
+        const token = await getToken()
+        const today = todayISO()
+        const headers = { Authorization: `Bearer ${token}` }
+        const [logRes, mealsRes] = await Promise.all([
+          fetch(`${API_URL}/api/daily-logs/today`, { headers }),
+          fetch(`${API_URL}/api/meals/today?date=${today}`, { headers }),
+        ])
+        if (!cancelled) {
+          if (logRes.ok)   setTodayLog(await logRes.json())
+          if (mealsRes.ok) setTodayMeals(await mealsRes.json())
+        }
+      } catch {}
+    }
+    loadLiveData()
+    return () => { cancelled = true }
+  }, [getToken])
+
+  // Refetch today's habit completions AND live data so Calendar stays in sync
+  // with Dashboard auto-completes and Quick Log updates.
   const refetchToday = useCallback(async () => {
     const today = todayISO()
     try {
       const token = await getToken()
-      const res = await fetch(
-        `${API_URL}/api/client-habits/me/calendar?start=${today}&end=${today}`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      )
-      if (res.ok) {
-        const data = await res.json()
+      const headers = { Authorization: `Bearer ${token}` }
+      const [habitsRes, logRes, mealsRes] = await Promise.all([
+        fetch(`${API_URL}/api/client-habits/me/calendar?start=${today}&end=${today}`, { headers }),
+        fetch(`${API_URL}/api/daily-logs/today`, { headers }),
+        fetch(`${API_URL}/api/meals/today?date=${today}`, { headers }),
+      ])
+      if (habitsRes.ok) {
+        const data = await habitsRes.json()
         setCalendar(prev => ({ ...prev, [today]: data.calendar[today] ?? [] }))
       }
+      if (logRes.ok)   setTodayLog(await logRes.json())
+      if (mealsRes.ok) setTodayMeals(await mealsRes.json())
     } catch {}
   }, [getToken])
 
-  // daily-log-updated: fired by Quick Log (water/steps) or Calendar's handleComplete
+  // daily-log-updated: also update todayLog directly from event detail for
+  // instant display before the async refetch resolves.
   useEffect(() => {
-    window.addEventListener('daily-log-updated', refetchToday)
-    return () => window.removeEventListener('daily-log-updated', refetchToday)
+    function onDailyLogUpdated(e) {
+      if (e.detail) setTodayLog(e.detail)
+      refetchToday()
+    }
+    window.addEventListener('daily-log-updated', onDailyLogUpdated)
+    return () => window.removeEventListener('daily-log-updated', onDailyLogUpdated)
   }, [refetchToday])
 
-  // habit-completion-updated: fired by Dashboard auto-complete (water, steps, fiber)
-  // and by Calendar's handleComplete after every successful completion.
+  // habit-completion-updated: fired by Dashboard auto-complete and Calendar completions.
   useEffect(() => {
     window.addEventListener('habit-completion-updated', refetchToday)
     return () => window.removeEventListener('habit-completion-updated', refetchToday)
@@ -461,7 +532,13 @@ export default function Calendar() {
                 ) : (
                   <div className="space-y-1.5">
                     {entries.map((entry, j) => (
-                      <HabitPill key={`${entry.habit.id}-${j}`} entry={entry} dateISO={dKey} onComplete={handleComplete} />
+                      <HabitPill
+                        key={`${entry.habit.id}-${j}`}
+                        entry={entry}
+                        dateISO={dKey}
+                        onComplete={handleComplete}
+                        liveCurrent={isToday ? getProgressCurrent(entry.habit, todayLog, todayMeals) : null}
+                      />
                     ))}
                   </div>
                 )}
@@ -493,6 +570,8 @@ export default function Calendar() {
                     entries={entries}
                     onComplete={handleComplete}
                     isToday={dKey === todayISO_}
+                    todayLog={dKey === todayISO_ ? todayLog : null}
+                    todayMeals={dKey === todayISO_ ? todayMeals : null}
                   />
                 </div>
               )
@@ -524,6 +603,8 @@ export default function Calendar() {
                     entries={entries}
                     onComplete={handleComplete}
                     isToday={dKey === todayISO_}
+                    todayLog={dKey === todayISO_ ? todayLog : null}
+                    todayMeals={dKey === todayISO_ ? todayMeals : null}
                   />
                 </div>
               )
