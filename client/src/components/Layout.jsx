@@ -307,7 +307,7 @@ export default function Layout() {
         <img
           src="/brand/warriorfit-logo-full-sidebar.png"
           alt="WarriorFIT AI"
-          className="w-32 h-auto block"
+          className="w-[102px] h-auto block"
         />
       </div>
 
