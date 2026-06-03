@@ -814,7 +814,7 @@ export default function Settings() {
     setFitbitMessage('')
     try {
       const token = await getToken()
-      const res = await fetch('/api/fitbit/connect', {
+      const res = await fetch(`${API_URL}/api/fitbit/connect`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
