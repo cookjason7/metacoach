@@ -1,5 +1,8 @@
 # Using Android gitignore template: https://github.com/github/gitignore/blob/HEAD/Android.gitignore
 
+# Release signing credentials — NEVER commit this file
+keystore.properties
+
 # Built application files
 *.apk
 *.aar
