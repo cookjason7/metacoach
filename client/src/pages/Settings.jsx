@@ -867,6 +867,16 @@ export default function Settings() {
       if (data.steps != null) parts.push(`${data.steps.toLocaleString()} steps`)
       if (data.sleep_minutes != null) parts.push(`${Math.floor(data.sleep_minutes / 60)}h ${data.sleep_minutes % 60}m sleep`)
       setFitbitMessage(parts.length ? `Synced ${parts.join(' and ')}.` : 'Google Health synced.')
+      // Fetch the full daily log row and broadcast to Dashboard/Calendar so they
+      // update immediately without requiring a page reload or navigation.
+      try {
+        const logRes = await fetch(`${API_URL}/api/daily-logs/today`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (logRes.ok) {
+          window.dispatchEvent(new CustomEvent('daily-log-updated', { detail: await logRes.json() }))
+        }
+      } catch {}
     } catch (err) {
       setFitbitError(err.message)
     } finally {

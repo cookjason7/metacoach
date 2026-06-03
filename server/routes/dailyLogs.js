@@ -19,6 +19,7 @@ router.get('/today', requireAuth(), async (req, res, next) => {
       [userId],
     )
 
+    res.set('Cache-Control', 'no-store')
     res.json(rows[0] ?? { water_oz: null, steps: null, weight_lbs: null, sleep_minutes: null })
   } catch (err) {
     next(err)
