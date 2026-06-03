@@ -63,8 +63,8 @@ captures/
 .externalNativeBuild
 .cxx/
 
-# Google Services (e.g. APIs or Firebase)
-# google-services.json
+# Google Services (e.g. APIs or Firebase) — credential file, NEVER commit
+google-services.json
 
 # Freeline
 freeline.py
