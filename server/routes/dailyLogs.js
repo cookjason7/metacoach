@@ -175,6 +175,7 @@ router.get('/progress', requireAuth(), async (req, res, next) => {
       return { session_id: row.session_id, session_date: row.session_date, photos: byAngle }
     })
 
+    res.set('Cache-Control', 'no-store')
     res.json({
       range: rangeParam,
       days,
