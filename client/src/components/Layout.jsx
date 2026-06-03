@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { UserButton, useUser, useAuth, useClerk } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
+import { Capacitor } from '@capacitor/core'
+import { PushNotifications } from '@capacitor/push-notifications'
 
 // Client-facing sidebar nav
 const CLIENT_NAV_ITEMS = [
@@ -279,6 +281,59 @@ export default function Layout() {
     fetchRole()
   }, [fetchRole])
 
+  // ── Android push notification registration ────────────────────────────────
+  // Runs once the user is authenticated. Non-blocking — all errors are warnings.
+  const pushTokenRef = useRef(null)
+  useEffect(() => {
+    if (!isLoaded || !user) return
+    if (!Capacitor.isNativePlatform()) return
+
+    let cancelled = false
+    let regListener = null
+    let errListener = null
+
+    ;(async () => {
+      try {
+        // Register listeners BEFORE calling register() so the token event is not missed
+        regListener = await PushNotifications.addListener('registration', async ({ value: token }) => {
+          if (cancelled) return
+          pushTokenRef.current = token
+          try {
+            const clerkToken = await getToken()
+            await fetch(`${API_URL}/api/push/register`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${clerkToken}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token, platform: Capacitor.getPlatform() }),
+            })
+            console.log('[push] FCM token registered')
+          } catch (err) {
+            console.warn('[push] token POST failed:', err.message)
+          }
+        })
+
+        errListener = await PushNotifications.addListener('registrationError', (err) => {
+          console.warn('[push] FCM registration error:', err.error)
+        })
+
+        const { receive } = await PushNotifications.requestPermissions()
+        if (receive !== 'granted') {
+          console.log('[push] permission not granted — skipping registration')
+          return
+        }
+
+        await PushNotifications.register()
+      } catch (err) {
+        console.warn('[push] push setup error:', err.message)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+      regListener?.remove()
+      errListener?.remove()
+    }
+  }, [isLoaded, user, getToken])
+
   useEffect(() => {
     fetchNotifCount()
     const id = setInterval(fetchNotifCount, 60_000)
@@ -397,7 +452,20 @@ export default function Layout() {
       {/* Logout — always visible, pinned to bottom */}
       <div className="px-4 pb-20 lg:pb-4">
         <button
-          onClick={() => signOut(() => navigate('/sign-in'))}
+          onClick={async () => {
+            // Unregister push token on logout so stale tokens are cleaned up promptly
+            if (Capacitor.isNativePlatform() && pushTokenRef.current) {
+              try {
+                const clerkToken = await getToken()
+                await fetch(`${API_URL}/api/push/unregister`, {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${clerkToken}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ token: pushTokenRef.current }),
+                })
+              } catch {}
+            }
+            signOut(() => navigate('/sign-in'))
+          }}
           className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors bg-red-600/20 text-red-400 hover:bg-red-600 hover:text-white"
         >
           <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
