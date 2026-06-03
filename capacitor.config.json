@@ -3,6 +3,7 @@
   "appName": "WarriorFIT AI",
   "webDir": "client/dist",
   "server": {
-    "androidScheme": "https"
+    "androidScheme": "https",
+    "iosScheme": "https"
   }
 }

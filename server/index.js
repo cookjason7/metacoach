@@ -51,6 +51,7 @@ app.use(cors({
     'https://metacoach-production.up.railway.app',
     'https://metacoach-staging.up.railway.app',
     'https://localhost',          // Capacitor Android WebView (androidScheme: https)
+    'capacitor://localhost',      // Capacitor iOS WebView fallback (iosScheme default)
   ],
   credentials: true,
 }))
