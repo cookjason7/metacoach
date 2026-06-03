@@ -374,6 +374,7 @@ export default function Progress() {
   const [loading,       setLoading]       = useState(true)
   const [error,         setError]         = useState(false)
   const [selectedMetric, setSelectedMetric] = useState(null)  // null = hub view
+  const [syncTick,      setSyncTick]      = useState(0)       // incremented by daily-log-updated
 
   // Sync startDate when a preset range is picked
   function pickRange(key) {
@@ -412,7 +413,14 @@ export default function Progress() {
     }
     load()
     return () => { cancelled = true }
-  }, [range, startDate, endDate, getToken])
+  }, [range, startDate, endDate, getToken, syncTick])
+
+  // Refresh when daily logs change (e.g. after Google Health sync).
+  useEffect(() => {
+    function onDailyLogUpdated() { setSyncTick(t => t + 1) }
+    window.addEventListener('daily-log-updated', onDailyLogUpdated)
+    return () => window.removeEventListener('daily-log-updated', onDailyLogUpdated)
+  }, [])
 
   const s               = data?.summary ?? {}
   const effectiveStart  = data?.start_date ?? startDate
