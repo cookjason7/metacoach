@@ -4,6 +4,8 @@ import { useUser } from '@clerk/clerk-react'
 import { Link, useLocation } from 'react-router-dom'
 import { API_URL } from '../config.js'
 import BloodworkIntakeForm from '../components/BloodworkIntakeForm.jsx'
+import { Capacitor } from '@capacitor/core'
+import { Browser } from '@capacitor/browser'
 
 const ACTIVITY_OPTIONS = [
   { value: 'sedentary',         label: 'Sedentary (little or no exercise)' },
@@ -822,7 +824,20 @@ export default function Settings() {
       if (!res.ok || !data.url) {
         throw new Error(data.error ?? 'Unable to start Google Health connection')
       }
-      window.location.assign(data.url)
+      if (Capacitor.isNativePlatform()) {
+        // Native Android: open OAuth in a Chrome Custom Tab so the Capacitor
+        // WebView is never navigated away from the bundled app at https://localhost.
+        // When the user closes the tab after authorising, browserFinished fires
+        // and we refresh the connection status to confirm success.
+        const listener = await Browser.addListener('browserFinished', async () => {
+          listener.remove()
+          await refreshFitbitStatus()
+        })
+        await Browser.open({ url: data.url })
+      } else {
+        // Web: navigate directly (unchanged behaviour).
+        window.location.assign(data.url)
+      }
     } catch (err) {
       setFitbitError(err.message)
       setFitbitLoading(false)
