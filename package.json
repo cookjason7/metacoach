@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "cd client && npm install && npm run build",
+    "build:android": "npm --prefix client run build -- --mode android && npx cap sync android",
     "start": "node server/index.js",
     "dev": "concurrently \"node server/index.js\" \"npm --prefix client run dev\""
   },
