@@ -251,8 +251,8 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                     <p className="text-sm font-medium text-amber-600">No Health Assessment on File</p>
                   </div>
                 )}
-                <InfoRow label="Coaching type"   value={client.coaching_type === 'ai' ? 'AI / Hybrid Coaching' : 'VIP / Human Coaching'} />
-                <InfoRow label="Assigned coach"      value={client.assigned_coach_name} emptyText={client.coaching_type === 'ai' ? 'N/A – AI client' : 'Not assigned yet'} />
+                <InfoRow label="Coaching type"   value={client.coaching_type === 'vip' ? 'VIP / Human Coaching' : client.coaching_type === 'hybrid' ? 'Hybrid Coaching' : client.coaching_type === 'basic' ? 'Basic' : 'AI / Hybrid Coaching'} />
+                <InfoRow label="Assigned coach"      value={client.assigned_coach_name} emptyText={client.coaching_type === 'vip' ? 'Not assigned yet' : 'N/A'} />
                 <InfoRow label="Starting weight"     value={client.starting_weight_lbs != null ? `${client.starting_weight_lbs} lbs` : null} />
                 <InfoRow label="Goal weight"         value={client.goal_weight_lbs != null ? `${client.goal_weight_lbs} lbs` : null} />
                 <InfoRow label="Height"              value={fmtHeight(client.height_inches)} />
@@ -300,7 +300,9 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 <select value={form.coaching_type} onChange={e => setForm(f => ({ ...f, coaching_type: e.target.value }))}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
                   <option value="vip">VIP / Human Coaching</option>
-                  <option value="ai">AI / Hybrid Coaching</option>
+                  <option value="hybrid">Hybrid Coaching</option>
+                  <option value="ai">AI Coaching</option>
+                  <option value="basic">Basic</option>
                 </select>
               </div>
               <div>
@@ -314,16 +316,16 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
               </div>
             </div>
             <div>
-              <label className={`block text-xs font-medium mb-1 ${form.coaching_type === 'ai' ? 'text-gray-400' : 'text-gray-600'}`}>
+              <label className={`block text-xs font-medium mb-1 ${form.coaching_type !== 'vip' ? 'text-gray-400' : 'text-gray-600'}`}>
                 Assigned coach
-                {form.coaching_type === 'ai' && <span className="ml-1 font-normal italic">(not required for AI clients)</span>}
+                {form.coaching_type !== 'vip' && <span className="ml-1 font-normal italic">(VIP only)</span>}
               </label>
               <select
                 value={form.assigned_coach_id}
                 onChange={e => setForm(f => ({ ...f, assigned_coach_id: e.target.value }))}
-                disabled={form.coaching_type === 'ai'}
+                disabled={form.coaching_type !== 'vip'}
                 className={`w-full border rounded-lg px-3 py-2 text-sm ${
-                  form.coaching_type === 'ai'
+                  form.coaching_type !== 'vip'
                     ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed opacity-60'
                     : 'border-gray-300 bg-white'
                 }`}>

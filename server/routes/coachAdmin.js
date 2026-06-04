@@ -473,7 +473,7 @@ router.post('/clients/invite', requireAuth(), async (req, res, next) => {
     if (!first_name?.trim()) return res.status(400).json({ error: 'First name is required.' })
     if (!email?.trim())      return res.status(400).json({ error: 'Email is required.' })
 
-    const validCoachingTypes = ['vip', 'ai', 'hybrid']
+    const validCoachingTypes = ['vip', 'ai', 'hybrid', 'basic']
     const resolvedType = validCoachingTypes.includes(coaching_type) ? coaching_type : 'vip'
 
     const normalizedEmail = email.trim().toLowerCase()
@@ -510,7 +510,7 @@ router.post('/clients/invite', requireAuth(), async (req, res, next) => {
       [normalizedEmail],
     )
 
-    const coachId = (resolvedType === 'ai' || !assigned_coach_id) ? null : parseInt(assigned_coach_id, 10)
+    const coachId = (['ai', 'hybrid', 'basic'].includes(resolvedType) || !assigned_coach_id) ? null : parseInt(assigned_coach_id, 10)
 
     const { rows: [invite] } = await pool.query(
       `INSERT INTO client_invites
@@ -800,8 +800,8 @@ router.patch('/clients/:id', requireAuth(), async (req, res, next) => {
     for (const key of allowed) {
       if (key in req.body) {
         let value = req.body[key]
-        if (key === 'coaching_type' && !['vip', 'ai'].includes(value)) {
-          return res.status(400).json({ error: 'coaching_type must be vip or ai' })
+        if (key === 'coaching_type' && !['vip', 'ai', 'hybrid', 'basic'].includes(value)) {
+          return res.status(400).json({ error: 'coaching_type must be vip, ai, hybrid, or basic' })
         }
         // Normalize empty string → NULL for these fields
         if (key === 'assigned_coach_id') {

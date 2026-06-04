@@ -33,7 +33,7 @@ export async function runInactivityAlert() {
       FROM users u
       LEFT JOIN meals m ON m.user_id = u.id
       WHERE u.paid = TRUE AND u.onboarding_complete = TRUE
-        AND u.coaching_type = 'ai'
+        AND u.coaching_type IN ('ai', 'hybrid', 'basic')
         AND u.created_at < NOW() - INTERVAL '${INACTIVE_DAYS} days'
       GROUP BY u.id, u.first_name, u.email
       HAVING MAX(m.logged_at) < NOW() - INTERVAL '${INACTIVE_DAYS} days'

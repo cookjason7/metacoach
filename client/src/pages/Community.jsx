@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@clerk/clerk-react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { linkify } from '../utils/linkify'
 import { API_URL } from '../config.js'
 
@@ -2277,6 +2277,7 @@ const VALID_URL_TABS = ['vip', 'ai', 'mindset', 'resources']
 export default function Community() {
   const { getToken }                       = useAuth()
   const [searchParams]                     = useSearchParams()
+  const navigate                           = useNavigate()
   const [isAdmin,        setIsAdmin]       = useState(false)
   const [isStaff,        setIsStaff]       = useState(false)
   const [clientChannel,  setClientChannel] = useState('vip')
@@ -2295,6 +2296,11 @@ export default function Community() {
       if (!res.ok) throw new Error(`Server error ${res.status}`)
       const data = await res.json()
       const staff = data.role === 'admin' || data.role === 'coach' || data.role === 'staff'
+      // Basic clients have no community access — redirect to dashboard
+      if (!staff && data.coaching_type === 'basic') {
+        navigate('/dashboard', { replace: true })
+        return
+      }
       const ch    = normalizeChannel(data.coaching_type)
       setIsAdmin(data.role === 'admin')
       setIsStaff(staff)

@@ -52,8 +52,34 @@ async function getUserContext(userId) {
   const row = rows[0] ?? {}
   const isStaff = row.role === 'admin' || row.role === 'coach'
   const channel = normalizeChannel(row.coaching_type)
-  return { dbUserId, isStaff, channel, role: row.role }
+  return { dbUserId, isStaff, channel, role: row.role, coaching_type: row.coaching_type }
 }
+
+// Returns true (and sends 403) if a non-staff Basic client tries to access community.
+function denyBasicClient(ctx, res) {
+  if (!ctx.isStaff && ctx.coaching_type === 'basic') {
+    res.status(403).json({ error: 'Community is not available on your plan.' })
+    return true
+  }
+  return false
+}
+
+// Block Basic-tier clients from all community endpoints.
+// Staff/admin are always allowed through.
+router.use(async (req, res, next) => {
+  try {
+    const { userId } = getAuth(req)
+    if (!userId) return next() // unauthenticated — let requireAuth() handle it per-route
+    const dbUserId = await getOrCreateUser(userId)
+    const { rows } = await pool.query('SELECT role, coaching_type FROM users WHERE id = $1', [dbUserId])
+    const row = rows[0] ?? {}
+    const isStaff = row.role === 'admin' || row.role === 'coach'
+    if (!isStaff && row.coaching_type === 'basic') {
+      return res.status(403).json({ error: 'Community is not available on your plan.' })
+    }
+    next()
+  } catch (err) { next(err) }
+})
 
 const CLIENT_CATEGORIES = new Set(['General Discussion', 'Non-Scale Victories'])
 

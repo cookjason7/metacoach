@@ -39,7 +39,7 @@ export default function Layout() {
   const location           = useLocation()
   const [isAdmin,      setIsAdmin]      = useState(false)
   const [isStaff,      setIsStaff]      = useState(false)
-  const [coachingType, setCoachingType] = useState(null) // 'vip' | 'ai' — null until loaded
+  const [coachingType, setCoachingType] = useState(null) // 'vip' | 'ai' | 'hybrid' | 'basic' — null until loaded
   const [bloodworkEnabled, setBloodworkEnabled] = useState(false) // per-client flag from /api/users/me
   const [notifCount,   setNotifCount]   = useState(0)
   const [katieUnread,  setKatieUnread]  = useState(0)
@@ -352,27 +352,35 @@ export default function Layout() {
     return () => clearInterval(id)
   }, [fetchMsgUnread])
 
-  // AI/Hybrid clients (coaching_type === 'ai') get Katie in the bottom nav; VIP get Messages
-  const isAiClient = !isStaff && coachingType === 'ai'
+  // Non-VIP clients (ai, hybrid, basic) use the Support/ai_admin messaging path.
+  const isNonVipClient = !isStaff && coachingType !== null && coachingType !== 'vip'
+  // Basic clients have no Community or Brain Mapping access.
+  const isBasicClient = !isStaff && coachingType === 'basic'
+
+  // Filter nav items for Basic: remove Community and Brain Mapping.
+  const baseClientNav = isBasicClient
+    ? CLIENT_NAV_ITEMS.filter(item => item.label !== 'Community' && item.label !== 'Brain Mapping')
+    : CLIENT_NAV_ITEMS
+
+  // Non-VIP clients (ai, hybrid, basic) see "Support" instead of "Messages".
+  const clientNavWithLabels = isNonVipClient
+    ? baseClientNav.map(item => item.label === 'Messages' ? { ...item, label: 'Support' } : item)
+    : baseClientNav
 
   // Super-admin gets an extra "Usage Analytics" nav entry.
-  // AI clients see "Support" instead of "Messages" so the label is unambiguous.
   const navItems = isStaff
     ? isAdmin
       ? [...STAFF_NAV_ITEMS, { to: '/admin/usage', label: 'Usage Analytics' }]
       : STAFF_NAV_ITEMS
-    : isAiClient
-      ? CLIENT_NAV_ITEMS.map(item =>
-          item.label === 'Messages' ? { ...item, label: 'Support' } : item,
-        )
-      : CLIENT_NAV_ITEMS
+    : clientNavWithLabels
 
   // Mobile drawer hides items already in the client bottom nav.
-  // AI navItems maps Messages → 'Support', so filter by 'Support' for AI.
-  // Calendar is now in the bottom nav so it is removed from the mobile sidebar too.
-  const mobileBottomNavLabels = isAiClient
-    ? new Set(['Dashboard', 'Food Log', 'Support', 'Community', 'Calendar'])  // Dashboard = Home in bottom nav
-    : new Set(['Dashboard', 'Food Log', 'Messages', 'Community', 'Calendar']) // VIP
+  // Calendar is in the bottom nav so it is removed from the mobile sidebar too.
+  const mobileBottomNavLabels = isBasicClient
+    ? new Set(['Dashboard', 'Food Log', 'Support', 'Calendar'])
+    : isNonVipClient
+      ? new Set(['Dashboard', 'Food Log', 'Support', 'Community', 'Calendar'])
+      : new Set(['Dashboard', 'Food Log', 'Messages', 'Community', 'Calendar'])
   const mobileNavItems = isStaff ? navItems : navItems.filter(i => !mobileBottomNavLabels.has(i.label))
 
   function buildSidebarContent(items, isMobile = false) { return (
@@ -520,12 +528,18 @@ export default function Layout() {
           { to: '/admin/clients', label: 'Clients',   badge: false,          icon: <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /> },
           { to: '/messages',      label: 'Messages',  badge: msgUnread > 0,  icon: <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /> },
           { to: '/community',     label: 'Community', badge: notifCount > 0, icon: <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /> },
+        ] : isBasicClient ? [
+          // Basic client bottom nav: Home | Calendar | Food Log | Support (no Community)
+          { to: '/dashboard', label: 'Home',     badge: false,         icon: <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /> },
+          { to: '/calendar',  label: 'Calendar', badge: false,         icon: <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /> },
+          { to: '/journal',   label: 'Food Log', badge: false,         icon: <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /> },
+          { to: '/messages',  label: 'Support',  badge: msgUnread > 0, icon: <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /> },
         ] : [
-          // Client bottom nav: Home | Calendar | Food Log | Messages | Community
+          // VIP / AI / Hybrid client bottom nav: Home | Calendar | Food Log | Messages/Support | Community
           { to: '/dashboard', label: 'Home',      badge: false,          icon: <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /> },
           { to: '/calendar',  label: 'Calendar',  badge: false,          icon: <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /> },
           { to: '/journal',   label: 'Food Log',  badge: false,          icon: <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /> },
-          { to: '/messages',  label: isAiClient ? 'Support' : 'Messages', badge: msgUnread > 0,  icon: <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /> },
+          { to: '/messages',  label: isNonVipClient ? 'Support' : 'Messages', badge: msgUnread > 0,  icon: <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /> },
           { to: '/community', label: 'Community', badge: notifCount > 0, icon: <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /> },
         ]).map(({ to, label, icon, badge }) => (
           <NavLink

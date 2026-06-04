@@ -181,7 +181,7 @@ export async function processFormSchedules() {
         continue
       }
 
-      const thread_type = client.coaching_type === 'ai' ? 'ai_admin' : 'coach_thread'
+      const thread_type = ['ai', 'hybrid', 'basic'].includes(client.coaching_type) ? 'ai_admin' : 'coach_thread'
       const visibility  = thread_type === 'ai_admin' ? 'client_and_admin_only' : 'client_and_staff'
 
       const firstName   = client.first_name ?? 'there'
