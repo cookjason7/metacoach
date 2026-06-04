@@ -55,14 +55,6 @@ async function getUserContext(userId) {
   return { dbUserId, isStaff, channel, role: row.role, coaching_type: row.coaching_type }
 }
 
-// Returns true (and sends 403) if a non-staff Basic client tries to access community.
-function denyBasicClient(ctx, res) {
-  if (!ctx.isStaff && ctx.coaching_type === 'basic') {
-    res.status(403).json({ error: 'Community is not available on your plan.' })
-    return true
-  }
-  return false
-}
 
 // Block Basic-tier clients from all community endpoints.
 // Staff/admin are always allowed through.
