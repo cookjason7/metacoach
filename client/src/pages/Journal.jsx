@@ -484,11 +484,10 @@ function MealEntry({ meal, onEdit, onDelete, onCopy, onMove }) {
 // ── Meal Card Quick Actions ────────────────────────────────────────────────────
 
 const SLOT_QUICK_ACTIONS = [
-  { mode: 'recent',  icon: '🕐', label: 'Recent' },
-  { mode: 'search',  icon: '🔍', label: 'Search' },
-  { mode: 'barcode', icon: '🏷️', label: 'Scan'   },
-  { mode: 'photo',   icon: '📷', label: 'Photo'  },
-  { mode: 'manual',  icon: '✏️', label: 'Add'    },
+  { mode: 'manual',  icon: '✏️', label: 'Text Entry' },
+  { mode: 'search',  icon: '🔍', label: 'Search'     },
+  { mode: 'barcode', icon: '🏷️', label: 'Scan'       },
+  { mode: 'photo',   icon: '📷', label: 'Photo'      },
 ]
 
 function MealCardQuickActions({ name, onAddWithMode }) {
@@ -2002,6 +2001,8 @@ function BarcodeLogger({ slotName, onSaved, logDate }) {
   const [base,           setBase]           = useState(null)   // per-100g normalised macros
   const [amount,         setAmount]         = useState('100')
   const [unit,           setUnit]           = useState('g')
+  const [servings,       setServings]       = useState('1')
+  const [servingGrams,   setServingGrams]   = useState(null)
   const [saving,         setSaving]         = useState(false)
   const [saved,          setSaved]          = useState(false)
   const [error,          setError]          = useState(null)
@@ -2014,6 +2015,16 @@ function BarcodeLogger({ slotName, onSaved, logDate }) {
     const g = toGrams(parseFloat(amount) || 0, unit)
     setAmount(+(g / (UNIT_TO_G[newUnit] ?? 1)).toFixed(2) + '')
     setUnit(newUnit)
+  }
+
+  function handleServingsChange(newServings) {
+    const sv = Math.max(0.25, parseFloat(newServings) || 1)
+    if (servingGrams != null) {
+      const totalG = sv * servingGrams
+      const inUnit = totalG / (UNIT_TO_G[unit] ?? 1)
+      setAmount(String(Math.round(inUnit * 100) / 100))
+    }
+    setServings(newServings)
   }
 
   async function handleScan(barcode) {
@@ -2044,6 +2055,8 @@ function BarcodeLogger({ slotName, onSaved, logDate }) {
       const { base: b, defaultGrams } = normaliseFoodTo100g(f)
       setFood(f)
       setBase(b)
+      setServingGrams(defaultGrams)
+      setServings('1')
       setAmount(String(defaultGrams))
       setUnit('g')
     } catch (err) {
@@ -2104,7 +2117,8 @@ function BarcodeLogger({ slotName, onSaved, logDate }) {
 
   function reset() {
     setScanning(false); setFood(null); setBase(null)
-    setAmount('100'); setUnit('g'); setSaved(false); setError(null)
+    setAmount('100'); setUnit('g'); setServings('1'); setServingGrams(null)
+    setSaved(false); setError(null)
     setNotFound(false); setScannedBarcode(null); setShowManualForm(false); setSavedFoodName(null)
   }
 
@@ -2203,26 +2217,38 @@ function BarcodeLogger({ slotName, onSaved, logDate }) {
                 <FoodSourceBadge food={food} />
               </div>
               {food.brand && <p className="text-xs text-gray-400">{food.brand}</p>}
-              <p className="text-xs text-gray-500 mt-0.5">{food.serving_size}</p>
+              {food.serving_size && (
+                <p className="text-xs text-gray-500 mt-0.5">Label serving: <span className="font-medium">{food.serving_size}</span></p>
+              )}
             </div>
             <button onClick={reset} className="text-xs text-gray-400 hover:text-gray-600 shrink-0 ml-2">
               Scan Again
             </button>
           </div>
 
-          {/* Portion + unit selector */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Portion</label>
-            <div className="flex gap-2">
+          {/* Servings + portion */}
+          <div className="space-y-2">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Number of servings</label>
               <input
-                type="number" value={amount} onChange={e => setAmount(e.target.value)}
-                min="0.01" step="any"
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                type="number" value={servings} onChange={e => handleServingsChange(e.target.value)}
+                min="0.25" step="0.25"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
               />
-              <select value={unit} onChange={e => handleUnitChange(e.target.value)}
-                className="border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white">
-                {SERVING_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Total amount</label>
+              <div className="flex gap-2">
+                <input
+                  type="number" value={amount} onChange={e => setAmount(e.target.value)}
+                  min="0.01" step="any"
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                />
+                <select value={unit} onChange={e => handleUnitChange(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white">
+                  {SERVING_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+              </div>
             </div>
           </div>
 
