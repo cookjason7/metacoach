@@ -309,7 +309,13 @@ function MeasurementsSection({ measurements, rangeLabel, onUpdate, onDelete }) {
 
 // ── Progress Photos detail ────────────────────────────────────────────────────
 
-function ProgressPhotosSection({ photos, onDelete }) {
+const PHOTO_ANGLES = [
+  { key: 'front', label: 'Front' },
+  { key: 'side',  label: 'Side'  },
+  { key: 'back',  label: 'Back'  },
+]
+
+function ProgressPhotosSection({ photos }) {
   if (!photos?.length) {
     return (
       <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center">
@@ -319,30 +325,42 @@ function ProgressPhotosSection({ photos, onDelete }) {
     )
   }
   return (
-    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-      {photos.map(session => {
-        const photo = session.photos.front ?? session.photos.side ?? session.photos.back
-        if (!photo) return null
+    <div className="space-y-5">
+      {photos.map((session, si) => {
+        const photoCount = PHOTO_ANGLES.filter(({ key }) => session.photos[key]).length
         return (
-          <div key={session.session_id} className="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden">
-            <img src={photo.photo_url} alt="Progress"
-              className="w-full aspect-[3/4] object-contain bg-gray-50" loading="lazy" />
-            <div className="px-2 py-2">
-              <p className="text-xs text-gray-500">{fmtDate(session.session_date)}</p>
-              <div className="flex gap-1 mt-1 flex-wrap">
-                {['front', 'side', 'back'].map(angle =>
-                  session.photos[angle] ? (
-                    <span key={angle} className="text-[10px] bg-gray-100 text-gray-500 rounded px-1.5 py-0.5 capitalize">
-                      {angle}
-                    </span>
-                  ) : null
-                )}
-              </div>
-              <button type="button" onClick={() => onDelete(photo.id)}
-                className="mt-2 min-h-[44px] w-full rounded-lg border border-red-100 text-[10px] font-semibold text-red-600">
-                Delete Photo
-              </button>
+          <div key={session.session_id ?? si}>
+            {/* Session date header */}
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs font-semibold text-gray-700">{fmtDate(session.session_date)}</span>
+              <span className="text-[10px] text-gray-400 ml-auto">{photoCount}/3</span>
             </div>
+            {/* 3-across grid — Front | Side | Back */}
+            <div className="grid grid-cols-3 gap-2">
+              {PHOTO_ANGLES.map(({ key, label }) => {
+                const p = session.photos[key]
+                return (
+                  <div key={key} className="text-center">
+                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">{label}</p>
+                    {p ? (
+                      <div className="rounded-xl overflow-hidden bg-gray-50 border border-gray-200">
+                        <img
+                          src={p.photo_url}
+                          alt={`${label} progress photo`}
+                          className="w-full aspect-[3/4] object-contain"
+                          loading="lazy"
+                        />
+                      </div>
+                    ) : (
+                      <div className="rounded-xl bg-gray-50 border border-dashed border-gray-200 aspect-[3/4] flex items-center justify-center">
+                        <span className="text-[10px] text-gray-300">—</span>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+            {si < photos.length - 1 && <div className="mt-5 border-t border-gray-100" />}
           </div>
         )
       })}
@@ -459,28 +477,6 @@ export default function Progress() {
     if (res.ok) setMeasurements(prev => prev.filter(m => m.id !== id))
   }
 
-  async function deleteProgressPhoto(photoId) {
-    if (!window.confirm('Delete this progress photo? This cannot be undone.')) return
-    const token = await getToken()
-    const res   = await fetch(`${API_URL}/api/progress-photos/${photoId}`, {
-      method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
-    })
-    if (!res.ok) return
-    setData(prev => {
-      if (!prev) return prev
-      const progress_photos = (prev.progress_photos ?? [])
-        .map(session => {
-          const photos = { ...session.photos }
-          for (const angle of ['front', 'side', 'back']) {
-            if (photos[angle]?.id === photoId) photos[angle] = null
-          }
-          return { ...session, photos }
-        })
-        .filter(session => ['front', 'side', 'back'].some(angle => session.photos[angle]))
-      return { ...prev, progress_photos }
-    })
-  }
-
   // ── Range selector (shared between hub + detail) ──────────────────────────
 
   const RangeBar = (
@@ -595,7 +591,6 @@ export default function Progress() {
         return (
           <ProgressPhotosSection
             photos={data?.progress_photos}
-            onDelete={deleteProgressPhoto}
           />
         )
       default:
