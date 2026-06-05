@@ -7,6 +7,8 @@ export default function BarcodeScanner({ onScan, onCancel }) {
   const controlsRef = useRef(null)
   const activeRef = useRef(true)
   const startedRef = useRef(false)
+  const startDelayRef = useRef(null)
+  const focusTimerRef = useRef(null)
   const onScanRef = useRef(onScan)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState(null)
@@ -22,6 +24,8 @@ export default function BarcodeScanner({ onScan, onCancel }) {
     activeRef.current = true
     startedRef.current = false
     controlsRef.current = null
+    if (startDelayRef.current) clearTimeout(startDelayRef.current)
+    if (focusTimerRef.current) clearTimeout(focusTimerRef.current)
     setReady(false)
     setError(null)
 
@@ -56,6 +60,23 @@ export default function BarcodeScanner({ onScan, onCancel }) {
     function stopVideoStream() {
       const stream = videoRef.current?.srcObject
       if (stream?.getTracks) stream.getTracks().forEach(track => track.stop())
+      if (videoRef.current) videoRef.current.srcObject = null
+    }
+
+    function scheduleContinuousFocus(stream) {
+      if (focusTimerRef.current) clearTimeout(focusTimerRef.current)
+      focusTimerRef.current = setTimeout(async () => {
+        if (!activeRef.current) return
+        try {
+          const [track] = stream.getVideoTracks()
+          if (track && typeof track.applyConstraints === 'function') {
+            await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] })
+            console.log('[BarcodeScanner] continuous focus applied')
+          }
+        } catch (focusErr) {
+          console.log('[BarcodeScanner] continuous focus not supported:', focusErr?.name)
+        }
+      }, 700)
     }
 
     function setCameraError(err) {
@@ -135,17 +156,6 @@ export default function BarcodeScanner({ onScan, onCancel }) {
         video.srcObject = stream
         await video.play().catch(() => {})
 
-        // Try to lock autofocus to continuous mode (helps Samsung/Android)
-        try {
-          const [track] = stream.getVideoTracks()
-          if (track && typeof track.applyConstraints === 'function') {
-            await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] })
-            console.log('[BarcodeScanner] continuous focus applied')
-          }
-        } catch (focusErr) {
-          console.log('[BarcodeScanner] continuous focus not supported:', focusErr?.name)
-        }
-
         const hasDimensions = await waitForVideoDimensions(video)
         if (!hasDimensions) {
           stopVideoStream()
@@ -206,6 +216,7 @@ export default function BarcodeScanner({ onScan, onCancel }) {
             startedRef.current = true
             clearTimeout(startTimer)
             if (activeRef.current) setReady(true)
+            scheduleContinuousFocus(stream)
             rafId = requestAnimationFrame(rafLoop)
             console.log('[BarcodeScanner] native decode loop started')
             return  // success — don't fall through to ZXing
@@ -250,6 +261,7 @@ export default function BarcodeScanner({ onScan, onCancel }) {
           videoHeight: video.videoHeight,
         })
         if (activeRef.current) setReady(true)
+        scheduleContinuousFocus(stream)
 
       } catch (err) {
         clearTimeout(startTimer)
@@ -259,10 +271,17 @@ export default function BarcodeScanner({ onScan, onCancel }) {
       }
     }
 
-    start()
+    // React StrictMode runs an immediate setup/cleanup/setup cycle in dev.
+    // Deferring camera startup lets the throwaway cleanup cancel before getUserMedia opens.
+    startDelayRef.current = setTimeout(() => {
+      startDelayRef.current = null
+      if (activeRef.current) start()
+    }, 120)
 
     return () => {
       activeRef.current = false
+      if (startDelayRef.current) clearTimeout(startDelayRef.current)
+      if (focusTimerRef.current) clearTimeout(focusTimerRef.current)
       clearTimeout(startTimer)
       try { controlsRef.current?.stop() } catch {}
       stopVideoStream()
@@ -313,8 +332,7 @@ export default function BarcodeScanner({ onScan, onCancel }) {
   return (
     <div className="space-y-2">
       <div
-        className="relative w-full overflow-hidden rounded-xl bg-black min-h-[260px]"
-        style={{ maxHeight: '60vh' }}
+        className="relative w-full aspect-[4/3] overflow-hidden rounded-xl bg-slate-950 min-h-[260px] max-h-[60dvh]"
       >
         <video
           ref={videoRef}
@@ -330,12 +348,11 @@ export default function BarcodeScanner({ onScan, onCancel }) {
               videoHeight: v?.videoHeight,
             })
           }}
-          className="w-full min-h-[260px] block object-cover"
-          style={{ maxHeight: '60vh' }}
+          className={`h-full w-full min-h-[260px] block object-cover transition-opacity duration-200 ${ready ? 'opacity-100' : 'opacity-70'}`}
         />
 
         {!ready && (
-          <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black">
+          <div className="absolute inset-0 flex items-center justify-center gap-2 bg-slate-950/45 transition-opacity duration-200">
             <span className="animate-spin inline-block w-5 h-5 border-2 border-[#E8670A] border-t-transparent rounded-full" />
             <span className="text-sm text-white/80">Starting camera...</span>
           </div>
