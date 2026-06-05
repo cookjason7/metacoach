@@ -68,6 +68,14 @@ function fmtActivityLevel(value) {
   return map[String(value).trim().toLowerCase()] ?? value
 }
 
+function coachingTypeLabel(type) {
+  if (type === 'vip') return 'VIP'
+  if (type === 'hybrid') return 'Hybrid'
+  if (type === 'basic') return 'Basic'
+  if (type === 'ai') return 'Legacy AI'
+  return 'Hybrid'
+}
+
 // Client status tag — mirrors computeStatusTag in coachAdmin.js (no API call needed)
 function computeClientStatusTag(client) {
   if (client.client_status === 'invited') return 'Invited'
@@ -138,7 +146,7 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
           first_name:           form.first_name.trim()  || null,
           last_name:            form.last_name.trim()   || null,
           coaching_type:        form.coaching_type,
-          assigned_coach_id:    form.assigned_coach_id === '' ? null : Number(form.assigned_coach_id),
+          assigned_coach_id:    form.coaching_type === 'vip' && form.assigned_coach_id !== '' ? Number(form.assigned_coach_id) : null,
           role:                 form.role,
           start_date:           form.start_date || null,
           program_end_date:     form.program_end_date || null,
@@ -251,7 +259,7 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                     <p className="text-sm font-medium text-amber-600">No Health Assessment on File</p>
                   </div>
                 )}
-                <InfoRow label="Coaching type"   value={client.coaching_type === 'vip' ? 'VIP / Human Coaching' : client.coaching_type === 'hybrid' ? 'Hybrid Coaching' : client.coaching_type === 'basic' ? 'Basic' : 'AI / Hybrid Coaching'} />
+                <InfoRow label="Coaching type"   value={coachingTypeLabel(client.coaching_type)} />
                 <InfoRow label="Assigned coach"      value={client.assigned_coach_name} emptyText={client.coaching_type === 'vip' ? 'Not assigned yet' : 'N/A'} />
                 <InfoRow label="Starting weight"     value={client.starting_weight_lbs != null ? `${client.starting_weight_lbs} lbs` : null} />
                 <InfoRow label="Goal weight"         value={client.goal_weight_lbs != null ? `${client.goal_weight_lbs} lbs` : null} />
@@ -297,13 +305,26 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Coaching type</label>
-                <select value={form.coaching_type} onChange={e => setForm(f => ({ ...f, coaching_type: e.target.value }))}
+                <select
+                  value={form.coaching_type === 'ai' ? 'legacy_ai' : form.coaching_type}
+                  onChange={e => setForm(f => ({
+                    ...f,
+                    coaching_type: e.target.value,
+                    assigned_coach_id: e.target.value === 'vip' ? f.assigned_coach_id : '',
+                  }))}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
-                  <option value="vip">VIP / Human Coaching</option>
-                  <option value="hybrid">Hybrid Coaching</option>
-                  <option value="ai">AI Coaching</option>
                   <option value="basic">Basic</option>
+                  <option value="hybrid">Hybrid</option>
+                  <option value="vip">VIP</option>
+                  {form.coaching_type === 'ai' && (
+                    <option value="legacy_ai" disabled>Legacy AI</option>
+                  )}
                 </select>
+                {form.coaching_type === 'ai' && (
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    Existing legacy AI client. Choose Basic, Hybrid, or VIP to update.
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Role</label>
@@ -335,8 +356,8 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 ))}
               </select>
               <p className="text-[10px] text-gray-400 mt-1">
-                {form.coaching_type === 'ai'
-                  ? 'AI clients work with Coach Katie — no human coach assignment needed.'
+                {form.coaching_type !== 'vip'
+                  ? 'Basic and Hybrid clients do not require a human coach assignment.'
                   : 'Only this coach (or admins) will see this client.'}
               </p>
             </div>

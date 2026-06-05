@@ -357,10 +357,12 @@ export default function Layout() {
   // Basic clients have no Community or Brain Mapping access.
   const isBasicClient = !isStaff && coachingType === 'basic'
 
-  // Filter nav items for Basic: remove Community and Brain Mapping.
-  const baseClientNav = isBasicClient
-    ? CLIENT_NAV_ITEMS.filter(item => item.label !== 'Community' && item.label !== 'Brain Mapping')
-    : CLIENT_NAV_ITEMS
+  // Non-VIP clients do not have Calendar in the sidebar; Basic also loses community.
+  const baseClientNav = CLIENT_NAV_ITEMS.filter(item => {
+    if (isNonVipClient && item.label === 'Calendar') return false
+    if (isBasicClient && (item.label === 'Community' || item.label === 'Brain Mapping')) return false
+    return true
+  })
 
   // Non-VIP clients (ai, hybrid, basic) see "Support" instead of "Messages".
   const clientNavWithLabels = isNonVipClient
@@ -375,7 +377,6 @@ export default function Layout() {
     : clientNavWithLabels
 
   // Mobile drawer hides items already in the client bottom nav.
-  // Calendar is no longer in the non-VIP bottom nav — keep it visible in the sidebar.
   const mobileBottomNavLabels = isBasicClient
     ? new Set(['Dashboard', 'Coach Katie', 'Food Log', 'Support'])
     : isNonVipClient

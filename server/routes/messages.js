@@ -57,6 +57,12 @@ function uploadAudioToCloudinary(buffer) {
 
 const router = Router()
 
+function visibleThreadTypesForClient(coachingType) {
+  return coachingType === 'vip'
+    ? ['admin_private', 'coach_thread']
+    : ['admin_private', 'ai_admin']
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function getClientContext(req) {
@@ -78,6 +84,7 @@ async function getClientContext(req) {
 // to the *recipient* client too — admin_private is private from OTHER staff,
 // not from the client they're addressed to.
 async function listThreadsForClient(dbUserId, coachingType) {
+  const visibleThreadTypes = visibleThreadTypesForClient(coachingType)
   const { rows } = await pool.query(`
     SELECT
       thread_type,
@@ -93,10 +100,10 @@ async function listThreadsForClient(dbUserId, coachingType) {
         WHERE client_id = $1 AND thread_type = m.thread_type
         ORDER BY created_at DESC LIMIT 1) AS last_message_body
     FROM client_messages m
-    WHERE client_id = $1
+    WHERE client_id = $1 AND thread_type = ANY($2::text[])
     GROUP BY thread_type
     ORDER BY MAX(created_at) DESC
-  `, [dbUserId])
+  `, [dbUserId, visibleThreadTypes])
 
   // Inject available threads even if no messages yet so UI can show them
   const existing = new Set(rows.map(r => r.thread_type))
@@ -170,8 +177,11 @@ router.get('/unread-count', requireAuth(), async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT COUNT(*)::int AS unread
        FROM client_messages
-       WHERE client_id = $1 AND read_at IS NULL AND sender_id != $1`,
-      [ctx.dbUserId],
+       WHERE client_id = $1
+         AND read_at IS NULL
+         AND sender_id != $1
+         AND thread_type = ANY($2::text[])`,
+      [ctx.dbUserId, visibleThreadTypesForClient(ctx.coaching_type)],
     )
     res.json({ unread: rows[0]?.unread ?? 0 })
   } catch (err) { next(err) }
