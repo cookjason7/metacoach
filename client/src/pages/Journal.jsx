@@ -3645,7 +3645,11 @@ function AddFoodDrawer({ slotName, onClose, onSaved, logDate, initialMode = null
   const isSnack = slotName === 'Snack'
   // For snack slots, user picks a timing before choosing a logger
   const [snackTiming, setSnackTiming] = useState(null)
-  // photoInputRef / photoFile removed — camera vs gallery choice handled inside PhotoLogger
+
+  // ── Date selection — users can log for any past date (up to 90 days) ─────────
+  const todayStr   = toDateStr(new Date())
+  const minDateStr = toDateStr(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000))
+  const [pickedDate, setPickedDate] = useState(logDate || todayStr)
 
   // The DB slot we actually store (e.g. 'AM Snack', 'Lunch', etc.)
   const effectiveSlot = isSnack
@@ -3696,6 +3700,27 @@ function AddFoodDrawer({ slotName, onClose, onSaved, logDate, initialMode = null
           </button>
         </div>
 
+        {/* ── Date row — always visible, not part of scrolling body ─────────── */}
+        <div className="flex items-center gap-2.5 px-5 py-2.5 border-b border-gray-100 bg-gray-50 shrink-0">
+          <span className="text-xs font-medium text-gray-500 shrink-0">Log date</span>
+          <input
+            type="date"
+            value={pickedDate}
+            min={minDateStr}
+            max={todayStr}
+            onChange={e => setPickedDate(e.target.value || todayStr)}
+            className="flex-1 border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
+          />
+          {pickedDate !== todayStr && (
+            <button
+              onClick={() => setPickedDate(todayStr)}
+              className="shrink-0 text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] transition-colors"
+            >
+              Today
+            </button>
+          )}
+        </div>
+
         <div className="mobile-sheet-body px-5 pt-5">
           {/* Step 1 (snack only): pick timing */}
           {showTimingPicker && (
@@ -3732,11 +3757,11 @@ function AddFoodDrawer({ slotName, onClose, onSaved, logDate, initialMode = null
             </div>
           )}
 
-          {/* Step 3: logger */}
+          {/* Step 3: logger — receives pickedDate so the correct date is saved */}
           {Logger && (
             <Logger
               slotName={effectiveSlot}
-              logDate={logDate}
+              logDate={pickedDate}
               onSaved={(meal, analysis) => { onSaved(meal, analysis); }}
             />
           )}
@@ -3871,8 +3896,14 @@ export default function Journal() {
 
   // Meal CRUD callbacks
   const handleMealSaved = useCallback((meal) => {
-    setMeals(prev => [...prev, meal])
-    setActiveDates(prev => new Set([...prev, toDateStr(selectedDate)]))
+    // meal.log_date may be "YYYY-MM-DD" or a full ISO timestamp — normalise to date string
+    const mealDate = meal?.log_date ? String(meal.log_date).slice(0, 10) : toDateStr(selectedDate)
+    // Only add to the currently-displayed list when dates match
+    if (mealDate === toDateStr(selectedDate)) {
+      setMeals(prev => [...prev, meal])
+    }
+    // Always mark the target date as active in the calendar
+    setActiveDates(prev => new Set([...prev, mealDate]))
     setAddSlot(null)
   }, [selectedDate])
 
