@@ -3787,7 +3787,7 @@ export default function Journal() {
   const [waterOz,     setWaterOz]     = useState(0)
   const [loading,     setLoading]     = useState(true)
   const [activeDates, setActiveDates] = useState(new Set())
-  // addSlot is { slot: string, mode: string|null } | null
+  // addSlot is { slot: string, mode: string|null, logDate: string|null } | null
   const [addSlot,     setAddSlot]     = useState(null)
   const [editingMeal,  setEditingMeal]  = useState(null)
   const [copyingMeal,  setCopyingMeal]  = useState(null)
@@ -3819,7 +3819,10 @@ export default function Journal() {
     const validSlots = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
     const validModes = ['search', 'barcode', 'photo', 'manual']
     if (validSlots.includes(state.openSlot) && validModes.includes(state.openMode)) {
-      setAddSlot({ slot: state.openSlot, mode: state.openMode })
+      // Carry logDate from the quick-menu date picker (if provided)
+      const logDate = typeof state.logDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(state.logDate)
+        ? state.logDate : null
+      setAddSlot({ slot: state.openSlot, mode: state.openMode, logDate })
     }
     // Clear state so back-navigation doesn't re-open the drawer
     navigate('/journal', { replace: true, state: {} })
@@ -4038,7 +4041,7 @@ export default function Journal() {
         <AddFoodDrawer
           slotName={addSlot.slot}
           initialMode={addSlot.mode}
-          logDate={toDateStr(selectedDate)}
+          logDate={addSlot.logDate ?? toDateStr(selectedDate)}
           onClose={() => setAddSlot(null)}
           onSaved={handleMealSaved}
         />

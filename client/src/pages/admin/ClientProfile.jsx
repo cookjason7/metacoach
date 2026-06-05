@@ -2356,7 +2356,7 @@ function SummaryCard({ label, value, sub, color }) {
   )
 }
 
-function ProgressTab({ clientId, clientName, getToken }) {
+function ProgressTab({ clientId, clientName, getToken, role }) {
   const [range,       setRange]       = useState('daily')
   const [foodLogDate, setFoodLogDate] = useState(null)
   const today = localDateStr()
@@ -2769,13 +2769,15 @@ function ProgressTab({ clientId, clientName, getToken }) {
                                       />
                                     </div>
                                   </a>
-                                  <button
-                                    type="button"
-                                    onClick={() => deleteProgressPhoto(p.id)}
-                                    className="mt-1 min-h-8 w-full rounded-lg border border-red-100 text-[10px] font-semibold text-red-600"
-                                  >
-                                    Delete
-                                  </button>
+                                  {role === 'admin' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => deleteProgressPhoto(p.id)}
+                                      className="mt-1 min-h-8 w-full rounded-lg border border-red-100 text-[10px] font-semibold text-red-600"
+                                    >
+                                      Delete
+                                    </button>
+                                  )}
                                 </>
                               ) : (
                                 <div className="h-40 sm:h-36 lg:h-32 xl:h-28 rounded-lg bg-gray-50 border border-dashed border-gray-200 flex items-center justify-center">
@@ -4887,7 +4889,7 @@ export default function ClientProfile() {
       {tab === 'overview'   && <OverviewTab    client={client} role={meRole} getToken={getToken} onUpdate={u => setClient(c => ({ ...c, ...u }))} />}
       {tab === 'nutrition'  && <NutritionTab   client={client} clientId={client.id} getToken={getToken} onUpdate={u => setClient(c => ({ ...c, ...u }))} />}
       {tab === 'habits'     && <HabitsTab      clientId={client.id} getToken={getToken} />}
-      {tab === 'progress'   && <ProgressTab    clientId={client.id} getToken={getToken} clientName={[client.display_first_name || client.first_name, client.display_last_name || client.last_name].filter(Boolean).join(' ') || client.email?.split('@')[0] || null} />}
+      {tab === 'progress'   && <ProgressTab    clientId={client.id} getToken={getToken} role={meRole} clientName={[client.display_first_name || client.first_name, client.display_last_name || client.last_name].filter(Boolean).join(' ') || client.email?.split('@')[0] || null} />}
       {tab === 'assessment' && <AssessmentTab  clientId={client.id} getToken={getToken} />}
       {tab === 'notes'      && <NotesTab       clientId={client.id} role={meRole} getToken={getToken} />}
       {tab === 'messaging'  && <MessagingTab   client={client} role={meRole} getToken={getToken} />}

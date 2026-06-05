@@ -62,12 +62,15 @@ export default function Layout() {
   const overlayPressedRef     = useRef(false) // true only when a pointer press began on the backdrop itself (ghost-click guard)
   const [quickFoodMode, setQuickFoodMode] = useState(null) // 'search'|'barcode'|'photo'|'manual'
   const [quickError,    setQuickError]    = useState(null) // visible error message for failed saves
+  // Date chosen in the meal-slot picker; defaults to today each time the menu opens
+  const [quickLogDate, setQuickLogDate] = useState(() => new Date().toISOString().slice(0, 10))
 
   function resetQuickExtras() {
     setQuickActivityType(''); setQuickActivityDur(''); setQuickActivityNotes('')
     setQuickPhotoAngle('front'); setQuickPhotoFile(null)
     setQuickPhotoPreview(p => { if (p) URL.revokeObjectURL(p); return null })
     setQuickFoodMode(null)
+    setQuickLogDate(new Date().toISOString().slice(0, 10))
   }
 
   function openQuickMenu() {
@@ -694,27 +697,54 @@ export default function Layout() {
 
             {/* ── Meal picker (shown after tapping a food action) ───────── */}
             {quickFoodMode && !quickAction && !quickDone && (
-              <div className="px-4 pb-10 pt-2">
-                <p className="text-sm text-gray-500 mb-4">Which meal?</p>
-                <div className="grid grid-cols-2 gap-3">
-                  {[
-                    { slot: 'Breakfast', emoji: '🌅', label: 'Breakfast' },
-                    { slot: 'Lunch',     emoji: '☀️', label: 'Lunch'     },
-                    { slot: 'Dinner',    emoji: '🌙', label: 'Dinner'    },
-                    { slot: 'Snack',     emoji: '🍎', label: 'Snack'     },
-                  ].map(({ slot, emoji, label }) => (
-                    <button
-                      key={slot}
-                      onClick={() => {
-                        closeQuickMenu()
-                        navigate('/journal', { state: { openSlot: slot, openMode: quickFoodMode } })
-                      }}
-                      className="flex items-center gap-3 bg-gray-50 hover:bg-orange-50 hover:border-[#E8670A] border border-gray-200 rounded-2xl px-4 py-4 transition-all min-h-[60px]"
-                    >
-                      <span className="text-2xl">{emoji}</span>
-                      <span className="text-sm font-semibold text-gray-700">{label}</span>
-                    </button>
-                  ))}
+              <div className="px-4 pb-10 pt-2 space-y-4">
+                {/* Date selector — lets users log to a past date */}
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                    Log date
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="date"
+                      value={quickLogDate}
+                      max={new Date().toISOString().slice(0, 10)}
+                      min={new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}
+                      onChange={e => setQuickLogDate(e.target.value || new Date().toISOString().slice(0, 10))}
+                      className="flex-1 border border-gray-300 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
+                    />
+                    {quickLogDate !== new Date().toISOString().slice(0, 10) && (
+                      <button
+                        onClick={() => setQuickLogDate(new Date().toISOString().slice(0, 10))}
+                        className="shrink-0 text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] transition-colors px-2"
+                      >
+                        Today
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Which meal?</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { slot: 'Breakfast', emoji: '🌅', label: 'Breakfast' },
+                      { slot: 'Lunch',     emoji: '☀️', label: 'Lunch'     },
+                      { slot: 'Dinner',    emoji: '🌙', label: 'Dinner'    },
+                      { slot: 'Snack',     emoji: '🍎', label: 'Snack'     },
+                    ].map(({ slot, emoji, label }) => (
+                      <button
+                        key={slot}
+                        onClick={() => {
+                          closeQuickMenu()
+                          navigate('/journal', { state: { openSlot: slot, openMode: quickFoodMode, logDate: quickLogDate } })
+                        }}
+                        className="flex items-center gap-3 bg-gray-50 hover:bg-orange-50 hover:border-[#E8670A] border border-gray-200 rounded-2xl px-4 py-4 transition-all min-h-[60px]"
+                      >
+                        <span className="text-2xl">{emoji}</span>
+                        <span className="text-sm font-semibold text-gray-700">{label}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
