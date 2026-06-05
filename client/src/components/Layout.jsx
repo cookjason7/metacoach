@@ -576,7 +576,7 @@ export default function Layout() {
       </nav>
 
       {/* Floating quick-log button — client only, above bottom nav on the right */}
-      {!isStaff && (
+      {!isStaff && !quickMenuOpen && (
         <button
           className="lg:hidden fixed right-4 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-50 flex flex-col items-center gap-1 active:scale-95 transition-transform"
           onClick={openQuickMenu}
@@ -594,11 +594,11 @@ export default function Layout() {
       {quickMenuOpen && (
         <>
           <div
-            className="fixed inset-0 z-50 bg-black/40"
+            className="fixed inset-0 z-[70] bg-black/40"
             onPointerDown={handleOverlayPointerDown}
             onClick={handleOverlayClick}
           />
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl max-h-[calc(100vh-1rem)] overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+          <div className="fixed bottom-0 left-0 right-0 z-[70] bg-white rounded-t-2xl shadow-2xl max-h-[calc(100dvh-1rem)] overflow-y-auto pb-[env(safe-area-inset-bottom)]">
             {/* drag handle */}
             <div className="flex justify-center pt-3 pb-1">
               <div className="w-10 h-1 bg-gray-200 rounded-full" />
@@ -783,7 +783,7 @@ export default function Layout() {
                     <p className="text-sm text-gray-500 mb-3">Today's weight (lbs)</p>
                     <input type="number" step="0.1" value={quickValue}
                       onChange={e => setQuickValue(e.target.value)}
-                      placeholder="e.g. 145.5" autoFocus
+                      placeholder="e.g. 145.5"
                       className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-4"
                     />
                     <button onClick={submitQuickLog} disabled={!quickValue || quickSaving}
@@ -799,7 +799,7 @@ export default function Layout() {
                     <p className="text-sm text-gray-500 mb-3">Today's steps</p>
                     <input type="number" value={quickValue}
                       onChange={e => setQuickValue(e.target.value)}
-                      placeholder="e.g. 8500" autoFocus
+                      placeholder="e.g. 8500"
                       className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-4"
                     />
                     <button onClick={submitQuickLog} disabled={!quickValue || quickSaving}
@@ -837,7 +837,7 @@ export default function Layout() {
                       step="0.5"
                       value={quickValue}
                       onChange={e => setQuickValue(e.target.value)}
-                      placeholder="Custom hours (e.g. 7.5)" autoFocus
+                      placeholder="Custom hours (e.g. 7.5)"
                       className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-4"
                     />
                     <button onClick={submitQuickLog} disabled={!quickValue || quickSaving}

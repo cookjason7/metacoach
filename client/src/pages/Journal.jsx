@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
@@ -3813,7 +3813,7 @@ export default function Journal() {
   useEffect(() => { loadMeals() }, [loadMeals])
 
   // Auto-open drawer when arriving from the quick-log bottom sheet
-  useEffect(() => {
+  useLayoutEffect(() => {
     const state = location.state
     if (!state?.openSlot || !state?.openMode) return
     const validSlots = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
