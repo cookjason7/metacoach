@@ -316,7 +316,7 @@ function PhotoMode({ slot, logDate }) {
 
 // ── Manual mode ───────────────────────────────────────────────────────────────
 
-const EMPTY_MANUAL = { meal_name: '', calories: '', protein_g: '', carbs_g: '', fat_g: '', fiber_g: '' }
+const EMPTY_MANUAL = { meal_name: '', calories: '', protein_g: '', carbs_g: '', fat_g: '', fiber_g: '', servings: '1' }
 
 function ManualMode({ slot, logDate }) {
   const { getToken } = useAuth()
@@ -330,6 +330,8 @@ function ManualMode({ slot, logDate }) {
     setForm(f => ({ ...f, [name]: value }))
   }
 
+  const srv = Math.max(0.25, parseFloat(form.servings) || 1)
+
   async function save(e) {
     e.preventDefault()
     if (!form.meal_name.trim()) return
@@ -339,11 +341,11 @@ function ManualMode({ slot, logDate }) {
       const token = await getToken()
       const payload = {
         meal_name: form.meal_name.trim(),
-        calories:  form.calories  !== '' ? Number(form.calories)  : null,
-        protein_g: form.protein_g !== '' ? Number(form.protein_g) : null,
-        carbs_g:   form.carbs_g   !== '' ? Number(form.carbs_g)   : null,
-        fat_g:     form.fat_g     !== '' ? Number(form.fat_g)     : null,
-        fiber_g:   form.fiber_g   !== '' ? Number(form.fiber_g)   : null,
+        calories:  form.calories  !== '' ? Math.round(Number(form.calories)  * srv) : null,
+        protein_g: form.protein_g !== '' ? +(Number(form.protein_g) * srv).toFixed(1) : null,
+        carbs_g:   form.carbs_g   !== '' ? +(Number(form.carbs_g)   * srv).toFixed(1) : null,
+        fat_g:     form.fat_g     !== '' ? +(Number(form.fat_g)     * srv).toFixed(1) : null,
+        fiber_g:   form.fiber_g   !== '' ? +(Number(form.fiber_g)   * srv).toFixed(1) : null,
         meal_slot: slot,
         log_date:  logDate,
       }
@@ -365,6 +367,8 @@ function ManualMode({ slot, logDate }) {
 
   if (saved) return <SavedState name={form.meal_name} onReset={reset} />
 
+  const showTotals = srv !== 1 && (form.calories !== '' || form.protein_g !== '' || form.carbs_g !== '' || form.fat_g !== '')
+
   return (
     <form onSubmit={save} className="max-w-lg space-y-4">
       <div>
@@ -381,12 +385,36 @@ function ManualMode({ slot, logDate }) {
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <NumberField label="Calories (kcal)" name="calories"  value={form.calories}  onChange={set} placeholder="420" />
-        <NumberField label="Protein (g)"     name="protein_g" value={form.protein_g} onChange={set} placeholder="38" />
-        <NumberField label="Carbs (g)"       name="carbs_g"   value={form.carbs_g}   onChange={set} placeholder="45" />
-        <NumberField label="Fat (g)"         name="fat_g"     value={form.fat_g}     onChange={set} placeholder="12" />
-        <NumberField label="Fiber (g)"       name="fiber_g"   value={form.fiber_g}   onChange={set} placeholder="4" />
+        <NumberField label="Calories (kcal) per serving" name="calories"  value={form.calories}  onChange={set} placeholder="420" />
+        <NumberField label="Protein (g) per serving"     name="protein_g" value={form.protein_g} onChange={set} placeholder="38" />
+        <NumberField label="Carbs (g) per serving"       name="carbs_g"   value={form.carbs_g}   onChange={set} placeholder="45" />
+        <NumberField label="Fat (g) per serving"         name="fat_g"     value={form.fat_g}     onChange={set} placeholder="12" />
+        <NumberField label="Fiber (g) per serving"       name="fiber_g"   value={form.fiber_g}   onChange={set} placeholder="4" />
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Number of servings</label>
+          <input
+            type="number"
+            name="servings"
+            value={form.servings}
+            onChange={set}
+            min="0.25"
+            step="0.25"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+          />
+        </div>
       </div>
+
+      {showTotals && (
+        <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 text-xs text-gray-600">
+          <p className="font-semibold mb-1 text-gray-700">Total for {srv} serving{srv !== 1 ? 's' : ''}</p>
+          <div className="flex gap-4 flex-wrap">
+            {form.calories  !== '' && <span><span className="font-bold text-orange-500">{Math.round(Number(form.calories)  * srv)}</span> cal</span>}
+            {form.protein_g !== '' && <span><span className="font-bold text-blue-600">{+(Number(form.protein_g) * srv).toFixed(1)}g</span> P</span>}
+            {form.carbs_g   !== '' && <span><span className="font-bold text-yellow-600">{+(Number(form.carbs_g)   * srv).toFixed(1)}g</span> C</span>}
+            {form.fat_g     !== '' && <span><span className="font-bold text-pink-500">{+(Number(form.fat_g)     * srv).toFixed(1)}g</span> F</span>}
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">{error}</div>
@@ -415,6 +443,7 @@ function SearchMode({ slot, logDate }) {
   const [selected,    setSelected]    = useState(null)
   const [amount,      setAmount]      = useState('100')
   const [unit,        setUnit]        = useState('g')
+  const [servings,    setServings]    = useState('1')
   const [saving,      setSaving]      = useState(false)
   const [saved,       setSaved]       = useState(false)
   const [error,       setError]       = useState(null)
@@ -483,6 +512,7 @@ function SearchMode({ slot, logDate }) {
   function handleSelect(food) {
     setSelected(food)
     setResults([])
+    setServings('1')
     if (
       food.custom_serving_size != null && food.custom_serving_size > 0 &&
       food.custom_serving_unit && SERVING_UNITS.includes(food.custom_serving_unit)
@@ -538,7 +568,8 @@ function SearchMode({ slot, logDate }) {
     try {
       const raw = parseFloat(amount)
       if (isNaN(raw) || raw <= 0) throw new Error('Enter a valid amount')
-      const g      = toGrams(raw, unit)
+      const srv    = Math.max(0.25, parseFloat(servings) || 1)
+      const g      = toGrams(raw, unit) * srv
       const macros = calcMacros(selected, g)
       const micronutrients = scaledMicronutrients(selected, g)
       const token  = await getToken()
@@ -583,13 +614,14 @@ function SearchMode({ slot, logDate }) {
 
   function reset() {
     setQuery(''); setResults([]); setSelected(null)
-    setAmount('100'); setUnit('g'); setSaved(false); setError(null)
+    setAmount('100'); setUnit('g'); setServings('1'); setSaved(false); setError(null)
   }
 
   if (saved) return <SavedState name={selected?.name} onReset={reset} resetLabel="Search Again" />
 
   const raw     = parseFloat(amount)
-  const g       = !isNaN(raw) && raw > 0 ? toGrams(raw, unit) : 0
+  const srv     = Math.max(0.25, parseFloat(servings) || 1)
+  const g       = !isNaN(raw) && raw > 0 ? toGrams(raw, unit) * srv : 0
   const preview = selected && g > 0 ? calcMacros(selected, g) : null
 
   return (
@@ -667,24 +699,37 @@ function SearchMode({ slot, logDate }) {
             <button onClick={() => setSelected(null)} className="text-xs text-gray-400 hover:text-gray-600 shrink-0">Change</button>
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Portion</label>
-            <div className="flex gap-2">
+          <div className="space-y-2">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Serving size</label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  value={amount}
+                  onChange={e => setAmount(e.target.value)}
+                  min="0.1"
+                  step="any"
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                />
+                <select
+                  value={unit}
+                  onChange={e => handleUnitChange(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
+                >
+                  {SERVING_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Number of servings</label>
               <input
                 type="number"
-                value={amount}
-                onChange={e => setAmount(e.target.value)}
-                min="0.1"
-                step="any"
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                value={servings}
+                onChange={e => setServings(e.target.value)}
+                min="0.25"
+                step="0.25"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
               />
-              <select
-                value={unit}
-                onChange={e => handleUnitChange(e.target.value)}
-                className="border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
-              >
-                {SERVING_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-              </select>
             </div>
           </div>
 
@@ -1585,6 +1630,8 @@ function BarcodeMode({ slot, logDate }) {
   const [base,            setBase]            = useState(null)
   const [amount,          setAmount]          = useState('100')
   const [unit,            setUnit]            = useState('g')
+  const [servings,        setServings]        = useState('1')
+  const [servingGrams,    setServingGrams]    = useState(null)
   const [saving,          setSaving]          = useState(false)
   const [saved,           setSaved]           = useState(false)
   const [savedName,       setSavedName]       = useState(null)
@@ -1598,6 +1645,16 @@ function BarcodeMode({ slot, logDate }) {
     const g = toGrams(parseFloat(amount) || 0, unit)
     setAmount(+(g / (UNIT_TO_G[newUnit] ?? 1)).toFixed(2) + '')
     setUnit(newUnit)
+  }
+
+  function handleServingsChange(newServings) {
+    const sv = Math.max(0.25, parseFloat(newServings) || 1)
+    if (servingGrams != null) {
+      const totalG = sv * servingGrams
+      const inUnit = totalG / (UNIT_TO_G[unit] ?? 1)
+      setAmount(String(Math.round(inUnit * 100) / 100))
+    }
+    setServings(newServings)
   }
 
   async function handleScan(barcode) {
@@ -1637,6 +1694,8 @@ function BarcodeMode({ slot, logDate }) {
       const { base: b, defaultGrams } = normaliseFoodTo100g(data)
       setFood(data)
       setBase(b)
+      setServingGrams(defaultGrams)
+      setServings('1')
       setAmount(String(defaultGrams))
       setUnit('g')
     } catch (err) {
@@ -1707,7 +1766,8 @@ function BarcodeMode({ slot, logDate }) {
 
   function reset() {
     setScanning(false); setFood(null); setBase(null)
-    setAmount('100'); setUnit('g'); setSaved(false); setSavedName(null)
+    setAmount('100'); setUnit('g'); setServings('1'); setServingGrams(null)
+    setSaved(false); setSavedName(null)
     setError(null); setNotFound(false); setScannedBarcode(null); setShowManualForm(false)
   }
 
@@ -1813,24 +1873,36 @@ function BarcodeMode({ slot, logDate }) {
                 <FoodSourceBadge food={food} />
               </div>
               {food.brand && <p className="text-xs text-gray-400 mt-0.5">{food.brand}</p>}
-              <p className="text-xs text-gray-500 mt-1">Serving size: {food.serving_size}</p>
+              {food.serving_size && (
+                <p className="text-xs text-gray-500 mt-1">Label serving: <span className="font-medium">{food.serving_size}</span></p>
+              )}
             </div>
             <button onClick={reset} className="text-xs text-gray-400 hover:text-gray-600 shrink-0">Scan Again</button>
           </div>
 
-          {/* Portion + unit selector */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Portion</label>
-            <div className="flex gap-2">
+          {/* Servings + portion */}
+          <div className="space-y-2">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Number of servings</label>
               <input
-                type="number" value={amount} onChange={e => setAmount(e.target.value)}
-                min="0.01" step="any"
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                type="number" value={servings} onChange={e => handleServingsChange(e.target.value)}
+                min="0.25" step="0.25"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
               />
-              <select value={unit} onChange={e => handleUnitChange(e.target.value)}
-                className="border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white">
-                {SERVING_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Total amount</label>
+              <div className="flex gap-2">
+                <input
+                  type="number" value={amount} onChange={e => setAmount(e.target.value)}
+                  min="0.01" step="any"
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                />
+                <select value={unit} onChange={e => handleUnitChange(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white">
+                  {SERVING_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+              </div>
             </div>
           </div>
 

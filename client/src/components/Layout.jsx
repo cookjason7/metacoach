@@ -641,10 +641,10 @@ export default function Layout() {
                   <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2 px-0.5">Food</p>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     {[
+                      { id: 'manual',  emoji: '✏️', label: 'Text Entry'   },
                       { id: 'search',  emoji: '🔍', label: 'Search Food'  },
                       { id: 'barcode', emoji: '🏷️', label: 'Scan Barcode' },
                       { id: 'photo',   emoji: '📷', label: 'Food Photo'   },
-                      { id: 'manual',  emoji: '✏️', label: 'Quick Add'    },
                     ].map(({ id, emoji, label }) => (
                       <button
                         key={id}
