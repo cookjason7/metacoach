@@ -2302,8 +2302,11 @@ function MeasurementsSection({ clientId, getToken, startDate, endDate }) {
 }
 
 function MiniChart({ series, valueKey = 'value', series2, valueKey2, color = '#E8670A', color2 = '#10b981' }) {
-  const vals1 = (series ?? []).map(d => Number(d[valueKey]) || 0)
-  const vals2 = series2 ? (series2 ?? []).map(d => Number(d[valueKey2 ?? valueKey]) || 0) : []
+  // Sort both series oldest→newest so the chart always reads left=old right=new
+  const sorted1 = (series  ?? []).slice().sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
+  const sorted2 = (series2 ?? []).slice().sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
+  const vals1 = sorted1.map(d => Number(d[valueKey]) || 0)
+  const vals2 = series2 ? sorted2.map(d => Number(d[valueKey2 ?? valueKey]) || 0) : []
   if (vals1.length < 2) return <p className="text-[11px] text-gray-300 text-center py-6">Not enough data</p>
   const all = [...vals1, ...vals2].filter(v => v > 0)
   const mn = all.length ? Math.min(...all) : 0

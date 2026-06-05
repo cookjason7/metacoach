@@ -76,7 +76,9 @@ function Sparkline({ data, goalValue }) {
 // ── ChartCard — used in detail views ─────────────────────────────────────────
 
 function ChartCard({ title, data, goalValue, goalLabel, fmtVal }) {
-  const cleanData = data?.filter(d => d.value != null && Number.isFinite(Number(d.value))) ?? []
+  const cleanData = (data ?? [])
+    .filter(d => d.value != null && Number.isFinite(Number(d.value)))
+    .sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
   const values    = cleanData.map(d => Number(d.value))
   const hasData   = values.length >= 2
   return (
