@@ -248,7 +248,7 @@ export default function Layout() {
         return
       }
       const data = await res.json()
-      const adminStatus = data.role === 'admin'
+      const adminStatus = data.role === 'admin' || data.role === 'account_owner'
       const staffStatus = adminStatus || data.role === 'coach' || data.role === 'staff'
       setIsAdmin(adminStatus)
       setIsStaff(staffStatus)

@@ -4,11 +4,15 @@ import { pool, getOrCreateUser } from '../db.js'
 
 const router = Router()
 
+function isAdminRole(role) {
+  return role === 'admin' || role === 'account_owner'
+}
+
 async function requireAdmin(req, res) {
   const { userId } = getAuth(req)
   const dbUserId = await getOrCreateUser(userId)
   const { rows } = await pool.query('SELECT role FROM users WHERE id = $1', [dbUserId])
-  if (rows[0]?.role !== 'admin') {
+  if (!isAdminRole(rows[0]?.role)) {
     res.status(403).json({ error: 'Admin only' })
     return null
   }
@@ -58,7 +62,7 @@ router.patch('/users/:id/macros', requireAuth(), async (req, res, next) => {
     // Allow admin, or the coach assigned to this specific client
     const { rows: callerRows } = await pool.query('SELECT role FROM users WHERE id = $1', [callerId])
     const callerRole = callerRows[0]?.role
-    if (callerRole !== 'admin') {
+    if (!isAdminRole(callerRole)) {
       const { rows: clientRows } = await pool.query('SELECT assigned_coach_id FROM users WHERE id = $1', [targetId])
       if (clientRows[0]?.assigned_coach_id !== callerId) {
         return res.status(403).json({ error: 'Not authorized' })

@@ -548,7 +548,7 @@ export default function Dashboard() {
   }, [])
 
   // Staff → coaching dashboard
-  if (!loading && (userProfile?.role === 'admin' || userProfile?.role === 'coach' || userProfile?.role === 'staff')) {
+  if (!loading && (userProfile?.role === 'admin' || userProfile?.role === 'account_owner' || userProfile?.role === 'coach' || userProfile?.role === 'staff')) {
     return <CoachDashboard getToken={getToken} userRole={userProfile.role} />
   }
 

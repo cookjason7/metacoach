@@ -58,9 +58,13 @@ async function getCurrentStaff(req) {
   return { dbUserId, role: rows[0]?.role ?? 'client' }
 }
 
+function isAdminRole(role) {
+  return role === 'admin' || role === 'account_owner'
+}
+
 async function requireStaff(req, res) {
   const ctx = await getCurrentStaff(req)
-  if (ctx.role !== 'admin' && ctx.role !== 'coach' && ctx.role !== 'staff') {
+  if (!isAdminRole(ctx.role) && ctx.role !== 'coach' && ctx.role !== 'staff') {
     res.status(403).json({ error: 'Staff only' })
     return null
   }
@@ -69,7 +73,7 @@ async function requireStaff(req, res) {
 
 async function requireAdmin(req, res) {
   const ctx = await getCurrentStaff(req)
-  if (ctx.role !== 'admin') {
+  if (!isAdminRole(ctx.role)) {
     res.status(403).json({ error: 'Admin only' })
     return null
   }
@@ -78,7 +82,7 @@ async function requireAdmin(req, res) {
 
 // Returns true if staff member (admin or coach) can access this client
 async function canAccessClient(ctx, clientId) {
-  if (ctx.role === 'admin') return true
+  if (isAdminRole(ctx.role)) return true
   const { rows } = await pool.query(
     'SELECT id FROM users WHERE id = $1 AND assigned_coach_id = $2',
     [clientId, ctx.dbUserId],
@@ -1904,7 +1908,7 @@ router.get('/clients/:id/notes', requireAuth(), async (req, res, next) => {
     if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
 
     // Coaches cannot see admin_private notes
-    const visibilityFilter = ctx.role === 'admin'
+    const visibilityFilter = isAdminRole(ctx.role)
       ? ''
       : `AND n.visibility = 'shared_staff'`
 
@@ -2004,7 +2008,7 @@ router.patch('/notes/:noteId', requireAuth(), async (req, res, next) => {
 router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireStaff(req, res); if (!ctx) return
-    const isAdmin = ctx.role === 'admin'
+    const isAdmin = isAdminRole(ctx.role)
     const wantArchived = req.query.view === 'archived'
 
     // $1 = ctx.dbUserId (used for states join AND coach scope filter)
@@ -2272,7 +2276,7 @@ router.get('/clients/:id/thread-types', requireAuth(), async (req, res, next) =>
     if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
 
     // Role-gated: coaches only see coach_thread
-    const allowedTypes = ctx.role === 'admin'
+    const allowedTypes = isAdminRole(ctx.role)
       ? ['admin_private', 'coach_thread', 'ai_admin']
       : ['coach_thread']
 
@@ -2666,7 +2670,7 @@ router.post('/forms/:id/send', requireAuth(), async (req, res, next) => {
       // Determine thread type and visibility
       // Coaches are limited to coach_thread; admin uses admin_private for AI clients, coach_thread for VIP
       let thread_type = 'coach_thread'
-      if (ctx.role === 'admin' && client.coaching_type === 'ai') thread_type = 'ai_admin'
+      if (isAdminRole(ctx.role) && client.coaching_type === 'ai') thread_type = 'ai_admin'
 
       const visibility = (thread_type === 'admin_private' || thread_type === 'ai_admin')
         ? 'client_and_admin_only'
@@ -2902,7 +2906,7 @@ router.get('/form-schedules', requireAuth(), async (req, res, next) => {
     `
 
     let rows
-    if (ctx.role === 'admin') {
+    if (isAdminRole(ctx.role)) {
       ;({ rows } = await pool.query(baseSelect + ' ORDER BY fa.created_at DESC LIMIT 200'))
     } else {
       ;({ rows } = await pool.query(

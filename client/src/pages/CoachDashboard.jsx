@@ -1463,7 +1463,7 @@ export default function CoachDashboard({ getToken, userRole }) {
   const [pendingInvites, setPendingInvites] = useState([])
   const [pendingLoading, setPendingLoading] = useState(true)
   const [inviteOpen,     setInviteOpen]     = useState(false)
-  const [isAdmin,        setIsAdmin]        = useState(userRole === 'admin')
+  const [isAdmin,        setIsAdmin]        = useState(userRole === 'admin' || userRole === 'account_owner')
 
   // ── Filters ─────────────────────────────────────────────────────────────────
   const [clientSearch,   setClientSearch]   = useState('')
@@ -1506,7 +1506,7 @@ export default function CoachDashboard({ getToken, userRole }) {
           if (r3.ok) { const d = await r3.json(); setCheckins(d.checkins ?? []); setActivity(d.activity ?? []) }
           if (r4.ok) {
             const d = await r4.json()
-            const admin = d.role === 'admin'
+            const admin = d.role === 'admin' || d.role === 'account_owner'
             setIsAdmin(admin)
             // Non-admin coaches default to seeing only their own clients
             if (!admin) setCoachFilter(String(d.id))
