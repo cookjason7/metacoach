@@ -79,6 +79,7 @@ function lastActivityAt(c) {
 function accountStatus(c) {
   if (c.client_status === 'invited')  return 'invited'
   if (c.client_status === 'archived') return 'inactive'
+  if (c.paid) return 'active'
   const last = lastActivityAt(c)
   if (!last) return 'inactive'
   return daysSince(last.toISOString()) > 14 ? 'inactive' : 'active'
