@@ -3,7 +3,7 @@
   "appName": "WarriorFIT AI",
   "webDir": "client/dist",
   "server": {
-    "url": "https://metacoach-staging.up.railway.app",
+    "url": "https://app.lwcvip.com",
     "cleartext": false,
     "androidScheme": "https",
     "iosScheme": "https"
