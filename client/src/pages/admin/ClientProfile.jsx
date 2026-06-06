@@ -4754,12 +4754,15 @@ function WorkoutsTab({ clientId, getToken }) {
   const [detailLoad,   setDetailLoad]   = useState(false)
 
   // Katie generation flow: null | 'questionnaire' | 'generating' | 'review'
-  const [genFlow,      setGenFlow]      = useState(null)
-  const [genForm,      setGenForm]      = useState({ ...WO_EMPTY_FORM })
-  const [generatedPlan,setGeneratedPlan]= useState(null)
-  const [generating,   setGenerating]   = useState(false)
-  const [genError,     setGenError]     = useState(null)
-  const [savingPlan,   setSavingPlan]   = useState(false)
+  const [genFlow,        setGenFlow]        = useState(null)
+  const [genForm,        setGenForm]        = useState({ ...WO_EMPTY_FORM })
+  const [generatedPlan,  setGeneratedPlan]  = useState(null)
+  const [generating,     setGenerating]     = useState(false)
+  const [genError,       setGenError]       = useState(null)
+  const [savingPlan,     setSavingPlan]     = useState(false)
+  // Inline edit state for the pre-save review table (operates on generatedPlan state)
+  const [reviewEdit,     setReviewEdit]     = useState(null)   // { dayIdx, exIdx, field }
+  const [reviewEditVal,  setReviewEditVal]  = useState('')
 
   // Manual create form
   const [showCreate,   setShowCreate]   = useState(false)
@@ -4847,6 +4850,52 @@ function WorkoutsTab({ clientId, getToken }) {
       setGenFlow(null); setGeneratedPlan(null); setGenForm({ ...WO_EMPTY_FORM })
       openWorkout(w)
     } catch (err) { setGenError(err.message) } finally { setSavingPlan(false) }
+  }
+
+  // ── Review-panel edit helpers (operate on generatedPlan state, no API calls) ─
+  function startReviewEdit(dayIdx, exIdx, field, val) {
+    setReviewEdit({ dayIdx, exIdx, field })
+    setReviewEditVal(val != null ? String(val) : '')
+  }
+  function cancelReviewEdit() { setReviewEdit(null) }
+  function commitReviewEdit() {
+    if (!reviewEdit) return
+    const { dayIdx, exIdx, field } = reviewEdit
+    setGeneratedPlan(plan => ({
+      ...plan,
+      days: plan.days.map((day, di) => di !== dayIdx ? day : {
+        ...day,
+        exercises: day.exercises.map((ex, ei) => {
+          if (ei !== exIdx) return ex
+          const val = field === 'sets' || field === 'rest_seconds'
+            ? (reviewEditVal !== '' ? Number(reviewEditVal) : null)
+            : (reviewEditVal || null)
+          return { ...ex, [field]: val }
+        }),
+      }),
+    }))
+    setReviewEdit(null)
+  }
+  function deleteReviewExercise(dayIdx, exIdx) {
+    setGeneratedPlan(plan => ({
+      ...plan,
+      days: plan.days.map((day, di) => di !== dayIdx ? day : {
+        ...day,
+        exercises: day.exercises.filter((_, ei) => ei !== exIdx),
+      }),
+    }))
+  }
+  function moveReviewExercise(dayIdx, exIdx, direction) {
+    const targetIdx = direction === 'up' ? exIdx - 1 : exIdx + 1
+    setGeneratedPlan(plan => ({
+      ...plan,
+      days: plan.days.map((day, di) => {
+        if (di !== dayIdx) return day
+        const exs = [...day.exercises]
+        ;[exs[exIdx], exs[targetIdx]] = [exs[targetIdx], exs[exIdx]]
+        return { ...day, exercises: exs }
+      }),
+    }))
   }
 
   // ── Create workout (manual) ─────────────────────────────────────────────────
@@ -4997,56 +5046,116 @@ function WorkoutsTab({ clientId, getToken }) {
   // ── Questionnaire view (generate with Katie) ───────────────────────────────
   if (genFlow === 'questionnaire' || genFlow === 'review') {
     if (genFlow === 'review' && generatedPlan) {
+      // Helper: renders an editable cell in the review table
+      function rCell(dayIdx, exIdx, field, val, type = 'text', placeholder = '—') {
+        const editing = reviewEdit?.dayIdx === dayIdx && reviewEdit?.exIdx === exIdx && reviewEdit?.field === field
+        return editing ? (
+          <input
+            autoFocus type={type} value={reviewEditVal}
+            onChange={e => setReviewEditVal(e.target.value)}
+            onBlur={commitReviewEdit}
+            onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') cancelReviewEdit() }}
+            className="w-full border border-[#E8670A] rounded px-1.5 py-0.5 text-xs focus:outline-none bg-orange-50"
+            placeholder={placeholder}
+          />
+        ) : (
+          <span onClick={() => startReviewEdit(dayIdx, exIdx, field, val)}
+            title="Click to edit" className="cursor-pointer hover:text-[#E8670A] transition-colors">
+            {val ?? <span className="text-gray-300">—</span>}
+          </span>
+        )
+      }
+
       return (
         <div className="space-y-5">
+          {/* Header — no description paragraph */}
           <div>
-            <button onClick={() => setGenFlow('questionnaire')}
+            <button onClick={() => { setGenFlow('questionnaire'); setReviewEdit(null) }}
               className="text-xs text-gray-400 hover:text-gray-600 mb-2 flex items-center gap-1">‹ Back to questionnaire</button>
             <p className="text-lg font-bold text-gray-900">{generatedPlan.program_name}</p>
-            <p className="text-xs text-gray-500 mt-0.5">{generatedPlan.description}</p>
-            <p className="text-xs text-[#E8670A] mt-1">✨ Generated by Katie · Review then save — you can edit exercises after</p>
+            <p className="text-xs text-[#E8670A] mt-1">
+              ✨ Generated by Katie · Click any cell to edit, then assign to client
+            </p>
           </div>
-          {generatedPlan.days?.map((day, di) => (
-            <div key={di} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="bg-[#0F1E35] px-4 py-2.5">
+
+          {/* Editable exercise tables per day */}
+          {generatedPlan.days?.map((day, dayIdx) => (
+            <div key={dayIdx} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="bg-[#0F1E35] px-4 py-2.5 flex items-center justify-between">
                 <p className="text-sm font-semibold text-white">{day.day_name}</p>
-                {day.focus && <p className="text-xs text-white/60 mt-0.5">{day.focus}</p>}
+                {day.focus && <p className="text-[10px] text-white/50">{day.focus}</p>}
               </div>
-              <table className="w-full text-xs">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr>
-                    <th className="text-left px-3 py-2 text-gray-500 font-semibold">Exercise</th>
-                    <th className="text-center px-2 py-2 text-gray-500 font-semibold w-12">Sets</th>
-                    <th className="text-center px-2 py-2 text-gray-500 font-semibold w-20">Reps</th>
-                    <th className="text-center px-2 py-2 text-gray-500 font-semibold w-14">Rest</th>
-                    <th className="text-left px-3 py-2 text-gray-500 font-semibold">Notes</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {day.exercises?.map((ex, ei) => (
-                    <tr key={ei} className="hover:bg-gray-50/30">
-                      <td className="px-3 py-2 font-medium text-gray-900">{ex.name}</td>
-                      <td className="px-2 py-2 text-center text-gray-600">{ex.sets ?? '—'}</td>
-                      <td className="px-2 py-2 text-center text-gray-600">{ex.reps ?? '—'}</td>
-                      <td className="px-2 py-2 text-center text-gray-400">{ex.rest_seconds ? `${ex.rest_seconds}s` : '—'}</td>
-                      <td className="px-3 py-2 text-gray-400 italic">{ex.notes ?? ''}</td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs min-w-[560px]">
+                  <thead className="bg-gray-50 border-b border-gray-100">
+                    <tr>
+                      <th className="text-left px-3 py-2 text-gray-500 font-semibold">Exercise</th>
+                      <th className="text-center px-2 py-2 text-gray-500 font-semibold w-14">Sets</th>
+                      <th className="text-center px-2 py-2 text-gray-500 font-semibold w-20">Reps</th>
+                      <th className="text-center px-2 py-2 text-gray-500 font-semibold w-16">Rest</th>
+                      <th className="text-left px-3 py-2 text-gray-500 font-semibold">Notes</th>
+                      <th className="w-12 text-center px-1 py-2 text-gray-400 font-semibold text-[10px]">Order</th>
+                      <th className="w-8" />
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {day.exercises?.map((ex, exIdx) => {
+                      const isFirst = exIdx === 0
+                      const isLast  = exIdx === (day.exercises?.length ?? 0) - 1
+                      return (
+                        <tr key={exIdx} className="hover:bg-gray-50/40">
+                          <td className="px-3 py-2.5 font-medium text-gray-900">
+                            {rCell(dayIdx, exIdx, 'name', ex.name, 'text', 'Exercise name')}
+                          </td>
+                          <td className="px-2 py-2.5 text-center text-gray-600">
+                            {rCell(dayIdx, exIdx, 'sets', ex.sets, 'number', '3')}
+                          </td>
+                          <td className="px-2 py-2.5 text-center text-gray-600">
+                            {rCell(dayIdx, exIdx, 'reps', ex.reps, 'text', '8-10')}
+                          </td>
+                          <td className="px-2 py-2.5 text-center text-gray-500">
+                            {rCell(dayIdx, exIdx, 'rest_seconds', ex.rest_seconds, 'number', '90')}
+                          </td>
+                          <td className="px-3 py-2.5 text-gray-500 max-w-[200px]">
+                            {rCell(dayIdx, exIdx, 'notes', ex.notes, 'text', 'Instructions…')}
+                          </td>
+                          {/* ▲ / ▼ reorder */}
+                          <td className="px-1 py-2.5 text-center w-12">
+                            <div className="flex flex-col items-center gap-0.5">
+                              <button onClick={() => moveReviewExercise(dayIdx, exIdx, 'up')} disabled={isFirst}
+                                title="Move up"
+                                className="text-gray-300 hover:text-[#E8670A] disabled:opacity-20 disabled:cursor-not-allowed transition-colors text-xs leading-none px-1 py-0.5 min-h-[20px]">▲</button>
+                              <button onClick={() => moveReviewExercise(dayIdx, exIdx, 'down')} disabled={isLast}
+                                title="Move down"
+                                className="text-gray-300 hover:text-[#E8670A] disabled:opacity-20 disabled:cursor-not-allowed transition-colors text-xs leading-none px-1 py-0.5 min-h-[20px]">▼</button>
+                            </div>
+                          </td>
+                          {/* Delete */}
+                          <td className="px-2 py-2.5 text-center">
+                            <button onClick={() => deleteReviewExercise(dayIdx, exIdx)}
+                              className="text-gray-300 hover:text-red-400 transition-colors font-bold text-sm"
+                              title="Remove exercise">✕</button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ))}
+
           {genError && <p className="text-xs text-red-500">{genError}</p>}
           <div className="flex gap-3 flex-wrap">
             <button onClick={savePlan} disabled={savingPlan}
               className="bg-[#E8670A] text-white px-5 py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors flex items-center gap-2">
               {savingPlan ? <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />Saving…</> : 'Assign to Client'}
             </button>
-            <button onClick={() => { setGenFlow('questionnaire'); setGeneratedPlan(null) }}
+            <button onClick={() => { setGenFlow('questionnaire'); setGeneratedPlan(null); setReviewEdit(null) }}
               className="px-5 py-2.5 rounded-lg text-sm font-medium text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors">
               Regenerate
             </button>
-            <button onClick={() => { setGenFlow(null); setGeneratedPlan(null); setGenForm({ ...WO_EMPTY_FORM }) }}
+            <button onClick={() => { setGenFlow(null); setGeneratedPlan(null); setGenForm({ ...WO_EMPTY_FORM }); setReviewEdit(null) }}
               className="px-5 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-red-500 transition-colors">
               Discard
             </button>
