@@ -484,7 +484,7 @@ function MealEntry({ meal, onEdit, onDelete, onCopy, onMove }) {
 // ── Meal Card Quick Actions ────────────────────────────────────────────────────
 
 const SLOT_QUICK_ACTIONS = [
-  { mode: 'manual',  icon: '✏️', label: 'Text Entry' },
+  { mode: 'text',    icon: '💬', label: 'Text Entry' },
   { mode: 'search',  icon: '🔍', label: 'Search'     },
   { mode: 'barcode', icon: '🏷️', label: 'Scan'       },
   { mode: 'photo',   icon: '📷', label: 'Photo'      },
@@ -3817,7 +3817,7 @@ export default function Journal() {
     const state = location.state
     if (!state?.openSlot || !state?.openMode) return
     const validSlots = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
-    const validModes = ['search', 'barcode', 'photo', 'manual']
+    const validModes = ['search', 'barcode', 'photo', 'manual', 'text']
     if (validSlots.includes(state.openSlot) && validModes.includes(state.openMode)) {
       // Carry logDate from the quick-menu date picker (if provided)
       const logDate = typeof state.logDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(state.logDate)

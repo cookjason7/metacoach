@@ -76,19 +76,29 @@ router.post('/generate', requireAuth(), workoutGenLimit, async (req, res, next) 
 })
 
 // POST /api/workouts/log-activity — quick activity log (no plan required)
+// Optional body field log_date (YYYY-MM-DD, ≤ today) allows past-date logging.
 router.post('/log-activity', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const dbUserId = await getOrCreateUser(userId)
-    const { activity_type, duration_minutes, notes } = req.body
+    const { activity_type, duration_minutes, notes, log_date } = req.body
     if (!activity_type?.trim()) return res.status(400).json({ error: 'activity_type required' })
+
+    const todayStr   = new Date().toISOString().slice(0, 10)
+    const targetDate = log_date && /^\d{4}-\d{2}-\d{2}$/.test(log_date) && log_date <= todayStr
+      ? log_date : null
+
     await pool.query(
-      `INSERT INTO activity_logs (user_id, activity_type, duration_minutes, notes)
-       VALUES ($1, $2, $3, $4)`,
-      [dbUserId, activity_type.trim(), duration_minutes ?? null, notes?.trim() ?? null],
+      targetDate
+        ? `INSERT INTO activity_logs (user_id, activity_type, duration_minutes, notes, logged_at)
+           VALUES ($1, $2, $3, $4, $5::date + CURRENT_TIME)`
+        : `INSERT INTO activity_logs (user_id, activity_type, duration_minutes, notes)
+           VALUES ($1, $2, $3, $4)`,
+      targetDate
+        ? [dbUserId, activity_type.trim(), duration_minutes ?? null, notes?.trim() ?? null, targetDate]
+        : [dbUserId, activity_type.trim(), duration_minutes ?? null, notes?.trim() ?? null],
     )
-    const today = new Date().toISOString().slice(0, 10)
-    awardAction(pool, dbUserId, 'workout', today).catch(e => console.error('[gami activity]', e.message))
+    awardAction(pool, dbUserId, 'workout', targetDate ?? todayStr).catch(e => console.error('[gami activity]', e.message))
     res.status(201).json({ success: true })
   } catch (err) {
     next(err)

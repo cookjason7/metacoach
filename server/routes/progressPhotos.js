@@ -91,28 +91,40 @@ router.get('/', requireAuth(), async (req, res, next) => {
 })
 
 // POST /api/progress-photos
-// Body (multipart): photo (file), angle (front|back|side), session_id (optional string)
+// Body (multipart): photo (file), angle (front|back|side), session_id (optional string),
+//                   taken_at_date (optional YYYY-MM-DD, ≤ today) for past-date logging
 router.post('/', requireAuth(), photoUploadLimit, upload.single('photo'), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const dbUserId   = await getOrCreateUser(userId)
-    const { angle, session_id } = req.body
+    const { angle, session_id, taken_at_date } = req.body
 
     if (!req.file) return res.status(400).json({ error: 'Photo required' })
     if (!['front', 'back', 'side'].includes(angle)) {
       return res.status(400).json({ error: 'angle must be front, back, or side' })
     }
 
+    // Resolve target date for session grouping (optional, ≤ today)
+    const todayStr   = new Date().toISOString().slice(0, 10)
+    const targetDate = taken_at_date && /^\d{4}-\d{2}-\d{2}$/.test(taken_at_date) && taken_at_date <= todayStr
+      ? taken_at_date : todayStr
+
     // If no session_id supplied, fall back to a date-based key so it still groups sensibly
-    const sessionId = session_id?.trim() || `auto-${dbUserId}-${new Date().toISOString().slice(0, 10)}`
+    const sessionId = session_id?.trim() || `auto-${dbUserId}-${targetDate}`
 
     const result = await uploadToCloudinary(req.file.buffer)
 
     const { rows } = await pool.query(
-      `INSERT INTO progress_photos (user_id, photo_url, angle, photo_session_id)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, photo_url, angle, taken_at, photo_session_id AS session_id`,
-      [dbUserId, result.secure_url, angle, sessionId],
+      targetDate !== todayStr
+        ? `INSERT INTO progress_photos (user_id, photo_url, angle, photo_session_id, taken_at)
+           VALUES ($1, $2, $3, $4, $5::date + CURRENT_TIME)
+           RETURNING id, photo_url, angle, taken_at, photo_session_id AS session_id`
+        : `INSERT INTO progress_photos (user_id, photo_url, angle, photo_session_id)
+           VALUES ($1, $2, $3, $4)
+           RETURNING id, photo_url, angle, taken_at, photo_session_id AS session_id`,
+      targetDate !== todayStr
+        ? [dbUserId, result.secure_url, angle, sessionId, targetDate]
+        : [dbUserId, result.secure_url, angle, sessionId],
     )
     // Track upload (non-blocking)
     trackEvent({

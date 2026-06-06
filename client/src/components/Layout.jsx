@@ -62,8 +62,10 @@ export default function Layout() {
   const overlayPressedRef     = useRef(false) // true only when a pointer press began on the backdrop itself (ghost-click guard)
   const [quickFoodMode, setQuickFoodMode] = useState(null) // 'search'|'barcode'|'photo'|'manual'
   const [quickError,    setQuickError]    = useState(null) // visible error message for failed saves
-  // Date chosen in the meal-slot picker; defaults to today each time the menu opens
+  // Date chosen in the meal-slot picker (food); defaults to today each time the menu opens
   const [quickLogDate, setQuickLogDate] = useState(() => new Date().toISOString().slice(0, 10))
+  // Date chosen in quick-log forms (weight/water/steps/sleep/activity/photo)
+  const [quickActionDate, setQuickActionDate] = useState(() => new Date().toISOString().slice(0, 10))
 
   function resetQuickExtras() {
     setQuickActivityType(''); setQuickActivityDur(''); setQuickActivityNotes('')
@@ -71,6 +73,7 @@ export default function Layout() {
     setQuickPhotoPreview(p => { if (p) URL.revokeObjectURL(p); return null })
     setQuickFoodMode(null)
     setQuickLogDate(new Date().toISOString().slice(0, 10))
+    setQuickActionDate(new Date().toISOString().slice(0, 10))
   }
 
   function openQuickMenu() {
@@ -115,13 +118,22 @@ export default function Layout() {
     setQuickError(null)
     try {
       const token = await getToken()
-      let body = {}
+      const todayStr = new Date().toISOString().slice(0, 10)
+      const isToday  = quickActionDate === todayStr
+      let body = { log_date: quickActionDate }
+
       if (quickAction === 'water') {
-        const todayRes = await fetch(`${API_URL}/api/daily-logs/today`, { headers: { Authorization: `Bearer ${token}` } })
-        const today = todayRes.ok ? await todayRes.json() : {}
-        const currentWater = parseFloat(today.water_oz) || 0
-        const delta = Math.abs(parseFloat(quickValue) || 0)
-        body.water_oz = Math.max(0, waterMode === 'subtract' ? currentWater - delta : currentWater + delta)
+        if (isToday) {
+          // Add/subtract from existing today's total
+          const todayRes = await fetch(`${API_URL}/api/daily-logs/today`, { headers: { Authorization: `Bearer ${token}` } })
+          const todayData = todayRes.ok ? await todayRes.json() : {}
+          const currentWater = parseFloat(todayData.water_oz) || 0
+          const delta = Math.abs(parseFloat(quickValue) || 0)
+          body.water_oz = Math.max(0, waterMode === 'subtract' ? currentWater - delta : currentWater + delta)
+        } else {
+          // Past date — set total directly
+          body.water_oz = Math.max(0, Math.abs(parseFloat(quickValue) || 0))
+        }
       } else if (quickAction === 'weight') {
         body.weight_lbs = Number(quickValue)
       } else if (quickAction === 'steps') {
@@ -136,7 +148,8 @@ export default function Layout() {
       })
       if (!res.ok) throw new Error('Failed to save. Please try again.')
       const saved = await res.json().catch(() => null)
-      if (saved) window.dispatchEvent(new CustomEvent('daily-log-updated', { detail: saved }))
+      // Only fire the dashboard-refresh event when logging for today
+      if (saved && isToday) window.dispatchEvent(new CustomEvent('daily-log-updated', { detail: saved }))
       setQuickDone(true)
       setTimeout(() => closeQuickMenu(), 1200)
     } catch (err) {
@@ -182,9 +195,10 @@ export default function Layout() {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          activity_type: quickActivityType,
+          activity_type:    quickActivityType,
           duration_minutes: quickActivityDur ? Number(quickActivityDur) : null,
-          notes: quickActivityNotes || null,
+          notes:            quickActivityNotes || null,
+          log_date:         quickActionDate,
         }),
       })
       if (!res.ok) throw new Error('Failed to save activity. Please try again.')
@@ -205,6 +219,7 @@ export default function Layout() {
       const body = new FormData()
       body.append('photo', quickPhotoFile)
       body.append('angle', quickPhotoAngle)
+      body.append('taken_at_date', quickActionDate)
       const res = await fetch(`${API_URL}/api/progress-photos`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
@@ -644,7 +659,7 @@ export default function Layout() {
                   <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2 px-0.5">Food</p>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     {[
-                      { id: 'manual',  emoji: '✏️', label: 'Text Entry'   },
+                      { id: 'text',    emoji: '💬', label: 'Text Entry'   },
                       { id: 'search',  emoji: '🔍', label: 'Search Food'  },
                       { id: 'barcode', emoji: '🏷️', label: 'Scan Barcode' },
                       { id: 'photo',   emoji: '📷', label: 'Food Photo'   },
@@ -760,57 +775,97 @@ export default function Layout() {
             {/* mini-form */}
             {quickAction && !quickDone && (
               <div className="px-5 pb-10 pt-2">
+                {/* ── Shared date picker — shown for all quick-log actions ── */}
+                {(() => {
+                  const todayStr = new Date().toISOString().slice(0, 10)
+                  const minStr   = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+                  return (
+                    <div className="flex items-center gap-2 mb-4">
+                      <span className="text-xs font-medium text-gray-500 shrink-0">Date</span>
+                      <input
+                        type="date"
+                        value={quickActionDate}
+                        min={minStr}
+                        max={todayStr}
+                        onChange={e => setQuickActionDate(e.target.value || todayStr)}
+                        className="flex-1 border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
+                      />
+                      {quickActionDate !== todayStr && (
+                        <button
+                          onClick={() => setQuickActionDate(todayStr)}
+                          className="shrink-0 text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] transition-colors"
+                        >
+                          Today
+                        </button>
+                      )}
+                    </div>
+                  )
+                })()}
                 {/* water */}
                 {quickAction === 'water' && (
                   <>
-                    <p className="text-sm text-gray-500 mb-3">Update today's water</p>
-                    <div className="grid grid-cols-3 gap-2 mb-3">
-                      {['8', '16', '24'].map(oz => (
-                        <button
-                          key={oz}
-                          onClick={() => setQuickValue(oz)}
-                          className={`flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-colors ${
-                            quickValue === oz
-                              ? 'bg-[#E8670A] border-[#E8670A] text-white'
-                              : 'border-gray-200 text-gray-600 hover:border-[#E8670A]'
-                          }`}
-                        >
-                          +{oz} oz
-                        </button>
-                      ))}
-                    </div>
+                    <p className="text-sm text-gray-500 mb-3">
+                      {quickActionDate === new Date().toISOString().slice(0, 10) ? "Update today's water" : 'Set water total (oz)'}
+                    </p>
+                    {quickActionDate === new Date().toISOString().slice(0, 10) && (
+                      <div className="grid grid-cols-3 gap-2 mb-3">
+                        {['8', '16', '24'].map(oz => (
+                          <button
+                            key={oz}
+                            onClick={() => setQuickValue(oz)}
+                            className={`flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-colors ${
+                              quickValue === oz
+                                ? 'bg-[#E8670A] border-[#E8670A] text-white'
+                                : 'border-gray-200 text-gray-600 hover:border-[#E8670A]'
+                            }`}
+                          >
+                            +{oz} oz
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <input
                       type="number"
                       min="0"
                       step="0.1"
                       value={quickValue}
                       onChange={e => setQuickValue(e.target.value)}
-                      placeholder="Custom amount (oz)"
+                      placeholder={quickActionDate === new Date().toISOString().slice(0, 10) ? 'Custom amount (oz)' : 'Total oz for this day'}
                       className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-3"
                     />
-                    <div className="grid grid-cols-2 gap-2">
+                    {quickActionDate === new Date().toISOString().slice(0, 10) ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => { setQuickWaterMode('add'); submitQuickLog('add') }}
+                          disabled={!quickValue || quickSaving}
+                          className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors"
+                        >
+                          {quickSaving && quickWaterMode === 'add' ? 'Saving...' : 'Add'}
+                        </button>
+                        <button
+                          onClick={() => { setQuickWaterMode('subtract'); submitQuickLog('subtract') }}
+                          disabled={!quickValue || quickSaving}
+                          className="w-full border-2 border-gray-200 text-gray-600 font-bold py-3.5 rounded-2xl text-sm hover:border-gray-300 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                        >
+                          {quickSaving && quickWaterMode === 'subtract' ? 'Saving...' : 'Subtract'}
+                        </button>
+                      </div>
+                    ) : (
                       <button
-                        onClick={() => { setQuickWaterMode('add'); submitQuickLog('add') }}
+                        onClick={() => submitQuickLog('add')}
                         disabled={!quickValue || quickSaving}
                         className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors"
                       >
-                        {quickSaving && quickWaterMode === 'add' ? 'Saving...' : 'Add'}
+                        {quickSaving ? 'Saving...' : 'Save Water'}
                       </button>
-                      <button
-                        onClick={() => { setQuickWaterMode('subtract'); submitQuickLog('subtract') }}
-                        disabled={!quickValue || quickSaving}
-                        className="w-full border-2 border-gray-200 text-gray-600 font-bold py-3.5 rounded-2xl text-sm hover:border-gray-300 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-                      >
-                        {quickSaving && quickWaterMode === 'subtract' ? 'Saving...' : 'Subtract'}
-                      </button>
-                    </div>
+                    )}
                   </>
                 )}
 
                 {/* weight */}
                 {quickAction === 'weight' && (
                   <>
-                    <p className="text-sm text-gray-500 mb-3">Today's weight (lbs)</p>
+                    <p className="text-sm text-gray-500 mb-3">Weight (lbs)</p>
                     <input type="number" step="0.1" value={quickValue}
                       onChange={e => setQuickValue(e.target.value)}
                       placeholder="e.g. 145.5"
@@ -826,7 +881,7 @@ export default function Layout() {
                 {/* steps */}
                 {quickAction === 'steps' && (
                   <>
-                    <p className="text-sm text-gray-500 mb-3">Today's steps</p>
+                    <p className="text-sm text-gray-500 mb-3">Steps</p>
                     <input type="number" value={quickValue}
                       onChange={e => setQuickValue(e.target.value)}
                       placeholder="e.g. 8500"
@@ -846,7 +901,7 @@ export default function Layout() {
                 {/* sleep */}
                 {quickAction === 'sleep' && (
                   <>
-                    <p className="text-sm text-gray-500 mb-3">Hours slept last night</p>
+                    <p className="text-sm text-gray-500 mb-3">Hours slept</p>
                     <div className="flex gap-2 mb-3">
                       {['6', '7', '8', '9'].map(h => (
                         <button

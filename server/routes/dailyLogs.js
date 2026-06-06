@@ -198,13 +198,20 @@ router.get('/progress', requireAuth(), async (req, res, next) => {
 // Sending a field as explicit null (e.g. { steps: null }) is a CLEAR signal:
 // sets the value to null and the source to null so auto-sync can fill it again.
 // Omitting a field entirely keeps the existing value unchanged (COALESCE).
+// Optional body field log_date (YYYY-MM-DD, ≤ today) allows past-date logging.
 router.post('/', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const body      = req.body
     const dbUserId  = await getOrCreateUser(userId)
 
-    // Detect explicit null == "clear this field so sync can fill it"
+    // Resolve target date — optional log_date must be YYYY-MM-DD and ≤ today
+    const todayStr  = new Date().toISOString().slice(0, 10)
+    const rawDate   = body.log_date
+    const targetDate = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) && rawDate <= todayStr
+      ? rawDate : todayStr
+
+    // Detect explicit null == "clear this field so sync can fill it" (today only)
     const clearSteps = Object.hasOwn(body, 'steps')         && body.steps         === null
     const clearSleep = Object.hasOwn(body, 'sleep_minutes') && body.sleep_minutes === null
 
@@ -225,7 +232,7 @@ router.post('/', requireAuth(), async (req, res, next) => {
 
     const { rows } = await pool.query(
       `INSERT INTO daily_logs (user_id, logged_date, water_oz, steps, weight_lbs, steps_source, sleep_minutes, sleep_source)
-       VALUES ($1, CURRENT_DATE, $2, $3, $4, 'manual', $5, 'manual')
+       VALUES ($1, $2::date, $3, $4, $5, 'manual', $6, 'manual')
        ON CONFLICT (user_id, logged_date) DO UPDATE SET
          water_oz      = COALESCE(EXCLUDED.water_oz,      daily_logs.water_oz),
          steps         = COALESCE(EXCLUDED.steps,         daily_logs.steps),
@@ -240,12 +247,11 @@ router.post('/', requireAuth(), async (req, res, next) => {
            ELSE COALESCE(daily_logs.sleep_source, 'manual')
          END
        RETURNING water_oz, steps, weight_lbs, sleep_minutes`,
-      [dbUserId, water_oz, steps, weight_lbs, sleep_minutes],
+      [dbUserId, targetDate, water_oz, steps, weight_lbs, sleep_minutes],
     )
 
-    const today = new Date().toISOString().slice(0, 10)
     if (rows[0].water_oz != null) {
-      checkWaterGoal(pool, dbUserId, parseFloat(rows[0].water_oz), today)
+      checkWaterGoal(pool, dbUserId, parseFloat(rows[0].water_oz), targetDate)
         .catch(e => console.error('[gami water]', e.message))
     }
     res.json(rows[0])
