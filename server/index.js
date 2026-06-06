@@ -114,8 +114,23 @@ app.get('/api/admin/backup/status', clerkMiddleware(), async (req, res) => {
 // Serve React client if dist exists — must come after all API routes
 const distPath = path.join(__dirname, '../client/dist')
 if (existsSync(distPath)) {
-  app.use(express.static(distPath))
+  app.use(express.static(distPath, {
+    setHeaders(res, filePath) {
+      if (path.basename(filePath) === 'index.html') {
+        // Never cache the HTML entry point. The Android WebView (and some desktop
+        // browsers) will otherwise serve a stale index.html that references an old
+        // JS bundle hash, causing the app to run old code after a deploy.
+        res.set('Cache-Control', 'no-store')
+      } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+        // Vite content-hashes every asset filename, so they can be cached forever.
+        res.set('Cache-Control', 'public, max-age=31536000, immutable')
+      }
+    },
+  }))
+  // SPA fallback — any path not matched by a static file serves index.html.
+  // Also marked no-store so React Router deep-links always get the latest shell.
   app.get('*', (req, res) => {
+    res.set('Cache-Control', 'no-store')
     res.sendFile(path.join(distPath, 'index.html'))
   })
 }
