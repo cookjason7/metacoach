@@ -1471,6 +1471,7 @@ export default function CoachDashboard({ getToken, userRole }) {
   const [typeFilter,     setTypeFilter]     = useState('all')
   const [statusFilter,   setStatusFilter]   = useState('all')
   const [checkinFilter,  setCheckinFilter]  = useState('all')
+  const [weekFilter,     setWeekFilter]     = useState('this_week')
   const [sortBy,         setSortBy]         = useState('activity')
 
   // ── Tabs ─────────────────────────────────────────────────────────────────────
@@ -1618,15 +1619,38 @@ export default function CoachDashboard({ getToken, userRole }) {
       .sort((a, b) => a[1].localeCompare(b[1]))
   }, [coaches])
 
+  // Calendar-week helpers for check-in filtering
+  const checkinWeekBounds = useMemo(() => {
+    const now = new Date()
+    // Monday of the current week (ISO week: Mon=start)
+    const thisMonday = new Date(now)
+    thisMonday.setHours(0, 0, 0, 0)
+    const day = thisMonday.getDay() // 0=Sun
+    thisMonday.setDate(thisMonday.getDate() - (day === 0 ? 6 : day - 1))
+    const lastMonday = new Date(thisMonday.getTime() - 7 * 24 * 60 * 60 * 1000)
+    const nextMonday = new Date(thisMonday.getTime() + 7 * 24 * 60 * 60 * 1000)
+    return { thisMonday, lastMonday, nextMonday }
+  }, []) // recomputed only on mount (good enough for a dashboard session)
+
   const filteredClients = useMemo(() => {
     const q = clientSearch.trim().toLowerCase()
+    const { thisMonday, lastMonday, nextMonday } = checkinWeekBounds
+    const weekStart = weekFilter === 'this_week' ? thisMonday : lastMonday
+    const weekEnd   = weekFilter === 'this_week' ? nextMonday : thisMonday
+
+    function hadCheckinInWeek(c) {
+      if (!c.last_checkin_at) return false
+      const at = new Date(c.last_checkin_at)
+      return at >= weekStart && at < weekEnd
+    }
+
     return clients
       .filter(c => {
         if (isAdmin && coachFilter !== 'all' && String(c.assigned_coach_id ?? '') !== coachFilter) return false
         if (typeFilter   !== 'all' && (c.coaching_type || 'vip') !== typeFilter) return false
         if (statusFilter !== 'all' && accountStatus(c) !== statusFilter) return false
-        if (checkinFilter === 'received' && !c.check_in_this_week) return false
-        if (checkinFilter === 'none'     &&  c.check_in_this_week) return false
+        if (checkinFilter === 'received' && !hadCheckinInWeek(c)) return false
+        if (checkinFilter === 'none'     &&  hadCheckinInWeek(c)) return false
         if (q && !`${clientName(c)} ${c.email ?? ''}`.toLowerCase().includes(q)) return false
         return true
       })
@@ -1636,7 +1660,7 @@ export default function CoachDashboard({ getToken, userRole }) {
         if (sortBy === 'status') return accountStatus(a).localeCompare(accountStatus(b)) || clientName(a).localeCompare(clientName(b))
         return clientName(a).localeCompare(clientName(b))
       })
-  }, [clients, clientSearch, coachFilter, typeFilter, statusFilter, checkinFilter, sortBy, isAdmin])
+  }, [clients, clientSearch, coachFilter, typeFilter, statusFilter, checkinFilter, weekFilter, sortBy, isAdmin, checkinWeekBounds])
 
   const tabs = [
     { id: 'clients',     label: 'Clients' },
@@ -1771,9 +1795,15 @@ export default function CoachDashboard({ getToken, userRole }) {
                 <option value="invited">Awaiting Setup</option>
                 <option value="inactive">Inactive</option>
               </select>
+              <select value={weekFilter} onChange={e => setWeekFilter(e.target.value)}
+                className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+                <option value="this_week">This week</option>
+                <option value="last_week">Last week</option>
+              </select>
               <select value={checkinFilter} onChange={e => setCheckinFilter(e.target.value)}
                 className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
-                <option value="all">All check-ins</option>
+                {/* "all" is the hidden default — not shown as a selectable option */}
+                <option value="all" disabled hidden>Check-ins</option>
                 <option value="received">Check-in received</option>
                 <option value="none">No check-in</option>
               </select>
@@ -1787,10 +1817,10 @@ export default function CoachDashboard({ getToken, userRole }) {
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <p className="text-xs text-gray-400">{filteredClients.length} of {clients.length} clients</p>
-              {(clientSearch || (isAdmin && coachFilter !== 'all') || typeFilter !== 'all' || statusFilter !== 'all' || checkinFilter !== 'all') && (
+              {(clientSearch || (isAdmin && coachFilter !== 'all') || typeFilter !== 'all' || statusFilter !== 'all' || checkinFilter !== 'all' || weekFilter !== 'this_week') && (
                 <button
                   type="button"
-                  onClick={() => { setClientSearch(''); if (isAdmin) setCoachFilter('all'); setTypeFilter('all'); setStatusFilter('all'); setCheckinFilter('all') }}
+                  onClick={() => { setClientSearch(''); if (isAdmin) setCoachFilter('all'); setTypeFilter('all'); setStatusFilter('all'); setCheckinFilter('all'); setWeekFilter('this_week') }}
                   className="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-semibold text-[#E8670A] hover:bg-orange-100 transition-colors"
                 >
                   Clear filters

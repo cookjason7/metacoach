@@ -78,7 +78,9 @@ function Sparkline({ data, goalValue }) {
 function ChartCard({ title, data, goalValue, goalLabel, fmtVal }) {
   const cleanData = (data ?? [])
     .filter(d => d.value != null && Number.isFinite(Number(d.value)))
-    .sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
+    // Use timestamp arithmetic — pg returns date columns as JS Date objects,
+    // not plain strings, so String().localeCompare() gives wrong ordering.
+    .sort((a, b) => new Date(a.date ?? 0).getTime() - new Date(b.date ?? 0).getTime())
   const values    = cleanData.map(d => Number(d.value))
   const hasData   = values.length >= 2
   return (
@@ -160,7 +162,7 @@ function HubRowCard({ label, summary, onClick }) {
 function MeasurementCard({ field, measurements }) {
   const withValue = measurements
     .filter(m => m[field.key] != null && m[field.key] !== '')
-    .sort((a, b) => String(a.measurement_date).localeCompare(String(b.measurement_date)))
+    .sort((a, b) => new Date(a.measurement_date ?? 0).getTime() - new Date(b.measurement_date ?? 0).getTime())
   const first  = withValue[0]
   const latest = withValue[withValue.length - 1]
   const delta  = first && latest && first.id !== latest.id

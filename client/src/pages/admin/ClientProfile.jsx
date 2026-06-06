@@ -1184,12 +1184,13 @@ function BmrTdeeCalculator({ client, getToken, onUpdate }) {
     { value: '1.9',   label: 'Extra active (physical job + training)' },
   ]
   const ADJ_OPTIONS = [
-    { value: '-750', label: '−750 kcal (aggressive deficit)' },
-    { value: '-500', label: '−500 kcal (deficit)' },
-    { value: '-250', label: '−250 kcal (mild deficit)' },
-    { value: '0',    label: 'Maintenance' },
-    { value: '250',  label: '+250 kcal (mild surplus)' },
-    { value: '500',  label: '+500 kcal (surplus)' },
+    { value: '-1000', label: '−1000 calories / ~2 lb per week'   },
+    { value: '-750',  label: '−750 calories / ~1.5 lb per week'  },
+    { value: '-500',  label: '−500 calories / ~1 lb per week'    },
+    { value: '-250',  label: '−250 calories / ~0.5 lb per week'  },
+    { value: '0',     label: 'Maintenance'                       },
+    { value: '250',   label: '+250 calories / ~0.5 lb per week'  },
+    { value: '500',   label: '+500 calories / ~1 lb per week'    },
   ]
 
   const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 min-h-[44px]'
@@ -2302,9 +2303,10 @@ function MeasurementsSection({ clientId, getToken, startDate, endDate }) {
 }
 
 function MiniChart({ series, valueKey = 'value', series2, valueKey2, color = '#E8670A', color2 = '#10b981' }) {
-  // Sort both series oldest→newest so the chart always reads left=old right=new
-  const sorted1 = (series  ?? []).slice().sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
-  const sorted2 = (series2 ?? []).slice().sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
+  // Sort oldest→newest using timestamp — pg returns date columns as JS Date
+  // objects, so String().localeCompare() gives wrong (alphabetical weekday) order.
+  const sorted1 = (series  ?? []).slice().sort((a, b) => new Date(a.date ?? 0).getTime() - new Date(b.date ?? 0).getTime())
+  const sorted2 = (series2 ?? []).slice().sort((a, b) => new Date(a.date ?? 0).getTime() - new Date(b.date ?? 0).getTime())
   const vals1 = sorted1.map(d => Number(d[valueKey]) || 0)
   const vals2 = series2 ? sorted2.map(d => Number(d[valueKey2 ?? valueKey]) || 0) : []
   if (vals1.length < 2) return <p className="text-[11px] text-gray-300 text-center py-6">Not enough data</p>
@@ -2330,18 +2332,35 @@ function MiniChart({ series, valueKey = 'value', series2, valueKey2, color = '#E
   )
 }
 
-function ChartCard({ title, legend, series, valueKey, series2, valueKey2, color, color2 }) {
-  const points = (series ?? []).filter(d => d[valueKey] != null && Number.isFinite(Number(d[valueKey])))
+function ChartCard({ title, legend, series, valueKey, series2, valueKey2, color, color2, fmtVal }) {
+  const points = (series ?? [])
+    .filter(d => d[valueKey] != null && Number.isFinite(Number(d[valueKey])))
+    .sort((a, b) => new Date(a.date ?? 0).getTime() - new Date(b.date ?? 0).getTime())
   const hasEnoughData = points.length >= 2
+  const vals1   = points.map(d => Number(d[valueKey]))
+  const minVal  = hasEnoughData ? Math.min(...vals1) : null
+  const maxVal  = hasEnoughData ? Math.max(...vals1) : null
+  const fmt     = v => fmtVal ? fmtVal(v) : (Number.isInteger(v) ? v.toLocaleString() : v.toFixed(1))
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4">
       <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
         <p className="text-xs font-semibold text-gray-700">{title}</p>
         {legend && <div className="flex items-center gap-3 text-[10px] text-gray-400">{legend}</div>}
       </div>
-      {hasEnoughData
-        ? <MiniChart series={series} valueKey={valueKey} series2={series2} valueKey2={valueKey2} color={color} color2={color2} />
-        : <p className="text-[11px] text-gray-300 text-center py-6">Need 2+ entries to chart.</p>}
+      {hasEnoughData ? (
+        <>
+          {/* Min/max labels — matches the client-facing ChartCard style */}
+          {!series2 && minVal != null && (
+            <div className="flex justify-between text-[10px] text-gray-400 mb-0.5">
+              <span>{fmt(minVal)}</span>
+              <span>{fmt(maxVal)}</span>
+            </div>
+          )}
+          <MiniChart series={series} valueKey={valueKey} series2={series2} valueKey2={valueKey2} color={color} color2={color2} />
+        </>
+      ) : (
+        <p className="text-[11px] text-gray-300 text-center py-6">Need 2+ entries to chart.</p>
+      )}
     </div>
   )
 }
@@ -2640,15 +2659,15 @@ function ProgressTab({ clientId, clientName, getToken, role }) {
 
           {/* Charts — no Movement per Period */}
           <div className="grid sm:grid-cols-2 gap-4">
-            <ChartCard title="Weight (lbs)" series={wt} valueKey="value" />
+            <ChartCard title="Weight (lbs)" series={wt} valueKey="value" fmtVal={v => `${v} lbs`} />
             <ChartCard
               title="Calories & Protein"
               legend={<><span style={{ color: '#E8670A' }}>— Cal</span><span style={{ color: '#10b981' }}>- - Prot</span></>}
               series={mac} valueKey="calories"
               series2={mac} valueKey2="protein" color2="#10b981"
             />
-            <ChartCard title="Daily Steps" series={stp} valueKey="value" />
-            <ChartCard title="Sleep (hrs)" series={slpHrs} valueKey="value" color="#6366f1" />
+            <ChartCard title="Daily Steps" series={stp} valueKey="value" fmtVal={v => Number(v).toLocaleString()} />
+            <ChartCard title="Sleep (hrs)" series={slpHrs} valueKey="value" color="#6366f1" fmtVal={v => `${v}h`} />
           </div>
 
           {/* Measurements */}
