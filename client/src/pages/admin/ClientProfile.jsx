@@ -4875,12 +4875,48 @@ function WorkoutsTab({ clientId, getToken }) {
     if (res.ok) setExercises(prev => prev.filter(e => e.id !== exId))
   }
 
-  // ── Group exercises by day ─────────────────────────────────────────────────
+  // ── Move exercise up / down within its day ─────────────────────────────────
+  async function moveExercise(exId, direction) {
+    const ex = exercises.find(e => e.id === exId)
+    if (!ex) return
+    // Get this day's exercises in current display order
+    const dayExs = exercises
+      .filter(e => e.day === ex.day)
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id)
+    const idx = dayExs.findIndex(e => e.id === exId)
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1
+    if (targetIdx < 0 || targetIdx >= dayExs.length) return
+    // Swap positions and assign clean sequential sort_orders
+    const reordered = [...dayExs]
+    ;[reordered[idx], reordered[targetIdx]] = [reordered[targetIdx], reordered[idx]]
+    const updates = reordered.map((e, i) => ({ id: e.id, sort_order: i }))
+    // Update locally for instant feedback
+    setExercises(prev => prev.map(e => {
+      const u = updates.find(u => u.id === e.id)
+      return u ? { ...e, sort_order: u.sort_order } : e
+    }))
+    // Persist the two swapped exercises to the server
+    const token = await getToken()
+    await Promise.all(
+      updates
+        .filter(u => u.id === exId || u.id === dayExs[targetIdx].id)
+        .map(u => fetch(`${BASE}/${selected.id}/exercises/${u.id}`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sort_order: u.sort_order }),
+        }))
+    )
+  }
+
+  // ── Group exercises by day, sorted by sort_order then id ──────────────────
   const days = exercises.reduce((acc, ex) => {
     if (!acc[ex.day]) acc[ex.day] = []
     acc[ex.day].push(ex)
     return acc
   }, {})
+  Object.values(days).forEach(exs =>
+    exs.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id)
+  )
 
   const inputCls = 'w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30'
 
@@ -5057,11 +5093,14 @@ function WorkoutsTab({ clientId, getToken }) {
                   <th className="text-center px-2 py-2 font-semibold text-gray-500 w-24">Weight</th>
                   <th className="text-center px-2 py-2 font-semibold text-gray-500 w-16">Rest</th>
                   <th className="text-left px-3 py-2 font-semibold text-gray-500">Instructions</th>
+                  <th className="w-12 text-center px-1 py-2 font-semibold text-gray-400 text-[10px]">Order</th>
                   <th className="w-8" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {exs.map(ex => {
+                {exs.map((ex, exIdx) => {
+                  const isFirst = exIdx === 0
+                  const isLast  = exIdx === exs.length - 1
                   function cell(field, val, type = 'text', placeholder = '—') {
                     const isEditing = editCell?.exId === ex.id && editCell?.field === field
                     return isEditing ? (
@@ -5104,6 +5143,23 @@ function WorkoutsTab({ clientId, getToken }) {
                       </td>
                       <td className="px-3 py-2.5 text-gray-500 max-w-[200px]">
                         {cell('notes', ex.notes, 'text', 'Instructions…')}
+                      </td>
+                      {/* ↑ / ↓ reorder buttons */}
+                      <td className="px-1 py-2.5 text-center w-12">
+                        <div className="flex flex-col items-center gap-0.5">
+                          <button
+                            onClick={() => moveExercise(ex.id, 'up')}
+                            disabled={isFirst}
+                            title="Move up"
+                            className="text-gray-300 hover:text-[#E8670A] disabled:opacity-20 disabled:cursor-not-allowed transition-colors text-xs leading-none px-1 py-0.5 min-h-[20px]"
+                          >▲</button>
+                          <button
+                            onClick={() => moveExercise(ex.id, 'down')}
+                            disabled={isLast}
+                            title="Move down"
+                            className="text-gray-300 hover:text-[#E8670A] disabled:opacity-20 disabled:cursor-not-allowed transition-colors text-xs leading-none px-1 py-0.5 min-h-[20px]"
+                          >▼</button>
+                        </div>
                       </td>
                       <td className="px-2 py-2.5 text-center">
                         <button
