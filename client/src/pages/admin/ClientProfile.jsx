@@ -16,8 +16,9 @@ const TABS = [
   { id: 'messaging',   label: 'Messages',   icon: '✉' },
   { id: 'engagement',  label: 'Engagement', icon: '⚡' },
   { id: 'bloodwork',   label: 'Bloodwork',  icon: '🩸' },
+  { id: 'workouts',    label: 'Workouts',   icon: '💪' },
 ]
-// First 7 always visible; last 2 tucked behind "More ▾" so the row fits desktop without scrolling.
+// First 7 always visible; rest tucked behind "More ▾" so the row fits desktop without scrolling.
 const PRIMARY_TABS = TABS.slice(0, 7)
 const MORE_TABS    = TABS.slice(7)
 
@@ -4726,6 +4727,428 @@ function BloodworkTab({ clientId, getToken, bloodworkEnabled = false, onClientUp
   )
 }
 
+// ─── Coach Workouts Tab ───────────────────────────────────────────────────────
+
+function WorkoutsTab({ clientId, getToken }) {
+  const BASE = `${API_URL}/api/coach-admin/clients/${clientId}/workouts`
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  const [workouts,     setWorkouts]     = useState([])
+  const [loading,      setLoading]      = useState(true)
+  const [selected,     setSelected]     = useState(null)   // { id, name, description }
+  const [exercises,    setExercises]    = useState([])
+  const [logs,         setLogs]         = useState([])
+  const [detailLoad,   setDetailLoad]   = useState(false)
+
+  // Create workout form
+  const [showCreate,   setShowCreate]   = useState(false)
+  const [createName,   setCreateName]   = useState('')
+  const [createDesc,   setCreateDesc]   = useState('')
+  const [creating,     setCreating]     = useState(false)
+
+  // Add exercise form
+  const [showAddEx,    setShowAddEx]    = useState(false)
+  const [exForm,       setExForm]       = useState({ day: 'Day 1', exercise_name: '', sets: '', reps: '', weight: '', rest_seconds: '', notes: '' })
+  const [addingEx,     setAddingEx]     = useState(false)
+
+  // Inline edit state
+  const [editCell,     setEditCell]     = useState(null)   // { exId, field }
+  const [editVal,      setEditVal]      = useState('')
+  const [cellSaving,   setCellSaving]   = useState(false)
+
+  const [error, setError] = useState(null)
+
+  // ── Load list ──────────────────────────────────────────────────────────────
+  async function loadWorkouts() {
+    setLoading(true)
+    try {
+      const token = await getToken()
+      const res   = await fetch(BASE, { headers: { Authorization: `Bearer ${token}` } })
+      if (res.ok) setWorkouts(await res.json())
+    } finally { setLoading(false) }
+  }
+  useEffect(() => { loadWorkouts() }, [clientId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Open a workout ─────────────────────────────────────────────────────────
+  async function openWorkout(w) {
+    setSelected(w); setDetailLoad(true); setExercises([]); setLogs([])
+    try {
+      const token = await getToken()
+      const res   = await fetch(`${BASE}/${w.id}`, { headers: { Authorization: `Bearer ${token}` } })
+      if (!res.ok) return
+      const data  = await res.json()
+      setExercises(data.exercises ?? [])
+      setLogs(data.logs ?? [])
+    } finally { setDetailLoad(false) }
+  }
+
+  // ── Create workout ─────────────────────────────────────────────────────────
+  async function createWorkout(e) {
+    e.preventDefault()
+    if (!createName.trim()) return
+    setCreating(true); setError(null)
+    try {
+      const token = await getToken()
+      const res   = await fetch(BASE, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: createName.trim(), description: createDesc.trim() || null }),
+      })
+      if (!res.ok) throw new Error('Failed to create workout')
+      const w = await res.json()
+      setWorkouts(prev => [{ ...w, exercise_count: 0, day_count: 0, log_count: 0 }, ...prev])
+      setCreateName(''); setCreateDesc(''); setShowCreate(false)
+      openWorkout(w)
+    } catch (err) { setError(err.message) } finally { setCreating(false) }
+  }
+
+  // ── Delete workout ─────────────────────────────────────────────────────────
+  async function deleteWorkout() {
+    if (!window.confirm(`Delete "${selected.name}"? This cannot be undone.`)) return
+    const token = await getToken()
+    await fetch(`${BASE}/${selected.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+    setWorkouts(prev => prev.filter(w => w.id !== selected.id))
+    setSelected(null)
+  }
+
+  // ── Add exercise ───────────────────────────────────────────────────────────
+  async function addExercise(e) {
+    e.preventDefault()
+    if (!exForm.exercise_name.trim()) return
+    setAddingEx(true); setError(null)
+    try {
+      const token = await getToken()
+      const body  = {
+        day:           exForm.day || 'Day 1',
+        exercise_name: exForm.exercise_name.trim(),
+        sets:          exForm.sets !== '' ? Number(exForm.sets) : null,
+        reps:          exForm.reps || null,
+        weight:        exForm.weight || null,
+        rest_seconds:  exForm.rest_seconds !== '' ? Number(exForm.rest_seconds) : null,
+        notes:         exForm.notes || null,
+        sort_order:    exercises.length,
+      }
+      const res = await fetch(`${BASE}/${selected.id}/exercises`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error('Failed to add exercise')
+      const ex = await res.json()
+      setExercises(prev => [...prev, ex])
+      setExForm({ day: exForm.day, exercise_name: '', sets: '', reps: '', weight: '', rest_seconds: '', notes: '' })
+      setShowAddEx(false)
+    } catch (err) { setError(err.message) } finally { setAddingEx(false) }
+  }
+
+  // ── Inline edit ────────────────────────────────────────────────────────────
+  function startEdit(exId, field, val) {
+    setEditCell({ exId, field }); setEditVal(val != null ? String(val) : '')
+  }
+  function cancelEdit() { setEditCell(null) }
+  async function saveEdit(exId, field) {
+    setCellSaving(true)
+    try {
+      const token = await getToken()
+      const val   = field === 'sets' || field === 'rest_seconds'
+        ? (editVal !== '' ? Number(editVal) : null)
+        : (editVal || null)
+      const res = await fetch(`${BASE}/${selected.id}/exercises/${exId}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [field]: val }),
+      })
+      if (res.ok) {
+        const updated = await res.json()
+        setExercises(prev => prev.map(e => e.id === exId ? { ...e, ...updated } : e))
+      }
+    } finally { setCellSaving(false); setEditCell(null) }
+  }
+
+  // ── Delete exercise ────────────────────────────────────────────────────────
+  async function deleteExercise(exId, name) {
+    if (!window.confirm(`Remove "${name}" from this workout?`)) return
+    const token = await getToken()
+    const res   = await fetch(`${BASE}/${selected.id}/exercises/${exId}`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+    })
+    if (res.ok) setExercises(prev => prev.filter(e => e.id !== exId))
+  }
+
+  // ── Group exercises by day ─────────────────────────────────────────────────
+  const days = exercises.reduce((acc, ex) => {
+    if (!acc[ex.day]) acc[ex.day] = []
+    acc[ex.day].push(ex)
+    return acc
+  }, {})
+
+  const inputCls = 'w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30'
+
+  // ── Workout list view ──────────────────────────────────────────────────────
+  if (!selected) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-gray-500">
+            {loading ? 'Loading…' : `${workouts.length} program${workouts.length !== 1 ? 's' : ''}`}
+          </p>
+          <button
+            onClick={() => setShowCreate(c => !c)}
+            className="bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors"
+          >
+            {showCreate ? 'Cancel' : '+ Assign Program'}
+          </button>
+        </div>
+
+        {showCreate && (
+          <form onSubmit={createWorkout} className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+            <p className="text-sm font-semibold text-gray-700">New Workout Program</p>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Program Name *</label>
+              <input value={createName} onChange={e => setCreateName(e.target.value)} required
+                placeholder="e.g. Week 1 — Full Body Strength" className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Description / Coach Notes</label>
+              <textarea rows={2} value={createDesc} onChange={e => setCreateDesc(e.target.value)}
+                placeholder="Program overview, focus, client-specific notes…"
+                className={`${inputCls} resize-none`} />
+            </div>
+            {error && <p className="text-xs text-red-500">{error}</p>}
+            <button type="submit" disabled={creating || !createName.trim()}
+              className="bg-[#E8670A] text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
+              {creating ? 'Creating…' : 'Create Program'}
+            </button>
+          </form>
+        )}
+
+        {loading ? null : workouts.length === 0 ? (
+          <div className="text-center py-12 bg-white rounded-xl border border-gray-200">
+            <p className="text-3xl mb-2">💪</p>
+            <p className="text-sm font-semibold text-gray-700 mb-1">No programs assigned yet</p>
+            <p className="text-xs text-gray-400">Click "Assign Program" to create the client's first workout plan.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {workouts.map(w => (
+              <button key={w.id} onClick={() => openWorkout(w)}
+                className="w-full text-left bg-white rounded-xl border border-gray-200 p-4 hover:border-[#E8670A] hover:shadow-sm transition-all">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-900">{w.name}</p>
+                    {w.description && (
+                      <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{w.description}</p>
+                    )}
+                    <div className="flex gap-3 mt-1.5 text-xs text-gray-400 flex-wrap">
+                      <span>{w.day_count ?? 0} days</span>
+                      <span>{w.exercise_count ?? 0} exercises</span>
+                      {w.log_count > 0 && (
+                        <span className="text-green-600 font-medium">{w.log_count} logged</span>
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-gray-300 shrink-0">›</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ── Workout detail / edit view ─────────────────────────────────────────────
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div>
+        <button onClick={() => setSelected(null)} className="text-xs text-gray-400 hover:text-gray-600 mb-2 flex items-center gap-1">
+          ← All Programs
+        </button>
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-lg font-bold text-gray-900">{selected.name}</p>
+            {selected.description && (
+              <p className="text-xs text-gray-500 mt-0.5 line-clamp-3">{selected.description}</p>
+            )}
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <button
+              onClick={() => setShowAddEx(a => !a)}
+              className="bg-[#E8670A] text-white px-3 py-2 rounded-lg text-xs font-semibold hover:bg-[#c45e09] transition-colors min-h-[36px]"
+            >
+              {showAddEx ? 'Cancel' : '+ Add Exercise'}
+            </button>
+            <button
+              onClick={deleteWorkout}
+              className="px-3 py-2 rounded-lg text-xs font-medium text-red-400 border border-red-100 hover:bg-red-50 transition-colors min-h-[36px]"
+            >
+              Delete Program
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Add exercise form */}
+      {showAddEx && (
+        <form onSubmit={addExercise} className="bg-orange-50 border border-orange-200 rounded-xl p-4 space-y-3">
+          <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Add Exercise</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div className="col-span-2 sm:col-span-1">
+              <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Day / Session</label>
+              <input value={exForm.day} onChange={e => setExForm(f => ({ ...f, day: e.target.value }))}
+                placeholder="Day 1" className={inputCls} />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Exercise Name *</label>
+              <input value={exForm.exercise_name} onChange={e => setExForm(f => ({ ...f, exercise_name: e.target.value }))}
+                required placeholder="e.g. Barbell Back Squat" className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Sets</label>
+              <input type="number" min="0" value={exForm.sets} onChange={e => setExForm(f => ({ ...f, sets: e.target.value }))}
+                placeholder="3" className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Reps</label>
+              <input value={exForm.reps} onChange={e => setExForm(f => ({ ...f, reps: e.target.value }))}
+                placeholder="8-10" className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Weight / Load</label>
+              <input value={exForm.weight} onChange={e => setExForm(f => ({ ...f, weight: e.target.value }))}
+                placeholder="135 lbs" className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Rest (seconds)</label>
+              <input type="number" min="0" value={exForm.rest_seconds} onChange={e => setExForm(f => ({ ...f, rest_seconds: e.target.value }))}
+                placeholder="90" className={inputCls} />
+            </div>
+            <div className="col-span-2 sm:col-span-3">
+              <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Exercise Instructions / Notes</label>
+              <input value={exForm.notes} onChange={e => setExForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder="Focus on chest-to-bar, pause 1s at bottom…" className={inputCls} />
+            </div>
+          </div>
+          {error && <p className="text-xs text-red-500">{error}</p>}
+          <button type="submit" disabled={addingEx || !exForm.exercise_name.trim()}
+            className="bg-[#E8670A] text-white px-5 py-2 rounded-lg text-xs font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
+            {addingEx ? 'Adding…' : 'Add Exercise'}
+          </button>
+        </form>
+      )}
+
+      {detailLoad && <p className="text-sm text-gray-400 text-center py-6">Loading…</p>}
+
+      {/* Exercise table grouped by day */}
+      {!detailLoad && Object.entries(days).map(([dayName, exs]) => (
+        <div key={dayName} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="bg-[#0F1E35] px-4 py-2.5 flex items-center justify-between">
+            <p className="text-sm font-semibold text-white">{dayName}</p>
+            <span className="text-[10px] text-white/50">{exs.length} exercise{exs.length !== 1 ? 's' : ''}</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs min-w-[580px]">
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr>
+                  <th className="text-left px-3 py-2 font-semibold text-gray-500">Exercise</th>
+                  <th className="text-center px-2 py-2 font-semibold text-gray-500 w-14">Sets</th>
+                  <th className="text-center px-2 py-2 font-semibold text-gray-500 w-20">Reps</th>
+                  <th className="text-center px-2 py-2 font-semibold text-gray-500 w-24">Weight</th>
+                  <th className="text-center px-2 py-2 font-semibold text-gray-500 w-16">Rest</th>
+                  <th className="text-left px-3 py-2 font-semibold text-gray-500">Instructions</th>
+                  <th className="w-8" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {exs.map(ex => {
+                  function cell(field, val, type = 'text', placeholder = '—') {
+                    const isEditing = editCell?.exId === ex.id && editCell?.field === field
+                    return isEditing ? (
+                      <input
+                        autoFocus
+                        type={type}
+                        value={editVal}
+                        onChange={e => setEditVal(e.target.value)}
+                        onBlur={() => saveEdit(ex.id, field)}
+                        onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') cancelEdit() }}
+                        className="w-full border border-[#E8670A] rounded px-1.5 py-0.5 text-xs focus:outline-none bg-orange-50"
+                        placeholder={placeholder}
+                      />
+                    ) : (
+                      <span
+                        onClick={() => startEdit(ex.id, field, val)}
+                        title="Click to edit"
+                        className="cursor-pointer hover:text-[#E8670A] transition-colors"
+                      >
+                        {val ?? <span className="text-gray-300">—</span>}
+                      </span>
+                    )
+                  }
+                  return (
+                    <tr key={ex.id} className="hover:bg-gray-50/40">
+                      <td className="px-3 py-2.5 font-medium text-gray-900">
+                        {cell('exercise_name', ex.exercise_name)}
+                      </td>
+                      <td className="px-2 py-2.5 text-center text-gray-600">
+                        {cell('sets', ex.sets, 'number', '3')}
+                      </td>
+                      <td className="px-2 py-2.5 text-center text-gray-600">
+                        {cell('reps', ex.reps, 'text', '8-10')}
+                      </td>
+                      <td className="px-2 py-2.5 text-center text-gray-600">
+                        {cell('weight', ex.weight, 'text', '135 lbs')}
+                      </td>
+                      <td className="px-2 py-2.5 text-center text-gray-500">
+                        {cell('rest_seconds', ex.rest_seconds, 'number', '90')}
+                      </td>
+                      <td className="px-3 py-2.5 text-gray-500 max-w-[200px]">
+                        {cell('notes', ex.notes, 'text', 'Instructions…')}
+                      </td>
+                      <td className="px-2 py-2.5 text-center">
+                        <button
+                          onClick={() => deleteExercise(ex.id, ex.exercise_name)}
+                          className="text-gray-300 hover:text-red-400 transition-colors font-bold text-sm"
+                          title="Remove exercise"
+                        >✕</button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          {cellSaving && <p className="text-[10px] text-gray-400 px-3 py-1">Saving…</p>}
+        </div>
+      ))}
+
+      {!detailLoad && exercises.length === 0 && (
+        <p className="text-sm text-gray-400 text-center py-6 bg-white rounded-xl border border-gray-200">
+          No exercises yet. Click "+ Add Exercise" to build this program.
+        </p>
+      )}
+
+      {/* Recent logs */}
+      {logs.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Client Workout Log</p>
+          <div className="space-y-1.5">
+            {logs.map((log, i) => (
+              <div key={i} className="flex items-center gap-2 bg-white rounded-lg border border-gray-100 px-3 py-2">
+                <span className="text-green-500 text-sm">✓</span>
+                <p className="text-xs text-gray-500">
+                  {new Date(log.completed_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                </p>
+                {log.notes && <p className="text-xs text-gray-600 ml-1 truncate">{log.notes}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main ClientProfile shell ─────────────────────────────────────────────────
 
 export default function ClientProfile() {
@@ -4914,6 +5337,7 @@ export default function ClientProfile() {
       {tab === 'messaging'  && <MessagingTab   client={client} role={meRole} getToken={getToken} />}
       {tab === 'engagement' && <EngagementTab  clientId={client.id} getToken={getToken} />}
       {tab === 'bloodwork'  && <BloodworkTab   clientId={client.id} getToken={getToken} bloodworkEnabled={client.bloodwork_enabled ?? false} onClientUpdate={u => setClient(c => ({ ...c, ...u }))} client={client} />}
+      {tab === 'workouts'   && <WorkoutsTab    clientId={client.id} getToken={getToken} />}
     </div>
   )
 }

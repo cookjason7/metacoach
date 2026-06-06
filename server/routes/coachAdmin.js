@@ -3034,4 +3034,154 @@ router.post('/form-schedules/process', requireAuth(), async (req, res, next) => 
   } catch (err) { next(err) }
 })
 
+// ─── Coach Workout Management ──────────────────────────────────────────────────
+// Coaches/admins can create, view, and edit workout programs assigned to clients.
+
+// GET /api/coach-admin/clients/:id/workouts
+router.get('/clients/:id/workouts', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId = parseInt(req.params.id, 10)
+    if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
+    const { rows } = await pool.query(
+      `SELECT w.id, w.name, w.description, w.created_at,
+              (SELECT COUNT(*) FROM workout_exercises WHERE workout_id = w.id)::int AS exercise_count,
+              (SELECT COUNT(DISTINCT day) FROM workout_exercises WHERE workout_id = w.id)::int AS day_count,
+              (SELECT MAX(completed_at) FROM workout_logs WHERE workout_id = w.id AND user_id = $1) AS last_logged_at,
+              (SELECT COUNT(*) FROM workout_logs WHERE workout_id = w.id AND user_id = $1)::int AS log_count
+       FROM workouts w WHERE w.user_id = $1 ORDER BY w.created_at DESC`,
+      [clientId],
+    )
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
+// GET /api/coach-admin/clients/:id/workouts/:wid
+router.get('/clients/:id/workouts/:wid', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId  = parseInt(req.params.id, 10)
+    const workoutId = parseInt(req.params.wid, 10)
+    if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
+    const { rows: [workout] } = await pool.query(
+      'SELECT * FROM workouts WHERE id=$1 AND user_id=$2', [workoutId, clientId])
+    if (!workout) return res.status(404).json({ error: 'Workout not found' })
+    const { rows: exercises } = await pool.query(
+      'SELECT * FROM workout_exercises WHERE workout_id=$1 ORDER BY sort_order, id', [workoutId])
+    const { rows: logs } = await pool.query(
+      'SELECT * FROM workout_logs WHERE workout_id=$1 AND user_id=$2 ORDER BY completed_at DESC LIMIT 10',
+      [workoutId, clientId])
+    res.json({ ...workout, exercises, logs })
+  } catch (err) { next(err) }
+})
+
+// POST /api/coach-admin/clients/:id/workouts — create a workout program for a client
+router.post('/clients/:id/workouts', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId = parseInt(req.params.id, 10)
+    if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
+    const { name, description } = req.body
+    if (!name?.trim()) return res.status(400).json({ error: 'name required' })
+    const { rows: [workout] } = await pool.query(
+      'INSERT INTO workouts (user_id, name, description) VALUES ($1,$2,$3) RETURNING *',
+      [clientId, name.trim(), description ?? null],
+    )
+    res.status(201).json(workout)
+  } catch (err) { next(err) }
+})
+
+// PUT /api/coach-admin/clients/:id/workouts/:wid — update workout name/description
+router.put('/clients/:id/workouts/:wid', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId  = parseInt(req.params.id, 10)
+    const workoutId = parseInt(req.params.wid, 10)
+    if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
+    const { name, description } = req.body
+    const { rows: [w] } = await pool.query(
+      `UPDATE workouts SET name=COALESCE($3, name), description=COALESCE($4, description)
+       WHERE id=$1 AND user_id=$2 RETURNING *`,
+      [workoutId, clientId, name?.trim() ?? null, description ?? null],
+    )
+    if (!w) return res.status(404).json({ error: 'Workout not found' })
+    res.json(w)
+  } catch (err) { next(err) }
+})
+
+// POST /api/coach-admin/clients/:id/workouts/:wid/exercises — add exercise
+router.post('/clients/:id/workouts/:wid/exercises', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId  = parseInt(req.params.id, 10)
+    const workoutId = parseInt(req.params.wid, 10)
+    if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
+    const { rows: [w] } = await pool.query(
+      'SELECT id FROM workouts WHERE id=$1 AND user_id=$2', [workoutId, clientId])
+    if (!w) return res.status(404).json({ error: 'Workout not found' })
+    const { day, exercise_name, sets, reps, weight, rest_seconds, notes, sort_order } = req.body
+    if (!exercise_name?.trim()) return res.status(400).json({ error: 'exercise_name required' })
+    const { rows: [ex] } = await pool.query(
+      `INSERT INTO workout_exercises (workout_id, day, exercise_name, sets, reps, weight, rest_seconds, notes, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [workoutId, day ?? 'Day 1', exercise_name.trim(), sets ?? null, reps ?? null,
+       weight ?? null, rest_seconds ?? null, notes ?? null, sort_order ?? 0],
+    )
+    res.status(201).json(ex)
+  } catch (err) { next(err) }
+})
+
+// PUT /api/coach-admin/clients/:id/workouts/exercises/:eid — edit exercise
+router.put('/clients/:id/workouts/exercises/:eid', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId = parseInt(req.params.id, 10)
+    const exId     = parseInt(req.params.eid, 10)
+    if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
+    // Verify the exercise belongs to a workout owned by this client
+    const { rows: [ex] } = await pool.query(
+      `SELECT we.* FROM workout_exercises we JOIN workouts w ON w.id=we.workout_id
+       WHERE we.id=$1 AND w.user_id=$2`, [exId, clientId])
+    if (!ex) return res.status(404).json({ error: 'Exercise not found' })
+    const allowed = ['exercise_name', 'sets', 'reps', 'weight', 'rest_seconds', 'notes', 'day', 'sort_order']
+    const entries = Object.entries(req.body).filter(([k]) => allowed.includes(k))
+    if (!entries.length) return res.status(400).json({ error: 'No valid fields' })
+    const setClauses = entries.map(([k], i) => `${k}=$${i + 2}`).join(', ')
+    const { rows: [updated] } = await pool.query(
+      `UPDATE workout_exercises SET ${setClauses} WHERE id=$1 RETURNING *`,
+      [exId, ...entries.map(([, v]) => v)],
+    )
+    res.json(updated)
+  } catch (err) { next(err) }
+})
+
+// DELETE /api/coach-admin/clients/:id/workouts/exercises/:eid — remove exercise
+router.delete('/clients/:id/workouts/exercises/:eid', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId = parseInt(req.params.id, 10)
+    const exId     = parseInt(req.params.eid, 10)
+    if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
+    const { rowCount } = await pool.query(
+      `DELETE FROM workout_exercises we USING workouts w
+       WHERE we.workout_id=w.id AND we.id=$1 AND w.user_id=$2`, [exId, clientId])
+    if (!rowCount) return res.status(404).json({ error: 'Exercise not found' })
+    res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
+// DELETE /api/coach-admin/clients/:id/workouts/:wid — delete workout program
+router.delete('/clients/:id/workouts/:wid', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId  = parseInt(req.params.id, 10)
+    const workoutId = parseInt(req.params.wid, 10)
+    if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
+    const { rowCount } = await pool.query(
+      'DELETE FROM workouts WHERE id=$1 AND user_id=$2', [workoutId, clientId])
+    if (!rowCount) return res.status(404).json({ error: 'Workout not found' })
+    res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
 export default router

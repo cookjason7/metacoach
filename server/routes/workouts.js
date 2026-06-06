@@ -209,6 +209,66 @@ router.post('/:id/log', requireAuth(), async (req, res, next) => {
   }
 })
 
+// POST /api/workouts/:id/exercises — add an exercise to a workout the user owns
+router.post('/:id/exercises', requireAuth(), async (req, res, next) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId  = await getOrCreateUser(userId)
+    const workoutId = parseInt(req.params.id, 10)
+    // Verify ownership
+    const { rows: [w] } = await pool.query('SELECT id FROM workouts WHERE id=$1 AND user_id=$2', [workoutId, dbUserId])
+    if (!w) return res.status(404).json({ error: 'Workout not found' })
+    const { day, exercise_name, sets, reps, weight, rest_seconds, notes, sort_order } = req.body
+    if (!exercise_name?.trim()) return res.status(400).json({ error: 'exercise_name required' })
+    const { rows: [ex] } = await pool.query(
+      `INSERT INTO workout_exercises (workout_id, day, exercise_name, sets, reps, weight, rest_seconds, notes, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [workoutId, day ?? 'Day 1', exercise_name.trim(), sets ?? null, reps ?? null,
+       weight ?? null, rest_seconds ?? null, notes ?? null, sort_order ?? 0],
+    )
+    res.status(201).json(ex)
+  } catch (err) { next(err) }
+})
+
+// PUT /api/workouts/exercises/:id — update an exercise (user must own the parent workout)
+router.put('/exercises/:id', requireAuth(), async (req, res, next) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId  = await getOrCreateUser(userId)
+    const exId      = parseInt(req.params.id, 10)
+    // Verify ownership through the workout
+    const { rows: [ex] } = await pool.query(
+      `SELECT we.* FROM workout_exercises we
+       JOIN workouts w ON w.id = we.workout_id
+       WHERE we.id=$1 AND w.user_id=$2`, [exId, dbUserId])
+    if (!ex) return res.status(404).json({ error: 'Exercise not found' })
+    const allowed = ['exercise_name', 'sets', 'reps', 'weight', 'rest_seconds', 'notes', 'day', 'sort_order']
+    const sets_entries = Object.entries(req.body).filter(([k]) => allowed.includes(k))
+    if (!sets_entries.length) return res.status(400).json({ error: 'No valid fields to update' })
+    const setClauses = sets_entries.map(([k], i) => `${k}=$${i + 2}`).join(', ')
+    const values     = sets_entries.map(([, v]) => v)
+    const { rows: [updated] } = await pool.query(
+      `UPDATE workout_exercises SET ${setClauses} WHERE id=$1 RETURNING *`,
+      [exId, ...values],
+    )
+    res.json(updated)
+  } catch (err) { next(err) }
+})
+
+// DELETE /api/workouts/exercises/:id — remove an exercise (user must own the parent workout)
+router.delete('/exercises/:id', requireAuth(), async (req, res, next) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId  = await getOrCreateUser(userId)
+    const exId      = parseInt(req.params.id, 10)
+    const { rowCount } = await pool.query(
+      `DELETE FROM workout_exercises we USING workouts w
+       WHERE we.workout_id=w.id AND we.id=$1 AND w.user_id=$2`, [exId, dbUserId])
+    if (!rowCount) return res.status(404).json({ error: 'Exercise not found' })
+    res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
 // DELETE /api/workouts/:id
 router.delete('/:id', requireAuth(), async (req, res, next) => {
   try {

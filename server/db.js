@@ -381,6 +381,10 @@ export async function migrate() {
     )
   `)
 
+  // ── workout_exercises columns added post-launch ───────────────────────────────
+  await pool.query(`ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS weight TEXT`)
+  await pool.query(`ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`)
+
   // ── Custom foods ─────────────────────────────────────────────────────────────
   await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS sugar NUMERIC(6,1)`)
   await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS log_date DATE`)
