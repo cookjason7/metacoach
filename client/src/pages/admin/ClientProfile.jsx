@@ -4729,6 +4729,19 @@ function BloodworkTab({ clientId, getToken, bloodworkEnabled = false, onClientUp
 
 // ─── Coach Workouts Tab ───────────────────────────────────────────────────────
 
+// ── Constants for the Katie questionnaire (mirror of Workouts.jsx) ────────────
+const WO_GOALS = [
+  { id: 'weight_loss',     label: 'Weight Loss'    },
+  { id: 'muscle_gain',     label: 'Muscle Gain'    },
+  { id: 'endurance',       label: 'Endurance'      },
+  { id: 'flexibility',     label: 'Flexibility'    },
+  { id: 'general_fitness', label: 'General Fitness'},
+]
+const WO_SESSION_LENGTHS   = ['30 minutes', '45 minutes', '60 minutes', '90 minutes']
+const WO_EQUIPMENT_OPTIONS = ['Bodyweight only','Resistance bands','Dumbbells','Barbell + Rack','Full gym']
+const WO_FITNESS_LEVELS    = ['Beginner', 'Intermediate', 'Advanced']
+const WO_EMPTY_FORM        = { goals: [], days_per_week: '4', session_length: '45 minutes', equipment: 'Full gym', injuries: '', fitness_level: 'Intermediate' }
+
 function WorkoutsTab({ clientId, getToken }) {
   const BASE = `${API_URL}/api/coach-admin/clients/${clientId}/workouts`
 
@@ -4740,7 +4753,15 @@ function WorkoutsTab({ clientId, getToken }) {
   const [logs,         setLogs]         = useState([])
   const [detailLoad,   setDetailLoad]   = useState(false)
 
-  // Create workout form
+  // Katie generation flow: null | 'questionnaire' | 'generating' | 'review'
+  const [genFlow,      setGenFlow]      = useState(null)
+  const [genForm,      setGenForm]      = useState({ ...WO_EMPTY_FORM })
+  const [generatedPlan,setGeneratedPlan]= useState(null)
+  const [generating,   setGenerating]   = useState(false)
+  const [genError,     setGenError]     = useState(null)
+  const [savingPlan,   setSavingPlan]   = useState(false)
+
+  // Manual create form
   const [showCreate,   setShowCreate]   = useState(false)
   const [createName,   setCreateName]   = useState('')
   const [createDesc,   setCreateDesc]   = useState('')
@@ -4782,7 +4803,53 @@ function WorkoutsTab({ clientId, getToken }) {
     } finally { setDetailLoad(false) }
   }
 
-  // ── Create workout ─────────────────────────────────────────────────────────
+  // ── Katie generation ───────────────────────────────────────────────────────
+  function toggleGenGoal(id) {
+    setGenForm(f => ({ ...f, goals: f.goals.includes(id) ? f.goals.filter(g => g !== id) : [...f.goals, id] }))
+  }
+  async function generatePlan(e) {
+    e.preventDefault()
+    if (!genForm.goals.length) { setGenError('Select at least one goal.'); return }
+    setGenerating(true); setGenError(null)
+    try {
+      const token = await getToken()
+      const res   = await fetch(`${BASE}/generate`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...genForm, days_per_week: parseInt(genForm.days_per_week, 10) }),
+      })
+      if (!res.ok) {
+        const { error: msg } = await res.json().catch(() => ({}))
+        throw new Error(msg || `Server error ${res.status}`)
+      }
+      setGeneratedPlan(await res.json())
+      setGenFlow('review')
+    } catch (err) { setGenError(err.message) } finally { setGenerating(false) }
+  }
+  async function savePlan() {
+    if (!generatedPlan) return
+    setSavingPlan(true); setGenError(null)
+    try {
+      const token = await getToken()
+      const res   = await fetch(BASE, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name:        generatedPlan.program_name,
+          description: generatedPlan.description,
+          days:        generatedPlan.days,
+        }),
+      })
+      if (!res.ok) throw new Error('Failed to save program')
+      const w = await res.json()
+      const exCount = generatedPlan.days?.reduce((n, d) => n + (d.exercises?.length ?? 0), 0) ?? 0
+      setWorkouts(prev => [{ ...w, exercise_count: exCount, day_count: generatedPlan.days?.length ?? 0, log_count: 0 }, ...prev])
+      setGenFlow(null); setGeneratedPlan(null); setGenForm({ ...WO_EMPTY_FORM })
+      openWorkout(w)
+    } catch (err) { setGenError(err.message) } finally { setSavingPlan(false) }
+  }
+
+  // ── Create workout (manual) ─────────────────────────────────────────────────
   async function createWorkout(e) {
     e.preventDefault()
     if (!createName.trim()) return
@@ -4920,25 +4987,179 @@ function WorkoutsTab({ clientId, getToken }) {
 
   const inputCls = 'w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30'
 
+  // ── Pill style for questionnaire (matches client Workouts page) ───────────
+  const pillCls = (active) =>
+    `px-3 py-1.5 rounded-full text-xs font-medium border cursor-pointer transition-colors ${
+      active ? 'bg-[#E8670A] text-white border-[#E8670A]'
+             : 'text-gray-600 border-gray-200 hover:border-[#E8670A] hover:text-[#E8670A] bg-white'
+    }`
+
+  // ── Questionnaire view (generate with Katie) ───────────────────────────────
+  if (genFlow === 'questionnaire' || genFlow === 'review') {
+    if (genFlow === 'review' && generatedPlan) {
+      return (
+        <div className="space-y-5">
+          <div>
+            <button onClick={() => setGenFlow('questionnaire')}
+              className="text-xs text-gray-400 hover:text-gray-600 mb-2 flex items-center gap-1">‹ Back to questionnaire</button>
+            <p className="text-lg font-bold text-gray-900">{generatedPlan.program_name}</p>
+            <p className="text-xs text-gray-500 mt-0.5">{generatedPlan.description}</p>
+            <p className="text-xs text-[#E8670A] mt-1">✨ Generated by Katie · Review then save — you can edit exercises after</p>
+          </div>
+          {generatedPlan.days?.map((day, di) => (
+            <div key={di} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="bg-[#0F1E35] px-4 py-2.5">
+                <p className="text-sm font-semibold text-white">{day.day_name}</p>
+                {day.focus && <p className="text-xs text-white/60 mt-0.5">{day.focus}</p>}
+              </div>
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="text-left px-3 py-2 text-gray-500 font-semibold">Exercise</th>
+                    <th className="text-center px-2 py-2 text-gray-500 font-semibold w-12">Sets</th>
+                    <th className="text-center px-2 py-2 text-gray-500 font-semibold w-20">Reps</th>
+                    <th className="text-center px-2 py-2 text-gray-500 font-semibold w-14">Rest</th>
+                    <th className="text-left px-3 py-2 text-gray-500 font-semibold">Notes</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {day.exercises?.map((ex, ei) => (
+                    <tr key={ei} className="hover:bg-gray-50/30">
+                      <td className="px-3 py-2 font-medium text-gray-900">{ex.name}</td>
+                      <td className="px-2 py-2 text-center text-gray-600">{ex.sets ?? '—'}</td>
+                      <td className="px-2 py-2 text-center text-gray-600">{ex.reps ?? '—'}</td>
+                      <td className="px-2 py-2 text-center text-gray-400">{ex.rest_seconds ? `${ex.rest_seconds}s` : '—'}</td>
+                      <td className="px-3 py-2 text-gray-400 italic">{ex.notes ?? ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+          {genError && <p className="text-xs text-red-500">{genError}</p>}
+          <div className="flex gap-3 flex-wrap">
+            <button onClick={savePlan} disabled={savingPlan}
+              className="bg-[#E8670A] text-white px-5 py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors flex items-center gap-2">
+              {savingPlan ? <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />Saving…</> : 'Assign to Client'}
+            </button>
+            <button onClick={() => { setGenFlow('questionnaire'); setGeneratedPlan(null) }}
+              className="px-5 py-2.5 rounded-lg text-sm font-medium text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors">
+              Regenerate
+            </button>
+            <button onClick={() => { setGenFlow(null); setGeneratedPlan(null); setGenForm({ ...WO_EMPTY_FORM }) }}
+              className="px-5 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-red-500 transition-colors">
+              Discard
+            </button>
+          </div>
+        </div>
+      )
+    }
+
+    // Questionnaire form
+    return (
+      <div className="max-w-xl space-y-5">
+        <div>
+          <button onClick={() => { setGenFlow(null); setGenForm({ ...WO_EMPTY_FORM }) }}
+            className="text-xs text-gray-400 hover:text-gray-600 mb-3 flex items-center gap-1">‹ Back</button>
+          <div className="bg-[#fff7ed] border border-orange-200 rounded-xl p-4 mb-5">
+            <p className="text-sm font-semibold text-[#E8670A] mb-0.5">Generate with Katie</p>
+            <p className="text-sm text-gray-700">
+              Fill in the client's goals and preferences. Katie will build a custom workout program that you can review and edit before assigning.
+            </p>
+          </div>
+        </div>
+        <form onSubmit={generatePlan} className="space-y-5">
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Fitness goals <span className="text-red-400">*</span></label>
+            <div className="flex flex-wrap gap-2">
+              {WO_GOALS.map(g => (
+                <button key={g.id} type="button" onClick={() => toggleGenGoal(g.id)}
+                  className={pillCls(genForm.goals.includes(g.id))}>{g.label}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Training days per week</label>
+            <div className="flex gap-2 flex-wrap">
+              {[2,3,4,5,6].map(n => (
+                <button key={n} type="button" onClick={() => setGenForm(f => ({ ...f, days_per_week: String(n) }))}
+                  className={pillCls(genForm.days_per_week === String(n))}>{n} days</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Session length</label>
+            <div className="flex gap-2 flex-wrap">
+              {WO_SESSION_LENGTHS.map(s => (
+                <button key={s} type="button" onClick={() => setGenForm(f => ({ ...f, session_length: s }))}
+                  className={pillCls(genForm.session_length === s)}>{s}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Available equipment</label>
+            <div className="flex gap-2 flex-wrap">
+              {WO_EQUIPMENT_OPTIONS.map(eq => (
+                <button key={eq} type="button" onClick={() => setGenForm(f => ({ ...f, equipment: eq }))}
+                  className={pillCls(genForm.equipment === eq)}>{eq}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Fitness level</label>
+            <div className="flex gap-2">
+              {WO_FITNESS_LEVELS.map(lvl => (
+                <button key={lvl} type="button" onClick={() => setGenForm(f => ({ ...f, fitness_level: lvl }))}
+                  className={pillCls(genForm.fitness_level === lvl)}>{lvl}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1">
+              Injuries or limitations <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <input type="text" value={genForm.injuries} onChange={e => setGenForm(f => ({ ...f, injuries: e.target.value }))}
+              placeholder="e.g. Bad left knee, lower back pain" className={inputCls} />
+          </div>
+          {genError && <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">{genError}</div>}
+          <button type="submit" disabled={generating || !genForm.goals.length}
+            className="w-full bg-[#E8670A] text-white py-3 rounded-xl text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
+            {generating
+              ? <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />Katie is building the program…</>
+              : 'Generate Workout Program'}
+          </button>
+        </form>
+      </div>
+    )
+  }
+
   // ── Workout list view ──────────────────────────────────────────────────────
   if (!selected) {
     return (
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
           <p className="text-sm text-gray-500">
             {loading ? 'Loading…' : `${workouts.length} program${workouts.length !== 1 ? 's' : ''}`}
           </p>
-          <button
-            onClick={() => setShowCreate(c => !c)}
-            className="bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors"
-          >
-            {showCreate ? 'Cancel' : '+ Assign Program'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setGenFlow('questionnaire'); setShowCreate(false) }}
+              className="bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors"
+            >
+              ✨ Generate with Katie
+            </button>
+            <button
+              onClick={() => setShowCreate(c => !c)}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors"
+            >
+              {showCreate ? 'Cancel' : '+ Manual'}
+            </button>
+          </div>
         </div>
 
         {showCreate && (
           <form onSubmit={createWorkout} className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
-            <p className="text-sm font-semibold text-gray-700">New Workout Program</p>
+            <p className="text-sm font-semibold text-gray-700">New Program (Manual)</p>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Program Name *</label>
               <input value={createName} onChange={e => setCreateName(e.target.value)} required
@@ -4961,8 +5182,12 @@ function WorkoutsTab({ clientId, getToken }) {
         {loading ? null : workouts.length === 0 ? (
           <div className="text-center py-12 bg-white rounded-xl border border-gray-200">
             <p className="text-3xl mb-2">💪</p>
-            <p className="text-sm font-semibold text-gray-700 mb-1">No programs assigned yet</p>
-            <p className="text-xs text-gray-400">Click "Assign Program" to create the client's first workout plan.</p>
+            <p className="text-sm font-semibold text-gray-700 mb-1">No programs yet</p>
+            <p className="text-xs text-gray-400 mb-4">Generate a workout program with Katie, or create one manually.</p>
+            <button onClick={() => setGenFlow('questionnaire')}
+              className="bg-[#E8670A] text-white px-5 py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors">
+              ✨ Generate with Katie
+            </button>
           </div>
         ) : (
           <div className="space-y-3">

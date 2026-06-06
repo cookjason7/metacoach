@@ -619,9 +619,7 @@ export default function Workouts() {
   return (
     <div>
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Workouts</h1>
-      <p className="text-sm text-gray-500 mb-6">
-        Katie generates your starting program · your coach fine-tunes it · you complete it
-      </p>
+      <p className="text-sm text-gray-500 mb-6">AI-generated weekly programs built by Coach Katie</p>
 
       {view === 'loading' && <p className="text-sm text-gray-400">Loading…</p>}
 

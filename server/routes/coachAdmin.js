@@ -1,10 +1,51 @@
 import { Router } from 'express'
+import Anthropic from '@anthropic-ai/sdk'
 import { requireAuth, getAuth } from '@clerk/express'
 import { v2 as cloudinary } from 'cloudinary'
 import { pool, getOrCreateUser } from '../db.js'
 import { sendInviteEmail } from '../services/email.js'
 import { getAppBaseUrl } from '../services/appUrl.js'
 import { notifyNewDirectMessage, notifyNewFormDelivery } from '../services/pushService.js'
+
+const anthropic = new Anthropic()
+
+function buildClientWorkoutPrompt(firstName, answers) {
+  const goals = Array.isArray(answers.goals) ? answers.goals.join(', ') : answers.goals
+  return `You are Katie, an enthusiastic and supportive fitness coach for the Life Warrior Coaching program.
+Create a personalized weekly workout program for ${firstName} based on their profile:
+- Fitness goals: ${goals}
+- Training days per week: ${answers.days_per_week}
+- Session length: ${answers.session_length}
+- Available equipment: ${answers.equipment}
+- Injuries or limitations: ${answers.injuries || 'None'}
+- Fitness level: ${answers.fitness_level}
+
+Return ONLY a valid JSON object with this exact structure (no markdown, no extra text):
+{
+  "program_name": "string (creative, motivating program name)",
+  "description": "string (2-3 sentences, Katie-style intro to this program)",
+  "days": [
+    {
+      "day_name": "string (e.g. 'Day 1 — Upper Body Push')",
+      "focus": "string (e.g. 'Chest, Shoulders, Triceps')",
+      "exercises": [
+        {
+          "name": "string",
+          "sets": number,
+          "reps": "string (e.g. '10-12' or '30 seconds')",
+          "rest_seconds": number,
+          "notes": "string (brief form tip or coaching cue, 1 sentence)"
+        }
+      ]
+    }
+  ]
+}
+
+Include exactly ${answers.days_per_week} training days.
+Start each day with a short warm-up and end with a brief cool-down (sets=1, reps like "5 minutes").
+Use only exercises appropriate for the available equipment.
+Make it realistic, progressive, and achievable for a ${answers.fitness_level} trainee.`
+}
 
 const router = Router()
 
@@ -3075,18 +3116,65 @@ router.get('/clients/:id/workouts/:wid', requireAuth(), async (req, res, next) =
   } catch (err) { next(err) }
 })
 
+// POST /api/coach-admin/clients/:id/workouts/generate — generate a Katie plan for a client
+// Must be defined BEFORE the /:wid route so Express doesn't treat "generate" as a wid.
+router.post('/clients/:id/workouts/generate', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId = parseInt(req.params.id, 10)
+    if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
+
+    const answers = req.body
+    if (!answers.goals || !answers.days_per_week || !answers.fitness_level) {
+      return res.status(400).json({ error: 'Missing required fields' })
+    }
+
+    // Use the client's first name in the Katie prompt
+    const { rows: [client] } = await pool.query('SELECT first_name FROM users WHERE id=$1', [clientId])
+    const firstName = client?.first_name || 'your client'
+
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      messages: [{ role: 'user', content: buildClientWorkoutPrompt(firstName, answers) }],
+    })
+
+    let text = message.content[0].text.trim()
+    const fence = text.match(/```(?:json)?\n?([\s\S]+?)\n?```/)
+    if (fence) text = fence[1]
+
+    res.json(JSON.parse(text))
+  } catch (err) { next(err) }
+})
+
 // POST /api/coach-admin/clients/:id/workouts — create a workout program for a client
+// Accepts optional `days` (AI-generated plan structure) to save full program at once.
 router.post('/clients/:id/workouts', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireStaff(req, res); if (!ctx) return
     const clientId = parseInt(req.params.id, 10)
     if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
-    const { name, description } = req.body
+    const { name, description, days } = req.body
     if (!name?.trim()) return res.status(400).json({ error: 'name required' })
     const { rows: [workout] } = await pool.query(
       'INSERT INTO workouts (user_id, name, description) VALUES ($1,$2,$3) RETURNING *',
       [clientId, name.trim(), description ?? null],
     )
+    // If a full plan with days was provided (e.g. from Katie generation), save exercises too
+    if (Array.isArray(days) && days.length > 0) {
+      for (const day of days) {
+        let dayOrder = 0
+        for (const ex of (day.exercises || [])) {
+          await pool.query(
+            `INSERT INTO workout_exercises
+               (workout_id, day, exercise_name, sets, reps, rest_seconds, notes, sort_order)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+            [workout.id, day.day_name, ex.name, ex.sets ?? null, ex.reps ?? null,
+             ex.rest_seconds ?? null, ex.notes ?? null, dayOrder++],
+          )
+        }
+      }
+    }
     res.status(201).json(workout)
   } catch (err) { next(err) }
 })
