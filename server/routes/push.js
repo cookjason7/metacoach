@@ -21,8 +21,16 @@ router.post('/register', requireAuth(), async (req, res, next) => {
       return res.status(400).json({ error: `platform must be one of: ${validPlatforms.join(', ')}` })
     }
 
-    await registerDevice(dbUserId, token.trim(), platform)
-    res.json({ ok: true })
+    const trimmedToken = token.trim()
+    console.log('[push] register request', {
+      userId: dbUserId,
+      platform,
+      tokenStart: trimmedToken.slice(0, 12),
+      tokenLength: trimmedToken.length,
+    })
+
+    const device = await registerDevice(dbUserId, trimmedToken, platform)
+    res.json({ ok: true, deviceId: device?.id, platform: device?.platform })
   } catch (err) { next(err) }
 })
 

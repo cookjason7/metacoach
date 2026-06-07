@@ -304,29 +304,90 @@ export default function Layout() {
   const pushTokenRef = useRef(null)
   useEffect(() => {
     if (!isLoaded || !user) return
-    if (!Capacitor.isNativePlatform()) return
+    const isNative = Capacitor.isNativePlatform()
+    const platform = Capacitor.getPlatform()
+    console.log('[push] native platform check', { isNative, platform })
+    if (!isNative) return
 
     let cancelled = false
     let regListener = null
     let errListener = null
+
+    const getCachedPushToken = () => {
+      try {
+        return window.localStorage.getItem('metacoach_push_token')
+      } catch {
+        return null
+      }
+    }
+
+    const cachePushToken = (token) => {
+      try {
+        window.localStorage.setItem('metacoach_push_token', token)
+      } catch {}
+    }
+
+    const postPushToken = async (token, source) => {
+      if (!token || typeof token !== 'string') return false
+
+      pushTokenRef.current = token
+      cachePushToken(token)
+
+      const tokenStart = token.slice(0, 12)
+      try {
+        const clerkToken = await getToken()
+        const res = await fetch(`${API_URL}/api/push/register`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${clerkToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, platform }),
+        })
+        const text = await res.text()
+        let data = null
+        try {
+          data = text ? JSON.parse(text) : null
+        } catch {}
+
+        if (!res.ok) {
+          console.warn('[push] token POST failed', {
+            status: res.status,
+            platform,
+            source,
+            tokenStart,
+            response: text?.slice(0, 160),
+          })
+          return false
+        }
+
+        console.log('[push] FCM token registered', {
+          status: res.status,
+          platform,
+          source,
+          tokenStart,
+          deviceId: data?.deviceId,
+        })
+        return true
+      } catch (err) {
+        console.warn('[push] token POST failed', {
+          platform,
+          source,
+          tokenStart,
+          error: err.message,
+        })
+        return false
+      }
+    }
 
     ;(async () => {
       try {
         // Register listeners BEFORE calling register() so the token event is not missed
         regListener = await PushNotifications.addListener('registration', async ({ value: token }) => {
           if (cancelled) return
-          pushTokenRef.current = token
-          try {
-            const clerkToken = await getToken()
-            await fetch(`${API_URL}/api/push/register`, {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${clerkToken}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ token, platform: Capacitor.getPlatform() }),
-            })
-            console.log('[push] FCM token registered')
-          } catch (err) {
-            console.warn('[push] token POST failed:', err.message)
-          }
+          console.log('[push] registration token received', {
+            platform,
+            tokenStart: token?.slice(0, 12),
+            tokenLength: token?.length,
+          })
+          await postPushToken(token, 'registration-event')
         })
 
         errListener = await PushNotifications.addListener('registrationError', (err) => {
@@ -334,11 +395,18 @@ export default function Layout() {
         })
 
         const { receive } = await PushNotifications.requestPermissions()
+        console.log('[push] permission result', { receive, platform })
         if (receive !== 'granted') {
           console.log('[push] permission not granted — skipping registration')
           return
         }
 
+        const cachedToken = getCachedPushToken()
+        if (cachedToken) {
+          await postPushToken(cachedToken, 'cached-token')
+        }
+
+        console.log('[push] requesting native registration', { platform })
         await PushNotifications.register()
       } catch (err) {
         console.warn('[push] push setup error:', err.message)
