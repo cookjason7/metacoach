@@ -307,11 +307,6 @@ export default function Layout() {
     const isNative = Capacitor.isNativePlatform()
     const platform = Capacitor.getPlatform()
     console.log('[push] native platform check', { isNative, platform })
-    if (!isNative) return
-
-    let cancelled = false
-    let regListener = null
-    let errListener = null
 
     // Fire-and-forget diagnostic ping — never includes the FCM token value
     const sendDebug = async (step, value) => {
@@ -326,6 +321,15 @@ export default function Layout() {
         })
       } catch {}
     }
+
+    // Always fires — visible in production logs even when isNative=false
+    sendDebug('native-detected', `isNative=${isNative} platform=${platform}`)
+
+    if (!isNative) return
+
+    let cancelled = false
+    let regListener = null
+    let errListener = null
 
     const getCachedPushToken = () => {
       try {
@@ -398,8 +402,6 @@ export default function Layout() {
 
     ;(async () => {
       try {
-        sendDebug('native-detected', platform)
-
         // Register listeners BEFORE calling register() so the token event is not missed
         regListener = await PushNotifications.addListener('registration', async ({ value: token }) => {
           if (cancelled) return
