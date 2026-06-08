@@ -34,6 +34,24 @@ router.post('/register', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// POST /api/push/debug — client-side push diagnostic trace (no token logged)
+// Body: { step: string, value?: string }
+router.post('/debug', requireAuth(), async (req, res, next) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId = await getOrCreateUser(userId)
+    const { step, value } = req.body
+    const safeStep  = String(step  ?? 'unknown').slice(0, 64)
+    const safeValue = value !== undefined ? String(value).slice(0, 128) : undefined
+    if (safeValue !== undefined) {
+      console.log(`[push-debug] user=${dbUserId} step=${safeStep} value=${safeValue}`)
+    } else {
+      console.log(`[push-debug] user=${dbUserId} step=${safeStep}`)
+    }
+    res.status(204).end()
+  } catch (err) { next(err) }
+})
+
 // POST /api/push/unregister — remove a device token for the authenticated user
 // Body: { token: string }
 router.post('/unregister', requireAuth(), async (req, res, next) => {

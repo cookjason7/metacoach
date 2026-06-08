@@ -313,6 +313,20 @@ export default function Layout() {
     let regListener = null
     let errListener = null
 
+    // Fire-and-forget diagnostic ping — never includes the FCM token value
+    const sendDebug = async (step, value) => {
+      try {
+        const clerkToken = await getToken()
+        const body = { step }
+        if (value !== undefined) body.value = String(value)
+        await fetch(`${API_URL}/api/push/debug`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${clerkToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+      } catch {}
+    }
+
     const getCachedPushToken = () => {
       try {
         return window.localStorage.getItem('metacoach_push_token')
@@ -334,6 +348,7 @@ export default function Layout() {
       cachePushToken(token)
 
       const tokenStart = token.slice(0, 12)
+      sendDebug('post-start', `source=${source} len=${token.length}`)
       try {
         const clerkToken = await getToken()
         const res = await fetch(`${API_URL}/api/push/register`, {
@@ -355,6 +370,7 @@ export default function Layout() {
             tokenStart,
             response: text?.slice(0, 160),
           })
+          sendDebug('post-failed', `status=${res.status} source=${source}`)
           return false
         }
 
@@ -365,37 +381,49 @@ export default function Layout() {
           tokenStart,
           deviceId: data?.deviceId,
         })
+        sendDebug('post-success', `deviceId=${data?.deviceId} source=${source}`)
         return true
       } catch (err) {
+        const msg = String(err?.message ?? err ?? 'unknown')
         console.warn('[push] token POST failed', {
           platform,
           source,
           tokenStart,
-          error: err.message,
+          error: msg,
         })
+        sendDebug('post-error', `source=${source} err=${msg.slice(0, 80)}`)
         return false
       }
     }
 
     ;(async () => {
       try {
+        sendDebug('native-detected', platform)
+
         // Register listeners BEFORE calling register() so the token event is not missed
         regListener = await PushNotifications.addListener('registration', async ({ value: token }) => {
           if (cancelled) return
+          const tokenLength = token?.length ?? 0
           console.log('[push] registration token received', {
             platform,
             tokenStart: token?.slice(0, 12),
-            tokenLength: token?.length,
+            tokenLength,
           })
+          sendDebug('token-received', `len=${tokenLength}`)
           await postPushToken(token, 'registration-event')
         })
 
         errListener = await PushNotifications.addListener('registrationError', (err) => {
-          console.warn('[push] FCM registration error:', err.error)
+          const msg = String(err?.error ?? err ?? 'unknown')
+          console.warn('[push] FCM registration error:', msg)
+          sendDebug('registration-error', msg.slice(0, 128))
         })
+
+        sendDebug('listeners-added')
 
         const { receive } = await PushNotifications.requestPermissions()
         console.log('[push] permission result', { receive, platform })
+        sendDebug('permission', receive)
         if (receive !== 'granted') {
           console.log('[push] permission not granted — skipping registration')
           return
@@ -403,13 +431,20 @@ export default function Layout() {
 
         const cachedToken = getCachedPushToken()
         if (cachedToken) {
+          sendDebug('cached-token-found', `len=${cachedToken.length}`)
           await postPushToken(cachedToken, 'cached-token')
+        } else {
+          sendDebug('no-cached-token')
         }
 
         console.log('[push] requesting native registration', { platform })
+        sendDebug('register-called')
         await PushNotifications.register()
+        sendDebug('register-returned')
       } catch (err) {
-        console.warn('[push] push setup error:', err.message)
+        const msg = String(err?.message ?? err ?? 'unknown')
+        console.warn('[push] push setup error:', msg)
+        sendDebug('setup-error', msg.slice(0, 128))
       }
     })()
 
