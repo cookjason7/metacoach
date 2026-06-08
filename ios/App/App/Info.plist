@@ -47,5 +47,11 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>WarriorFIT AI uses the camera to scan food barcodes and take food and progress photos.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>WarriorFIT AI accesses your photo library so you can upload food and progress photos.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>WarriorFIT AI uses the microphone for voice food logging in the AI coach.</string>
 </dict>
 </plist>
