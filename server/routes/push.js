@@ -5,6 +5,23 @@ import { registerDevice, revokeDevice } from '../services/pushService.js'
 
 const router = Router()
 
+// POST /api/push/app-load-debug — unauthenticated ping fired on every app mount
+// Proves whether the Android WebView is running the current production bundle at all.
+// No auth required; logs only safe, non-private fields.
+router.post('/app-load-debug', (req, res) => {
+  const { build, platform, isNative, href, userAgent } = req.body ?? {}
+  const ua = userAgent ?? req.headers['user-agent'] ?? 'unknown'
+  console.log('[app-load-debug]', {
+    ts: new Date().toISOString(),
+    build:    String(build    ?? 'unknown').slice(0, 32),
+    platform: String(platform ?? 'unknown').slice(0, 16),
+    isNative: String(isNative ?? 'unknown').slice(0, 8),
+    href:     String(href     ?? 'unknown').slice(0, 128),
+    ua:       ua.slice(0, 200),
+  })
+  res.status(204).end()
+})
+
 // POST /api/push/register — store a device token for the authenticated user
 // Body: { token: string, platform?: 'android' | 'ios' | 'web' }
 router.post('/register', requireAuth(), async (req, res, next) => {

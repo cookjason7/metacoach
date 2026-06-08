@@ -299,6 +299,24 @@ export default function Layout() {
     fetchRole()
   }, [fetchRole])
 
+  // ── Unauthenticated app-load diagnostic — fires once on mount, no auth needed ──
+  useEffect(() => {
+    try {
+      const payload = {
+        build:    'app-load-debug-b1',
+        platform: Capacitor.getPlatform(),
+        isNative: Capacitor.isNativePlatform(),
+        href:     window.location.href,
+        userAgent: navigator.userAgent,
+      }
+      fetch(`${API_URL}/api/push/app-load-debug`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).catch(() => {})
+    } catch {}
+  }, [])
+
   // ── Android push notification registration ────────────────────────────────
   // Runs once the user is authenticated. Non-blocking — all errors are warnings.
   const pushTokenRef = useRef(null)
