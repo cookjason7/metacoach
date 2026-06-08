@@ -5,21 +5,37 @@ import { registerDevice, revokeDevice } from '../services/pushService.js'
 
 const router = Router()
 
-// POST /api/push/app-load-debug — unauthenticated ping fired on every app mount
+// TEMPORARY push-debug diagnostics — remove after Android push registration is confirmed working.
+// In-memory ring buffer of the last 25 app-load-debug events. No tokens, emails, or names stored.
+const appLoadEvents = []
+const APP_LOAD_MAX = 25
+
+// POST /api/push/app-load-debug — unauthenticated ping fired on every app mount.
 // Proves whether the Android WebView is running the current production bundle at all.
-// No auth required; logs only safe, non-private fields.
 router.post('/app-load-debug', (req, res) => {
   const { build, platform, isNative, href, userAgent } = req.body ?? {}
   const ua = userAgent ?? req.headers['user-agent'] ?? 'unknown'
-  console.log('[app-load-debug]', {
-    ts: new Date().toISOString(),
-    build:    String(build    ?? 'unknown').slice(0, 32),
-    platform: String(platform ?? 'unknown').slice(0, 16),
-    isNative: String(isNative ?? 'unknown').slice(0, 8),
-    href:     String(href     ?? 'unknown').slice(0, 128),
-    ua:       ua.slice(0, 200),
-  })
-  res.status(204).end()
+  const event = {
+    receivedAt: new Date().toISOString(),
+    source:     'app-load-debug',
+    build:      String(build    ?? 'unknown').slice(0, 32),
+    platform:   String(platform ?? 'unknown').slice(0, 16),
+    isNative:   String(isNative ?? 'unknown').slice(0, 8),
+    href:       String(href     ?? 'unknown').slice(0, 128),
+    userAgent:  ua.slice(0, 160),
+    ip:         req.ip ?? 'unknown',
+  }
+  appLoadEvents.push(event)
+  if (appLoadEvents.length > APP_LOAD_MAX) appLoadEvents.shift()
+  console.error('[app-load-debug]', event)
+  res.json({ ok: true, stored: true })
+})
+
+// GET /api/push/app-load-debug/recent — returns last 25 stored events.
+// TEMPORARY: unauthenticated because it contains no tokens, emails, or names.
+// Remove this route after Android push debugging is complete.
+router.get('/app-load-debug/recent', (req, res) => {
+  res.json({ ok: true, count: appLoadEvents.length, events: [...appLoadEvents].reverse() })
 })
 
 // POST /api/push/register — store a device token for the authenticated user
