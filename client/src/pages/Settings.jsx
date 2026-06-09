@@ -449,7 +449,14 @@ export default function Settings() {
   // server.url (production mode). Platform detection is handled INSIDE the hook itself.
   // We keep isIos here only for the Connect button label so it doesn't show on desktop web.
   const isIos = Capacitor.getPlatform() === 'ios'
-  const [ahStatus, setAhStatus]     = useState('idle') // idle | requesting | available | error | unavailable
+  // Persist the last "permission requested" UI state so a reload doesn't reset
+  // the card to "Not connected". HealthKit can't report grant status back to us,
+  // so this only reflects that the user has requested access at least once.
+  const AH_STORAGE_KEY = 'warriorfit_apple_health_requested'
+  const [ahStatus, setAhStatus] = useState(() => {
+    try { return window.localStorage.getItem(AH_STORAGE_KEY) === '1' ? 'available' : 'idle' }
+    catch { return 'idle' }
+  }) // idle | requesting | available | error | unavailable
   const [ahError, setAhError]       = useState('')
   const [ahReading, setAhReading]   = useState(false)
   const [ahData, setAhData]         = useState(null)   // { steps, sleepMinutes, savedSteps, savedSleep, error? }
@@ -1733,52 +1740,33 @@ export default function Settings() {
                     {/* Action buttons */}
                     <div className="flex flex-wrap gap-2 sm:justify-end">
 
-                      {/* Connect (idle/error) or Reconnect (available) */}
-                      {ahStatus !== 'available' ? (
-                        <button
-                          type="button"
-                          disabled={ahStatus === 'requesting' || ahReading}
-                          onClick={async () => {
-                            setAhStatus('requesting')
-                            setAhError('')
-                            setAhData(null)
-                            const result = await requestAppleHealthPermissions()
-                            if (!result.available) {
-                              setAhStatus('unavailable')
-                            } else if (result.error) {
-                              setAhStatus('error')
-                              setAhError(result.error)
-                            } else {
-                              setAhStatus('available')
-                            }
-                          }}
-                          className="px-3 py-2 rounded-lg bg-[#1e2a3a] text-white text-xs font-semibold hover:bg-[#111827] disabled:opacity-60 transition-colors"
-                        >
-                          {ahStatus === 'requesting' ? 'Connecting…' : 'Connect Apple Health'}
-                        </button>
-                      ) : (
-                        /* Reconnect — secondary style, shown once connected */
-                        <button
-                          type="button"
-                          disabled={ahReading}
-                          onClick={async () => {
-                            setAhStatus('requesting')
-                            setAhError('')
-                            const result = await requestAppleHealthPermissions()
-                            if (!result.available) {
-                              setAhStatus('unavailable')
-                            } else if (result.error) {
-                              setAhStatus('error')
-                              setAhError(result.error)
-                            } else {
-                              setAhStatus('available')
-                            }
-                          }}
-                          className="px-3 py-2 rounded-lg border border-gray-200 text-gray-500 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 transition-colors"
-                        >
-                          {ahStatus === 'requesting' ? 'Connecting…' : 'Reconnect'}
-                        </button>
-                      )}
+                      {/* Connect / Manage — with localStorage persistence for permission state */}
+                      <button
+                        type="button"
+                        disabled={ahStatus === 'requesting' || ahReading}
+                        onClick={async () => {
+                          setAhStatus('requesting')
+                          setAhError('')
+                          const result = await requestAppleHealthPermissions()
+                          if (!result.available) {
+                            setAhStatus('unavailable')
+                            try { window.localStorage.removeItem(AH_STORAGE_KEY) } catch {}
+                          } else if (result.error) {
+                            setAhStatus('error')
+                            setAhError(result.error)
+                          } else {
+                            setAhStatus('available')
+                            try { window.localStorage.setItem(AH_STORAGE_KEY, '1') } catch {}
+                          }
+                        }}
+                        className="px-3 py-2 rounded-lg bg-[#1e2a3a] text-white text-xs font-semibold hover:bg-[#111827] disabled:opacity-60 transition-colors"
+                      >
+                        {ahStatus === 'requesting'
+                          ? 'Requesting…'
+                          : ahStatus === 'available'
+                            ? 'Manage Apple Health Access'
+                            : 'Connect Apple Health'}
+                      </button>
 
                       {/* Sync Now — shown once connected (platform guard is inside the hook) */}
                       {ahStatus === 'available' && (
@@ -1793,10 +1781,8 @@ export default function Settings() {
                             const data  = await syncAppleHealthToday(token)
                             console.log('[AppleHealth] UI sync result:', JSON.stringify(data)) // DEBUG: remove before App Store
                             if (data.error && !data.steps && !data.sleepMinutes) {
-                              // Full failure — surface as an error
                               setAhError(data.error)
                             } else {
-                              // At least partial success — save timestamp
                               const ts = new Date().toISOString()
                               try { localStorage.setItem('ah_last_synced', ts) } catch {}
                               setAhLastSynced(ts)
@@ -1809,6 +1795,7 @@ export default function Settings() {
                           {ahReading ? 'Syncing…' : 'Sync Now'}
                         </button>
                       )}
+
 
                     </div>
                   </div>
