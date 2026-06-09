@@ -2049,7 +2049,12 @@ router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
       WHERE ${extraWhere}
         AND COALESCE(sis.archived, FALSE) = $2
       GROUP BY u.id, u.first_name, u.last_name, m.thread_type, sis.marked_unread, sis.archived
-      ORDER BY MAX(m.created_at) DESC
+      ORDER BY
+        -- Conversations with unread client messages or manually marked-unread
+        -- float to the top; within each bucket sort by most recent message.
+        (COUNT(*) FILTER (WHERE m.sender_role = 'client' AND m.read_at IS NULL) > 0
+         OR COALESCE(sis.marked_unread, FALSE)) DESC,
+        MAX(m.created_at) DESC
     `, params)
     res.json(rows)
   } catch (err) { next(err) }

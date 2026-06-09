@@ -203,6 +203,12 @@ export default function StaffInbox({ getToken, role }) {
   const [inboxView, setInboxView] = useState('active') // 'active' | 'archived'
   const [availableThreads, setAvailableThreads] = useState([]) // thread types for current client (ignores archive state)
 
+  // ── Client search (compose new conversation) ──────────────────────────────
+  const [searchQuery,   setSearchQuery]   = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const searchRef = useRef(null) // input ref for focus management
+
   const { canRecord, recording, audioBlob, audioPreview, recordError, startRecording, stopRecording, clearAudio } = useVoiceRecorder()
 
   const ALLOWED = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
@@ -343,13 +349,55 @@ export default function StaffInbox({ getToken, role }) {
         g.latestThreadType = 'coach_thread'
       }
     }
-    return [...map.values()]
+    const list = [...map.values()]
+    // Mirror the server's ORDER BY: unread/marked-unread first, then most-recent.
+    list.sort((a, b) => {
+      const aUnread = (a.totalUnread > 0 || a.totalMarkedUnread > 0) ? 1 : 0
+      const bUnread = (b.totalUnread > 0 || b.totalMarkedUnread > 0) ? 1 : 0
+      if (bUnread !== aUnread) return bUnread - aUnread
+      const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : 0
+      const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : 0
+      return bTime - aTime
+    })
+    return list
   }, [inbox])
 
   const selectedClientThreads = useMemo(
     () => inbox.filter(r => r.client_id === selected?.clientId),
     [inbox, selected?.clientId],
   )
+
+  // ── Debounced client search ───────────────────────────────────────────────
+  useEffect(() => {
+    const q = searchQuery.trim()
+    if (!q) { setSearchResults([]); setSearchLoading(false); return }
+    setSearchLoading(true)
+    const id = setTimeout(async () => {
+      try {
+        const token = await getToken()
+        const res = await fetch(
+          `${API_URL}/api/coach-admin/messaging/client-search?q=${encodeURIComponent(q)}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        )
+        if (res.ok) setSearchResults(await res.json())
+      } catch {}
+      finally { setSearchLoading(false) }
+    }, 280)
+    return () => clearTimeout(id)
+  }, [searchQuery, getToken])
+
+  function openClientConversation(client) {
+    // Default thread: coaches use coach_thread, admins use admin_private
+    const threadType = (role === 'admin' || role === 'account_owner') ? 'admin_private' : 'coach_thread'
+    setSelected({
+      clientId:        client.id,
+      clientName:      client.full_name,
+      threadType,
+      isAssignedCoach: false,
+    })
+    setSearchQuery('')
+    setSearchResults([])
+  }
 
   // ── Fetch inbox ───────────────────────────────────────────────────────────
   const fetchInbox = useCallback(async () => {
@@ -523,9 +571,60 @@ export default function StaffInbox({ getToken, role }) {
     <div className="flex flex-col lg:flex-row gap-4 min-h-[600px]">
       {/* Inbox list */}
       <div className={`lg:w-72 shrink-0 flex flex-col overflow-y-auto ${selected ? 'hidden lg:flex' : ''}`}>
+
+        {/* ── Client search / new conversation ─────────────────────────── */}
+        <div className="relative mb-2">
+          <div className="relative">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <circle cx="11" cy="11" r="8"/><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35"/>
+            </svg>
+            <input
+              ref={searchRef}
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search clients…"
+              className="w-full pl-8 pr-8 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E8670A] focus:border-transparent bg-white"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => { setSearchQuery(''); setSearchResults([]) }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm leading-none"
+                aria-label="Clear search"
+              >×</button>
+            )}
+          </div>
+
+          {/* Search results dropdown */}
+          {searchQuery.trim() && (
+            <div className="absolute z-20 top-full mt-1 left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+              {searchLoading && (
+                <p className="text-xs text-gray-400 px-3 py-2.5">Searching…</p>
+              )}
+              {!searchLoading && searchResults.length === 0 && (
+                <p className="text-xs text-gray-400 px-3 py-2.5">No clients found.</p>
+              )}
+              {!searchLoading && searchResults.map(client => (
+                <div key={client.id} className="flex items-center justify-between gap-2 px-3 py-2.5 hover:bg-gray-50 border-b border-gray-50 last:border-0">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-gray-800 truncate">{client.full_name}</p>
+                    <p className="text-[10px] text-gray-400 truncate">{client.email}</p>
+                  </div>
+                  <button
+                    onClick={() => openClientConversation(client)}
+                    className="shrink-0 px-2.5 py-1.5 rounded-lg bg-[#E8670A] text-white text-[11px] font-semibold hover:bg-[#c45e09] transition-colors min-h-[32px]"
+                  >
+                    Message
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Active / Archived tabs */}
         <div className="flex gap-1 mb-2">
-          {(['active', 'archived'] ).map(v => (
+          {(['active', 'archived']).map(v => (
             <button
               key={v}
               onClick={() => switchView(v)}
