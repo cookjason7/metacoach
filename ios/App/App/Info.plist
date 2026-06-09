@@ -53,5 +53,9 @@
 	<string>WarriorFIT AI accesses your photo library so you can upload food and progress photos.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>WarriorFIT AI uses the microphone for voice food logging in the AI coach.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>WarriorFIT AI reads your steps and sleep from Apple Health to automatically track your daily progress.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>WarriorFIT AI does not write data to Apple Health.</string>
 </dict>
 </plist>

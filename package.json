@@ -35,6 +35,8 @@
     "@capacitor/core": "^8.4.0",
     "@capacitor/ios": "^8.4.0",
     "@capacitor/push-notifications": "^8.1.1",
-    "concurrently": "^8.2.2"
+    "@capgo/capacitor-health": "^8.6.3",
+    "concurrently": "^8.2.2",
+    "typescript": "^6.0.3"
   }
 }

@@ -6,6 +6,7 @@ import { API_URL } from '../config.js'
 import BloodworkIntakeForm from '../components/BloodworkIntakeForm.jsx'
 import { Capacitor } from '@capacitor/core'
 import { Browser } from '@capacitor/browser'
+import { requestAppleHealthPermissions } from '../hooks/useAppleHealth.js'
 
 const ACTIVITY_OPTIONS = [
   { value: 'sedentary',         label: 'Sedentary (little or no exercise)' },
@@ -443,6 +444,10 @@ export default function Settings() {
   const [fitbitSyncing, setFitbitSyncing] = useState(false)
   const [fitbitMessage, setFitbitMessage] = useState('')
   const [fitbitError, setFitbitError] = useState('')
+  // Apple Health — iOS only, permission test
+  const isIos = Capacitor.getPlatform() === 'ios'
+  const [ahStatus, setAhStatus] = useState('idle') // idle | requesting | available | error | unavailable
+  const [ahError, setAhError] = useState('')
 
   const email = user?.primaryEmailAddress?.emailAddress ?? ''
 
@@ -1651,15 +1656,61 @@ export default function Settings() {
                   {fitbitMessage && <p className="text-xs text-emerald-600 mt-3">{fitbitMessage}</p>}
                   {fitbitError && <p className="text-xs text-red-500 mt-3">{fitbitError}</p>}
                 </div>
-              ) : (
-                <div key={app.name} className="flex items-center justify-between gap-3 px-4 py-4">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="text-xl shrink-0">{app.icon}</span>
-                    <p className="text-sm font-medium text-gray-900 truncate">{app.name}</p>
+              ) : isIos ? (
+                <div key={app.name} className="px-4 py-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <span className="text-xl shrink-0">{app.icon}</span>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-medium text-gray-900">Apple Health</p>
+                          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                            ahStatus === 'available'
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                              : ahStatus === 'unavailable'
+                              ? 'bg-red-50 text-red-500 border border-red-100'
+                              : 'bg-gray-100 text-gray-400'
+                          }`}>
+                            {ahStatus === 'idle'        && 'Not connected'}
+                            {ahStatus === 'requesting'  && 'Requesting…'}
+                            {ahStatus === 'available'   && 'Permission Requested'}
+                            {ahStatus === 'unavailable' && 'Not Available'}
+                            {ahStatus === 'error'       && 'Error'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Sync steps and sleep automatically from Apple Health.
+                        </p>
+                        {ahError ? (
+                          <p className="text-xs text-red-500 mt-1">{ahError}</p>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 sm:justify-end">
+                      <button
+                        type="button"
+                        disabled={ahStatus === 'requesting'}
+                        onClick={async () => {
+                          setAhStatus('requesting')
+                          setAhError('')
+                          const result = await requestAppleHealthPermissions()
+                          if (!result.available) {
+                            setAhStatus('unavailable')
+                          } else if (result.error) {
+                            setAhStatus('error')
+                            setAhError(result.error)
+                          } else {
+                            setAhStatus('available')
+                          }
+                        }}
+                        className="px-3 py-2 rounded-lg bg-[#1e2a3a] text-white text-xs font-semibold hover:bg-[#111827] disabled:opacity-60 transition-colors"
+                      >
+                        {ahStatus === 'requesting' ? 'Requesting…' : 'Connect Apple Health'}
+                      </button>
+                    </div>
                   </div>
-                  <span className="text-xs text-gray-400 bg-gray-100 px-2.5 py-1 rounded-full shrink-0 whitespace-nowrap">Coming soon</span>
                 </div>
-              )
+              ) : null
             ))}
           </div>
         </>
