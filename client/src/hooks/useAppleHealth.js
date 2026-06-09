@@ -4,6 +4,9 @@
  * Static top-level import keeps the plugin in the main bundle so it never
  * needs a separate network request (avoids failures when server.url loads
  * a remote host that doesn't serve split chunks).
+ *
+ * DEBUG LOGS: All console.log / console.warn / console.error lines are tagged
+ * "// DEBUG: remove before App Store" for easy grep-and-delete before submission.
  */
 import { Capacitor } from '@capacitor/core'
 import { Health } from '@capgo/capacitor-health'
@@ -57,35 +60,35 @@ function sleepMinutesFromSamples(samples) {
  */
 export async function requestAppleHealthPermissions() {
   const platform = Capacitor.getPlatform()
-  console.log('[AppleHealth] requestPermissions — platform:', platform)
+  console.log('[AppleHealth] requestPermissions — platform:', platform) // DEBUG: remove before App Store
 
   if (platform !== 'ios') {
-    console.log('[AppleHealth] Not iOS — skipping (platform is', platform, ')')
+    console.log('[AppleHealth] Not iOS — skipping (platform is', platform, ')') // DEBUG: remove before App Store
     return { available: false, authorized: false }
   }
 
-  console.log('[AppleHealth] Health plugin type:', typeof Health)
-  console.log('[AppleHealth] isAvailable type:', typeof Health?.isAvailable)
+  console.log('[AppleHealth] Health plugin type:', typeof Health) // DEBUG: remove before App Store
+  console.log('[AppleHealth] isAvailable type:', typeof Health?.isAvailable) // DEBUG: remove before App Store
 
   try {
-    console.log('[AppleHealth] calling isAvailable()…')
+    console.log('[AppleHealth] calling isAvailable()…') // DEBUG: remove before App Store
     const availResult = await Health.isAvailable()
-    console.log('[AppleHealth] isAvailable result:', JSON.stringify(availResult))
+    console.log('[AppleHealth] isAvailable result:', JSON.stringify(availResult)) // DEBUG: remove before App Store
 
     if (!availResult.available) {
-      console.warn('[AppleHealth] HealthKit unavailable:', availResult.reason)
+      console.warn('[AppleHealth] HealthKit unavailable:', availResult.reason) // DEBUG: remove before App Store
       return { available: false, authorized: false }
     }
 
     const authPayload = { read: ['steps', 'sleep'], write: [] }
-    console.log('[AppleHealth] calling requestAuthorization:', JSON.stringify(authPayload))
+    console.log('[AppleHealth] calling requestAuthorization:', JSON.stringify(authPayload)) // DEBUG: remove before App Store
     const authResult = await Health.requestAuthorization(authPayload)
-    console.log('[AppleHealth] requestAuthorization result:', JSON.stringify(authResult))
+    console.log('[AppleHealth] requestAuthorization result:', JSON.stringify(authResult)) // DEBUG: remove before App Store
 
     return { available: true, authorized: true }
   } catch (err) {
     const message = err?.message ?? String(err)
-    console.error('[AppleHealth] Permission error:', message, err)
+    console.error('[AppleHealth] Permission error:', message, err) // DEBUG: remove before App Store
     return { available: true, authorized: false, error: message }
   }
 }
@@ -104,7 +107,7 @@ export async function requestAppleHealthPermissions() {
  */
 export async function readAppleHealthToday() {
   const platform = Capacitor.getPlatform()
-  console.log('[AppleHealth] readToday — platform:', platform)
+  console.log('[AppleHealth] readToday — platform:', platform) // DEBUG: remove before App Store
 
   if (platform !== 'ios') {
     return { steps: null, sleepMinutes: null, rawSteps: null, rawSleep: null }
@@ -121,16 +124,16 @@ export async function readAppleHealthToday() {
       bucket:      'day',
       aggregation: 'sum',
     }
-    console.log('[AppleHealth] queryAggregated steps:', JSON.stringify(stepsQuery))
+    console.log('[AppleHealth] queryAggregated steps:', JSON.stringify(stepsQuery)) // DEBUG: remove before App Store
     const stepsResult = await Health.queryAggregated(stepsQuery)
-    console.log('[AppleHealth] steps raw result:', JSON.stringify(stepsResult))
+    console.log('[AppleHealth] steps raw result:', JSON.stringify(stepsResult)) // DEBUG: remove before App Store
 
     results.rawSteps = stepsResult
     const sample = stepsResult?.samples?.[0]
     results.steps = sample?.value != null ? Math.round(sample.value) : null
-    console.log('[AppleHealth] steps today:', results.steps)
+    console.log('[AppleHealth] steps today:', results.steps) // DEBUG: remove before App Store
   } catch (err) {
-    console.error('[AppleHealth] steps read error:', err?.message ?? err)
+    console.error('[AppleHealth] steps read error:', err?.message ?? err) // DEBUG: remove before App Store
     results.error = `Steps: ${err?.message ?? err}`
   }
 
@@ -143,22 +146,22 @@ export async function readAppleHealthToday() {
       limit:     100,
       ascending: false,
     }
-    console.log('[AppleHealth] readSamples sleep:', JSON.stringify(sleepQuery))
+    console.log('[AppleHealth] readSamples sleep:', JSON.stringify(sleepQuery)) // DEBUG: remove before App Store
     const sleepResult = await Health.readSamples(sleepQuery)
-    console.log('[AppleHealth] sleep raw result:', JSON.stringify(sleepResult))
+    console.log('[AppleHealth] sleep raw result:', JSON.stringify(sleepResult)) // DEBUG: remove before App Store
 
     results.rawSleep = sleepResult?.samples ?? []
     results.sleepMinutes = sleepMinutesFromSamples(results.rawSleep)
 
-    // 0 minutes with samples present means samples exist but are all inBed/awake
-    // Treat that the same as no data for UI purposes
+    // 0 minutes with samples present means samples exist but are all inBed/awake —
+    // treat that the same as no data for display purposes
     if (results.sleepMinutes === 0) results.sleepMinutes = null
 
-    console.log('[AppleHealth] sleep minutes (actual sleep states):', results.sleepMinutes)
-    console.log('[AppleHealth] sleep sample states seen:',
+    console.log('[AppleHealth] sleep minutes (actual sleep states):', results.sleepMinutes) // DEBUG: remove before App Store
+    console.log('[AppleHealth] sleep sample states seen:', // DEBUG: remove before App Store
       [...new Set(results.rawSleep.map(s => s.sleepState))])
   } catch (err) {
-    console.error('[AppleHealth] sleep read error:', err?.message ?? err)
+    console.error('[AppleHealth] sleep read error:', err?.message ?? err) // DEBUG: remove before App Store
     results.error = (results.error ? results.error + ' | ' : '') + `Sleep: ${err?.message ?? err}`
   }
 
@@ -167,8 +170,11 @@ export async function readAppleHealthToday() {
 
 /**
  * Read today's Apple Health data and POST it to the server.
- * The server performs a source-protected UPSERT into daily_logs so manual
- * entries are never overwritten.
+ *
+ * The server performs a source-protected UPSERT into daily_logs:
+ *   - Manual entries (steps_source = 'manual') are NEVER overwritten.
+ *   - Sync-source entries (fitbit, google_health, synced, apple_health) may
+ *     be overwritten by this sync.
  *
  * Fires a 'daily-log-updated' window event so the Dashboard refreshes
  * without a page reload.
@@ -186,11 +192,11 @@ export async function readAppleHealthToday() {
  * }}
  */
 export async function syncAppleHealthToday(token) {
-  console.log('[AppleHealth] syncToday — reading device data…')
+  console.log('[AppleHealth] syncToday — reading device data…') // DEBUG: remove before App Store
 
   // 1. Read from device
   const healthData = await readAppleHealthToday()
-  console.log('[AppleHealth] syncToday — device data:', JSON.stringify(healthData))
+  console.log('[AppleHealth] syncToday — device data:', JSON.stringify(healthData)) // DEBUG: remove before App Store
 
   if (Capacitor.getPlatform() !== 'ios') {
     return {
@@ -206,7 +212,7 @@ export async function syncAppleHealthToday(token) {
     steps:         healthData.steps         ?? null,
     sleep_minutes: healthData.sleepMinutes  ?? null,
   }
-  console.log('[AppleHealth] syncToday — posting to server:', JSON.stringify(payload))
+  console.log('[AppleHealth] syncToday — posting to server:', JSON.stringify(payload)) // DEBUG: remove before App Store
 
   try {
     const res = await fetch(`${API_URL}/api/apple-health/sync`, {
@@ -219,7 +225,7 @@ export async function syncAppleHealthToday(token) {
     })
 
     const serverData = await res.json()
-    console.log('[AppleHealth] syncToday — server response:', JSON.stringify(serverData))
+    console.log('[AppleHealth] syncToday — server response:', JSON.stringify(serverData)) // DEBUG: remove before App Store
 
     if (!res.ok) {
       throw new Error(serverData?.error ?? `HTTP ${res.status}`)
@@ -244,7 +250,7 @@ export async function syncAppleHealthToday(token) {
     }
   } catch (err) {
     const message = err?.message ?? String(err)
-    console.error('[AppleHealth] syncToday — server error:', message)
+    console.error('[AppleHealth] syncToday — server error:', message) // DEBUG: remove before App Store
     return {
       steps:        healthData.steps,
       sleepMinutes: healthData.sleepMinutes,

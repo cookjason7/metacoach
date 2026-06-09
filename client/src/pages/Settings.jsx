@@ -445,11 +445,41 @@ export default function Settings() {
   const [fitbitMessage, setFitbitMessage] = useState('')
   const [fitbitError, setFitbitError] = useState('')
   // Apple Health
+  // isIos: NOTE — Capacitor.getPlatform() returns 'web' when the WebView loads a remote
+  // server.url (production mode). Platform detection is handled INSIDE the hook itself.
+  // We keep isIos here only for the Connect button label so it doesn't show on desktop web.
   const isIos = Capacitor.getPlatform() === 'ios'
-  const [ahStatus, setAhStatus]   = useState('idle') // idle | requesting | available | error | unavailable
-  const [ahError, setAhError]     = useState('')
-  const [ahReading, setAhReading] = useState(false)
-  const [ahData, setAhData]       = useState(null)  // { steps, sleepMinutes, error? }
+  const [ahStatus, setAhStatus]     = useState('idle') // idle | requesting | available | error | unavailable
+  const [ahError, setAhError]       = useState('')
+  const [ahReading, setAhReading]   = useState(false)
+  const [ahData, setAhData]         = useState(null)   // { steps, sleepMinutes, savedSteps, savedSleep, error? }
+  // Persist last-synced timestamp across page refreshes
+  const [ahLastSynced, setAhLastSynced] = useState(() => {
+    try { return localStorage.getItem('ah_last_synced') || null } catch { return null }
+  })
+
+  /** Format an ISO timestamp as "Today at 2:34 PM" or "Jun 8 at 2:34 PM" */
+  function fmtSyncTime(iso) {
+    if (!iso) return null
+    const d   = new Date(iso)
+    const now = new Date()
+    const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    if (d.toDateString() === now.toDateString()) return `Today at ${time}`
+    return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${time}`
+  }
+
+  /** Convert raw error strings into copy safe to show beta testers */
+  function friendlyAhError(err) {
+    if (!err) return ''
+    const lower = err.toLowerCase()
+    if (lower.includes('not authorized') || lower.includes('permission') || lower.includes('denied'))
+      return 'Health access was denied. Go to Settings → Privacy & Security → Health → WarriorFIT AI and enable Steps and Sleep.'
+    if (lower.includes('unavailable') || lower.includes('not available'))
+      return 'Apple Health is not available on this device.'
+    if (lower.includes('network') || lower.includes('fetch') || lower.includes('http') || lower.includes('failed to fetch'))
+      return 'Could not reach the server. Check your connection and try again.'
+    return 'Something went wrong. Please try again, or restart the app if it keeps happening.'
+  }
 
   const email = user?.primaryEmailAddress?.emailAddress ?? ''
 
@@ -1664,6 +1694,8 @@ export default function Settings() {
                     <div className="flex items-start gap-3 min-w-0">
                       <span className="text-xl shrink-0">{app.icon}</span>
                       <div className="min-w-0">
+
+                        {/* Name + status badge */}
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="text-sm font-medium text-gray-900">Apple Health</p>
                           <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
@@ -1671,88 +1703,141 @@ export default function Settings() {
                               ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
                               : ahStatus === 'unavailable'
                               ? 'bg-red-50 text-red-500 border border-red-100'
+                              : ahStatus === 'error'
+                              ? 'bg-red-50 text-red-500 border border-red-100'
                               : 'bg-gray-100 text-gray-400'
                           }`}>
                             {ahStatus === 'idle'        && 'Not connected'}
-                            {ahStatus === 'requesting'  && 'Requesting…'}
-                            {ahStatus === 'available'   && 'Permission Requested'}
-                            {ahStatus === 'unavailable' && 'Not Available'}
-                            {ahStatus === 'error'       && 'Error'}
+                            {ahStatus === 'requesting'  && 'Connecting…'}
+                            {ahStatus === 'available'   && 'Connected'}
+                            {ahStatus === 'unavailable' && 'Not available'}
+                            {ahStatus === 'error'       && 'Connection error'}
                           </span>
                         </div>
+
+                        {/* Description / last-synced line */}
                         <p className="text-xs text-gray-500 mt-1">
-                          Sync steps and sleep automatically from Apple Health.
+                          {ahLastSynced && ahStatus === 'available'
+                            ? `Last synced: ${fmtSyncTime(ahLastSynced)}`
+                            : 'Sync steps and sleep automatically from Apple Health.'}
                         </p>
+
+                        {/* User-friendly error */}
                         {ahError ? (
-                          <p className="text-xs text-red-500 mt-1">{ahError}</p>
+                          <p className="text-xs text-red-500 mt-1">{friendlyAhError(ahError)}</p>
                         ) : null}
+
                       </div>
                     </div>
+
+                    {/* Action buttons */}
                     <div className="flex flex-wrap gap-2 sm:justify-end">
-                      {/* Connect / re-request button */}
-                      <button
-                        type="button"
-                        disabled={ahStatus === 'requesting' || ahReading}
-                        onClick={async () => {
-                          setAhStatus('requesting')
-                          setAhError('')
-                          setAhData(null)
-                          const result = await requestAppleHealthPermissions()
-                          if (!result.available) {
-                            setAhStatus('unavailable')
-                          } else if (result.error) {
-                            setAhStatus('error')
-                            setAhError(result.error)
-                          } else {
-                            setAhStatus('available')
-                          }
-                        }}
-                        className="px-3 py-2 rounded-lg bg-[#1e2a3a] text-white text-xs font-semibold hover:bg-[#111827] disabled:opacity-60 transition-colors"
-                      >
-                        {ahStatus === 'requesting' ? 'Requesting…' : 'Connect Apple Health'}
-                      </button>
-                      {/* Sync button — only shown after permission granted on iOS */}
-                      {ahStatus === 'available' && isIos && (
+
+                      {/* Connect (idle/error) or Reconnect (available) */}
+                      {ahStatus !== 'available' ? (
+                        <button
+                          type="button"
+                          disabled={ahStatus === 'requesting' || ahReading}
+                          onClick={async () => {
+                            setAhStatus('requesting')
+                            setAhError('')
+                            setAhData(null)
+                            const result = await requestAppleHealthPermissions()
+                            if (!result.available) {
+                              setAhStatus('unavailable')
+                            } else if (result.error) {
+                              setAhStatus('error')
+                              setAhError(result.error)
+                            } else {
+                              setAhStatus('available')
+                            }
+                          }}
+                          className="px-3 py-2 rounded-lg bg-[#1e2a3a] text-white text-xs font-semibold hover:bg-[#111827] disabled:opacity-60 transition-colors"
+                        >
+                          {ahStatus === 'requesting' ? 'Connecting…' : 'Connect Apple Health'}
+                        </button>
+                      ) : (
+                        /* Reconnect — secondary style, shown once connected */
+                        <button
+                          type="button"
+                          disabled={ahReading}
+                          onClick={async () => {
+                            setAhStatus('requesting')
+                            setAhError('')
+                            const result = await requestAppleHealthPermissions()
+                            if (!result.available) {
+                              setAhStatus('unavailable')
+                            } else if (result.error) {
+                              setAhStatus('error')
+                              setAhError(result.error)
+                            } else {
+                              setAhStatus('available')
+                            }
+                          }}
+                          className="px-3 py-2 rounded-lg border border-gray-200 text-gray-500 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 transition-colors"
+                        >
+                          {ahStatus === 'requesting' ? 'Connecting…' : 'Reconnect'}
+                        </button>
+                      )}
+
+                      {/* Sync Now — shown once connected (platform guard is inside the hook) */}
+                      {ahStatus === 'available' && (
                         <button
                           type="button"
                           disabled={ahReading}
                           onClick={async () => {
                             setAhReading(true)
                             setAhData(null)
+                            setAhError('')
                             const token = await getToken()
                             const data  = await syncAppleHealthToday(token)
-                            console.log('[AppleHealth] UI sync result:', JSON.stringify(data))
-                            setAhData(data)
+                            console.log('[AppleHealth] UI sync result:', JSON.stringify(data)) // DEBUG: remove before App Store
+                            if (data.error && !data.steps && !data.sleepMinutes) {
+                              // Full failure — surface as an error
+                              setAhError(data.error)
+                            } else {
+                              // At least partial success — save timestamp
+                              const ts = new Date().toISOString()
+                              try { localStorage.setItem('ah_last_synced', ts) } catch {}
+                              setAhLastSynced(ts)
+                              setAhData(data)
+                            }
                             setAhReading(false)
                           }}
-                          className="px-3 py-2 rounded-lg border border-gray-200 text-gray-700 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 transition-colors"
+                          className="px-3 py-2 rounded-lg bg-[#f97316] text-white text-xs font-semibold hover:bg-orange-600 disabled:opacity-60 transition-colors"
                         >
-                          {ahReading ? 'Syncing…' : 'Sync to App'}
+                          {ahReading ? 'Syncing…' : 'Sync Now'}
                         </button>
                       )}
+
                     </div>
                   </div>
-                  {/* Sync result — data read from Apple Health and saved to daily log */}
-                  {ahData && (
-                    <div className="mt-3 text-xs text-gray-600 space-y-0.5">
+
+                  {/* Sync result panel — shown after a successful sync */}
+                  {ahData && !ahData.error && (
+                    <div className="mt-3 rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2.5 text-xs text-gray-700 space-y-1">
+                      <p className="text-emerald-700 font-semibold">✓ Synced to your daily log</p>
                       <p>
-                        <span className="font-semibold">Steps today:</span>{' '}
-                        {ahData.steps != null ? ahData.steps.toLocaleString() : 'No data in Apple Health'}
+                        <span className="font-medium">Steps:</span>{' '}
+                        {ahData.steps != null ? ahData.steps.toLocaleString() : 'No step data in Apple Health'}
                       </p>
                       <p>
-                        <span className="font-semibold">Sleep last night:</span>{' '}
+                        <span className="font-medium">Sleep:</span>{' '}
                         {ahData.sleepMinutes != null
                           ? `${Math.floor(ahData.sleepMinutes / 60)}h ${ahData.sleepMinutes % 60}m`
-                          : 'No sleep data in Apple Health'}
+                          : 'No sleep data found in Apple Health'}
                       </p>
-                      {ahData.savedSteps != null || ahData.savedSleep != null ? (
-                        <p className="text-emerald-600 font-medium pt-0.5">✓ Saved to your daily log</p>
-                      ) : null}
-                      {ahData.error && (
-                        <p className="text-red-500">{ahData.error}</p>
-                      )}
                     </div>
                   )}
+
+                  {/* Partial-failure panel — data read but server save had an issue */}
+                  {ahData && ahData.error && (
+                    <div className="mt-3 rounded-lg bg-red-50 border border-red-100 px-3 py-2.5 text-xs space-y-1">
+                      <p className="text-red-600 font-semibold">Sync incomplete</p>
+                      <p className="text-gray-600">{friendlyAhError(ahData.error)}</p>
+                    </div>
+                  )}
+
                 </div>
               )
             ))}

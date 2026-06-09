@@ -9,10 +9,14 @@ const router = Router()
  *
  * Body: { steps?: number, sleep_minutes?: number }
  *
+ * Auth: requireAuth() validates the Clerk JWT on every request. The DB user
+ * ID is derived exclusively from the verified JWT's userId via getOrCreateUser(),
+ * so it is impossible for a caller to write to another user's daily_log row.
+ *
  * Source-protection rules (mirror googleHealthSync.js):
  *   - 'manual' entries are NEVER overwritten by this endpoint.
  *   - Values whose existing source is NULL, 'fitbit', 'google_health',
- *     'synced', or 'apple_health' may be overwritten.
+ *     'synced', or 'apple_health' may be overwritten by apple_health.
  *   - Sending null for a field is a no-op — it never clears an existing value.
  */
 router.post('/sync', requireAuth(), async (req, res, next) => {
