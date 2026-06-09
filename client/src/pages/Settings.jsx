@@ -1656,7 +1656,7 @@ export default function Settings() {
                   {fitbitMessage && <p className="text-xs text-emerald-600 mt-3">{fitbitMessage}</p>}
                   {fitbitError && <p className="text-xs text-red-500 mt-3">{fitbitError}</p>}
                 </div>
-              ) : isIos ? (
+              ) : (
                 <div key={app.name} className="px-4 py-4">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div className="flex items-start gap-3 min-w-0">
@@ -1710,7 +1710,7 @@ export default function Settings() {
                     </div>
                   </div>
                 </div>
-              ) : null
+              )
             ))}
           </div>
         </>
