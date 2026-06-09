@@ -30,6 +30,7 @@ import mindsetVideosRouter from './routes/mindsetVideos.js'
 import communityResourcesRouter from './routes/communityResources.js'
 import stripeRouter from './routes/stripe.js'
 import fitbitRouter from './routes/fitbit.js'
+import appleHealthRouter from './routes/appleHealth.js'
 import bloodworkRouter from './routes/bloodwork.js'
 import pushRouter from './routes/push.js'
 import { initPush } from './services/pushService.js'
@@ -87,6 +88,7 @@ app.use('/api/measurements',     clerkMiddleware(), measurementsRouter)
 app.use('/api/mindset-videos',        clerkMiddleware(), mindsetVideosRouter)
 app.use('/api/community-resources',   clerkMiddleware(), communityResourcesRouter)
 app.use('/api/fitbit',                clerkMiddleware(), fitbitRouter)
+app.use('/api/apple-health',          clerkMiddleware(), appleHealthRouter)
 app.use('/api/bloodwork',             clerkMiddleware(), bloodworkRouter)
 app.use('/api/push',                  clerkMiddleware(), pushRouter)
 

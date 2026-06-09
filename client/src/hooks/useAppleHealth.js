@@ -1,12 +1,13 @@
 /**
- * Apple Health hook — permission request + data read (steps & sleep).
- * No server calls here. Raw data is returned to the caller.
+ * Apple Health hook — permission, data read, and sync to the server.
  *
- * Static import so the plugin is always bundled into the main chunk and never
- * split into a separate file that would fail to load via a remote server.url.
+ * Static top-level import keeps the plugin in the main bundle so it never
+ * needs a separate network request (avoids failures when server.url loads
+ * a remote host that doesn't serve split chunks).
  */
 import { Capacitor } from '@capacitor/core'
 import { Health } from '@capgo/capacitor-health'
+import { API_URL } from '../config.js'
 
 // ─── date helpers ────────────────────────────────────────────────────────────
 
@@ -32,7 +33,7 @@ function yesterdayStart() {
 
 // ─── sleep helpers ────────────────────────────────────────────────────────────
 
-// States that count as actual sleep (not just time in bed or awake)
+// States that count as actual sleep (excludes inBed and awake)
 const ASLEEP_STATES = new Set(['asleep', 'rem', 'deep', 'light'])
 
 function sleepMinutesFromSamples(samples) {
@@ -91,7 +92,7 @@ export async function requestAppleHealthPermissions() {
 
 /**
  * Read today's steps and last night's sleep from Apple Health.
- * Call only after requestAppleHealthPermissions() has returned authorized: true.
+ * Call only after permissions have been granted.
  *
  * @returns {{
  *   steps: number | null,
@@ -133,7 +134,7 @@ export async function readAppleHealthToday() {
     results.error = `Steps: ${err?.message ?? err}`
   }
 
-  // ── Sleep (yesterday midnight → now, raw samples) ──────────────────────────
+  // ── Sleep (yesterday midnight → tomorrow, raw samples) ────────────────────
   try {
     const sleepQuery = {
       dataType:  'sleep',
@@ -148,12 +149,111 @@ export async function readAppleHealthToday() {
 
     results.rawSleep = sleepResult?.samples ?? []
     results.sleepMinutes = sleepMinutesFromSamples(results.rawSleep)
+
+    // 0 minutes with samples present means samples exist but are all inBed/awake
+    // Treat that the same as no data for UI purposes
+    if (results.sleepMinutes === 0) results.sleepMinutes = null
+
     console.log('[AppleHealth] sleep minutes (actual sleep states):', results.sleepMinutes)
-    console.log('[AppleHealth] sleep sample states seen:', [...new Set(results.rawSleep.map(s => s.sleepState))])
+    console.log('[AppleHealth] sleep sample states seen:',
+      [...new Set(results.rawSleep.map(s => s.sleepState))])
   } catch (err) {
     console.error('[AppleHealth] sleep read error:', err?.message ?? err)
     results.error = (results.error ? results.error + ' | ' : '') + `Sleep: ${err?.message ?? err}`
   }
 
   return results
+}
+
+/**
+ * Read today's Apple Health data and POST it to the server.
+ * The server performs a source-protected UPSERT into daily_logs so manual
+ * entries are never overwritten.
+ *
+ * Fires a 'daily-log-updated' window event so the Dashboard refreshes
+ * without a page reload.
+ *
+ * @param {string} token  Clerk auth token from getToken()
+ * @returns {{
+ *   steps: number | null,
+ *   sleepMinutes: number | null,
+ *   savedSteps: number | null,
+ *   savedSleep: number | null,
+ *   stepsSource: string | null,
+ *   sleepSource: string | null,
+ *   syncedAt: string,
+ *   error?: string
+ * }}
+ */
+export async function syncAppleHealthToday(token) {
+  console.log('[AppleHealth] syncToday — reading device data…')
+
+  // 1. Read from device
+  const healthData = await readAppleHealthToday()
+  console.log('[AppleHealth] syncToday — device data:', JSON.stringify(healthData))
+
+  if (Capacitor.getPlatform() !== 'ios') {
+    return {
+      steps: null, sleepMinutes: null,
+      savedSteps: null, savedSleep: null,
+      stepsSource: null, sleepSource: null,
+      syncedAt: new Date().toISOString(),
+    }
+  }
+
+  // 2. POST to server
+  const payload = {
+    steps:         healthData.steps         ?? null,
+    sleep_minutes: healthData.sleepMinutes  ?? null,
+  }
+  console.log('[AppleHealth] syncToday — posting to server:', JSON.stringify(payload))
+
+  try {
+    const res = await fetch(`${API_URL}/api/apple-health/sync`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    })
+
+    const serverData = await res.json()
+    console.log('[AppleHealth] syncToday — server response:', JSON.stringify(serverData))
+
+    if (!res.ok) {
+      throw new Error(serverData?.error ?? `HTTP ${res.status}`)
+    }
+
+    // 3. Notify Dashboard to refresh its today log
+    window.dispatchEvent(new CustomEvent('daily-log-updated', {
+      detail: {
+        steps:         serverData.steps,
+        sleep_minutes: serverData.sleep_minutes,
+      },
+    }))
+
+    return {
+      steps:        healthData.steps,
+      sleepMinutes: healthData.sleepMinutes,
+      savedSteps:   serverData.steps,
+      savedSleep:   serverData.sleep_minutes,
+      stepsSource:  serverData.steps_source,
+      sleepSource:  serverData.sleep_source,
+      syncedAt:     serverData.synced_at,
+    }
+  } catch (err) {
+    const message = err?.message ?? String(err)
+    console.error('[AppleHealth] syncToday — server error:', message)
+    return {
+      steps:        healthData.steps,
+      sleepMinutes: healthData.sleepMinutes,
+      savedSteps:   null,
+      savedSleep:   null,
+      stepsSource:  null,
+      sleepSource:  null,
+      syncedAt:     new Date().toISOString(),
+      error:        message,
+    }
+  }
 }

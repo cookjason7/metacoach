@@ -6,7 +6,7 @@ import { API_URL } from '../config.js'
 import BloodworkIntakeForm from '../components/BloodworkIntakeForm.jsx'
 import { Capacitor } from '@capacitor/core'
 import { Browser } from '@capacitor/browser'
-import { requestAppleHealthPermissions, readAppleHealthToday } from '../hooks/useAppleHealth.js'
+import { requestAppleHealthPermissions, syncAppleHealthToday } from '../hooks/useAppleHealth.js'
 
 const ACTIVITY_OPTIONS = [
   { value: 'sedentary',         label: 'Sedentary (little or no exercise)' },
@@ -1711,7 +1711,7 @@ export default function Settings() {
                       >
                         {ahStatus === 'requesting' ? 'Requesting…' : 'Connect Apple Health'}
                       </button>
-                      {/* Read data button — only shown after permission granted on iOS */}
+                      {/* Sync button — only shown after permission granted on iOS */}
                       {ahStatus === 'available' && isIos && (
                         <button
                           type="button"
@@ -1719,31 +1719,35 @@ export default function Settings() {
                           onClick={async () => {
                             setAhReading(true)
                             setAhData(null)
-                            const data = await readAppleHealthToday()
-                            console.log('[AppleHealth] UI received data:', JSON.stringify(data))
+                            const token = await getToken()
+                            const data  = await syncAppleHealthToday(token)
+                            console.log('[AppleHealth] UI sync result:', JSON.stringify(data))
                             setAhData(data)
                             setAhReading(false)
                           }}
                           className="px-3 py-2 rounded-lg border border-gray-200 text-gray-700 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 transition-colors"
                         >
-                          {ahReading ? 'Reading…' : 'Read Data'}
+                          {ahReading ? 'Syncing…' : 'Sync to App'}
                         </button>
                       )}
                     </div>
                   </div>
-                  {/* Data result — raw read from Apple Health */}
+                  {/* Sync result — data read from Apple Health and saved to daily log */}
                   {ahData && (
                     <div className="mt-3 text-xs text-gray-600 space-y-0.5">
                       <p>
                         <span className="font-semibold">Steps today:</span>{' '}
-                        {ahData.steps != null ? ahData.steps.toLocaleString() : 'No data'}
+                        {ahData.steps != null ? ahData.steps.toLocaleString() : 'No data in Apple Health'}
                       </p>
                       <p>
                         <span className="font-semibold">Sleep last night:</span>{' '}
-                        {ahData.sleepMinutes != null && ahData.sleepMinutes > 0
+                        {ahData.sleepMinutes != null
                           ? `${Math.floor(ahData.sleepMinutes / 60)}h ${ahData.sleepMinutes % 60}m`
-                          : 'No data'}
+                          : 'No sleep data in Apple Health'}
                       </p>
+                      {ahData.savedSteps != null || ahData.savedSleep != null ? (
+                        <p className="text-emerald-600 font-medium pt-0.5">✓ Saved to your daily log</p>
+                      ) : null}
                       {ahData.error && (
                         <p className="text-red-500">{ahData.error}</p>
                       )}
