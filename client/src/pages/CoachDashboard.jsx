@@ -6,7 +6,6 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { API_URL } from '../config.js'
 import FoodSourceBadge from '../components/FoodSourceBadge.jsx'
-import StaffInbox from '../components/StaffInbox.jsx'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -1180,12 +1179,6 @@ function AdminToolsPanel({ clients, getToken }) {
     </div>
   )
 }
-// ── Messaging tab ─────────────────────────────────────────────────────────────
-
-function AdminMessagingTab({ getToken, role }) {
-  return <StaffInbox getToken={getToken} role={role} />
-}
-
 // ── Pending Invite Row ────────────────────────────────────────────────────────
 
 function PendingInviteRow({ invite, onResend, onCancel }) {
@@ -1462,7 +1455,6 @@ export default function CoachDashboard({ getToken, userRole }) {
 
   // ── Data ────────────────────────────────────────────────────────────────────
   const [clients,            setClients]            = useState([])
-  const [msgUnread,          setMsgUnread]          = useState(0)
   const [pendingFoodsCount,  setPendingFoodsCount]  = useState(0)
   const [checkins,       setCheckins]       = useState([])
   const [activity,       setActivity]       = useState([])
@@ -1505,9 +1497,8 @@ export default function CoachDashboard({ getToken, userRole }) {
       try {
         const token   = await getToken()
         const headers = { Authorization: `Bearer ${token}` }
-        const [r1, r2, r3, r4] = await Promise.all([
+        const [r1, r3, r4] = await Promise.all([
           fetch(`${API_URL}/api/coach-admin/clients?status=all`, { headers }),
-          fetch(`${API_URL}/api/messages/unread-count`,          { headers }),
           fetch(`${API_URL}/api/coach-admin/dashboard-summary`,  { headers }),
           fetch(`${API_URL}/api/users/me`,                       { headers }),
         ])
@@ -1522,7 +1513,6 @@ export default function CoachDashboard({ getToken, userRole }) {
                 .map(c => c.latest_checkin_submission_id)
             ))
           }
-          if (r2.ok) { const d = await r2.json(); setMsgUnread(d.unread ?? 0) }
           if (r3.ok) { const d = await r3.json(); setCheckins(d.checkins ?? []); setActivity(d.activity ?? []) }
           if (r4.ok) {
             const d = await r4.json()
@@ -1801,11 +1791,6 @@ export default function CoachDashboard({ getToken, userRole }) {
               }`}
             >
               {tab.label}
-              {tab.id === 'messaging' && msgUnread > 0 && (
-                <span className="ml-1.5 bg-[#E8670A] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                  {msgUnread}
-                </span>
-              )}
               {tab.id === 'coach-foods' && pendingFoodsCount > 0 && (
                 <span className="ml-1.5 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                   {pendingFoodsCount}
@@ -1853,8 +1838,7 @@ export default function CoachDashboard({ getToken, userRole }) {
               </select>
               <select value={checkinFilter} onChange={e => setCheckinFilter(e.target.value)}
                 className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
-                {/* "all" is the hidden default — not shown as a selectable option */}
-                <option value="all" disabled hidden>Check-ins</option>
+                <option value="all">All check-ins</option>
                 <option value="received">Check-in received</option>
                 <option value="none">No check-in</option>
               </select>
@@ -1955,7 +1939,10 @@ export default function CoachDashboard({ getToken, userRole }) {
                       <th className="text-left px-3 py-2 font-semibold">Coach</th>
                       <th className="text-left px-3 py-2 font-semibold">Last Activity</th>
                       <th className="text-left px-3 py-2 font-semibold">Last Login</th>
-                      <th className="text-left px-3 py-2 font-semibold">Check-In</th>
+                      <th className="text-left px-3 py-2 font-semibold"
+                          title="Shows the client's current/latest check-in and reply status — independent of the historical week chosen in the filter above.">
+                        Check-In (current)
+                      </th>
                       <th className="text-left px-3 py-2 font-semibold">Momentum</th>
                       <th className="text-left px-3 py-2 font-semibold">Status</th>
                       <th className="text-right px-3 py-2 font-semibold">Actions</th>

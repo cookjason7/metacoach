@@ -437,7 +437,7 @@ export default function Progress() {
     return () => { cancelled = true }
   }, [range, startDate, endDate, getToken, syncTick])
 
-  // Refresh when daily logs change (e.g. after Google Health sync).
+  // Refresh when daily logs change (e.g. after a health/activity sync).
   useEffect(() => {
     function onDailyLogUpdated() { setSyncTick(t => t + 1) }
     window.addEventListener('daily-log-updated', onDailyLogUpdated)
