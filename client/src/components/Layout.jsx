@@ -31,6 +31,9 @@ const STAFF_NAV_ITEMS = [
 
 const SIDEBAR_BG = '#0F1E35'
 
+// Progress photo angle sequence — must match this order: Front → Side → Back
+const PHOTO_ANGLE_SEQUENCE = ['front', 'side', 'back']
+
 export default function Layout() {
   const { user, isLoaded } = useUser()
   const { getToken }       = useAuth()
@@ -57,6 +60,7 @@ export default function Layout() {
   const [quickPhotoAngle,     setQuickPhotoAngle]     = useState('front')
   const [quickPhotoFile,      setQuickPhotoFile]      = useState(null)
   const [quickPhotoPreview,   setQuickPhotoPreview]   = useState(null)
+  const [quickPhotoSaved,     setQuickPhotoSaved]     = useState(null)  // angle just saved, for transient banner
   const quickPhotoInputRef    = useRef(null)
   const quickPhotoGalleryRef  = useRef(null)
   const overlayPressedRef     = useRef(false) // true only when a pointer press began on the backdrop itself (ghost-click guard)
@@ -71,6 +75,7 @@ export default function Layout() {
     setQuickActivityType(''); setQuickActivityDur(''); setQuickActivityNotes('')
     setQuickPhotoAngle('front'); setQuickPhotoFile(null)
     setQuickPhotoPreview(p => { if (p) URL.revokeObjectURL(p); return null })
+    setQuickPhotoSaved(null)
     setQuickFoodMode(null)
     setQuickLogDate(new Date().toISOString().slice(0, 10))
     setQuickActionDate(new Date().toISOString().slice(0, 10))
@@ -229,9 +234,21 @@ export default function Layout() {
       if (quickPhotoPreview) URL.revokeObjectURL(quickPhotoPreview)
       setQuickPhotoFile(null)
       setQuickPhotoPreview(null)
-      if (quickPhotoInputRef.current) quickPhotoInputRef.current.value = ''
-      setQuickDone(true)
-      setTimeout(() => closeQuickMenu(), 1200) // was setQuickDone(false) — sheet now closes on success
+      if (quickPhotoInputRef.current)    quickPhotoInputRef.current.value    = ''
+      if (quickPhotoGalleryRef.current)  quickPhotoGalleryRef.current.value  = ''
+      // Advance through Front → Side → Back; only close after the last angle
+      const savedAngle = quickPhotoAngle
+      const nextIdx    = PHOTO_ANGLE_SEQUENCE.indexOf(savedAngle) + 1
+      if (nextIdx < PHOTO_ANGLE_SEQUENCE.length) {
+        // More angles remain — show banner, advance to next angle, stay open
+        setQuickPhotoSaved(savedAngle)
+        setQuickPhotoAngle(PHOTO_ANGLE_SEQUENCE[nextIdx])
+        setTimeout(() => setQuickPhotoSaved(null), 900)
+      } else {
+        // Last angle (back) saved — show done and close
+        setQuickDone(true)
+        setTimeout(() => closeQuickMenu(), 1200)
+      }
     } catch (err) {
       setQuickError(err?.message ?? 'Upload failed. Please try again.')
     }
@@ -1138,9 +1155,24 @@ export default function Layout() {
                 {/* photo */}
                 {quickAction === 'photo' && (
                   <>
-                    <p className="text-sm text-gray-500 mb-3">Select angle</p>
+                    {/* Step indicator */}
+                    {(() => {
+                      const stepIdx = PHOTO_ANGLE_SEQUENCE.indexOf(quickPhotoAngle)
+                      return (
+                        <p className="text-sm text-gray-500 mb-3">
+                          Step {stepIdx + 1} of {PHOTO_ANGLE_SEQUENCE.length} — <span className="font-semibold capitalize">{quickPhotoAngle}</span>
+                        </p>
+                      )
+                    })()}
+                    {/* Success banner for most-recently saved angle */}
+                    {quickPhotoSaved && (
+                      <div className="mb-3 px-3 py-2 bg-green-50 border border-green-200 rounded-xl text-xs font-semibold text-green-700 flex items-center gap-1.5">
+                        <span>✓</span>
+                        <span className="capitalize">{quickPhotoSaved}</span> photo saved!
+                      </div>
+                    )}
                     <div className="flex gap-2 mb-4">
-                      {['front', 'back', 'side'].map(a => (
+                      {PHOTO_ANGLE_SEQUENCE.map(a => (
                         <button key={a} onClick={() => setQuickPhotoAngle(a)}
                           className={`flex-1 py-2 rounded-xl text-sm font-bold border-2 transition-colors capitalize ${
                             quickPhotoAngle === a
@@ -1214,7 +1246,10 @@ export default function Layout() {
                     />
                     <button onClick={submitQuickPhoto} disabled={!quickPhotoFile || quickSaving}
                       className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
-                      {quickSaving ? 'Uploading…' : 'Upload Photo'}
+                      {quickSaving ? 'Uploading…'
+                        : PHOTO_ANGLE_SEQUENCE.indexOf(quickPhotoAngle) < PHOTO_ANGLE_SEQUENCE.length - 1
+                          ? 'Save & Continue →'
+                          : 'Save & Finish'}
                     </button>
                   </>
                 )}
