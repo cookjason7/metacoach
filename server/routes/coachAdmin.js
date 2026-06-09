@@ -181,6 +181,15 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
          WHERE fs2.user_id = u.id
            AND fs2.submitted_at >= NOW() - INTERVAL '8 days'
            AND ft2.title ILIKE '%check%in%') > 0 AS check_in_this_week,
+        -- ID + reviewed state of the most recent check-in submission (for the 🙂 replied button)
+        (SELECT fs3.id FROM form_submissions fs3
+         JOIN form_templates ft3 ON ft3.id = fs3.template_id
+         WHERE fs3.user_id = u.id AND ft3.title ILIKE '%check%in%'
+         ORDER BY fs3.submitted_at DESC LIMIT 1) AS latest_checkin_submission_id,
+        (SELECT fs3.reviewed_at IS NOT NULL FROM form_submissions fs3
+         JOIN form_templates ft3 ON ft3.id = fs3.template_id
+         WHERE fs3.user_id = u.id AND ft3.title ILIKE '%check%in%'
+         ORDER BY fs3.submitted_at DESC LIMIT 1) AS checkin_reviewed,
         COALESCE((
           SELECT AVG(completion_percentage)::numeric(5,1)
           FROM habit_completions hc
@@ -2531,6 +2540,20 @@ router.patch('/form-submissions/:submissionId/mark-reviewed', requireAuth(), asy
       reviewed_by:      updated.reviewed_by,
       reviewed_by_name: reviewer?.first_name ?? null,
     })
+  } catch (err) { next(err) }
+})
+
+// PATCH /api/coach-admin/form-submissions/:submissionId/unmark-reviewed
+// Clears reviewed_at/reviewed_by (toggle off the 🙂 "replied" check-in marker).
+router.patch('/form-submissions/:submissionId/unmark-reviewed', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const subId = parseInt(req.params.submissionId, 10)
+    const { rows: [sub] } = await pool.query('SELECT id, user_id FROM form_submissions WHERE id = $1', [subId])
+    if (!sub) return res.status(404).json({ error: 'Submission not found' })
+    if (!await canAccessClient(ctx, sub.user_id)) return res.status(403).json({ error: 'Forbidden' })
+    await pool.query('UPDATE form_submissions SET reviewed_at = NULL, reviewed_by = NULL WHERE id = $1', [subId])
+    res.json({ ok: true })
   } catch (err) { next(err) }
 })
 

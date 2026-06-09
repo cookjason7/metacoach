@@ -1320,7 +1320,7 @@ export async function migrate() {
 // admin users whose email column was NULL at startup migration time.
 export async function getOrCreateUser(clerkUserId, email = null) {
   const existing = await pool.query(
-    'SELECT id, email, role FROM users WHERE clerk_user_id = $1',
+    'SELECT id, email, role, last_login_at FROM users WHERE clerk_user_id = $1',
     [clerkUserId],
   )
 
@@ -1328,9 +1328,25 @@ export async function getOrCreateUser(clerkUserId, email = null) {
   if (existing.rows.length > 0) {
     dbUserId = existing.rows[0].id
 
-    // Backfill email if we have it and it's missing or different
+    // Stamp last_login_at on every authenticated request and backfill email if needed.
+    // Throttle to at most one write per hour to avoid hammering the DB on every API call.
+    const updates = []
+    const vals    = []
     if (email && existing.rows[0].email !== email) {
-      await pool.query('UPDATE users SET email = $1 WHERE id = $2', [email, dbUserId])
+      vals.push(email)
+      updates.push(`email = $${vals.length}`)
+    }
+    // Only update last_login_at if it hasn't been set in the last hour
+    if (!existing.rows[0].last_login_at ||
+        Date.now() - new Date(existing.rows[0].last_login_at).getTime() > 60 * 60 * 1000) {
+      updates.push(`last_login_at = NOW()`)
+    }
+    if (updates.length > 0) {
+      vals.push(dbUserId)
+      await pool.query(
+        `UPDATE users SET ${updates.join(', ')} WHERE id = $${vals.length}`,
+        vals,
+      )
     }
   } else {
     const inserted = await pool.query(

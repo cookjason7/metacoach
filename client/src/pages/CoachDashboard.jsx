@@ -1474,6 +1474,7 @@ export default function CoachDashboard({ getToken, userRole }) {
   const [checkinFilter,  setCheckinFilter]  = useState('all')
   const [weekFilter,     setWeekFilter]     = useState('this_week')
   const [sortBy,         setSortBy]         = useState('activity')
+  const [repliedIds,     setRepliedIds]     = useState(() => new Set()) // optimistic checkin-replied toggles
 
   // ── Tabs ─────────────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState('clients')
@@ -1502,7 +1503,16 @@ export default function CoachDashboard({ getToken, userRole }) {
           fetch(`${API_URL}/api/users/me`,                       { headers }),
         ])
         if (!cancelled) {
-          if (r1.ok) setClients(await r1.json())
+          if (r1.ok) {
+            const clientData = await r1.json()
+            setClients(clientData)
+            // Seed optimistic replied state from server's checkin_reviewed flag
+            setRepliedIds(new Set(
+              clientData
+                .filter(c => c.checkin_reviewed && c.latest_checkin_submission_id)
+                .map(c => c.latest_checkin_submission_id)
+            ))
+          }
           if (r2.ok) { const d = await r2.json(); setMsgUnread(d.unread ?? 0) }
           if (r3.ok) { const d = await r3.json(); setCheckins(d.checkins ?? []); setActivity(d.activity ?? []) }
           if (r4.ok) {
@@ -1576,6 +1586,32 @@ export default function CoachDashboard({ getToken, userRole }) {
     })
     if (res.ok) loadPendingInvites()
     else { const d = await res.json().catch(() => ({})); alert(d.error ?? 'Could not cancel invite.') }
+  }
+
+  // ── Check-in replied toggle (Part B Polish 2) ────────────────────────────────
+  async function toggleCheckinReplied(submissionId) {
+    const alreadyReplied = repliedIds.has(submissionId)
+    // Optimistic update
+    setRepliedIds(prev => {
+      const next = new Set(prev)
+      alreadyReplied ? next.delete(submissionId) : next.add(submissionId)
+      return next
+    })
+    try {
+      const token = await getToken()
+      const route = alreadyReplied ? 'unmark-reviewed' : 'mark-reviewed'
+      const res = await fetch(`${API_URL}/api/coach-admin/form-submissions/${submissionId}/${route}`, {
+        method: 'PATCH', headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error('Failed')
+    } catch {
+      // Revert on error
+      setRepliedIds(prev => {
+        const next = new Set(prev)
+        alreadyReplied ? next.add(submissionId) : next.delete(submissionId)
+        return next
+      })
+    }
   }
 
   // ── Client actions ───────────────────────────────────────────────────────────
@@ -1657,6 +1693,7 @@ export default function CoachDashboard({ getToken, userRole }) {
       })
       .sort((a, b) => {
         if (sortBy === 'activity') return (lastActivityAt(b)?.getTime() ?? 0) - (lastActivityAt(a)?.getTime() ?? 0)
+        if (sortBy === 'login')  return (new Date(b.last_login_at ?? 0).getTime()) - (new Date(a.last_login_at ?? 0).getTime())
         if (sortBy === 'coach')  return (a.assigned_coach_name || '').localeCompare(b.assigned_coach_name || '')
         if (sortBy === 'status') return accountStatus(a).localeCompare(accountStatus(b)) || clientName(a).localeCompare(clientName(b))
         return clientName(a).localeCompare(clientName(b))
@@ -1811,6 +1848,7 @@ export default function CoachDashboard({ getToken, userRole }) {
               <select value={sortBy} onChange={e => setSortBy(e.target.value)}
                 className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
                 <option value="activity">Sort by activity</option>
+                <option value="login">Sort by last login</option>
                 <option value="name">Sort by name</option>
                 <option value="coach">Sort by coach</option>
                 <option value="status">Sort by status</option>
@@ -1903,6 +1941,7 @@ export default function CoachDashboard({ getToken, userRole }) {
                       <th className="text-left px-3 py-2 font-semibold">Type</th>
                       <th className="text-left px-3 py-2 font-semibold">Coach</th>
                       <th className="text-left px-3 py-2 font-semibold">Last Activity</th>
+                      <th className="text-left px-3 py-2 font-semibold">Last Login</th>
                       <th className="text-left px-3 py-2 font-semibold">Check-In</th>
                       <th className="text-left px-3 py-2 font-semibold">Momentum</th>
                       <th className="text-left px-3 py-2 font-semibold">Status</th>
@@ -1932,11 +1971,30 @@ export default function CoachDashboard({ getToken, userRole }) {
                             </span>
                           )}
                         </td>
+                        <td className="px-3 py-2 text-xs text-gray-500">
+                          {c.last_login_at ? (
+                            <>
+                              <span className="block font-medium text-gray-700">{fmtShortDate(c.last_login_at)}</span>
+                              <span className="block text-[11px] text-gray-400">
+                                {daysSince(c.last_login_at) === 0 ? 'today' : `${daysSince(c.last_login_at)}d ago`}
+                              </span>
+                            </>
+                          ) : '—'}
+                        </td>
                         <td className="px-3 py-2">
-                          {c.check_in_this_week
-                            ? <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">✓ Check-in</span>
-                            : <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-bold text-gray-400">No check-in</span>
-                          }
+                          {c.check_in_this_week && c.latest_checkin_submission_id ? (
+                            <button
+                              onClick={e => { e.stopPropagation(); toggleCheckinReplied(c.latest_checkin_submission_id) }}
+                              title={repliedIds.has(c.latest_checkin_submission_id) ? 'Mark as not replied' : 'Mark as replied'}
+                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-[#E8670A] ${repliedIds.has(c.latest_checkin_submission_id) ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100' : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
+                            >
+                              {repliedIds.has(c.latest_checkin_submission_id) ? '🙂 Replied' : '✓ Check-in'}
+                            </button>
+                          ) : c.check_in_this_week ? (
+                            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">✓ Check-in</span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-bold text-gray-400">No check-in</span>
+                          )}
                         </td>
                         <td className="px-3 py-2"><StatusBadge status={c.status_tag} /></td>
                         <td className="px-3 py-2">
@@ -1979,10 +2037,21 @@ export default function CoachDashboard({ getToken, userRole }) {
                       </span>
                       {c.assigned_coach_name && <span className="text-gray-500">Coach: {c.assigned_coach_name}</span>}
                       <span className="text-gray-400">{formatActivity(c)}</span>
-                      {c.check_in_this_week
-                        ? <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-bold text-emerald-700">✓ Check-in</span>
-                        : <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 font-bold text-gray-400">No check-in</span>
-                      }
+                      {c.check_in_this_week && c.latest_checkin_submission_id ? (
+                        <button
+                          onClick={e => { e.stopPropagation(); toggleCheckinReplied(c.latest_checkin_submission_id) }}
+                          className={`rounded-full border px-2 py-0.5 font-bold transition-colors ${repliedIds.has(c.latest_checkin_submission_id) ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}
+                        >
+                          {repliedIds.has(c.latest_checkin_submission_id) ? '🙂 Replied' : '✓ Check-in'}
+                        </button>
+                      ) : c.check_in_this_week ? (
+                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-bold text-emerald-700">✓ Check-in</span>
+                      ) : (
+                        <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 font-bold text-gray-400">No check-in</span>
+                      )}
+                      {c.last_login_at && (
+                        <span className="text-gray-400">Login {daysSince(c.last_login_at) === 0 ? 'today' : `${daysSince(c.last_login_at)}d ago`}</span>
+                      )}
                     </div>
                     <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between gap-2">
                       <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${accountStatusBadgeClass(c)}`}>
