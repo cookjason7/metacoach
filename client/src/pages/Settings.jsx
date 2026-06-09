@@ -6,7 +6,7 @@ import { API_URL } from '../config.js'
 import BloodworkIntakeForm from '../components/BloodworkIntakeForm.jsx'
 import { Capacitor } from '@capacitor/core'
 import { Browser } from '@capacitor/browser'
-import { requestAppleHealthPermissions } from '../hooks/useAppleHealth.js'
+import { requestAppleHealthPermissions, readAppleHealthToday } from '../hooks/useAppleHealth.js'
 
 const ACTIVITY_OPTIONS = [
   { value: 'sedentary',         label: 'Sedentary (little or no exercise)' },
@@ -444,10 +444,12 @@ export default function Settings() {
   const [fitbitSyncing, setFitbitSyncing] = useState(false)
   const [fitbitMessage, setFitbitMessage] = useState('')
   const [fitbitError, setFitbitError] = useState('')
-  // Apple Health — iOS only, permission test
+  // Apple Health
   const isIos = Capacitor.getPlatform() === 'ios'
-  const [ahStatus, setAhStatus] = useState('idle') // idle | requesting | available | error | unavailable
-  const [ahError, setAhError] = useState('')
+  const [ahStatus, setAhStatus]   = useState('idle') // idle | requesting | available | error | unavailable
+  const [ahError, setAhError]     = useState('')
+  const [ahReading, setAhReading] = useState(false)
+  const [ahData, setAhData]       = useState(null)  // { steps, sleepMinutes, error? }
 
   const email = user?.primaryEmailAddress?.emailAddress ?? ''
 
@@ -1687,12 +1689,14 @@ export default function Settings() {
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2 sm:justify-end">
+                      {/* Connect / re-request button */}
                       <button
                         type="button"
-                        disabled={ahStatus === 'requesting'}
+                        disabled={ahStatus === 'requesting' || ahReading}
                         onClick={async () => {
                           setAhStatus('requesting')
                           setAhError('')
+                          setAhData(null)
                           const result = await requestAppleHealthPermissions()
                           if (!result.available) {
                             setAhStatus('unavailable')
@@ -1707,8 +1711,44 @@ export default function Settings() {
                       >
                         {ahStatus === 'requesting' ? 'Requesting…' : 'Connect Apple Health'}
                       </button>
+                      {/* Read data button — only shown after permission granted on iOS */}
+                      {ahStatus === 'available' && isIos && (
+                        <button
+                          type="button"
+                          disabled={ahReading}
+                          onClick={async () => {
+                            setAhReading(true)
+                            setAhData(null)
+                            const data = await readAppleHealthToday()
+                            console.log('[AppleHealth] UI received data:', JSON.stringify(data))
+                            setAhData(data)
+                            setAhReading(false)
+                          }}
+                          className="px-3 py-2 rounded-lg border border-gray-200 text-gray-700 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 transition-colors"
+                        >
+                          {ahReading ? 'Reading…' : 'Read Data'}
+                        </button>
+                      )}
                     </div>
                   </div>
+                  {/* Data result — raw read from Apple Health */}
+                  {ahData && (
+                    <div className="mt-3 text-xs text-gray-600 space-y-0.5">
+                      <p>
+                        <span className="font-semibold">Steps today:</span>{' '}
+                        {ahData.steps != null ? ahData.steps.toLocaleString() : 'No data'}
+                      </p>
+                      <p>
+                        <span className="font-semibold">Sleep last night:</span>{' '}
+                        {ahData.sleepMinutes != null && ahData.sleepMinutes > 0
+                          ? `${Math.floor(ahData.sleepMinutes / 60)}h ${ahData.sleepMinutes % 60}m`
+                          : 'No data'}
+                      </p>
+                      {ahData.error && (
+                        <p className="text-red-500">{ahData.error}</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             ))}
