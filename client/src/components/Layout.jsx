@@ -26,7 +26,6 @@ const STAFF_NAV_ITEMS = [
   { to: '/admin/forms',   label: 'Forms' },
   { to: '/messages',      label: 'Messages' },
   { to: '/community',     label: 'Community' },
-  { to: '/workouts',      label: 'Workouts' },
   { to: '/settings',      label: 'Settings' },
 ]
 
