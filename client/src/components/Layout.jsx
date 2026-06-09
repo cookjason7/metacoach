@@ -4,6 +4,7 @@ import { UserButton, useUser, useAuth, useClerk } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 import { Capacitor } from '@capacitor/core'
 import { PushNotifications } from '@capacitor/push-notifications'
+import { syncAppleHealthToday } from '../hooks/useAppleHealth.js'
 
 // Client-facing sidebar nav
 const CLIENT_NAV_ITEMS = [
@@ -473,6 +474,45 @@ export default function Layout() {
       regListener?.remove()
       errListener?.remove()
     }
+  }, [isLoaded, user, getToken])
+
+  // ── Apple Health auto-sync on foreground ──────────────────────────────────
+  // Fires silently when the iOS app returns from background (visibilitychange
+  // fires in Capacitor WebViews just like a browser tab becoming visible).
+  // A 5-minute cooldown prevents hammering the server if the user multi-tasks.
+  // No UI shown — the 'daily-log-updated' event from syncAppleHealthToday()
+  // updates the Dashboard in real-time when it fires.
+  useEffect(() => {
+    if (!isLoaded || !user) return
+    if (Capacitor.getPlatform() !== 'ios') return
+
+    const COOLDOWN_MS = 5 * 60 * 1000 // 5 minutes
+
+    async function doAutoSync() {
+      const last = localStorage.getItem('ah_last_synced')
+      if (last && Date.now() - new Date(last).getTime() < COOLDOWN_MS) return
+      try {
+        const token = await getToken()
+        const data  = await syncAppleHealthToday(token)
+        if (!data.error) {
+          // Update the last-synced timestamp that Settings reads for display
+          try { localStorage.setItem('ah_last_synced', new Date().toISOString()) } catch {}
+        }
+      } catch {
+        // Silent — auto-sync failures must never surface an error to the user
+      }
+    }
+
+    // Sync when app comes to foreground
+    function onVisibilityChange() {
+      if (!document.hidden) doAutoSync()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+
+    // Also sync once on authenticated mount (covers cold-launch from TestFlight)
+    doAutoSync()
+
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
   }, [isLoaded, user, getToken])
 
   useEffect(() => {

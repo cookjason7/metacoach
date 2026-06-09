@@ -486,7 +486,53 @@ function KatieBanner({ message, onDismiss }) {
   )
 }
 
-// (StatCard, FoundationRing, WomensHealthFoundation removed — not on Dashboard)
+// ── Today's Stats Strip ───────────────────────────────────────────────────────
+// Shows steps, sleep, water, and weight when any of them have data.
+// Appears between Today's Goals and Today's Habits so synced Apple Health data
+// is immediately visible on the home screen.
+
+function fmtSleepMins(mins) {
+  if (mins == null) return null
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  return h > 0 ? `${h}h ${m > 0 ? m + 'm' : ''}`.trim() : `${m}m`
+}
+
+function StatPill({ icon, label, value }) {
+  return (
+    <div className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2.5 min-w-0">
+      <span className="text-base shrink-0">{icon}</span>
+      <div className="min-w-0">
+        <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide leading-none mb-0.5">{label}</p>
+        <p className="text-sm font-bold text-gray-800 leading-none truncate">{value}</p>
+      </div>
+    </div>
+  )
+}
+
+function TodayStatsStrip({ todayLog }) {
+  const steps   = todayLog?.steps       != null ? todayLog.steps       : null
+  const sleep   = todayLog?.sleep_minutes != null ? fmtSleepMins(todayLog.sleep_minutes) : null
+  const water   = todayLog?.water_oz    != null ? `${todayLog.water_oz} oz` : null
+  const weight  = todayLog?.weight_lbs  != null ? `${todayLog.weight_lbs} lbs` : null
+
+  if (!steps && !sleep && !water && !weight) return null
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-4">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-bold text-gray-900">Today's Stats</h2>
+        <Link to="/progress" className="text-xs text-[#f97316] font-medium hover:underline">View history</Link>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {steps  != null && <StatPill icon="👟" label="Steps"  value={steps.toLocaleString()} />}
+        {sleep  != null && <StatPill icon="😴" label="Sleep"  value={sleep} />}
+        {water  != null && <StatPill icon="💧" label="Water"  value={water} />}
+        {weight != null && <StatPill icon="⚖️" label="Weight" value={weight} />}
+      </div>
+    </div>
+  )
+}
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
@@ -542,7 +588,9 @@ export default function Dashboard() {
   }, [getToken])
 
   useEffect(() => {
-    function onUpdate(e) { if (e.detail) setTodayLog(e.detail) }
+    // Merge the incoming fields — never replace the whole object, or we lose
+    // water_oz / weight_lbs that weren't part of the Apple Health sync payload.
+    function onUpdate(e) { if (e.detail) setTodayLog(prev => prev ? { ...prev, ...e.detail } : e.detail) }
     window.addEventListener('daily-log-updated', onUpdate)
     return () => window.removeEventListener('daily-log-updated', onUpdate)
   }, [])
@@ -581,6 +629,10 @@ export default function Dashboard() {
         todayMeals={todayMeals}
         loading={loading}
       />
+
+      {/* Steps / sleep / water / weight strip — visible when any metric has data.
+          Driven by todayLog, which is updated in real-time by Apple Health sync. */}
+      <TodayStatsStrip todayLog={todayLog} />
 
       {/* Today's habits — syncs with Calendar; progress habits auto-update */}
       <TodayHabits getToken={getToken} todayLog={todayLog} todayMeals={todayMeals} />
