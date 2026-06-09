@@ -44,6 +44,15 @@ function daysSince(iso) {
   return Math.floor((Date.now() - new Date(iso)) / 86400_000)
 }
 
+// Returns the ISO date string (YYYY-MM-DD) of the Monday for a given date.
+// Weeks always start on Monday (ISO week convention).
+function getMondayISO(d = new Date()) {
+  const dt = new Date(d); dt.setHours(0, 0, 0, 0)
+  const dow = dt.getDay() // 0 = Sunday
+  dt.setDate(dt.getDate() - (dow === 0 ? 6 : dow - 1))
+  return dt.toISOString().slice(0, 10)
+}
+
 function fmtShortDate(iso) {
   if (!iso) return '—'
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -1472,7 +1481,7 @@ export default function CoachDashboard({ getToken, userRole }) {
   const [typeFilter,     setTypeFilter]     = useState('all')
   const [statusFilter,   setStatusFilter]   = useState('all')
   const [checkinFilter,  setCheckinFilter]  = useState('all')
-  const [weekFilter,     setWeekFilter]     = useState('this_week')
+  const [weekFilter,     setWeekFilter]     = useState(() => getMondayISO())
   const [sortBy,         setSortBy]         = useState('activity')
   const [repliedIds,     setRepliedIds]     = useState(() => new Set()) // optimistic checkin-replied toggles
 
@@ -1656,24 +1665,27 @@ export default function CoachDashboard({ getToken, userRole }) {
       .sort((a, b) => a[1].localeCompare(b[1]))
   }, [coaches])
 
-  // Calendar-week helpers for check-in filtering
-  const checkinWeekBounds = useMemo(() => {
-    const now = new Date()
-    // Monday of the current week (ISO week: Mon=start)
-    const thisMonday = new Date(now)
-    thisMonday.setHours(0, 0, 0, 0)
-    const day = thisMonday.getDay() // 0=Sun
-    thisMonday.setDate(thisMonday.getDate() - (day === 0 ? 6 : day - 1))
-    const lastMonday = new Date(thisMonday.getTime() - 7 * 24 * 60 * 60 * 1000)
-    const nextMonday = new Date(thisMonday.getTime() + 7 * 24 * 60 * 60 * 1000)
-    return { thisMonday, lastMonday, nextMonday }
-  }, []) // recomputed only on mount (good enough for a dashboard session)
+  // Generate Monday-anchored week options for the check-in week selector.
+  // Produces the last 8 weeks (current week first) as { value: 'YYYY-MM-DD', label: 'Week of Apr 27, 2026' }.
+  const weekOptions = useMemo(() => {
+    const opts = []
+    const now  = new Date()
+    const thisMondayISO = getMondayISO(now)
+    for (let i = 0; i < 8; i++) {
+      const d = new Date(thisMondayISO + 'T00:00:00')
+      d.setDate(d.getDate() - i * 7)
+      const iso   = d.toISOString().slice(0, 10)
+      const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      opts.push({ value: iso, label: `Week of ${label}` })
+    }
+    return opts
+  }, []) // computed once on mount
 
   const filteredClients = useMemo(() => {
     const q = clientSearch.trim().toLowerCase()
-    const { thisMonday, lastMonday, nextMonday } = checkinWeekBounds
-    const weekStart = weekFilter === 'this_week' ? thisMonday : lastMonday
-    const weekEnd   = weekFilter === 'this_week' ? nextMonday : thisMonday
+    // Derive week bounds from the selected Monday ISO date (weekFilter = 'YYYY-MM-DD')
+    const weekStart = new Date(weekFilter + 'T00:00:00')
+    const weekEnd   = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000)
 
     function hadCheckinInWeek(c) {
       if (!c.last_checkin_at) return false
@@ -1698,7 +1710,7 @@ export default function CoachDashboard({ getToken, userRole }) {
         if (sortBy === 'status') return accountStatus(a).localeCompare(accountStatus(b)) || clientName(a).localeCompare(clientName(b))
         return clientName(a).localeCompare(clientName(b))
       })
-  }, [clients, clientSearch, coachFilter, typeFilter, statusFilter, checkinFilter, weekFilter, sortBy, isAdmin, checkinWeekBounds])
+  }, [clients, clientSearch, coachFilter, typeFilter, statusFilter, checkinFilter, weekFilter, sortBy, isAdmin])
 
   const tabs = [
     { id: 'clients',     label: 'Clients' },
@@ -1835,8 +1847,9 @@ export default function CoachDashboard({ getToken, userRole }) {
               </select>
               <select value={weekFilter} onChange={e => setWeekFilter(e.target.value)}
                 className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
-                <option value="this_week">This week</option>
-                <option value="last_week">Last week</option>
+                {weekOptions.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
               </select>
               <select value={checkinFilter} onChange={e => setCheckinFilter(e.target.value)}
                 className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
@@ -1856,10 +1869,10 @@ export default function CoachDashboard({ getToken, userRole }) {
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <p className="text-xs text-gray-400">{filteredClients.length} of {clients.length} clients</p>
-              {(clientSearch || (isAdmin && coachFilter !== 'all') || typeFilter !== 'all' || statusFilter !== 'all' || checkinFilter !== 'all' || weekFilter !== 'this_week') && (
+              {(clientSearch || (isAdmin && coachFilter !== 'all') || typeFilter !== 'all' || statusFilter !== 'all' || checkinFilter !== 'all' || weekFilter !== weekOptions[0]?.value) && (
                 <button
                   type="button"
-                  onClick={() => { setClientSearch(''); if (isAdmin) setCoachFilter('all'); setTypeFilter('all'); setStatusFilter('all'); setCheckinFilter('all'); setWeekFilter('this_week') }}
+                  onClick={() => { setClientSearch(''); if (isAdmin) setCoachFilter('all'); setTypeFilter('all'); setStatusFilter('all'); setCheckinFilter('all'); setWeekFilter(weekOptions[0]?.value ?? getMondayISO()) }}
                   className="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-semibold text-[#E8670A] hover:bg-orange-100 transition-colors"
                 >
                   Clear filters
