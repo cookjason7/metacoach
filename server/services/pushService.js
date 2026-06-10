@@ -112,7 +112,7 @@ export async function notifyNewDirectMessage(recipientUserId) {
       [recipientUserId],
     )
     const prefs = rows[0]
-    if (!prefs || !prefs.notif_master_enabled || !prefs.notif_dm_enabled) return
+    if (!prefs || prefs.notif_master_enabled === false || prefs.notif_dm_enabled === false) return
     await sendToUser(recipientUserId, {
       title: 'New Message',
       body:  'You have a new message.',
@@ -131,7 +131,7 @@ export async function notifyNewFormDelivery(clientUserId) {
       [clientUserId],
     )
     const prefs = rows[0]
-    if (!prefs || !prefs.notif_master_enabled || !prefs.notif_dm_enabled) return
+    if (!prefs || prefs.notif_master_enabled === false || prefs.notif_form_enabled === false) return
     await sendToUser(clientUserId, {
       title: 'New Form',
       body:  'You have a new form to complete.',
