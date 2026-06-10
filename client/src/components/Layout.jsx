@@ -334,6 +334,25 @@ export default function Layout() {
     } catch {}
   }, [])
 
+  // ── TEMP auth-gate debug — fires whenever Clerk auth state changes ──────────
+  // Identifies whether isLoaded/user ever reach true in the Android WebView.
+  // Remove after push registration is confirmed working.
+  useEffect(() => {
+    try {
+      fetch(`${API_URL}/api/push/app-load-debug`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          build:     'auth-gate-debug',
+          platform:  Capacitor.getPlatform(),
+          isNative:  String(window.Capacitor?.isNative ?? false),
+          href:      'auth-gate',
+          userAgent: `isLoaded=${isLoaded} hasUser=${!!user}`,
+        }),
+      }).catch(() => {})
+    } catch {}
+  }, [isLoaded, user])
+
   // ── Android push notification registration ────────────────────────────────
   // Runs once the user is authenticated. Non-blocking — all errors are warnings.
   const pushTokenRef = useRef(null)
