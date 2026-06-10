@@ -339,9 +339,17 @@ export default function Layout() {
   const pushTokenRef = useRef(null)
   useEffect(() => {
     if (!isLoaded || !user) return
-    const isNative = Capacitor.isNativePlatform()
-    const platform = Capacitor.getPlatform()
-    console.log('[push] native platform check', { isNative, platform })
+    // When server.url is set in capacitor.config.ts (production remote mode),
+    // Capacitor.isNativePlatform() returns false and getPlatform() returns 'web'
+    // because the module initializes before the native bridge injects window.Capacitor.
+    // window.Capacitor.isNative is set by the native layer before page JS runs and
+    // is reliable in this mode. Same pattern used in useAppleHealth.js.
+    const isNative = Capacitor.isNativePlatform() || window.Capacitor?.isNative === true
+    const rawPlatform = Capacitor.getPlatform()
+    const platform = rawPlatform !== 'web'
+      ? rawPlatform
+      : (window.Capacitor?.isNative === true ? 'android' : 'web')
+    console.log('[push] native platform check', { isNative, platform, rawPlatform, bridgeIsNative: window.Capacitor?.isNative })
 
     // Fire-and-forget diagnostic ping — never includes the FCM token value
     const sendDebug = async (step, value) => {
