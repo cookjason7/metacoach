@@ -113,32 +113,6 @@ app.get('/api/admin/backup/status', clerkMiddleware(), async (req, res) => {
   }
 })
 
-// Temporary staging diagnostic — admin-only, remove after investigation
-app.get('/api/admin/staging-diag', clerkMiddleware(), async (req, res) => {
-  try {
-    const { userId } = getAuth(req)
-    if (!userId) return res.status(401).json({ error: 'Unauthorized' })
-    const { rows: ur } = await pool.query('SELECT role FROM users WHERE clerk_user_id = $1', [userId])
-    if (!ur[0] || ur[0].role !== 'admin') return res.status(403).json({ error: 'Forbidden' })
-
-    const run = (sql) => pool.query(sql).then(r => r.rows[0])
-    const [mv, mvp, cr, crp, cp] = await Promise.all([
-      run('SELECT COUNT(*)::int cnt FROM mindset_videos'),
-      run('SELECT COUNT(*)::int cnt FROM mindset_videos WHERE published = true'),
-      run('SELECT COUNT(*)::int cnt FROM community_resources'),
-      run('SELECT COUNT(*)::int cnt FROM community_resources WHERE published = true'),
-      run('SELECT COUNT(*)::int cnt FROM community_posts'),
-    ])
-    res.json({
-      db_url_host: (process.env.DATABASE_URL || '').replace(/:[^:@]+@/, ':***@').split('@')[1] || 'unknown',
-      mindset_videos:             { total: mv.cnt,  published: mvp.cnt },
-      community_resources:        { total: cr.cnt,  published: crp.cnt },
-      community_posts:            { total: cp.cnt },
-    })
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
 
 // Serve React client if dist exists — must come after all API routes
 const distPath = path.join(__dirname, '../client/dist')
@@ -178,66 +152,6 @@ migrate()
   .finally(() => {
     app.listen(PORT, () => {
       console.log(`WarriorFIT AI server running on http://localhost:${PORT}`)
-
-      // TEMP STAGING SEED+DIAG — remove after content confirmed live
-      ;(async () => {
-        try {
-          const raw = process.env.DATABASE_URL || ''
-          const safeHost = raw.replace(/:[^:]*@/, ':***@')
-          console.log('[STAGING-DIAG] DB URL (safe):', safeHost)
-
-          // Seed mindset_videos — insert each row only if title not already present
-          const videos = [
-            ["You are not perfect and that's ok", 'https://youtu.be/1bwBBPJyG3o', 3, true],
-            ['The Lie Behind Falling Off Track',  'https://youtu.be/kKkjrZi4Lxk', 2, true],
-            ['Strong, Social and in control!',    'https://youtu.be/1yF_7CD8M-k', 1, false],
-            ['Future Self Thinking',              'https://youtu.be/FEBMUaef7zM', 0, false],
-          ]
-          for (const [title, youtube_url, order, published] of videos) {
-            const { rows: [{ c }] } = await pool.query(
-              'SELECT COUNT(*)::int c FROM mindset_videos WHERE title = $1', [title],
-            )
-            if (c > 0) { console.log('[STAGING-SEED] skip (exists) video:', title); continue }
-            await pool.query(
-              'INSERT INTO mindset_videos (title, youtube_url, description, module_name, display_order, published) VALUES ($1,$2,$3,$4,$5,$6)',
-              [title, youtube_url, '', '', order, published],
-            )
-            console.log('[STAGING-SEED] inserted mindset_video:', title)
-          }
-
-          // Seed community_resources — insert each row only if title not already present
-          const resources = [
-            ['How to Take Picture/Measurements and Weigh In', 'https://docs.google.com/document/d/1MxN2sqRi7S5pCm2VhIQz7tB3dWW2II9zoTmno8cLEB8/edit?tab=t.0', 1, true],
-            ['Recipes', 'https://drive.google.com/drive/folders/1-3FJbepNPyjaaWVoDFApyn6pOyVoYJYp?usp=sharing', 2, true],
-          ]
-          for (const [title, url, order, published] of resources) {
-            const { rows: [{ c }] } = await pool.query(
-              'SELECT COUNT(*)::int c FROM community_resources WHERE title = $1', [title],
-            )
-            if (c > 0) { console.log('[STAGING-SEED] skip (exists) resource:', title); continue }
-            await pool.query(
-              "INSERT INTO community_resources (title, url, resource_type, description, category, display_order, published) VALUES ($1,$2,'link',$3,$4,$5,$6)",
-              [title, url, '', '', order, published],
-            )
-            console.log('[STAGING-SEED] inserted community_resource:', title)
-          }
-
-          // Final counts
-          const [mv, mvp, cr, crp, cp] = await Promise.all([
-            pool.query('SELECT COUNT(*)::int c FROM mindset_videos'),
-            pool.query('SELECT COUNT(*)::int c FROM mindset_videos WHERE published = true'),
-            pool.query('SELECT COUNT(*)::int c FROM community_resources'),
-            pool.query('SELECT COUNT(*)::int c FROM community_resources WHERE published = true'),
-            pool.query('SELECT COUNT(*)::int c FROM community_posts'),
-          ])
-          console.log('[STAGING-DIAG] mindset_videos total:', mv.rows[0].c, '| published:', mvp.rows[0].c)
-          console.log('[STAGING-DIAG] community_resources total:', cr.rows[0].c, '| published:', crp.rows[0].c)
-          console.log('[STAGING-DIAG] community_posts total:', cp.rows[0].c)
-        } catch (e) {
-          console.error('[STAGING-SEED] error:', e.message)
-        }
-      })()
-      // END TEMP STAGING SEED+DIAG
 
       initPush()
       if (process.env.DISABLE_BACKGROUND_JOBS === 'true') {
