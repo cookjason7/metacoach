@@ -113,6 +113,33 @@ app.get('/api/admin/backup/status', clerkMiddleware(), async (req, res) => {
   }
 })
 
+// Temporary staging diagnostic — admin-only, remove after investigation
+app.get('/api/admin/staging-diag', clerkMiddleware(), async (req, res) => {
+  try {
+    const { userId } = getAuth(req)
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' })
+    const { rows: ur } = await pool.query('SELECT role FROM users WHERE clerk_user_id = $1', [userId])
+    if (!ur[0] || ur[0].role !== 'admin') return res.status(403).json({ error: 'Forbidden' })
+
+    const run = (sql) => pool.query(sql).then(r => r.rows[0])
+    const [mv, mvp, cr, crp, cp] = await Promise.all([
+      run('SELECT COUNT(*)::int cnt FROM mindset_videos'),
+      run('SELECT COUNT(*)::int cnt FROM mindset_videos WHERE published = true'),
+      run('SELECT COUNT(*)::int cnt FROM community_resources'),
+      run('SELECT COUNT(*)::int cnt FROM community_resources WHERE published = true'),
+      run('SELECT COUNT(*)::int cnt FROM community_posts'),
+    ])
+    res.json({
+      db_url_host: (process.env.DATABASE_URL || '').replace(/:[^:@]+@/, ':***@').split('@')[1] || 'unknown',
+      mindset_videos:             { total: mv.cnt,  published: mvp.cnt },
+      community_resources:        { total: cr.cnt,  published: crp.cnt },
+      community_posts:            { total: cp.cnt },
+    })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // Serve React client if dist exists — must come after all API routes
 const distPath = path.join(__dirname, '../client/dist')
 if (existsSync(distPath)) {
