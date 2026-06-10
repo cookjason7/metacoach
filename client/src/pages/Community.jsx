@@ -2297,8 +2297,13 @@ function resolveUrlTab(raw) {
 }
 
 export default function Community() {
+  // BUILD MARKER — remove after mobile debug confirmed
+  useEffect(() => {
+    console.log('%c[Community] BUILD 2026-06-09-v5 mounted%c', 'background:#f97316;color:white;font-weight:bold;padding:2px 6px;border-radius:3px', '')
+  }, [])
+
   const { getToken }                       = useAuth()
-  const [searchParams, setSearchParams]    = useSearchParams()
+  const [searchParams]                     = useSearchParams()
   const navigate                           = useNavigate()
   const [isAdmin,        setIsAdmin]       = useState(false)
   const [isStaff,        setIsStaff]       = useState(false)
@@ -2334,7 +2339,7 @@ export default function Community() {
       const rawUrlTab = new URLSearchParams(window.location.search).get('tab')
       const defaultTab = staff ? 'vip' : ch
       const resolvedTab = resolveUrlTab(rawUrlTab) ?? defaultTab
-      console.log('[Community:init] path=', window.location.pathname, 'search=', window.location.search, 'role=', data.role, 'coaching_type=', data.coaching_type, 'rawUrlTab=', rawUrlTab, 'resolvedTab=', resolvedTab)
+      console.log('%c[Community BUILD 2026-06-09-v5]%c path=%s search=%s role=%s resolvedTab=%s', 'background:#f97316;color:white;font-weight:bold;padding:2px 6px;border-radius:3px', '', window.location.pathname, window.location.search, data.role, resolvedTab)
       setTab(resolvedTab)
     } catch (e) {
       console.error('[Community:init] ERROR', e.message, e)
@@ -2421,7 +2426,7 @@ export default function Community() {
         // just a back-to-chat button so the user isn't stranded
         <div className="mb-6">
           <button
-            onClick={() => { setTab(clientChannel); setSearchParams({ tab: clientChannel }, { replace: true }) }}
+            onClick={() => setTab(clientChannel)}
             className="flex items-center gap-1.5 text-sm font-medium text-[#E8670A] hover:text-[#c45e09] transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -2435,7 +2440,7 @@ export default function Community() {
           {TABS.map(t => (
             <button
               key={t.id}
-              onClick={() => { setTab(t.id); setSearchParams({ tab: t.id }, { replace: true }) }}
+              onClick={() => setTab(t.id)}
               className={`flex-1 shrink-0 py-2 px-1.5 sm:px-2 rounded-lg text-xs sm:text-sm font-medium transition-colors text-center whitespace-nowrap ${
                 tab === t.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}
