@@ -358,17 +358,9 @@ export default function Layout() {
   const pushTokenRef = useRef(null)
   useEffect(() => {
     if (!isLoaded || !user) return
-    // When server.url is set in capacitor.config.ts (production remote mode),
-    // Capacitor.isNativePlatform() returns false and getPlatform() returns 'web'
-    // because the module initializes before the native bridge injects window.Capacitor.
-    // window.Capacitor.isNative is set by the native layer before page JS runs and
-    // is reliable in this mode. Same pattern used in useAppleHealth.js.
-    const isNative = Capacitor.isNativePlatform() || window.Capacitor?.isNative === true
     const rawPlatform = Capacitor.getPlatform()
-    const platform = rawPlatform !== 'web'
-      ? rawPlatform
-      : (window.Capacitor?.isNative === true ? 'android' : 'web')
-    console.log('[push] native platform check', { isNative, platform, rawPlatform, bridgeIsNative: window.Capacitor?.isNative })
+    // platform is resolved async after duck-typing the plugin (see IIFE below)
+    let platform = rawPlatform !== 'web' ? rawPlatform : 'android'
 
     // Fire-and-forget diagnostic ping — never includes the FCM token value
     const sendDebug = async (step, value) => {
@@ -384,10 +376,8 @@ export default function Layout() {
       } catch {}
     }
 
-    // Always fires — visible in production logs even when isNative=false
-    sendDebug('native-detected', `isNative=${isNative} platform=${platform}`)
-
-    if (!isNative) return
+    const isNativeSyncGuess = Capacitor.isNativePlatform() || window.Capacitor?.isNative === true
+    sendDebug('native-detected', `isNative=${isNativeSyncGuess} platform=${platform} rawPlatform=${rawPlatform} bridgeIsNative=${window.Capacitor?.isNative} pushAvailable=probe`)
 
     let cancelled = false
     let regListener = null
@@ -464,6 +454,20 @@ export default function Layout() {
 
     ;(async () => {
       try {
+        // Duck-type the plugin: if checkPermissions() throws, the native bridge is absent
+        // and we are running in a plain browser — bail silently.
+        // This replaces the sync Capacitor.isNativePlatform() / isPluginAvailable() checks
+        // which both return false when server.url is active (bridge injects after module init).
+        let existingPerms
+        try {
+          existingPerms = await PushNotifications.checkPermissions()
+          platform = rawPlatform !== 'web' ? rawPlatform : 'android'
+          sendDebug('plugin-probe-ok', `existing=${existingPerms?.receive}`)
+        } catch (probeErr) {
+          sendDebug('plugin-probe-fail', String(probeErr?.message ?? probeErr ?? 'unknown').slice(0, 80))
+          return
+        }
+
         // Register listeners BEFORE calling register() so the token event is not missed
         regListener = await PushNotifications.addListener('registration', async ({ value: token }) => {
           if (cancelled) return
@@ -485,7 +489,10 @@ export default function Layout() {
 
         sendDebug('listeners-added')
 
-        const { receive } = await PushNotifications.requestPermissions()
+        let receive = existingPerms?.receive
+        if (receive !== 'granted') {
+          ;({ receive } = await PushNotifications.requestPermissions())
+        }
         console.log('[push] permission result', { receive, platform })
         sendDebug('permission', receive)
         if (receive !== 'granted') {
