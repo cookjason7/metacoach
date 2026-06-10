@@ -2358,8 +2358,7 @@ export default function Community() {
 
   // Build tab list:
   //   Staff/admin — full list: both chat channels, Brain Mapping, Resources
-  //   Clients     — simplified: Group Chat · Resources · Non-Scale Victories
-  //                 Brain Mapping is sidebar-only (?tab=mindset); not a client tab
+  //   Clients     — Group Chat · Brain Mapping · Resources
   const TABS = isStaff ? [
     { id: 'vip',       label: 'VIP Chat' },
     { id: 'ai',        label: 'AI Chat' },
@@ -2407,12 +2406,12 @@ export default function Community() {
           </button>
         </div>
       ) : (
-        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6">
+        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6 overflow-x-auto">
           {TABS.map(t => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`flex-1 py-2 px-2 rounded-lg text-xs sm:text-sm font-medium transition-colors text-center leading-tight ${
+              className={`flex-1 shrink-0 py-2 px-1.5 sm:px-2 rounded-lg text-xs sm:text-sm font-medium transition-colors text-center whitespace-nowrap ${
                 tab === t.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
