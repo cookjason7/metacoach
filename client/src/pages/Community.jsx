@@ -2287,10 +2287,18 @@ function ResourcesTab({ getToken, isStaff }) {
 
 // Tab IDs that can be driven by the ?tab= URL param
 const VALID_URL_TABS = ['vip', 'ai', 'mindset', 'resources']
+// Friendly URL aliases → canonical tab IDs
+const TAB_ALIASES = { 'brain-mapping': 'mindset' }
+
+function resolveUrlTab(raw) {
+  if (!raw) return null
+  const canonical = TAB_ALIASES[raw] ?? raw
+  return VALID_URL_TABS.includes(canonical) ? canonical : null
+}
 
 export default function Community() {
   const { getToken }                       = useAuth()
-  const [searchParams]                     = useSearchParams()
+  const [searchParams, setSearchParams]    = useSearchParams()
   const navigate                           = useNavigate()
   const [isAdmin,        setIsAdmin]       = useState(false)
   const [isStaff,        setIsStaff]       = useState(false)
@@ -2323,10 +2331,10 @@ export default function Community() {
       // Respect ?tab= URL param (e.g. Brain Mapping sidebar link → ?tab=mindset)
       // Read window.location.search directly to avoid adding searchParams as a
       // callback dependency (which would cause unnecessary re-fetches).
-      const urlTab = new URLSearchParams(window.location.search).get('tab')
+      const rawUrlTab = new URLSearchParams(window.location.search).get('tab')
       const defaultTab = staff ? 'vip' : ch
-      const resolvedTab = (urlTab && VALID_URL_TABS.includes(urlTab)) ? urlTab : defaultTab
-      console.log('[Community:init] path=', window.location.pathname, 'search=', window.location.search, 'role=', data.role, 'coaching_type=', data.coaching_type, 'urlTab=', urlTab, 'resolvedTab=', resolvedTab)
+      const resolvedTab = resolveUrlTab(rawUrlTab) ?? defaultTab
+      console.log('[Community:init] path=', window.location.pathname, 'search=', window.location.search, 'role=', data.role, 'coaching_type=', data.coaching_type, 'rawUrlTab=', rawUrlTab, 'resolvedTab=', resolvedTab)
       setTab(resolvedTab)
     } catch (e) {
       console.error('[Community:init] ERROR', e.message, e)
@@ -2350,9 +2358,9 @@ export default function Community() {
   // it only updates searchParams.
   useEffect(() => {
     if (tab === null) return // wait for init
-    const urlTab = searchParams.get('tab')
-    if (urlTab && VALID_URL_TABS.includes(urlTab) && tab !== urlTab) {
-      setTab(urlTab)
+    const resolved = resolveUrlTab(searchParams.get('tab'))
+    if (resolved && tab !== resolved) {
+      setTab(resolved)
     }
   }, [searchParams]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2413,7 +2421,7 @@ export default function Community() {
         // just a back-to-chat button so the user isn't stranded
         <div className="mb-6">
           <button
-            onClick={() => setTab(clientChannel)}
+            onClick={() => setSearchParams({ tab: clientChannel })}
             className="flex items-center gap-1.5 text-sm font-medium text-[#E8670A] hover:text-[#c45e09] transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -2427,7 +2435,7 @@ export default function Community() {
           {TABS.map(t => (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => setSearchParams({ tab: t.id })}
               className={`flex-1 shrink-0 py-2 px-1.5 sm:px-2 rounded-lg text-xs sm:text-sm font-medium transition-colors text-center whitespace-nowrap ${
                 tab === t.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}
