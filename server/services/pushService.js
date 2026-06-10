@@ -61,15 +61,25 @@ export async function revokeDevice(userId, token) {
 // Send a push notification to all registered devices for a user.
 // Returns true if at least one message was sent; false if no-op.
 export async function sendToUser(userId, { title, body }) {
-  if (!messaging) return false
+  if (!messaging) {
+    console.warn('[push] sendToUser skipped — Firebase not initialized (userId=%s)', userId)
+    return false
+  }
 
   const { rows } = await pool.query(
-    `SELECT token FROM push_devices WHERE user_id = $1`,
+    `SELECT token, platform FROM push_devices WHERE user_id = $1`,
     [userId],
   )
-  if (rows.length === 0) return false
+  if (rows.length === 0) {
+    console.warn('[push] sendToUser — no registered devices for userId=%s', userId)
+    return false
+  }
 
   const tokens = rows.map(r => r.token)
+  const platforms = rows.map(r => r.platform)
+  console.log('[push] sendToUser attempting — userId=%s deviceCount=%d platforms=%s title="%s"',
+    userId, tokens.length, platforms.join(','), title)
+
   try {
     const result = await messaging.sendEachForMulticast({
       tokens,
@@ -78,12 +88,26 @@ export async function sendToUser(userId, { title, body }) {
       apns: { payload: { aps: { sound: 'default' } } },
     })
 
+    // Log per-device outcomes (no token values printed)
+    result.responses.forEach((r, i) => {
+      if (r.success) {
+        console.log('[push] sendToUser device[%d] platform=%s SUCCESS messageId=%s', i, platforms[i], r.messageId)
+      } else {
+        console.warn('[push] sendToUser device[%d] platform=%s FAILED code=%s msg=%s',
+          i, platforms[i], r.error?.code ?? 'unknown', r.error?.message?.slice(0, 120) ?? 'unknown')
+      }
+    })
+
+    console.log('[push] sendToUser result — userId=%s success=%d failure=%d',
+      userId, result.successCount, result.failureCount)
+
     // Clean up tokens that FCM says are invalid/unregistered
     const badTokens = result.responses
       .map((r, i) => (!r.success && isInvalidTokenError(r.error) ? tokens[i] : null))
       .filter(Boolean)
 
     if (badTokens.length > 0) {
+      console.warn('[push] sendToUser pruning %d invalid token(s) for userId=%s', badTokens.length, userId)
       await pool.query(
         `DELETE FROM push_devices WHERE token = ANY($1::text[])`,
         [badTokens],
@@ -91,7 +115,7 @@ export async function sendToUser(userId, { title, body }) {
     }
     return result.successCount > 0
   } catch (err) {
-    console.warn('[push] sendToUser error:', err.message)
+    console.warn('[push] sendToUser error userId=%s: %s', userId, err.message)
     return false
   }
 }
@@ -112,13 +136,22 @@ export async function notifyNewDirectMessage(recipientUserId) {
       [recipientUserId],
     )
     const prefs = rows[0]
-    if (!prefs || !prefs.notif_master_enabled || !prefs.notif_dm_enabled) return
+    if (!prefs) {
+      console.warn('[push] notifyNewDirectMessage — user not found userId=%s', recipientUserId)
+      return
+    }
+    if (!prefs.notif_master_enabled || !prefs.notif_dm_enabled) {
+      console.log('[push] notifyNewDirectMessage — suppressed by prefs userId=%s master=%s dm=%s',
+        recipientUserId, prefs.notif_master_enabled, prefs.notif_dm_enabled)
+      return
+    }
+    console.log('[push] notifyNewDirectMessage — sending to userId=%s', recipientUserId)
     await sendToUser(recipientUserId, {
       title: 'New Message',
       body:  'You have a new message.',
     })
   } catch (err) {
-    console.warn('[push] notifyNewDirectMessage error:', err.message)
+    console.warn('[push] notifyNewDirectMessage error userId=%s: %s', recipientUserId, err.message)
   }
 }
 
