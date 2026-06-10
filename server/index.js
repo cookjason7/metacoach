@@ -178,6 +178,32 @@ migrate()
   .finally(() => {
     app.listen(PORT, () => {
       console.log(`WarriorFIT AI server running on http://localhost:${PORT}`)
+
+      // TEMP STAGING DIAG — remove after root cause confirmed
+      ;(async () => {
+        try {
+          const raw = process.env.DATABASE_URL || ''
+          const safeHost = raw.replace(/\/\/[^@]+@/, '//***@').replace(/\/\/\*\*\*@/, '//')
+            .split('//')[1]?.split('/').slice(0, 1).join('/') + '/' + (raw.split('/').pop() || '')
+          console.log('[STAGING-DIAG] DB host:', safeHost)
+          const counts = await Promise.all([
+            pool.query('SELECT COUNT(*)::int c FROM mindset_videos'),
+            pool.query('SELECT COUNT(*)::int c FROM mindset_videos WHERE published = true'),
+            pool.query('SELECT COUNT(*)::int c FROM community_resources'),
+            pool.query('SELECT COUNT(*)::int c FROM community_resources WHERE published = true'),
+            pool.query('SELECT COUNT(*)::int c FROM community_posts'),
+          ])
+          console.log('[STAGING-DIAG] mindset_videos total:', counts[0].rows[0].c)
+          console.log('[STAGING-DIAG] mindset_videos published:', counts[1].rows[0].c)
+          console.log('[STAGING-DIAG] community_resources total:', counts[2].rows[0].c)
+          console.log('[STAGING-DIAG] community_resources published:', counts[3].rows[0].c)
+          console.log('[STAGING-DIAG] community_posts total:', counts[4].rows[0].c)
+        } catch (e) {
+          console.error('[STAGING-DIAG] error:', e.message)
+        }
+      })()
+      // END TEMP STAGING DIAG
+
       initPush()
       if (process.env.DISABLE_BACKGROUND_JOBS === 'true') {
         console.log('Background jobs disabled by DISABLE_BACKGROUND_JOBS=true')
