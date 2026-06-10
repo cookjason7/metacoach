@@ -186,42 +186,40 @@ migrate()
           const safeHost = raw.replace(/:[^:]*@/, ':***@')
           console.log('[STAGING-DIAG] DB URL (safe):', safeHost)
 
-          // Seed mindset_videos if empty
-          const { rows: [{ c: mvCount }] } = await pool.query('SELECT COUNT(*)::int c FROM mindset_videos')
-          if (mvCount === 0) {
-            const videos = [
-              ["You are not perfect and that's ok", 1, true],
-              ['The Lie Behind Falling Off Track',  2, true],
-              ['Strong, Social and in control!',    3, false],
-              ['Future Self Thinking',               4, false],
-            ]
-            for (const [title, order, published] of videos) {
-              await pool.query(
-                'INSERT INTO mindset_videos (title, display_order, published) VALUES ($1,$2,$3)',
-                [title, order, published],
-              )
-              console.log('[STAGING-SEED] inserted mindset_video:', title)
-            }
-          } else {
-            console.log('[STAGING-DIAG] mindset_videos already seeded, count:', mvCount)
+          // Seed mindset_videos — insert each row only if title not already present
+          const videos = [
+            ["You are not perfect and that's ok", 'https://youtu.be/1bwBBPJyG3o', 3, true],
+            ['The Lie Behind Falling Off Track',  'https://youtu.be/kKkjrZi4Lxk', 2, true],
+            ['Strong, Social and in control!',    'https://youtu.be/1yF_7CD8M-k', 1, false],
+            ['Future Self Thinking',              'https://youtu.be/FEBMUaef7zM', 0, false],
+          ]
+          for (const [title, youtube_url, order, published] of videos) {
+            const { rows: [{ c }] } = await pool.query(
+              'SELECT COUNT(*)::int c FROM mindset_videos WHERE title = $1', [title],
+            )
+            if (c > 0) { console.log('[STAGING-SEED] skip (exists) video:', title); continue }
+            await pool.query(
+              'INSERT INTO mindset_videos (title, youtube_url, description, module_name, display_order, published) VALUES ($1,$2,$3,$4,$5,$6)',
+              [title, youtube_url, '', '', order, published],
+            )
+            console.log('[STAGING-SEED] inserted mindset_video:', title)
           }
 
-          // Seed community_resources if empty
-          const { rows: [{ c: crCount }] } = await pool.query('SELECT COUNT(*)::int c FROM community_resources')
-          if (crCount === 0) {
-            const resources = [
-              ['How to Take Picture/Measurements and Weigh In', 1, true],
-              ['Recipes',                                        2, true],
-            ]
-            for (const [title, order, published] of resources) {
-              await pool.query(
-                "INSERT INTO community_resources (title, resource_type, display_order, published) VALUES ($1,'link',$2,$3)",
-                [title, order, published],
-              )
-              console.log('[STAGING-SEED] inserted community_resource:', title)
-            }
-          } else {
-            console.log('[STAGING-DIAG] community_resources already seeded, count:', crCount)
+          // Seed community_resources — insert each row only if title not already present
+          const resources = [
+            ['How to Take Picture/Measurements and Weigh In', 'https://docs.google.com/document/d/1MxN2sqRi7S5pCm2VhIQz7tB3dWW2II9zoTmno8cLEB8/edit?tab=t.0', 1, true],
+            ['Recipes', 'https://drive.google.com/drive/folders/1-3FJbepNPyjaaWVoDFApyn6pOyVoYJYp?usp=sharing', 2, true],
+          ]
+          for (const [title, url, order, published] of resources) {
+            const { rows: [{ c }] } = await pool.query(
+              'SELECT COUNT(*)::int c FROM community_resources WHERE title = $1', [title],
+            )
+            if (c > 0) { console.log('[STAGING-SEED] skip (exists) resource:', title); continue }
+            await pool.query(
+              "INSERT INTO community_resources (title, url, resource_type, description, category, display_order, published) VALUES ($1,$2,'link',$3,$4,$5,$6)",
+              [title, url, '', '', order, published],
+            )
+            console.log('[STAGING-SEED] inserted community_resource:', title)
           }
 
           // Final counts
