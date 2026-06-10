@@ -1609,8 +1609,7 @@ function MindsetTab({ getToken, isStaff }) {
       if (!isStaff) reqs.push(fetch(`${API_URL}/api/mindset-videos/my-progress`, { headers }))
       const [res, progressRes] = await Promise.all(reqs)
       if (!res.ok) throw new Error(`Server error ${res.status}`)
-      const vids = await res.json()
-      setVideos(vids)
+      setVideos(await res.json())
       if (progressRes) {
         if (progressRes.ok) {
           setMyProgress(await progressRes.json())
@@ -1618,9 +1617,7 @@ function MindsetTab({ getToken, isStaff }) {
           console.warn('[MindsetVideo] progress fetch failed:', progressRes.status, progressRes.statusText)
         }
       }
-    } catch (e) {
-      setError(e.message)
-    }
+    } catch (e) { setError(e.message) }
     finally { setLoading(false) }
   }
 
@@ -2110,11 +2107,8 @@ function ResourcesTab({ getToken, isStaff }) {
       const token = await getToken()
       const res = await fetch(`${API_URL}/api/community-resources`, { headers: { Authorization: `Bearer ${token}` } })
       if (!res.ok) throw new Error(`Server error ${res.status}`)
-      const items = await res.json()
-      setResources(items)
-    } catch (e) {
-      setError(e.message)
-    }
+      setResources(await res.json())
+    } catch (e) { setError(e.message) }
     finally { setLoading(false) }
   }
 
@@ -2279,14 +2273,6 @@ function ResourcesTab({ getToken, isStaff }) {
 
 // Tab IDs that can be driven by the ?tab= URL param
 const VALID_URL_TABS = ['vip', 'ai', 'mindset', 'resources']
-// Friendly URL aliases → canonical tab IDs
-const TAB_ALIASES = { 'brain-mapping': 'mindset' }
-
-function resolveUrlTab(raw) {
-  if (!raw) return null
-  const canonical = TAB_ALIASES[raw] ?? raw
-  return VALID_URL_TABS.includes(canonical) ? canonical : null
-}
 
 export default function Community() {
   const { getToken }                       = useAuth()
@@ -2323,10 +2309,9 @@ export default function Community() {
       // Respect ?tab= URL param (e.g. Brain Mapping sidebar link → ?tab=mindset)
       // Read window.location.search directly to avoid adding searchParams as a
       // callback dependency (which would cause unnecessary re-fetches).
-      const rawUrlTab = new URLSearchParams(window.location.search).get('tab')
+      const urlTab = new URLSearchParams(window.location.search).get('tab')
       const defaultTab = staff ? 'vip' : ch
-      const resolvedTab = resolveUrlTab(rawUrlTab) ?? defaultTab
-      setTab(resolvedTab)
+      setTab((urlTab && VALID_URL_TABS.includes(urlTab)) ? urlTab : defaultTab)
     } catch {
       setInitError(true)
       setTab('vip') // still attempt to show the community
@@ -2347,23 +2332,12 @@ export default function Community() {
   // Community is already mounted — React Router won't remount the component,
   // it only updates searchParams.
   useEffect(() => {
-    if (initLoading || tab === null) return // wait for init
-    const resolved = resolveUrlTab(searchParams.get('tab'))
-    const defaultTab = isStaff ? 'vip' : clientChannel
-    const nextTab = resolved ?? defaultTab
-    if (tab !== nextTab) {
-      setTab(nextTab)
+    if (tab === null) return // wait for init
+    const urlTab = searchParams.get('tab')
+    if (urlTab && VALID_URL_TABS.includes(urlTab) && tab !== urlTab) {
+      setTab(urlTab)
     }
-  }, [searchParams, initLoading, isStaff, clientChannel, tab])
-
-  const handleTabSelect = useCallback((nextTab) => {
-    const defaultTab = isStaff ? 'vip' : clientChannel
-    setTab(nextTab)
-    navigate({
-      pathname: '/community',
-      search: nextTab === defaultTab ? '' : `?tab=${nextTab}`,
-    })
-  }, [clientChannel, isStaff, navigate])
+  }, [searchParams]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     runInit()
@@ -2384,7 +2358,8 @@ export default function Community() {
 
   // Build tab list:
   //   Staff/admin — full list: both chat channels, Brain Mapping, Resources
-  //   Clients     — Group Chat · Brain Mapping · Resources
+  //   Clients     — simplified: Group Chat · Resources · Non-Scale Victories
+  //                 Brain Mapping is sidebar-only (?tab=mindset); not a client tab
   const TABS = isStaff ? [
     { id: 'vip',       label: 'VIP Chat' },
     { id: 'ai',        label: 'AI Chat' },
@@ -2422,7 +2397,7 @@ export default function Community() {
         // just a back-to-chat button so the user isn't stranded
         <div className="mb-6">
           <button
-            onClick={() => handleTabSelect(clientChannel)}
+            onClick={() => setTab(clientChannel)}
             className="flex items-center gap-1.5 text-sm font-medium text-[#E8670A] hover:text-[#c45e09] transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -2432,12 +2407,12 @@ export default function Community() {
           </button>
         </div>
       ) : (
-        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6 overflow-x-auto">
+        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6">
           {TABS.map(t => (
             <button
               key={t.id}
-              onClick={() => handleTabSelect(t.id)}
-              className={`flex-1 shrink-0 py-2 px-1.5 sm:px-2 rounded-lg text-xs sm:text-sm font-medium transition-colors text-center whitespace-nowrap ${
+              onClick={() => setTab(t.id)}
+              className={`flex-1 py-2 px-2 rounded-lg text-xs sm:text-sm font-medium transition-colors text-center leading-tight ${
                 tab === t.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}
             >

@@ -16,8 +16,7 @@ const CLIENT_NAV_ITEMS = [
   { to: '/messages',     label: 'Messages' },
   { to: '/food-list',    label: 'Food List' },
   { to: '/community',    label: 'Community' },
-  { to: '/community?tab=resources', label: 'Resources',    matchPath: '/community', matchSearch: 'tab=resources' },
-  { to: '/community?tab=mindset',   label: 'Brain Mapping', matchPath: '/community', matchSearch: 'tab=mindset' },
+  { to: '/community?tab=mindset', label: 'Brain Mapping', matchPath: '/community', matchSearch: 'tab=mindset' },
   { to: '/settings',     label: 'Settings' },
 ]
 
