@@ -1602,14 +1602,18 @@ function MindsetTab({ getToken, isStaff }) {
   const videoRefs                       = useRef({})
 
   async function load() {
+    console.log('[MindsetTab:load] isStaff=', isStaff, 'API_URL=', API_URL || '(relative)')
     try {
       const token = await getToken()
       const headers = { Authorization: `Bearer ${token}` }
       const reqs = [fetch(`${API_URL}/api/mindset-videos`, { headers })]
       if (!isStaff) reqs.push(fetch(`${API_URL}/api/mindset-videos/my-progress`, { headers }))
       const [res, progressRes] = await Promise.all(reqs)
+      console.log('[MindsetTab:load] videos status=', res.status)
       if (!res.ok) throw new Error(`Server error ${res.status}`)
-      setVideos(await res.json())
+      const vids = await res.json()
+      console.log('[MindsetTab:load] videos count=', vids.length)
+      setVideos(vids)
       if (progressRes) {
         if (progressRes.ok) {
           setMyProgress(await progressRes.json())
@@ -1617,7 +1621,10 @@ function MindsetTab({ getToken, isStaff }) {
           console.warn('[MindsetVideo] progress fetch failed:', progressRes.status, progressRes.statusText)
         }
       }
-    } catch (e) { setError(e.message) }
+    } catch (e) {
+      console.error('[MindsetTab:load] ERROR', e.message, e)
+      setError(e.message)
+    }
     finally { setLoading(false) }
   }
 
@@ -2103,12 +2110,19 @@ function ResourcesTab({ getToken, isStaff }) {
   const [deleting,     setDeleting]     = useState(false)
 
   async function load() {
+    console.log('[ResourcesTab:load] isStaff=', isStaff, 'API_URL=', API_URL || '(relative)')
     try {
       const token = await getToken()
       const res = await fetch(`${API_URL}/api/community-resources`, { headers: { Authorization: `Bearer ${token}` } })
+      console.log('[ResourcesTab:load] status=', res.status)
       if (!res.ok) throw new Error(`Server error ${res.status}`)
-      setResources(await res.json())
-    } catch (e) { setError(e.message) }
+      const items = await res.json()
+      console.log('[ResourcesTab:load] resources count=', items.length)
+      setResources(items)
+    } catch (e) {
+      console.error('[ResourcesTab:load] ERROR', e.message, e)
+      setError(e.message)
+    }
     finally { setLoading(false) }
   }
 
@@ -2311,8 +2325,11 @@ export default function Community() {
       // callback dependency (which would cause unnecessary re-fetches).
       const urlTab = new URLSearchParams(window.location.search).get('tab')
       const defaultTab = staff ? 'vip' : ch
-      setTab((urlTab && VALID_URL_TABS.includes(urlTab)) ? urlTab : defaultTab)
-    } catch {
+      const resolvedTab = (urlTab && VALID_URL_TABS.includes(urlTab)) ? urlTab : defaultTab
+      console.log('[Community:init] path=', window.location.pathname, 'search=', window.location.search, 'role=', data.role, 'coaching_type=', data.coaching_type, 'urlTab=', urlTab, 'resolvedTab=', resolvedTab)
+      setTab(resolvedTab)
+    } catch (e) {
+      console.error('[Community:init] ERROR', e.message, e)
       setInitError(true)
       setTab('vip') // still attempt to show the community
     } finally {
