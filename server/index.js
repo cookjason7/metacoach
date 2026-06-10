@@ -179,30 +179,67 @@ migrate()
     app.listen(PORT, () => {
       console.log(`WarriorFIT AI server running on http://localhost:${PORT}`)
 
-      // TEMP STAGING DIAG — remove after root cause confirmed
+      // TEMP STAGING SEED+DIAG — remove after content confirmed live
       ;(async () => {
         try {
           const raw = process.env.DATABASE_URL || ''
-          const safeHost = raw.replace(/\/\/[^@]+@/, '//***@').replace(/\/\/\*\*\*@/, '//')
-            .split('//')[1]?.split('/').slice(0, 1).join('/') + '/' + (raw.split('/').pop() || '')
-          console.log('[STAGING-DIAG] DB host:', safeHost)
-          const counts = await Promise.all([
+          const safeHost = raw.replace(/:[^:]*@/, ':***@')
+          console.log('[STAGING-DIAG] DB URL (safe):', safeHost)
+
+          // Seed mindset_videos if empty
+          const { rows: [{ c: mvCount }] } = await pool.query('SELECT COUNT(*)::int c FROM mindset_videos')
+          if (mvCount === 0) {
+            const videos = [
+              ["You are not perfect and that's ok", 1, true],
+              ['The Lie Behind Falling Off Track',  2, true],
+              ['Strong, Social and in control!',    3, false],
+              ['Future Self Thinking',               4, false],
+            ]
+            for (const [title, order, published] of videos) {
+              await pool.query(
+                'INSERT INTO mindset_videos (title, display_order, published) VALUES ($1,$2,$3)',
+                [title, order, published],
+              )
+              console.log('[STAGING-SEED] inserted mindset_video:', title)
+            }
+          } else {
+            console.log('[STAGING-DIAG] mindset_videos already seeded, count:', mvCount)
+          }
+
+          // Seed community_resources if empty
+          const { rows: [{ c: crCount }] } = await pool.query('SELECT COUNT(*)::int c FROM community_resources')
+          if (crCount === 0) {
+            const resources = [
+              ['How to Take Picture/Measurements and Weigh In', 1, true],
+              ['Recipes',                                        2, true],
+            ]
+            for (const [title, order, published] of resources) {
+              await pool.query(
+                "INSERT INTO community_resources (title, resource_type, display_order, published) VALUES ($1,'link',$2,$3)",
+                [title, order, published],
+              )
+              console.log('[STAGING-SEED] inserted community_resource:', title)
+            }
+          } else {
+            console.log('[STAGING-DIAG] community_resources already seeded, count:', crCount)
+          }
+
+          // Final counts
+          const [mv, mvp, cr, crp, cp] = await Promise.all([
             pool.query('SELECT COUNT(*)::int c FROM mindset_videos'),
             pool.query('SELECT COUNT(*)::int c FROM mindset_videos WHERE published = true'),
             pool.query('SELECT COUNT(*)::int c FROM community_resources'),
             pool.query('SELECT COUNT(*)::int c FROM community_resources WHERE published = true'),
             pool.query('SELECT COUNT(*)::int c FROM community_posts'),
           ])
-          console.log('[STAGING-DIAG] mindset_videos total:', counts[0].rows[0].c)
-          console.log('[STAGING-DIAG] mindset_videos published:', counts[1].rows[0].c)
-          console.log('[STAGING-DIAG] community_resources total:', counts[2].rows[0].c)
-          console.log('[STAGING-DIAG] community_resources published:', counts[3].rows[0].c)
-          console.log('[STAGING-DIAG] community_posts total:', counts[4].rows[0].c)
+          console.log('[STAGING-DIAG] mindset_videos total:', mv.rows[0].c, '| published:', mvp.rows[0].c)
+          console.log('[STAGING-DIAG] community_resources total:', cr.rows[0].c, '| published:', crp.rows[0].c)
+          console.log('[STAGING-DIAG] community_posts total:', cp.rows[0].c)
         } catch (e) {
-          console.error('[STAGING-DIAG] error:', e.message)
+          console.error('[STAGING-SEED] error:', e.message)
         }
       })()
-      // END TEMP STAGING DIAG
+      // END TEMP STAGING SEED+DIAG
 
       initPush()
       if (process.env.DISABLE_BACKGROUND_JOBS === 'true') {
