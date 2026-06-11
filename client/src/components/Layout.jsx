@@ -40,6 +40,7 @@ export default function Layout() {
   const { signOut }        = useClerk()
   const navigate           = useNavigate()
   const location           = useLocation()
+  const mainRef            = useRef(null)
   const [isAdmin,      setIsAdmin]      = useState(false)
   const [isStaff,      setIsStaff]      = useState(false)
   const [coachingType, setCoachingType] = useState(null) // 'vip' | 'ai' | 'hybrid' | 'basic' — null until loaded
@@ -583,6 +584,14 @@ export default function Layout() {
     return () => clearInterval(id)
   }, [fetchMsgUnread])
 
+  // Scroll desktop main content to top on every route change.
+  // The <main> element persists across navigations (Layout never unmounts),
+  // so its scrollTop is preserved without this — leaving a blank space above
+  // the content when the user navigates to /dashboard from a scrolled page.
+  useEffect(() => {
+    if (mainRef.current) mainRef.current.scrollTop = 0
+  }, [location.pathname])
+
   // Non-VIP clients (ai, hybrid, basic) use the Support/ai_admin messaging path.
   const isNonVipClient = !isStaff && coachingType !== null && coachingType !== 'vip'
   // Basic clients have no Community or Brain Mapping access.
@@ -738,7 +747,7 @@ export default function Layout() {
         </div>
       )}
 
-      <main className="flex-1 overflow-y-auto p-4 lg:p-8 pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-8">
+      <main ref={mainRef} className="flex-1 overflow-y-auto p-4 lg:p-8 pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-8">
         {/* Mobile hamburger */}
         <button
           className="lg:hidden mb-4 p-2 min-w-[44px] min-h-[44px] rounded-lg text-gray-500 hover:bg-gray-200 transition-colors"
