@@ -718,7 +718,7 @@ export default function Layout() {
   ) }
 
   return (
-    <div className="flex h-screen bg-gray-50">
+ <div className="px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-4">
 
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex w-60 flex-shrink-0 flex-col" style={{ backgroundColor: SIDEBAR_BG }}>
