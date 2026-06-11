@@ -127,7 +127,7 @@ export async function notifyNewDirectMessage(recipientUserId) {
 export async function notifyNewFormDelivery(clientUserId) {
   try {
     const { rows } = await pool.query(
-      `SELECT notif_master_enabled, notif_dm_enabled FROM users WHERE id = $1`,
+      `SELECT notif_master_enabled, notif_form_enabled FROM users WHERE id = $1`,
       [clientUserId],
     )
     const prefs = rows[0]
@@ -141,6 +141,24 @@ export async function notifyNewFormDelivery(clientUserId) {
   }
 }
 
+// Notify a client when their check-in was submitted late.
+// Generic copy only — no answers, no health data.
+export async function notifyLateCheckInSubmitted(clientUserId) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT notif_master_enabled, notif_form_enabled FROM users WHERE id = $1`,
+      [clientUserId],
+    )
+    const prefs = rows[0]
+    if (!prefs || prefs.notif_master_enabled === false || prefs.notif_form_enabled === false) return
+    await sendToUser(clientUserId, {
+      title: 'Check-In Submitted',
+      body:  'Your late check-in was received.',
+    })
+  } catch (err) {
+    console.warn('[push] notifyLateCheckInSubmitted error:', err.message)
+  }
+}
 // Notify community members about a new post.
 // Generic copy only — no post content, no health data.
 // v1: notifies staff/admin only to limit spam. Leave a clear note for product.
