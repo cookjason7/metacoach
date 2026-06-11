@@ -445,44 +445,24 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
   const [saving,     setSaving]     = useState(false)
   const [error,      setError]      = useState(null)
   const [goalType,   setGoalType]   = useState('calories_protein') // 'calories_only' | 'calories_protein' | 'full_macros'
-  const [fullMode,   setFullMode]   = useState('calculator')       // 'calculator' | 'percentage'
-  const [autoTarget, setAutoTarget] = useState('fat')
   const [form, setForm] = useState({
     goal_calories: client.goal_calories ?? '',
     goal_protein:  client.goal_protein  ?? '',
     goal_carbs:    client.goal_carbs    ?? '',
     goal_fat:      client.goal_fat      ?? '',
   })
-  const [pct, setPct] = useState({ protein: 30, carbs: 40, fat: 30 })
 
   // ── Derived values ───────────────────────────────────────────────────────────
-  const cal   = Math.max(0, Number(form.goal_calories) || 0)
   const prot  = Math.max(0, Number(form.goal_protein)  || 0)
   const carbs = Math.max(0, Number(form.goal_carbs)    || 0)
   const fat   = Math.max(0, Number(form.goal_fat)      || 0)
 
-  // Full Macros — calculator sub-mode
-  const acRemain =
-    autoTarget === 'fat'   ? cal - (prot  * 4 + carbs * 4) :
-    autoTarget === 'carbs' ? cal - (prot  * 4 + fat   * 9) :
-    /* protein */             cal - (carbs * 4 + fat   * 9)
-  const acValue = acRemain > 0 ? Math.round(acRemain / (autoTarget === 'fat' ? 9 : 4)) : 0
-  const acError = cal > 0 && acRemain < -50
+  // Full Macros — calories computed from entered grams
+  const computedCalories = Math.round(prot * 4 + carbs * 4 + fat * 9)
 
-  // Full Macros — percentage sub-mode
-  const pctTotal   = pct.protein + pct.carbs + pct.fat
-  const pctProtein = Math.max(0, Math.round(cal * pct.protein / 100 / 4))
-  const pctCarbs   = Math.max(0, Math.round(cal * pct.carbs   / 100 / 4))
-  const pctFat     = Math.max(0, Math.round(cal * pct.fat     / 100 / 9))
-
-  const canSave = !saving &&
-    !(goalType === 'full_macros' && fullMode === 'calculator' && acError)
+  const canSave = !saving
 
   async function save() {
-    if (goalType === 'full_macros' && fullMode === 'percentage' && pctTotal !== 100) {
-      setError('Macro percentages must total 100% before saving.')
-      return
-    }
     setSaving(true); setError(null)
     try {
       const token = await getToken()
@@ -496,15 +476,10 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
       if (goalType === 'calories_protein') {
         body.goal_protein = toInt(form.goal_protein)
       } else if (goalType === 'full_macros') {
-        if (fullMode === 'percentage') {
-          body.goal_protein = pctProtein
-          body.goal_carbs   = pctCarbs
-          body.goal_fat     = pctFat
-        } else {
-          body.goal_protein = autoTarget === 'protein' ? acValue : Math.round(prot)
-          body.goal_carbs   = autoTarget === 'carbs'   ? acValue : Math.round(carbs)
-          body.goal_fat     = autoTarget === 'fat'     ? acValue : Math.round(fat)
-        }
+        body.goal_protein = toInt(form.goal_protein)
+        body.goal_carbs   = toInt(form.goal_carbs)
+        body.goal_fat     = toInt(form.goal_fat)
+        body.goal_calories = computedCalories || toInt(form.goal_calories)
       }
       const res = await fetch(`${API_URL}/api/admin/users/${client.id}/macros`, {
         method: 'PATCH',
@@ -524,7 +499,7 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
   const GOAL_TYPES = [
     { id: 'calories_only',    label: 'Calories Only',       desc: 'Track calories only.' },
     { id: 'calories_protein', label: 'Calories + Protein',  desc: 'Most common. Add a protein target.' },
-    { id: 'full_macros',      label: 'Full Macros',         desc: 'Set all macros with auto-calculation.' },
+    { id: 'full_macros',      label: 'Full Macros',         desc: 'Enter protein, carbs & fat — calories auto-calculated.' },
   ]
 
 
@@ -597,104 +572,24 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
           {/* ── Full Macros ── */}
           {goalType === 'full_macros' && (
             <div className="space-y-3">
-              {/* Sub-mode tabs */}
-              <div className="flex gap-2">
-                {[['calculator','Calculator'],['percentage','Percentage']].map(([id, label]) => (
-                  <button key={id} onClick={() => setFullMode(id)}
-                    className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors ${
-                      fullMode === id ? 'bg-[#1e2a3a] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}>{label}</button>
-                ))}
-              </div>
-
-              {/* Calculator sub-mode */}
-              {fullMode === 'calculator' && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2.5">
-                    <p className="text-xs font-medium text-gray-500 whitespace-nowrap">Calculate:</p>
-                    <div className="flex gap-1.5">
-                      {[['fat','Fat'],['carbs','Carbs'],['protein','Protein']].map(([id, label]) => (
-                        <button key={id} onClick={() => setAutoTarget(id)}
-                          className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
-                            autoTarget === id ? 'bg-[#E8670A] text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-100'
-                          }`}>{label}</button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Calories <span className="text-gray-400">(kcal)</span></label>
-                      <input type="number" min="0" value={form.goal_calories}
-                        onChange={e => setForm(f => ({ ...f, goal_calories: e.target.value }))}
-                        placeholder="—" className={inputCls} />
-                    </div>
-                    {[
-                      { key: 'goal_protein', label: 'Protein', id: 'protein' },
-                      { key: 'goal_carbs',   label: 'Carbs',   id: 'carbs'   },
-                      { key: 'goal_fat',     label: 'Fat',     id: 'fat'     },
-                    ].map(({ key, label, id }) => (
-                      <div key={id}>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          {label} <span className="text-gray-400">(g)</span>
-                          {autoTarget === id && <span className="ml-1 text-[#E8670A] font-semibold">= calc</span>}
-                        </label>
-                        {autoTarget === id ? (
-                          <div className={acError ? computedErrCls : computedCls}>
-                            {acError ? '—' : acValue}
-                          </div>
-                        ) : (
-                          <input type="number" min="0" value={form[key]}
-                            onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-                            placeholder="—" className={inputCls} />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-
-                  {cal > 0 && (
-                    <div className={`rounded-lg px-3 py-2 text-xs ${acError ? 'bg-red-50 border border-red-200 text-red-600 font-medium' : 'bg-gray-50 text-gray-500'}`}>
-                      {acError
-                        ? `⚠ Entered macros exceed ${cal} kcal — reduce values to enable Save`
-                        : `${Math.max(0, acRemain)} kcal remaining → ${autoTarget} = ${acValue} g`}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Percentage sub-mode */}
-              {fullMode === 'percentage' && (
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Calories <span className="text-gray-400">(kcal)</span></label>
-                    <input type="number" min="0" value={form.goal_calories}
-                      onChange={e => setForm(f => ({ ...f, goal_calories: e.target.value }))}
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { key: 'goal_protein', label: 'Protein' },
+                  { key: 'goal_carbs',   label: 'Carbs'   },
+                  { key: 'goal_fat',     label: 'Fat'     },
+                ].map(({ key, label }) => (
+                  <div key={key}>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">{label} <span className="text-gray-400">(g)</span></label>
+                    <input type="number" min="0" value={form[key]}
+                      onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
                       placeholder="—" className={inputCls} />
                   </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    {['protein', 'carbs', 'fat'].map(k => (
-                      <div key={k}>
-                        <label className="block text-xs font-medium text-gray-600 mb-1 capitalize">{k} %</label>
-                        <input type="number" min="0" max="100" value={pct[k]}
-                          onChange={e => setPct(p => ({ ...p, [k]: Number(e.target.value) }))}
-                          className={inputCls} />
-                      </div>
-                    ))}
-                  </div>
-                  <p className={`text-[11px] font-medium ${pctTotal === 100 ? 'text-emerald-600' : 'text-amber-500'}`}>
-                    Total: {pctTotal}% {pctTotal === 100 ? '✓' : '— must equal 100% to save'}
-                  </p>
-                  <div className="bg-gray-50 rounded-lg p-3 grid grid-cols-3 gap-3">
-                    {[['Protein', pctProtein, 'g'], ['Carbs', pctCarbs, 'g'], ['Fat', pctFat, 'g']].map(([label, val]) => (
-                      <div key={label}>
-                        <p className="text-[10px] text-gray-400 mb-1">{label}</p>
-                        <div className={computedCls}>{val} g</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
+                ))}
+              </div>
+              <div className="bg-orange-50 border border-orange-100 rounded-lg px-3 py-2.5 flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-500">Calculated calories</span>
+                <span className="text-sm font-bold text-[#c45e09]">{computedCalories > 0 ? `${computedCalories} kcal` : '—'}</span>
+              </div>
             </div>
           )}
 
