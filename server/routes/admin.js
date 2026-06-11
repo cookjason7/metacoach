@@ -19,6 +19,21 @@ async function requireAdmin(req, res) {
   return dbUserId
 }
 
+function isStaffRole(role) {
+  return role === 'admin' || role === 'account_owner' || role === 'coach' || role === 'staff'
+}
+
+async function requireStaff(req, res) {
+  const { userId } = getAuth(req)
+  const dbUserId = await getOrCreateUser(userId)
+  const { rows } = await pool.query('SELECT role FROM users WHERE id = $1', [dbUserId])
+  if (!isStaffRole(rows[0]?.role)) {
+    res.status(403).json({ error: 'Staff only' })
+    return null
+  }
+  return dbUserId
+}
+
 async function getCoachFood(id) {
   const { rows } = await pool.query(`
     SELECT cf.id, cf.food_name, cf.calories_per_serving, cf.protein, cf.carbs, cf.fat, cf.fiber,
@@ -97,7 +112,7 @@ router.patch('/users/:id/macros', requireAuth(), async (req, res, next) => {
 // GET /api/admin/coach-foods — list all admin-curated coach foods (active first)
 router.get('/coach-foods', requireAuth(), async (req, res, next) => {
   try {
-    if (await requireAdmin(req, res) === null) return
+    if (await requireStaff(req, res) === null) return
     const { rows } = await pool.query(`
       SELECT cf.id, cf.food_name, cf.calories_per_serving, cf.protein, cf.carbs, cf.fat, cf.fiber,
              cf.sugar, cf.sodium_mg,
@@ -117,7 +132,7 @@ router.get('/coach-foods', requireAuth(), async (req, res, next) => {
 // POST /api/admin/coach-foods — create a new coach food
 router.post('/coach-foods', requireAuth(), async (req, res, next) => {
   try {
-    const callerId = await requireAdmin(req, res)
+    const callerId = await requireStaff(req, res)
     if (callerId === null) return
     const { food_name, calories, protein, carbs, fat, fiber, sugar, sodium_mg, serving_size, serving_unit, notes } = req.body
     if (!food_name?.trim()) return res.status(400).json({ error: 'food_name required' })
@@ -151,7 +166,7 @@ router.post('/coach-foods', requireAuth(), async (req, res, next) => {
 // PATCH /api/admin/coach-foods/:id — update any fields on a coach food
 router.patch('/coach-foods/:id', requireAuth(), async (req, res, next) => {
   try {
-    if (await requireAdmin(req, res) === null) return
+    if (await requireStaff(req, res) === null) return
     const id = parseInt(req.params.id, 10)
     const { food_name, calories, protein, carbs, fat, fiber, sugar, sodium_mg, serving_size, serving_unit, notes, is_active } = req.body
 
@@ -189,7 +204,7 @@ router.patch('/coach-foods/:id', requireAuth(), async (req, res, next) => {
 // DELETE /api/admin/coach-foods/:id — remove a coach food
 router.delete('/coach-foods/:id', requireAuth(), async (req, res, next) => {
   try {
-    if (await requireAdmin(req, res) === null) return
+    if (await requireStaff(req, res) === null) return
     const id = parseInt(req.params.id, 10)
     const { rows } = await pool.query(
       `UPDATE custom_foods
