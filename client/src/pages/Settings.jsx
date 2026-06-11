@@ -546,7 +546,7 @@ export default function Settings() {
           notif_community_enabled: data.notif_community_enabled ?? true,
         })
 
-        if (loadedProfile?.role === 'admin' || loadedProfile?.role === 'coach' || loadedProfile?.role === 'staff') {
+        if (loadedProfile?.role === 'admin' || loadedProfile?.role === 'account_owner' || loadedProfile?.role === 'coach' || loadedProfile?.role === 'staff') {
           loadTeam(token, false)
           return
         }
@@ -1104,7 +1104,7 @@ export default function Settings() {
         first_name:   editForm.first_name.trim()   || null,
         last_name:    editForm.last_name.trim()     || null,
         phone_number: editForm.phone_number.trim()  || null,
-        ...(profile?.role === 'admin' ? { role: editForm.role } : {}),
+        ...((profile?.role === 'admin' || profile?.role === 'account_owner') ? { role: editForm.role } : {}),
       }
       const res = await fetch(`${API_URL}/api/coach-admin/staff/${editMember.id}`, {
         method: 'PATCH',
@@ -1131,7 +1131,7 @@ export default function Settings() {
   }
 
   const anglesWithComparison = ANGLES.filter(a => photos[a].length >= 2)
-  const isStaff = profile?.role === 'admin' || profile?.role === 'coach' || profile?.role === 'staff'
+  const isStaff = profile?.role === 'admin' || profile?.role === 'account_owner' || profile?.role === 'coach' || profile?.role === 'staff'
 
   return (
     <div className="w-full max-w-lg mx-auto pb-6">
@@ -1243,7 +1243,7 @@ export default function Settings() {
               Team / Coaches{showArchivedStaff ? ' — Archived' : ''}
             </h2>
             <div className="flex items-center gap-2">
-              {profile?.role === 'admin' && (
+              {(profile?.role === 'admin' || profile?.role === 'account_owner') && (
                 <button
                   type="button"
                   onClick={() => { setInviteOpen(true); setInviteResult(null); setInviteError(null) }}
@@ -1252,7 +1252,7 @@ export default function Settings() {
                   + Invite Coach
                 </button>
               )}
-              {profile?.role === 'admin' && (
+              {(profile?.role === 'admin' || profile?.role === 'account_owner') && (
                 <button
                   type="button"
                   onClick={toggleArchivedStaff}
@@ -1490,7 +1490,7 @@ export default function Settings() {
                       className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]"
                     />
                   </div>
-                  {profile?.role === 'admin' && (
+                  {(profile?.role === 'admin' || profile?.role === 'account_owner') && (
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Role</label>
                       <select
@@ -1520,7 +1520,7 @@ export default function Settings() {
                   >
                     {editSaved ? 'Saved!' : editSaving ? 'Saving…' : 'Save Changes'}
                   </button>
-                  {profile?.role === 'admin' && editMember?.id !== profile?.id && (
+                  {(profile?.role === 'admin' || profile?.role === 'account_owner') && editMember?.id !== profile?.id && (
                     editMember?.staff_status === 'archived' ? (
                       <button
                         type="button"

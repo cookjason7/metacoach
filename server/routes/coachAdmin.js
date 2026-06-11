@@ -439,7 +439,7 @@ router.patch('/staff/:id', requireAuth(), async (req, res, next) => {
     const { first_name, last_name, phone_number, role } = req.body
 
     // Only admin may change role
-    if (role !== undefined && ctx.role !== 'admin') {
+    if (role !== undefined && !isAdminRole(ctx.role)) {
       return res.status(403).json({ error: 'Only admins can change roles' })
     }
     // Only allow valid staff roles
@@ -2003,7 +2003,7 @@ router.post('/clients/:id/notes', requireAuth(), async (req, res, next) => {
     if (!note_body?.trim()) return res.status(400).json({ error: 'note_body required' })
 
     // Only admins can create admin_private notes
-    const finalVisibility = (visibility === 'admin_private' && ctx.role !== 'admin')
+    const finalVisibility = (visibility === 'admin_private' && !isAdminRole(ctx.role))
       ? 'shared_staff'
       : visibility
 
@@ -2025,10 +2025,10 @@ router.delete('/notes/:noteId', requireAuth(), async (req, res, next) => {
     if (!nRows.length) return res.status(404).json({ error: 'Note not found' })
 
     // Coaches can only delete their own notes; admins can delete any
-    if (ctx.role !== 'admin' && nRows[0].author_id !== ctx.dbUserId) {
+    if (!isAdminRole(ctx.role) && nRows[0].author_id !== ctx.dbUserId) {
       return res.status(403).json({ error: 'Cannot delete this note' })
     }
-    if (nRows[0].visibility === 'admin_private' && ctx.role !== 'admin') {
+    if (nRows[0].visibility === 'admin_private' && !isAdminRole(ctx.role)) {
       return res.status(403).json({ error: 'Forbidden' })
     }
 
@@ -2048,10 +2048,10 @@ router.patch('/notes/:noteId', requireAuth(), async (req, res, next) => {
     )
     if (!nRows.length) return res.status(404).json({ error: 'Note not found' })
 
-    if (ctx.role !== 'admin' && nRows[0].author_id !== ctx.dbUserId) {
+    if (!isAdminRole(ctx.role) && nRows[0].author_id !== ctx.dbUserId) {
       return res.status(403).json({ error: 'Cannot edit this note' })
     }
-    if (nRows[0].visibility === 'admin_private' && ctx.role !== 'admin') {
+    if (nRows[0].visibility === 'admin_private' && !isAdminRole(ctx.role)) {
       return res.status(403).json({ error: 'Forbidden' })
     }
 
@@ -2175,7 +2175,7 @@ router.get('/clients/:id/messages/unread', requireAuth(), async (req, res, next)
 
     let where = `client_id = $1 AND sender_role = 'client' AND read_at IS NULL`
     const params = [id]
-    if (ctx.role !== 'admin') where += ` AND thread_type = 'coach_thread'`
+    if (!isAdminRole(ctx.role)) where += ` AND thread_type = 'coach_thread'`
 
     const { rows: [row] } = await pool.query(
       `SELECT COUNT(*)::int AS unread FROM client_messages WHERE ${where}`, params
@@ -2197,7 +2197,7 @@ router.get('/clients/:id/messages', requireAuth(), async (req, res, next) => {
     // coach_thread:  admin + assigned coach can view
     // admin_private: admin only
     // ai_admin:      admin only
-    if ((thread === 'admin_private' || thread === 'ai_admin') && ctx.role !== 'admin') {
+    if ((thread === 'admin_private' || thread === 'ai_admin') && !isAdminRole(ctx.role)) {
       return res.status(403).json({ error: 'Admin only thread' })
     }
 
@@ -2206,7 +2206,7 @@ router.get('/clients/:id/messages', requireAuth(), async (req, res, next) => {
     if (thread) {
       params.push(thread)
       where += ` AND m.thread_type = $${params.length}`
-    } else if (ctx.role !== 'admin') {
+    } else if (!isAdminRole(ctx.role)) {
       // Coaches default to coach_thread only
       where += ` AND m.thread_type = 'coach_thread'`
     }
@@ -2240,7 +2240,7 @@ router.get('/clients/:id/messages', requireAuth(), async (req, res, next) => {
     if (thread) {
       readParams.push(thread)
       readWhere += ` AND thread_type = $${readParams.length}`
-    } else if (ctx.role !== 'admin') {
+    } else if (!isAdminRole(ctx.role)) {
       readWhere += ` AND thread_type = 'coach_thread'`
     }
     await pool.query(`UPDATE client_messages SET read_at = NOW() ${readWhere}`, readParams)

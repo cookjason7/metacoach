@@ -2295,14 +2295,14 @@ export default function Community() {
       const res = await fetch(`${API_URL}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
       if (!res.ok) throw new Error(`Server error ${res.status}`)
       const data = await res.json()
-      const staff = data.role === 'admin' || data.role === 'coach' || data.role === 'staff'
+      const staff = data.role === 'admin' || data.role === 'account_owner' || data.role === 'coach' || data.role === 'staff'
       // Basic clients have no community access — redirect to dashboard
       if (!staff && data.coaching_type === 'basic') {
         navigate('/dashboard', { replace: true })
         return
       }
       const ch    = normalizeChannel(data.coaching_type)
-      setIsAdmin(data.role === 'admin')
+      setIsAdmin(data.role === 'admin' || data.role === 'account_owner')
       setIsStaff(staff)
       setClientChannel(ch)
       setCurrentUserId(data.id)

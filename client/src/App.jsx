@@ -133,7 +133,7 @@ function ProtectedLayout() {
       </button>
     </div>
   )
-  const isPrivileged = ['admin', 'staff', 'coach'].includes(userState?.role)
+  const isPrivileged = ['admin', 'account_owner', 'staff', 'coach'].includes(userState?.role)
   if (!isPrivileged && !userState?.assessmentComplete) return <Navigate to="/health-assessment" replace />
   // Payment gate disabled — open access
   // if (!userState?.paid) return <Navigate to="/payment" replace />
@@ -141,7 +141,7 @@ function ProtectedLayout() {
 }
 
 function AdminRoute() {
-  if (!['admin', 'staff', 'coach'].includes(userStateCache?.role)) {
+  if (!['admin', 'account_owner', 'staff', 'coach'].includes(userStateCache?.role)) {
     return <Navigate to="/dashboard" replace />
   }
   return <Outlet />
