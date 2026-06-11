@@ -1052,6 +1052,26 @@ export async function migrate() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_invites_token ON client_invites (token)`)
   // Migration: shorten invite expiry from 30 days to 24 hours (idempotent)
   await pool.query(`ALTER TABLE client_invites ALTER COLUMN expires_at SET DEFAULT NOW() + INTERVAL '24 hours'`)
+
+  // ── Staff / Coach Invites ────────────────────────────────────────────────────
+  // Invite tokens for new coaches/admins to join without a fake DB row first.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS staff_invites (
+      id                  SERIAL PRIMARY KEY,
+      token               TEXT NOT NULL UNIQUE DEFAULT gen_random_uuid()::text,
+      email               TEXT NOT NULL,
+      first_name          TEXT NOT NULL,
+      last_name           TEXT,
+      role                TEXT NOT NULL DEFAULT 'coach' CHECK (role IN ('coach', 'admin')),
+      invited_by          INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at          TIMESTAMPTZ DEFAULT NOW(),
+      expires_at          TIMESTAMPTZ DEFAULT NOW() + INTERVAL '24 hours',
+      accepted_at         TIMESTAMPTZ,
+      accepted_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_staff_invites_email ON staff_invites (LOWER(email))`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_staff_invites_token ON staff_invites (token)`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT`)
   await pool.query(`ALTER TABLE community_posts ADD COLUMN IF NOT EXISTS channel TEXT DEFAULT 'vip'`)
   await pool.query(`

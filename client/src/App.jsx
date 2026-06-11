@@ -24,6 +24,7 @@ import ClientList from './pages/admin/ClientList'
 import ClientProfile from './pages/admin/ClientProfile'
 import UsageAnalytics from './pages/admin/UsageAnalytics'
 import InviteAccept from './pages/InviteAccept'
+import StaffInviteAccept from './pages/StaffInviteAccept'
 import AiWelcome from './pages/AiWelcome'
 import FormsList from './pages/admin/FormsList'
 import FormBuilder from './pages/admin/FormBuilder'
@@ -180,7 +181,8 @@ export default function App() {
         <Route path="/onboarding"         element={<OnboardingRoute />} />
         <Route path="/payment"            element={<PaymentRoute />} />
         <Route path="/health-assessment"  element={<HealthAssessmentRoute />} />
-        <Route path="/invite/:token"      element={<InviteAccept />} />
+        <Route path="/invite/:token"       element={<InviteAccept />} />
+        <Route path="/staff-invite/:token" element={<StaffInviteAccept />} />
         <Route path="/ai-welcome"         element={<AiWelcome />} />
         <Route element={<ProtectedLayout />}>
           <Route path="/"             element={<Navigate to="/dashboard" replace />} />
