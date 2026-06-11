@@ -518,6 +518,66 @@ router.patch('/staff/:id/reactivate', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// POST /api/coach-admin/staff/invite — admin only, creates staff invite record
+// Declared before /staff/:id so Express doesn't treat 'invite' as an :id param.
+router.post('/staff/invite', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireAdmin(req, res); if (!ctx) return
+
+    const { first_name, last_name, email, role } = req.body
+
+    if (!first_name?.trim()) return res.status(400).json({ error: 'First name is required.' })
+    if (!email?.trim())      return res.status(400).json({ error: 'Email is required.' })
+
+    const resolvedRole = ['coach', 'admin'].includes(role) ? role : 'coach'
+
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return res.status(400).json({ error: 'Please enter a valid email address.' })
+    }
+
+    // Block if a non-deleted user already exists with this email as staff
+    const { rows: existing } = await pool.query(
+      `SELECT id, role FROM users WHERE LOWER(email) = $1 AND role IN ('coach', 'admin')`,
+      [normalizedEmail],
+    )
+    if (existing.length > 0) {
+      return res.status(409).json({ error: 'A staff member with this email already exists in the system.' })
+    }
+
+    // Remove any stale unaccepted staff invite for this email
+    await pool.query(
+      `DELETE FROM staff_invites WHERE LOWER(email) = $1 AND accepted_at IS NULL`,
+      [normalizedEmail],
+    )
+
+    const { rows: [invite] } = await pool.query(
+      `INSERT INTO staff_invites (email, first_name, last_name, role, invited_by)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING token, email, first_name, last_name, role, created_at, expires_at`,
+      [
+        normalizedEmail,
+        first_name.trim(),
+        last_name?.trim() || null,
+        resolvedRole,
+        ctx.dbUserId,
+      ],
+    )
+
+    const appUrl    = getAppBaseUrl()
+    const inviteUrl = `${appUrl}/staff-invite/${invite.token}`
+
+    res.status(201).json({
+      ok:         true,
+      invite_url: inviteUrl,
+      first_name: invite.first_name,
+      last_name:  invite.last_name,
+      email:      invite.email,
+      role:       invite.role,
+    })
+  } catch (err) { next(err) }
+})
+
 router.post('/clients/invite', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireStaff(req, res); if (!ctx) return

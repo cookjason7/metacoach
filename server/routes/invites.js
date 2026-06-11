@@ -132,4 +132,99 @@ router.post('/:token/accept', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// ── Staff Invite routes ────────────────────────────────────────────────────────
+
+// GET /api/staff-invites/:token — public, no auth required
+router.get('/staff/:token', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT token, email, first_name, last_name, role, expires_at, accepted_at
+       FROM staff_invites WHERE token = $1`,
+      [req.params.token],
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Invite not found. The link may be invalid.' })
+
+    const invite = rows[0]
+    if (invite.accepted_at) {
+      return res.status(410).json({ error: 'This invite has already been accepted.' })
+    }
+    if (invite.expires_at && new Date() > new Date(invite.expires_at)) {
+      return res.status(410).json({ error: 'This invite has expired. Please contact the admin.' })
+    }
+
+    res.json({
+      first_name: invite.first_name,
+      last_name:  invite.last_name,
+      email:      invite.email,
+      role:       invite.role,
+    })
+  } catch (err) { next(err) }
+})
+
+// POST /api/staff-invites/:token/accept — requires Clerk auth
+router.post('/staff/:token/accept', requireAuth(), async (req, res, next) => {
+  try {
+    const { userId } = getAuth(req)
+
+    const { rows: inviteRows } = await pool.query(
+      `SELECT * FROM staff_invites WHERE token = $1`,
+      [req.params.token],
+    )
+    if (!inviteRows.length) return res.status(404).json({ error: 'Invite not found.' })
+
+    const invite = inviteRows[0]
+    if (invite.accepted_at) {
+      return res.status(410).json({ error: 'This invite has already been accepted.' })
+    }
+    if (invite.expires_at && new Date() > new Date(invite.expires_at)) {
+      return res.status(410).json({ error: 'This invite has expired. Please contact the admin.' })
+    }
+
+    const clerkEmail = await fetchClerkEmail(userId)
+    const dbUserId   = await getOrCreateUser(userId, clerkEmail)
+
+    const { rows: userRows } = await pool.query(
+      'SELECT id, email FROM users WHERE id = $1',
+      [dbUserId],
+    )
+    const resolvedEmail = (clerkEmail ?? userRows[0]?.email ?? '').trim().toLowerCase()
+    const inviteEmail   = invite.email.trim().toLowerCase()
+
+    if (!resolvedEmail) {
+      return res.status(400).json({
+        error: 'Could not verify your email address. Please try again or contact support.',
+      })
+    }
+    if (resolvedEmail !== inviteEmail) {
+      return res.status(403).json({
+        error: `This invite was sent to ${invite.email}. Please sign out and sign back in with that email address.`,
+        invite_email: invite.email,
+      })
+    }
+
+    // Update user with staff profile — no onboarding/assessment required for staff
+    await pool.query(
+      `UPDATE users
+       SET first_name          = COALESCE(NULLIF(first_name, ''), $1),
+           last_name           = COALESCE(NULLIF(last_name,  ''), $2),
+           role                = $3,
+           staff_status        = 'active',
+           onboarding_complete = TRUE,
+           assessment_complete = TRUE,
+           paid                = TRUE
+       WHERE id = $4`,
+      [invite.first_name, invite.last_name, invite.role, dbUserId],
+    )
+
+    await pool.query(
+      `UPDATE staff_invites
+       SET accepted_at = NOW(), accepted_by_user_id = $1
+       WHERE id = $2`,
+      [dbUserId, invite.id],
+    )
+
+    res.json({ ok: true, redirect_to: '/admin/clients' })
+  } catch (err) { next(err) }
+})
+
 export default router

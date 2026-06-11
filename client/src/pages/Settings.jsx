@@ -416,6 +416,14 @@ export default function Settings() {
   const [editError, setEditError] = useState(null)
   const [archiving, setArchiving] = useState(false)
 
+  // Invite Coach modal
+  const [inviteOpen,   setInviteOpen]   = useState(false)
+  const [inviteForm,   setInviteForm]   = useState({ first_name: '', last_name: '', email: '', role: 'coach' })
+  const [inviteSaving, setInviteSaving] = useState(false)
+  const [inviteResult, setInviteResult] = useState(null) // { invite_url, first_name, email }
+  const [inviteError,  setInviteError]  = useState(null)
+  const [inviteCopied, setInviteCopied] = useState(false)
+
   // Health assessment
   const [assessment,     setAssessment]     = useState(null)
   const [aForm,          setAForm]          = useState(EMPTY_ASSESSMENT)
@@ -1055,6 +1063,38 @@ export default function Settings() {
     }
   }
 
+  async function submitInviteCoach(e) {
+    e.preventDefault()
+    setInviteSaving(true); setInviteError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/staff/invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(inviteForm),
+      })
+      const data = await res.json()
+      if (!res.ok) { setInviteError(data.error || 'Failed to create invite.'); return }
+      setInviteResult(data)
+    } catch (err) {
+      setInviteError(err.message || 'Network error.')
+    } finally {
+      setInviteSaving(false)
+    }
+  }
+
+  function closeInviteModal() {
+    setInviteOpen(false)
+    setInviteForm({ first_name: '', last_name: '', email: '', role: 'coach' })
+    setInviteResult(null)
+    setInviteError(null)
+    setInviteCopied(false)
+    if (inviteResult) {
+      // Refresh team list after a successful invite is dismissed
+      getToken().then(t => loadTeam(t, showArchivedStaff))
+    }
+  }
+
   async function saveEdit(e) {
     e.preventDefault()
     setEditSaving(true); setEditError(null)
@@ -1202,15 +1242,26 @@ export default function Settings() {
             <h2 className="text-sm font-semibold text-gray-700">
               Team / Coaches{showArchivedStaff ? ' — Archived' : ''}
             </h2>
-            {profile?.role === 'admin' && (
-              <button
-                type="button"
-                onClick={toggleArchivedStaff}
-                className="text-xs font-semibold text-gray-500 hover:text-gray-700 px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                {showArchivedStaff ? 'Show active' : 'Show archived'}
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {profile?.role === 'admin' && (
+                <button
+                  type="button"
+                  onClick={() => { setInviteOpen(true); setInviteResult(null); setInviteError(null) }}
+                  className="text-xs font-semibold text-white bg-[#E8670A] hover:bg-[#c45e09] px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  + Invite Coach
+                </button>
+              )}
+              {profile?.role === 'admin' && (
+                <button
+                  type="button"
+                  onClick={toggleArchivedStaff}
+                  className="text-xs font-semibold text-gray-500 hover:text-gray-700 px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors"
+                >
+                  {showArchivedStaff ? 'Show active' : 'Show archived'}
+                </button>
+              )}
+            </div>
           </div>
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             {teamLoading ? (
@@ -1268,6 +1319,118 @@ export default function Settings() {
               </div>
             )}
           </div>
+
+          {/* Invite Coach modal */}
+          {inviteOpen && (
+            <div
+              className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-4 pb-4 sm:pb-0"
+              onClick={e => { if (e.target === e.currentTarget) closeInviteModal() }}
+            >
+              <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                  <h3 className="text-sm font-semibold text-gray-900">Invite Coach / Admin</h3>
+                  <button
+                    type="button"
+                    onClick={closeInviteModal}
+                    className="text-gray-400 hover:text-gray-600 text-lg leading-none px-1"
+                    aria-label="Close"
+                  >×</button>
+                </div>
+
+                {inviteResult ? (
+                  <div className="p-5 space-y-4">
+                    <p className="text-sm text-gray-700">
+                      Invite created for <strong>{inviteResult.first_name} {inviteResult.last_name}</strong> ({inviteResult.email}).
+                      Share the link below — it expires in 24 hours.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={inviteResult.invite_url}
+                        className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2 text-xs bg-gray-50 text-gray-700 font-mono truncate"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(inviteResult.invite_url).then(() => {
+                            setInviteCopied(true)
+                            setTimeout(() => setInviteCopied(false), 2000)
+                          })
+                        }}
+                        className="shrink-0 px-3 py-2 rounded-lg text-xs font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors"
+                      >
+                        {inviteCopied ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={closeInviteModal}
+                      className="w-full py-2.5 rounded-lg text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+                    >
+                      Done
+                    </button>
+                  </div>
+                ) : (
+                  <form onSubmit={submitInviteCoach} className="p-5 space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">First name <span className="text-red-400">*</span></label>
+                        <input
+                          type="text"
+                          required
+                          value={inviteForm.first_name}
+                          onChange={e => setInviteForm(f => ({ ...f, first_name: e.target.value }))}
+                          placeholder="First name"
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Last name</label>
+                        <input
+                          type="text"
+                          value={inviteForm.last_name}
+                          onChange={e => setInviteForm(f => ({ ...f, last_name: e.target.value }))}
+                          placeholder="Last name"
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Email <span className="text-red-400">*</span></label>
+                      <input
+                        type="email"
+                        required
+                        value={inviteForm.email}
+                        onChange={e => setInviteForm(f => ({ ...f, email: e.target.value }))}
+                        placeholder="coach@example.com"
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Role</label>
+                      <select
+                        value={inviteForm.role}
+                        onChange={e => setInviteForm(f => ({ ...f, role: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A] bg-white"
+                      >
+                        <option value="coach">Coach</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    </div>
+                    {inviteError && <p className="text-xs text-red-500">{inviteError}</p>}
+                    <button
+                      type="submit"
+                      disabled={inviteSaving}
+                      className="w-full py-2.5 rounded-lg text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors disabled:opacity-60"
+                    >
+                      {inviteSaving ? 'Creating invite…' : 'Create Invite Link'}
+                    </button>
+                  </form>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Staff edit modal */}
           {editMember && (
