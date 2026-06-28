@@ -465,10 +465,11 @@ export default function Messages() {
       {!loading && threads.length === 0 && (
         <div className="bg-white border border-gray-200 rounded-xl p-12 text-center">
           <p className="text-4xl mb-3">💬</p>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 mb-1">No messages yet.</p>
+          <p className="text-xs text-gray-400">
             {isSupportClient
-              ? 'No messages yet. Send a message below and support will get back to you.'
-              : 'No messages yet. Your coach will reach out soon.'}
+              ? 'A support thread will appear here once your coach or team reaches out.'
+              : 'Your coach will reach out soon. Check back here for updates.'}
           </p>
         </div>
       )}

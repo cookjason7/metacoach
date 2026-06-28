@@ -260,6 +260,7 @@ export default function Calendar() {
   })
   const [calendar,    setCalendar]    = useState({})
   const [loading,     setLoading]     = useState(true)
+  const [loadError,   setLoadError]   = useState(false)
   const [toast,       setToast]       = useState(null)
   const [todayLog,    setTodayLog]    = useState(null)   // live daily_logs row for today
   const [todayMeals,  setTodayMeals]  = useState(null)   // live meal totals for today
@@ -292,6 +293,7 @@ export default function Calendar() {
 
   const loadCalendar = useCallback(async () => {
     setLoading(true)
+    setLoadError(false)
     try {
       const token = await getToken()
       const start = isoDate(gridStart)
@@ -303,10 +305,10 @@ export default function Calendar() {
         const data = await res.json()
         setCalendar(data.calendar ?? {})
       } else {
-        console.warn('[calendar] load failed:', res.status)
+        setLoadError(true)
       }
-    } catch (e) {
-      console.warn('[calendar] load error:', e.message)
+    } catch {
+      setLoadError(true)
     } finally { setLoading(false) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, anchor.getTime(), getToken])
@@ -622,6 +624,19 @@ export default function Calendar() {
 
       {loading && (
         <p className="text-center text-xs text-gray-400 mt-3">Loading habits…</p>
+      )}
+
+      {!loading && loadError && (
+        <div className="mt-3 bg-red-50 border border-red-200 rounded-lg p-4 text-center">
+          <p className="text-sm font-medium text-red-700 mb-1">Could not load habit data</p>
+          <p className="text-xs text-red-500 mb-3">Check your connection and try again.</p>
+          <button
+            onClick={loadCalendar}
+            className="bg-[#E8670A] text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg-[#c45e09] transition-colors"
+          >
+            Retry
+          </button>
+        </div>
       )}
 
       {/* Legend */}

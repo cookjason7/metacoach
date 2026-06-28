@@ -30,11 +30,6 @@ export default function Payment() {
     }
   }
 
-  function skip() {
-    window.__userState = { onboardingComplete: true, paid: true }
-    navigate('/dashboard', { replace: true })
-  }
-
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 w-full max-w-md p-10 text-center">
@@ -82,16 +77,6 @@ export default function Payment() {
         >
           {activating ? 'Activating…' : 'Already paid? Click here to activate your account'}
         </button>
-
-        {/* Dev bypass */}
-        <div className="mt-8 pt-6 border-t border-gray-100">
-          <button
-            onClick={skip}
-            className="text-xs text-gray-300 hover:text-gray-400 transition-colors"
-          >
-            Skip for testing
-          </button>
-        </div>
 
       </div>
     </div>

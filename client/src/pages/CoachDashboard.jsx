@@ -14,6 +14,8 @@ const SERVING_UNITS = ['g', 'oz', 'lb', 'cup', 'tbsp', 'tsp', 'ml', 'fl oz']
 const COACHING_TYPE_BADGE = {
   vip:    'bg-orange-50 text-[#E8670A] border-orange-200',
   ai:     'bg-blue-50 text-blue-700 border-blue-200',
+  basic:  'bg-gray-50 text-gray-600 border-gray-200',
+  hybrid: 'bg-purple-50 text-purple-700 border-purple-200',
 }
 
 const STATUS_STYLES = {
@@ -69,7 +71,9 @@ function clientName(c) {
 }
 
 function coachingLabel(type) {
-  if (type === 'ai') return 'AI'
+  if (type === 'ai')     return 'AI'
+  if (type === 'basic')  return 'Basic'
+  if (type === 'hybrid') return 'Hybrid'
   return 'VIP'
 }
 
@@ -86,7 +90,7 @@ function lastActivityAt(c) {
 
 function accountStatus(c) {
   if (c.client_status === 'invited')  return 'invited'
-  if (c.client_status === 'archived') return 'inactive'
+  if (c.client_status === 'archived') return 'archived'
   if (c.paid) return 'active'
   const last = lastActivityAt(c)
   if (!last) return 'inactive'
@@ -100,8 +104,9 @@ function accountStatusLabel(c) {
 
 function accountStatusBadgeClass(c) {
   const s = accountStatus(c)
-  if (s === 'active')  return 'bg-emerald-50 text-emerald-700 border-emerald-200'
-  if (s === 'invited') return 'bg-purple-50 text-purple-700 border-purple-200'
+  if (s === 'active')   return 'bg-emerald-50 text-emerald-700 border-emerald-200'
+  if (s === 'invited')  return 'bg-purple-50 text-purple-700 border-purple-200'
+  if (s === 'archived') return 'bg-red-50 text-red-500 border-red-200'
   return 'bg-gray-100 text-gray-600 border-gray-300'
 }
 
@@ -1822,6 +1827,8 @@ export default function CoachDashboard({ getToken, userRole }) {
                 <option value="all">All coaching</option>
                 <option value="vip">VIP</option>
                 <option value="ai">AI</option>
+                <option value="basic">Basic</option>
+                <option value="hybrid">Hybrid</option>
               </select>
               <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
                 className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
@@ -1829,6 +1836,7 @@ export default function CoachDashboard({ getToken, userRole }) {
                 <option value="active">Active</option>
                 <option value="invited">Awaiting Setup</option>
                 <option value="inactive">Inactive</option>
+                <option value="archived">Archived</option>
               </select>
               <select value={weekFilter} onChange={e => setWeekFilter(e.target.value)}
                 className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
@@ -2059,11 +2067,11 @@ export default function CoachDashboard({ getToken, userRole }) {
                       </span>
                       <div className="flex gap-3">
                         {c.client_status === 'archived'
-                          ? <span onClick={e => reactivateClient(e, c.id)} className="text-[11px] text-emerald-600 hover:text-emerald-700 font-semibold cursor-pointer">Reactivate</span>
-                          : <span onClick={e => archiveClient(e, c.id)} className="text-[11px] text-gray-500 hover:text-gray-700 font-medium cursor-pointer">Archive</span>
+                          ? <button type="button" onClick={e => reactivateClient(e, c.id)} className="text-[11px] text-emerald-600 hover:text-emerald-700 font-semibold min-h-[44px] px-1">Reactivate</button>
+                          : <button type="button" onClick={e => archiveClient(e, c.id)} className="text-[11px] text-gray-500 hover:text-gray-700 font-medium min-h-[44px] px-1">Archive</button>
                         }
-                        <span onClick={e => deleteClient(e, c.id, c.first_name ?? 'this client')}
-                          className="text-[11px] text-red-400 hover:text-red-600 font-medium cursor-pointer">Delete</span>
+                        <button type="button" onClick={e => deleteClient(e, c.id, c.first_name ?? 'this client')}
+                          className="text-[11px] text-red-400 hover:text-red-600 font-medium min-h-[44px] px-1">Delete</button>
                       </div>
                     </div>
                   </button>
