@@ -3,7 +3,6 @@ import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 import { searchUSDA, lookupFdcId, isBarcode } from '../services/usdaApi.js'
 import { searchOFF }                          from '../services/offApi.js'
-import { searchOpenNutrition }               from '../services/openNutritionApi.js'
 
 const router = Router()
 
@@ -324,66 +323,6 @@ router.get('/search', requireAuth(), async (req, res, next) => {
 
         supplementResults = merged.slice(0, needed)
 
-        // ── OpenNutrition fallback ───────────────────────────────────────────
-        // Only fire when USDA and Open Food Facts both returned nothing.
-        if (allRaw.length === 0 && brandedRaw.length === 0 && offRaw.length === 0) {
-          try {
-            const onRaw = await searchOpenNutrition(q, { pageSize: needed })
-            for (const f of onRaw) addIfNew(supplementResults, f)
-
-            // Cache any new OpenNutrition results in the foods table so future
-            // searches are served locally without hitting the external API.
-            if (onRaw.length > 0) {
-              // Resolve the local nutrient row IDs for the three main macros.
-              const { rows: nutRows } = await pool.query(
-                `SELECT id, fdc_nutrient_id FROM nutrients WHERE fdc_nutrient_id = ANY($1)`,
-                [[1003, 1004, 1005]],
-              )
-              const nutIdMap = new Map(nutRows.map(r => [r.fdc_nutrient_id, r.id]))
-
-              for (const f of onRaw) {
-                if (!f.name) continue
-                try {
-                  // Skip if a food with this name already exists
-                  const { rows: [existing] } = await pool.query(
-                    `SELECT id FROM foods WHERE LOWER(name) = LOWER($1) LIMIT 1`,
-                    [f.name],
-                  )
-                  if (existing) continue
-
-                  const { rows: [inserted] } = await pool.query(
-                    `INSERT INTO foods (name, data_type, calories)
-                     VALUES ($1, 'Branded', $2)
-                     RETURNING id`,
-                    [f.name, f.calories],
-                  )
-                  if (!inserted) continue
-
-                  const macros = [
-                    [1003, f.protein_g],
-                    [1004, f.fat_g],
-                    [1005, f.carbs_g],
-                  ]
-                  for (const [fdcNutId, amount] of macros) {
-                    if (amount == null) continue
-                    const nutId = nutIdMap.get(fdcNutId)
-                    if (!nutId) continue
-                    await pool.query(
-                      `INSERT INTO food_nutrients (food_id, nutrient_id, amount)
-                       VALUES ($1, $2, $3)
-                       ON CONFLICT DO NOTHING`,
-                      [inserted.id, nutId, amount],
-                    )
-                  }
-                } catch (cacheErr) {
-                  console.warn('[foods] OpenNutrition cache insert failed:', cacheErr.message)
-                }
-              }
-            }
-          } catch (onErr) {
-            console.warn('[foods] OpenNutrition fallback failed:', onErr.message)
-          }
-        }
       } catch (err) {
         console.warn('[foods] supplement failed:', err.message)
       }
