@@ -2363,11 +2363,11 @@ export default function Community() {
   const TABS = isStaff ? [
     { id: 'vip',       label: 'VIP Chat' },
     { id: 'ai',        label: 'AI Chat' },
-    { id: 'mindset',   label: 'Brain Mapping' },
+    { id: 'mindset',   label: 'Brain Mapping Trainings' },
     { id: 'resources', label: 'Resources' },
   ] : [
     { id: clientChannel, label: 'Group Chat' },
-    { id: 'mindset',     label: 'Brain Mapping' },
+    { id: 'mindset',     label: 'Brain Mapping Trainings' },
     { id: 'resources',   label: 'Resources' },
   ]
 

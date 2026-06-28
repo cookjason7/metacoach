@@ -191,6 +191,7 @@ export default function StaffInbox({ getToken, role }) {
   const [loadingMsgs,  setLoadingMsgs]  = useState(false)
   const [body,        setBody]        = useState('')
   const [sending,     setSending]     = useState(false)
+  const [toast,       setToast]       = useState(null) // { msg: string, type: 'error'|'info' }
   const scrollRef    = useRef(null)
   const selectedRef  = useRef(null)
   const msgCountRef  = useRef(0)
@@ -202,6 +203,11 @@ export default function StaffInbox({ getToken, role }) {
 
   const [inboxView, setInboxView] = useState('active') // 'active' | 'archived'
   const [availableThreads, setAvailableThreads] = useState([]) // thread types for current client (ignores archive state)
+
+  function showToast(msg, type = 'error') {
+    setToast({ msg, type })
+    setTimeout(() => setToast(null), 4000)
+  }
 
   // ── Client search (compose new conversation) ──────────────────────────────
   const [searchQuery,   setSearchQuery]   = useState('')
@@ -217,11 +223,11 @@ export default function StaffInbox({ getToken, role }) {
     const file = e.target.files?.[0]
     if (!file) return
     if (!ALLOWED.includes(file.type)) {
-      alert('Unsupported file type. Please use JPG, PNG, or WebP.')
+      showToast('Unsupported file type. Please use JPG, PNG, or WebP.')
       e.target.value = ''; return
     }
     if (file.size > 10 * 1024 * 1024) {
-      alert('File is too large. Maximum size is 10 MB.')
+      showToast('File is too large. Maximum size is 10 MB.')
       e.target.value = ''; return
     }
     setImgFile(file)
@@ -267,38 +273,49 @@ export default function StaffInbox({ getToken, role }) {
 
   // ── Inbox state helpers (archive / mark-unread) ───────────────────────────
   async function patchInboxState(clientId, threadType, patch) {
-    try {
-      const token = await getToken()
-      await fetch(`${API_URL}/api/coach-admin/messaging/states/${clientId}/${threadType}`, {
-        method:  'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body:    JSON.stringify(patch),
-      })
-    } catch {}
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/coach-admin/messaging/states/${clientId}/${threadType}`, {
+      method:  'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body:    JSON.stringify(patch),
+    })
+    if (!res.ok) throw new Error(`Server error ${res.status}`)
   }
 
   async function archiveConversation() {
     if (!selected) return
-    await patchInboxState(selected.clientId, selected.threadType, { archived: true })
-    selectedRef.current = null
-    setSelected(null)
-    fetchInbox()
+    try {
+      await patchInboxState(selected.clientId, selected.threadType, { archived: true })
+      selectedRef.current = null
+      setSelected(null)
+      fetchInbox()
+    } catch {
+      showToast('Could not archive thread. Please try again.')
+    }
   }
 
   async function unarchiveConversation() {
     if (!selected) return
-    await patchInboxState(selected.clientId, selected.threadType, { archived: false })
-    selectedRef.current = null
-    setSelected(null)
-    fetchInbox()
+    try {
+      await patchInboxState(selected.clientId, selected.threadType, { archived: false })
+      selectedRef.current = null
+      setSelected(null)
+      fetchInbox()
+    } catch {
+      showToast('Could not unarchive thread. Please try again.')
+    }
   }
 
   async function markUnread() {
     if (!selected) return
-    await patchInboxState(selected.clientId, selected.threadType, { marked_unread: true })
-    selectedRef.current = null
-    setSelected(null)
-    fetchInbox()
+    try {
+      await patchInboxState(selected.clientId, selected.threadType, { marked_unread: true })
+      selectedRef.current = null
+      setSelected(null)
+      fetchInbox()
+    } catch {
+      showToast('Could not mark as unread. Please try again.')
+    }
   }
 
   // Reset inboxView back to active & clear selection when switching tabs
@@ -557,9 +574,9 @@ export default function StaffInbox({ getToken, role }) {
         fetchInbox()
       } else {
         const err = await res.json().catch(() => ({}))
-        alert(err.error ?? 'Could not send message')
+        showToast(err.error ?? 'Failed to send. Please try again.')
       }
-    } catch { alert('Could not send message') }
+    } catch { showToast('Failed to send. Please try again.') }
     finally { setSending(false) }
   }
 
@@ -568,7 +585,12 @@ export default function StaffInbox({ getToken, role }) {
   const totalUnread = groupedInbox.reduce((sum, g) => sum + g.totalUnread + g.totalMarkedUnread, 0)
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4 min-h-[600px]">
+    <div className="flex flex-col lg:flex-row gap-4 min-h-[600px] relative">
+      {toast && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg max-w-sm w-[90vw] text-center">
+          {toast.msg}
+        </div>
+      )}
       {/* Inbox list */}
       <div className={`lg:w-72 shrink-0 flex flex-col overflow-y-auto ${selected ? 'hidden lg:flex' : ''}`}>
 

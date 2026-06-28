@@ -3795,6 +3795,12 @@ export default function Journal() {
   const [copyDayOpen,   setCopyDayOpen]   = useState(false)
   const [copyDayMsg,    setCopyDayMsg]    = useState(null)
   const [copySlotSource, setCopySlotSource] = useState(null) // { date, slot } | null
+  const [toast,         setToast]         = useState(null)
+
+  function showToast(msg) {
+    setToast(msg)
+    setTimeout(() => setToast(null), 4000)
+  }
 
   const weekDays = getWeekDays(weekStart)
   const todayStr = toDateStr(new Date())
@@ -3807,7 +3813,9 @@ export default function Journal() {
       const token = await getToken()
       const res = await fetch(`${API_URL}/api/meals?date=${toDateStr(selectedDate)}`, { headers: { Authorization: `Bearer ${token}` } })
       if (res.ok) setMeals(await res.json())
-    } finally { setLoading(false) }
+      else showToast('Could not load meals. Pull down to retry.')
+    } catch { showToast('Could not load meals. Check your connection.') }
+    finally { setLoading(false) }
   }, [selectedDate, getToken])
 
   useEffect(() => { loadMeals() }, [loadMeals])
@@ -3918,9 +3926,10 @@ export default function Journal() {
   const handleMealDeleted = useCallback(async (mealId) => {
     try {
       const token = await getToken()
-      await fetch(`${API_URL}/api/meals/${mealId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
-      setMeals(prev => prev.filter(m => m.id !== mealId))
-    } catch {}
+      const res = await fetch(`${API_URL}/api/meals/${mealId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+      if (res.ok) setMeals(prev => prev.filter(m => m.id !== mealId))
+      else showToast('Could not delete meal. Please try again.')
+    } catch { showToast('Could not delete meal. Please try again.') }
   }, [getToken])
 
   const handleMealMoved = useCallback(async (mealId, date, slot) => {
@@ -3976,6 +3985,11 @@ export default function Journal() {
 
   return (
     <div className="max-w-2xl mx-auto pb-24">
+      {toast && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg max-w-sm w-[90vw] text-center">
+          {toast}
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Food Log</h1>

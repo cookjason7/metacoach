@@ -1580,14 +1580,22 @@ export default function Settings() {
 
           {/* Measurements */}
           <div className="bg-white rounded-xl border border-gray-200 mb-8 overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setMeasurementsOpen(open => !open)}
-              className="w-full flex items-center justify-between gap-3 px-5 py-4 text-left"
-            >
-              <span className="text-sm font-semibold text-gray-700">Measurements</span>
-              <span className="text-lg leading-none text-gray-400">{measurementsOpen ? '-' : '+'}</span>
-            </button>
+            <div className="flex items-center gap-3 px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setMeasurementsOpen(open => !open)}
+                className="flex-1 flex items-center justify-between gap-3 text-left"
+              >
+                <span className="text-sm font-semibold text-gray-700">Measurements</span>
+                <span className="text-lg leading-none text-gray-400">{measurementsOpen ? '-' : '+'}</span>
+              </button>
+              <Link
+                to="/progress?tab=measurements"
+                className="shrink-0 text-xs font-medium text-[#E8670A] hover:text-[#c45e09] transition-colors"
+              >
+                View History →
+              </Link>
+            </div>
             {measurementsOpen && (
               <div className="border-t border-gray-100 p-4">
             <p className="text-sm text-gray-500 mb-4">Track chest, waist, and hip measurements over time.</p>

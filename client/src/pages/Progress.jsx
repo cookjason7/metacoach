@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@clerk/clerk-react'
+import { Link } from 'react-router-dom'
 import { API_URL } from '../config.js'
 
 // ── Ranges ────────────────────────────────────────────────────────────────────
@@ -228,7 +229,13 @@ function MeasurementsSection({ measurements, rangeLabel, onUpdate, onDelete }) {
     return (
       <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center mb-4">
         <p className="text-sm font-semibold text-gray-700 mb-1">No measurements in this range</p>
-        <p className="text-xs text-gray-400">Add waist, hips, and chest measurements in Settings.</p>
+        <p className="text-xs text-gray-400 mb-3">Add waist, hips, and chest measurements in Settings.</p>
+        <Link
+          to="/settings#measurements"
+          className="text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] transition-colors"
+        >
+          Add Measurements →
+        </Link>
       </div>
     )
   }
@@ -237,6 +244,7 @@ function MeasurementsSection({ measurements, rangeLabel, onUpdate, onDelete }) {
     <>
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-base font-semibold text-gray-800">Measurements</h2>
+        <Link to="/settings#measurements" className="text-xs font-medium text-[#E8670A] hover:text-[#c45e09] transition-colors">+ Add</Link>
         <span className="text-xs text-gray-400">{rangeLabel}</span>
       </div>
       {MEASUREMENT_FIELDS.map(field => (
@@ -322,7 +330,13 @@ function ProgressPhotosSection({ photos }) {
     return (
       <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center">
         <p className="text-sm font-semibold text-gray-700 mb-1">No photos in this range</p>
-        <p className="text-xs text-gray-400">Use the + Log button to upload a progress photo.</p>
+        <p className="text-xs text-gray-400 mb-3">Upload progress photos in Settings.</p>
+        <Link
+          to="/settings#photos"
+          className="text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] transition-colors"
+        >
+          Add Photos →
+        </Link>
       </div>
     )
   }
