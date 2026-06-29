@@ -669,10 +669,10 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
 
     if (!message && anthropicMessages.length === 0) {
       // Opening: no history, no user message — return hardcoded welcome (no LLM call)
-      // VIP clients get a neutral greeting; AI clients get the coaching welcome.
+      // VIP clients get a neutral greeting; AI/Hybrid clients get the icebreaker welcome.
       const firstName  = user.first_name ?? 'there'
       const welcomeMsg = user.coaching_type !== 'vip'
-        ? `Hey ${firstName}, welcome to WarriorFIT AI. Your Health Profile is set, and this is where we start building momentum, self-trust, and consistency. Start simple: log your first meal or plan tomorrow's food. Small wins stack.`
+        ? `Hey ${firstName}! I want to start by saying thank you — making your health a priority is one of the smartest decisions you'll ever make, and I don't take that lightly. I'm Katie, your AI coach, and I'm genuinely excited to work with you on this journey.\n\nBefore we dive in, I have one important question — what's your favorite food? No judgment here at all. 😄`
         : `Hey ${firstName}! I'm Katie. Your coach leads your program — I'm here if you have questions about the app, food logging, or resources.`
       await pool.query(
         `INSERT INTO coaching_conversations (user_id, role, message) VALUES ($1, 'assistant', $2)`,
@@ -686,6 +686,85 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
       res.end()
       return
     }
+
+    // ── Icebreaker response (AI/Hybrid only) ─────────────────────────────────
+    // Condition: exactly 1 prior message in history (the welcome) and the client
+    // is sending their first reply — their favorite food answer.
+    if (isAiClient && message && anthropicMessages.length === 1) {
+      const icebreakerSystem = `You are Katie, an AI coach for Life Warrior Coaching. You are warm, direct, and real — never generic or corporate.
+
+The client just told you their favorite food in response to your opening ice breaker question. Your job in this message is to:
+
+1. Acknowledge their favorite food in a genuine, personalized way. Do NOT say "great choice" or be generic. Connect it to the Life Warrior philosophy naturally. For example: if they say pizza, acknowledge it and note that food they love is never fully off the table — we just get smarter about when and how. If they say salad, have fun with it — acknowledge it but make her feel like she doesn't have to be "perfect" here. Keep this to 2-3 sentences max.
+
+2. Transition warmly into Week 1 homework using this exact framing (adapt the tone naturally, do not copy word for word):
+"Here's what I want you to focus on this week — and I promise it's simpler than you think. All I want you to do is take a photo of everything you eat and drink. That's it. Don't change anything about your food. Eat exactly how you normally eat. I'll track everything on my end.
+
+The reason we start here is that most people have no idea what they're actually eating. Not because they're lying — but because life is fast and memory is terrible. The camera doesn't lie. This one habit — photo logging every meal — is the foundation of everything we build together.
+
+Can you do that this week?"
+
+3. Close with one line that plants the Life Warrior identity seed. Something like: "The fact that you're here already tells me something about who you're becoming."
+
+RULES:
+- Do not use em dashes (—). Use a period or comma instead.
+- No sign-off or signature.
+- Keep the entire message under 200 words.
+- Do not ask any other questions beyond the one closing the homework ask.`
+
+      res.setHeader('Content-Type', 'text/event-stream')
+      res.setHeader('Cache-Control', 'no-cache')
+      res.setHeader('Connection', 'keep-alive')
+
+      const iceT0 = Date.now()
+      const iceStream = anthropic.messages.stream({
+        model:      'claude-sonnet-4-6',
+        max_tokens: 400,
+        system:     icebreakerSystem,
+        messages:   anthropicMessages,
+      })
+
+      let iceResponse = ''
+      iceStream.on('text', (text) => {
+        iceResponse += text
+        res.write(`data: ${JSON.stringify({ text })}\n\n`)
+      })
+      iceStream.on('finalMessage', async (finalMsg) => {
+        try {
+          await pool.query(
+            `INSERT INTO coaching_conversations (user_id, role, message) VALUES ($1, 'assistant', $2)`,
+            [dbUserId, iceResponse],
+          )
+        } catch (dbErr) {
+          console.error('[coach] icebreaker save failed:', dbErr.message)
+        }
+        trackEvent({
+          actorUserId:  dbUserId,
+          feature:      'katie_chat',
+          action:       'ai_call',
+          provider:     'anthropic',
+          providerOp:   'messages.stream',
+          model:        'claude-sonnet-4-6',
+          inputTokens:  finalMsg.usage?.input_tokens,
+          outputTokens: finalMsg.usage?.output_tokens,
+          durationMs:   Date.now() - iceT0,
+          metadata:     { coaching_type: user.coaching_type, turn: 'icebreaker' },
+        })
+        res.write('data: [DONE]\n\n')
+        res.end()
+      })
+      iceStream.on('error', (err) => {
+        const safeMsg = err.message?.replace(/sk-[A-Za-z0-9_-]+/g, '[REDACTED]') ?? 'unknown error'
+        console.error('[coach icebreaker stream error]', safeMsg)
+        if (!res.writableEnded) {
+          res.write(`data: ${JSON.stringify({ error: 'Katie ran into a problem. Please try again.' })}\n\n`)
+          res.write('data: [DONE]\n\n')
+          res.end()
+        }
+      })
+      return
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     const katiPrompt = user.coaching_type === 'vip'
       ? `${KATIE_BASE_PROMPT}${KATIE_VIP_ADDENDUM}`
