@@ -312,6 +312,39 @@ Do not initiate new coaching topics unless she raises them. Do not end responses
 // Appended for AI coaching clients only
 const KATIE_AI_ADDENDUM = `
 
+GUIDELINE 8A. PHASE-BASED COACHING (AI/HYBRID CLIENTS)
+You are the primary coach for this client. Use the COACHING PHASE & PROGRESSION block to guide every interaction.
+
+Phase 1 — Calibration/Awareness:
+Your only job is to get her tracking. Do not introduce food quality rules, macro targets, or new habits yet. Keep it simple. Celebrate any logging. Even a bad day logged is a win. The only ask: track every meal, every day.
+
+Phase 2 — Food Quality:
+She is tracking consistently. Now introduce food quality. Reference the Warrior Food List. Connect whole foods to energy and brain health. Do not introduce calorie targets yet.
+
+Phase 3 — Movement & Consistency:
+Reinforce daily movement alongside food quality. Introduce the concept of consistency over perfection. No calorie goals yet.
+
+Phase 4 — Quantity & Portions:
+Introduce eating to 80% full. Portion awareness without obsession. Mindful eating. Slowing down. Still no calorie counting.
+
+Phase 5 — Calories & Protein:
+Only here do you introduce calorie range and protein targets. Reference her NUTRITION GOALS if set. Connect protein to satiety, lean muscle, and longevity.
+
+80% COMPLIANCE GATE: If the COACHING PHASE & PROGRESSION block shows "80% Compliance Met: No", do not advance her to the next phase's goals regardless of how many weeks have passed. Keep the focus on the current phase only. One win at a time.
+
+GUIDELINE 8B. WEEKLY CHECK-IN AWARENESS
+When a check-in has been submitted, reference it in context. If her biggest struggle from the check-in is relevant to her current message, tie coaching to it. Do not repeat check-in data back verbatim — use it to inform the tone and content of your response.
+
+If no check-in has been submitted yet, you may gently mention it once: "I don't have a check-in from you yet this week. When you have a moment, submit one so I can coach you with better context."
+
+GUIDELINE 8C. IDENTITY ANCHOR INTEGRATION
+Before responding to any message, check the IDENTITY ANCHORS block. If she has selected anchors, weave them into your response naturally. Tie wins back to her anchors. Tie struggles to the anchor that addresses them. Never lecture about the anchors — reference them warmly, like a coach who knows her.
+
+If no anchors are selected yet, do not reference them. Instead, gently prompt once per week: "Have you chosen your Life Warrior Identity Anchors yet? They help me coach you at a deeper level."
+
+GUIDELINE 8D. HEALTH HISTORY AWARENESS
+Use the HEALTH HISTORY block to inform coaching context. If she has injuries or limitations, do not suggest movements or activities that conflict with them. If her energy level is low (1–2), prioritize sleep and stress before adding new habits. If her stress is high (4–5), acknowledge it before directing to food or movement goals. Never read this data back to her word-for-word — use it to coach smarter.
+
 GUIDELINE 8. ASCENSION TRIGGERS
 When a client asks for something beyond what MetaCoach provides, deeper customization, specific supplement protocols, or one-on-one attention, Katie responds:
 "That's something I'd love to help you with at a deeper level. That's really what our one-on-one Life Warrior VIP coaching program is built for. You can book a call at vip.lwcvip.com/calendar."
@@ -333,7 +366,32 @@ If the client signals that your last response missed the mark ("Did you read wha
 2. Answer the actual question she asked, directly and completely.
 Do not repeat the off-topic content. Do not explain why the error happened. Just acknowledge and answer.`
 
-function buildContextBlock(user, meals, logs, recentFoods = []) {
+function calcPhaseAndWeek(startDate, daysLoggedThisWeek, totalCheckins, latestCheckin) {
+  if (!startDate) return { weekNum: null, phase: 'Phase 1 — Calibration/Awareness', phaseNum: 1, progressionEarned: false, complianceThisWeek: false, daysLoggedThisWeek }
+
+  const start = new Date(startDate)
+  const now = new Date()
+  const daysSinceStart = Math.floor((now - start) / (1000 * 60 * 60 * 24))
+  const weekNum = Math.floor(daysSinceStart / 7) + 1
+
+  const complianceThisWeek = (daysLoggedThisWeek / 7) >= 0.80
+
+  let phaseNum = 1
+  let phase = 'Phase 1 — Calibration/Awareness'
+  let progressionEarned = false
+
+  if (complianceThisWeek && totalCheckins >= 1) {
+    if (weekNum >= 2) { phaseNum = 2; phase = 'Phase 2 — Food Quality' }
+    if (weekNum >= 3 && totalCheckins >= 2) { phaseNum = 3; phase = 'Phase 3 — Movement & Consistency' }
+    if (weekNum >= 4 && totalCheckins >= 3) { phaseNum = 4; phase = 'Phase 4 — Quantity & Portions' }
+    if (weekNum >= 6 && totalCheckins >= 5) { phaseNum = 5; phase = 'Phase 5 — Calories & Protein' }
+    progressionEarned = true
+  }
+
+  return { weekNum, phase, phaseNum, progressionEarned, complianceThisWeek, daysLoggedThisWeek }
+}
+
+function buildContextBlock(user, meals, logs, recentFoods = [], healthAssessment = null, phaseData = null, latestCheckin = null) {
   const h = user.height_inches
   const heightStr = h ? `${Math.floor(h / 12)}'${h % 12}"` : 'not set'
 
@@ -362,6 +420,42 @@ function buildContextBlock(user, meals, logs, recentFoods = []) {
     ? recentFoods.map(f => `  - ${f}`).join('\n')
     : '  None logged yet'
 
+  const isAiClient = user.coaching_type !== 'vip'
+
+  const aiSections = isAiClient && phaseData ? `
+COACHING PHASE & PROGRESSION
+Week: ${phaseData.weekNum ?? 'Unknown (no start date set)'}
+Current Phase: ${phaseData.phase}
+Days Logged This Week: ${phaseData.daysLoggedThisWeek} of 7
+80% Compliance Met: ${phaseData.complianceThisWeek ? 'Yes — client has earned phase progression' : 'No — client has not yet met 80% tracking compliance. Stay in current phase focus.'}
+${!phaseData.complianceThisWeek ? 'IMPORTANT: Do not introduce new phase goals or macro targets until 80% compliance is achieved. Keep the focus simple: track every meal, every day.' : ''}
+
+HEALTH HISTORY (from onboarding)
+6-Month Goals: ${healthAssessment?.goals_6_months || 'Not provided'}
+Injuries / Limitations: ${healthAssessment?.injuries_limitations || 'None listed'}
+Occupation: ${healthAssessment?.occupation || 'Not provided'}
+Energy Level (1-5): ${healthAssessment?.energy_level || 'Not provided'}
+Sleep Hours: ${healthAssessment?.sleep_hours || 'Not provided'}
+Sleep Quality (1-5): ${healthAssessment?.sleep_quality || 'Not provided'}
+Stress (1-5): ${healthAssessment?.stress_management || 'Not provided'}
+Daily Water: ${healthAssessment?.daily_water || 'Not provided'}
+Supplements: ${healthAssessment?.supplements || 'None listed'}
+
+IDENTITY ANCHORS (client's chosen Life Warrior traits)
+${Array.isArray(user.identity_anchors) && user.identity_anchors.length > 0
+  ? user.identity_anchors.map((a, i) => `Anchor ${i + 1}: ${a}`).join('\n')
+  : 'Not yet selected — do not reference anchors until client has chosen them'}
+When coaching, tie observations and encouragement back to these anchors. Example: "That's exactly what [Anchor 1] looks like in action."
+
+LATEST CHECK-IN SUMMARY
+${latestCheckin ? `Submitted: ${new Date(latestCheckin.submitted_at).toLocaleDateString()}
+Days Food Logged (self-reported): ${latestCheckin.days_food_logged ?? 'Not answered'}
+Days Hit Protein: ${latestCheckin.days_hit_protein ?? 'Not answered'}
+Current Weight: ${latestCheckin.current_weight ?? 'Not reported'}
+Biggest Win: ${latestCheckin.biggest_win || 'Not provided'}
+Biggest Struggle: ${latestCheckin.biggest_struggle || 'Not provided'}` : 'No check-in submitted yet.'}
+` : ''
+
   return `
 USER PROFILE:
 - Name: ${user.first_name ?? 'Unknown'}
@@ -370,9 +464,9 @@ USER PROFILE:
 - Activity level: ${user.activity_level ?? 'Unknown'}
 - Why they joined: ${user.why_joined ?? 'Not provided'}
 - What they've tried before: ${user.tried_before ?? 'Not provided'}
-- Identity anchors: ${user.identity_anchors?.join(' | ') ?? 'Not yet selected'}
-- Current phase: Phase 1 — Awareness
-
+${isAiClient ? '' : `- Identity anchors: ${user.identity_anchors?.join(' | ') ?? 'Not yet selected'}`}
+- Current phase: ${isAiClient && phaseData ? phaseData.phase : 'Phase 1 — Awareness'}
+${aiSections}
 NUTRITION GOALS:
 ${goalsText}
 
@@ -425,14 +519,16 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
       `SELECT first_name, age, height_inches, starting_weight_lbs, goal_weight_lbs,
               activity_level, tried_before, why_joined, identity_anchors, coaching_type,
               goal_calories, goal_protein, goal_carbs, goal_fat, goal_fiber,
-              food_dislikes, food_allergies
+              food_dislikes, food_allergies, start_date
        FROM users WHERE id = $1`,
       [dbUserId],
     )
     const user = userRows[0] ?? {}
+    const isAiClient = user.coaching_type !== 'vip'
 
-    // Load recent meals, daily logs, and distinct recent foods in parallel
-    const [{ rows: meals }, { rows: logs }, { rows: recentFoodRows }] = await Promise.all([
+    // Load recent meals, daily logs, distinct recent foods, and (for AI/Hybrid only)
+    // health assessment, logging compliance, check-in, and total submissions — in parallel
+    const baseQueries = [
       pool.query(
         `SELECT meal_name, calories, protein, logged_at
          FROM meals
@@ -457,8 +553,62 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
          LIMIT 20`,
         [dbUserId],
       ),
-    ])
+      // Query A — health assessment context (AI/Hybrid only; null sentinel for VIP)
+      isAiClient
+        ? pool.query(
+            `SELECT goals_6_months, injuries_limitations, occupation, energy_level,
+                    sleep_hours, stress_management, sleep_quality, daily_water, supplements
+             FROM health_assessments WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+            [dbUserId],
+          )
+        : Promise.resolve({ rows: [] }),
+      // Query B — days logged this week (AI/Hybrid only)
+      isAiClient
+        ? pool.query(
+            `SELECT COUNT(DISTINCT COALESCE(log_date, logged_at::date)) AS days_logged_this_week
+             FROM meals
+             WHERE user_id = $1
+               AND COALESCE(log_date, logged_at::date) >= NOW() - INTERVAL '7 days'`,
+            [dbUserId],
+          )
+        : Promise.resolve({ rows: [{ days_logged_this_week: 0 }] }),
+      // Query C — most recent weekly check-in (AI/Hybrid only)
+      isAiClient
+        ? pool.query(
+            `SELECT days_food_logged, days_hit_protein, biggest_win, biggest_struggle,
+                    current_weight, submitted_at
+             FROM weekly_checkins WHERE user_id = $1 ORDER BY submitted_at DESC LIMIT 1`,
+            [dbUserId],
+          )
+        : Promise.resolve({ rows: [] }),
+      // Query D — total check-ins submitted (AI/Hybrid only)
+      isAiClient
+        ? pool.query(
+            `SELECT COUNT(*) AS total_checkins FROM form_submissions
+             WHERE user_id = $1 AND submitted_at IS NOT NULL`,
+            [dbUserId],
+          )
+        : Promise.resolve({ rows: [{ total_checkins: 0 }] }),
+    ]
+
+    const [
+      { rows: meals },
+      { rows: logs },
+      { rows: recentFoodRows },
+      { rows: assessmentRows },
+      { rows: complianceRows },
+      { rows: checkinRows },
+      { rows: submissionCountRows },
+    ] = await Promise.all(baseQueries)
+
     const recentFoods = recentFoodRows.map(r => r.meal_name)
+    const healthAssessment = assessmentRows[0] ?? null
+    const daysLoggedThisWeek = parseInt(complianceRows[0]?.days_logged_this_week ?? 0, 10)
+    const latestCheckin = checkinRows[0] ?? null
+    const totalCheckins = parseInt(submissionCountRows[0]?.total_checkins ?? 0, 10)
+    const phaseData = isAiClient
+      ? calcPhaseAndWeek(user.start_date, daysLoggedThisWeek, totalCheckins, latestCheckin)
+      : null
 
     // Load conversation history (last 40 messages)
     const { rows: history } = await pool.query(
@@ -540,7 +690,7 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     const katiPrompt = user.coaching_type === 'vip'
       ? `${KATIE_BASE_PROMPT}${KATIE_VIP_ADDENDUM}`
       : `${KATIE_BASE_PROMPT}${KATIE_AI_ADDENDUM}`
-    const systemPrompt = `${katiPrompt}${KATIE_MEAL_PLAN_ADDENDUM}\n\n${buildContextBlock(user, meals, logs, recentFoods)}`
+    const systemPrompt = `${katiPrompt}${KATIE_MEAL_PLAN_ADDENDUM}\n\n${buildContextBlock(user, meals, logs, recentFoods, healthAssessment, phaseData, latestCheckin)}`
 
     // Stream SSE response
     res.setHeader('Content-Type', 'text/event-stream')
