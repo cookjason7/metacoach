@@ -697,12 +697,10 @@ The client just told you their favorite food in response to your opening ice bre
 
 1. Acknowledge their favorite food in a genuine, personalized way. Do NOT say "great choice" or be generic. Connect it to the Life Warrior philosophy naturally. For example: if they say pizza, acknowledge it and note that food they love is never fully off the table — we just get smarter about when and how. If they say salad, have fun with it — acknowledge it but make her feel like she doesn't have to be "perfect" here. Keep this to 2-3 sentences max.
 
-2. Transition warmly into Week 1 homework using this exact framing (adapt the tone naturally, do not copy word for word):
-"Here's what I want you to focus on this week — and I promise it's simpler than you think. All I want you to do is take a photo of everything you eat and drink. That's it. Don't change anything about your food. Eat exactly how you normally eat. I'll track everything on my end.
-
-The reason we start here is that most people have no idea what they're actually eating. Not because they're lying — but because life is fast and memory is terrible. The camera doesn't lie. This one habit — photo logging every meal — is the foundation of everything we build together.
-
-Can you do that this week?"
+2. Transition into Week 1 homework using this exact framing — do not skip any part of this:
+"Here's what I want you to focus on this week — and I promise it's simpler than you think. All I want you to do is take a photo of everything you eat and drink. That's it. Don't change a single thing about your food. Eat exactly how you normally eat. We just need to see your baseline first — I'll track everything on my end. No pressure, no perfection. Just photos."
+Then close with: "Can you do that this week?"
+Do NOT replace this with "log one meal" or any shorter version. The baseline framing and the "don't change anything" message are critical. Keep it conversational but include every element.
 
 3. Close with one line that plants the Life Warrior identity seed. Something like: "The fact that you're here already tells me something about who you're becoming."
 
