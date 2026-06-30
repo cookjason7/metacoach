@@ -681,8 +681,8 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
         ? `Hey ${firstName}! I want to start by saying thank you — making your health a priority is one of the smartest decisions you'll ever make, and I don't take that lightly. I'm Katie, your AI coach, and I'm genuinely excited to work with you on this journey.\n\nBefore we dive in, I have one important question — what's your favorite food? No judgment here at all. 😄`
         : `Hey ${firstName}! I'm Katie. Your coach leads your program — I'm here if you have questions about the app, food logging, or resources.`
       await pool.query(
-        `INSERT INTO coaching_conversations (user_id, role, message) VALUES ($1, 'assistant', $2)`,
-        [dbUserId, welcomeMsg],
+        `INSERT INTO coaching_conversations (user_id, role, message, is_proactive, proactive_trigger) VALUES ($1, 'assistant', $2, TRUE, $3)`,
+        [dbUserId, welcomeMsg, 'welcome'],
       )
       res.setHeader('Content-Type', 'text/event-stream')
       res.setHeader('Cache-Control', 'no-cache')
@@ -707,8 +707,8 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
 
       try {
         await pool.query(
-          `INSERT INTO coaching_conversations (user_id, role, message) VALUES ($1, 'assistant', $2)`,
-          [dbUserId, icebreakerReply],
+          `INSERT INTO coaching_conversations (user_id, role, message, is_proactive, proactive_trigger) VALUES ($1, 'assistant', $2, TRUE, $3)`,
+          [dbUserId, icebreakerReply, 'icebreaker'],
         )
       } catch (dbErr) {
         console.error('[coach] icebreaker save failed:', dbErr.message)
