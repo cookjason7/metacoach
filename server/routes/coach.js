@@ -700,7 +700,7 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
         model:    'claude-sonnet-4-6',
         max_tokens: 150,
         system:   ackSystem,
-        messages: anthropicMessages,
+        messages: [{ role: 'user', content: message }],
       })
       const fullAck = ackMsg.content[0]?.text?.trim() ?? ''
 
@@ -713,7 +713,10 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
       res.setHeader('Content-Type', 'text/event-stream')
       res.setHeader('Cache-Control', 'no-cache')
       res.setHeader('Connection', 'keep-alive')
-      res.write(`data: ${JSON.stringify({ text: finalMessage })}\n\n`)
+      const words = finalMessage.split(' ')
+      for (const word of words) {
+        res.write(`data: ${JSON.stringify({ text: word + ' ' })}\n\n`)
+      }
 
       // Step 4: Save finalMessage to DB
       try {
