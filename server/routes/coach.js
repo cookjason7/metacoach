@@ -690,7 +690,7 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     // ── Icebreaker response (AI/Hybrid only) ─────────────────────────────────
     // Condition: exactly 1 prior message in history (the welcome) and the client
     // is sending their first reply — their favorite food answer.
-    if (isAiClient && message && anthropicMessages.length === 1) {
+    if (isAiClient && message && anthropicMessages.length <= 2 && anthropicMessages.some(m => m.role === 'assistant' && (m.content.includes('favorite food') || m.content.includes('what is your favorite')))) {
       const icebreakerReply = `${message} — love it. Not going anywhere.\n\nHere is how this works. Your only job this week is to take a photo of everything you eat and drink. That is it. Do not change a single thing about your food. Eat exactly how you normally eat. We just need your baseline.\n\nHow to do it: tap the orange plus button at the bottom of the app, tap Food Photo, choose which meal it is, take a photo, and add a quick description. Something like: two hot dogs, or a slice of pizza. That is all.\n\nNo pressure. No perfection. Just photos. Can you do that this week?`
 
       res.setHeader('Content-Type', 'text/event-stream')
