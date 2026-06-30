@@ -691,80 +691,55 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     // Condition: exactly 1 prior message in history (the welcome) and the client
     // is sending their first reply — their favorite food answer.
     if (isAiClient && message && anthropicMessages.length === 1) {
-      const icebreakerSystem = `You are Katie, an AI coach for Life Warrior Coaching. You are warm, direct, and real — never generic or corporate.
+      const iceT0 = Date.now()
 
-The client just told you their favorite food in response to your opening ice breaker question. Your job in this message is to:
+      // Step 1: LLM generates ONLY the food acknowledgment (2-3 sentences, not streamed)
+      const ackSystem = `You are Katie, an AI coach for Life Warrior Coaching. The client just told you their favorite food. Write 2-3 sentences only. Acknowledge their favorite food in a genuine, personalized way. Connect it warmly to the Life Warrior philosophy — food they love is never off the table, we just get smarter about how we work with it. Do NOT mention logging, photos, or next steps. Stop after the food acknowledgment. No bullet points, no headers.`
 
-1. Acknowledge their favorite food in a genuine, personalized way. Do NOT say "great choice" or be generic. Connect it to the Life Warrior philosophy naturally. For example: if they say pizza, acknowledge it and note that food they love is never fully off the table — we just get smarter about when and how. If they say salad, have fun with it — acknowledge it but make her feel like she doesn't have to be "perfect" here. Keep this to 2-3 sentences max.
+      const ackMsg = await anthropic.messages.create({
+        model:    'claude-sonnet-4-6',
+        max_tokens: 150,
+        system:   ackSystem,
+        messages: anthropicMessages,
+      })
+      const fullAck = ackMsg.content[0]?.text?.trim() ?? ''
 
-2. Transition into Week 1 homework using this exact framing — include every part:
-"Here's how this works. We start simple. No macro targets, no food rules, no restrictions yet. Your only job this week is to take a photo of everything you eat and drink. That's it. Don't change a single thing about your food — eat exactly how you normally eat. We just need to see your baseline first.
+      // Step 2: Append hardcoded homework — guarantees exact wording every time
+      const hardcodedHomework = `\n\nHere's how this works. We start simple. No macro targets, no food rules, no restrictions yet. Your only job this week is to take a photo of everything you eat and drink. That's it. Don't change a single thing about your food — eat exactly how you normally eat. We just need to see your baseline first.\n\nHere's how to do it: tap the orange plus button at the bottom of the app, tap Food Photo, choose which meal it is, then take a photo and add a quick description of what you're eating. Something like: two slices of pizza or a handful of chips. That's all I need.\n\nNo pressure, no perfection. Just photos. Can you do that this week?`
 
-Here's how to do it: tap the orange plus button at the bottom of the app, tap Food Photo, choose which meal it is, then take a photo and add a quick description of what you're eating. Something like: two slices of ham pizza. That's all I need.
+      const finalMessage = fullAck + hardcodedHomework
 
-No pressure, no perfection. Just photos."
-Then close with: "Can you do that this week?"
-
-IMPORTANT: Do not use the word "log" or "logging" — always say "take a photo" or "photo" instead. The photo instruction with the exact app steps must always be included.
-
-3. Close with one line that plants the Life Warrior identity seed. Something like: "The fact that you're here already tells me something about who you're becoming."
-
-RULES:
-- Do not use em dashes (—). Use a period or comma instead.
-- No sign-off or signature.
-- Keep the entire message under 200 words.
-- Do not ask any other questions beyond the one closing the homework ask.`
-
+      // Step 3: Stream finalMessage to client via SSE
       res.setHeader('Content-Type', 'text/event-stream')
       res.setHeader('Cache-Control', 'no-cache')
       res.setHeader('Connection', 'keep-alive')
+      res.write(`data: ${JSON.stringify({ text: finalMessage })}\n\n`)
 
-      const iceT0 = Date.now()
-      const iceStream = anthropic.messages.stream({
-        model:      'claude-sonnet-4-6',
-        max_tokens: 400,
-        system:     icebreakerSystem,
-        messages:   anthropicMessages,
+      // Step 4: Save finalMessage to DB
+      try {
+        await pool.query(
+          `INSERT INTO coaching_conversations (user_id, role, message) VALUES ($1, 'assistant', $2)`,
+          [dbUserId, finalMessage],
+        )
+      } catch (dbErr) {
+        console.error('[coach] icebreaker save failed:', dbErr.message)
+      }
+
+      trackEvent({
+        actorUserId:  dbUserId,
+        feature:      'katie_chat',
+        action:       'ai_call',
+        provider:     'anthropic',
+        providerOp:   'messages.create',
+        model:        'claude-sonnet-4-6',
+        inputTokens:  ackMsg.usage?.input_tokens,
+        outputTokens: ackMsg.usage?.output_tokens,
+        durationMs:   Date.now() - iceT0,
+        metadata:     { coaching_type: user.coaching_type, turn: 'icebreaker' },
       })
 
-      let iceResponse = ''
-      iceStream.on('text', (text) => {
-        iceResponse += text
-        res.write(`data: ${JSON.stringify({ text })}\n\n`)
-      })
-      iceStream.on('finalMessage', async (finalMsg) => {
-        try {
-          await pool.query(
-            `INSERT INTO coaching_conversations (user_id, role, message) VALUES ($1, 'assistant', $2)`,
-            [dbUserId, iceResponse],
-          )
-        } catch (dbErr) {
-          console.error('[coach] icebreaker save failed:', dbErr.message)
-        }
-        trackEvent({
-          actorUserId:  dbUserId,
-          feature:      'katie_chat',
-          action:       'ai_call',
-          provider:     'anthropic',
-          providerOp:   'messages.stream',
-          model:        'claude-sonnet-4-6',
-          inputTokens:  finalMsg.usage?.input_tokens,
-          outputTokens: finalMsg.usage?.output_tokens,
-          durationMs:   Date.now() - iceT0,
-          metadata:     { coaching_type: user.coaching_type, turn: 'icebreaker' },
-        })
-        res.write('data: [DONE]\n\n')
-        res.end()
-      })
-      iceStream.on('error', (err) => {
-        const safeMsg = err.message?.replace(/sk-[A-Za-z0-9_-]+/g, '[REDACTED]') ?? 'unknown error'
-        console.error('[coach icebreaker stream error]', safeMsg)
-        if (!res.writableEnded) {
-          res.write(`data: ${JSON.stringify({ error: 'Katie ran into a problem. Please try again.' })}\n\n`)
-          res.write('data: [DONE]\n\n')
-          res.end()
-        }
-      })
+      res.write('data: [DONE]\n\n')
+      res.end()
       return
     }
     // ─────────────────────────────────────────────────────────────────────────
