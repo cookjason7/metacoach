@@ -143,7 +143,9 @@ export default function AICoach() {
         }
 
         // Mark all unread proactive messages as read (clears sidebar/mobile badge)
-        fetch(`${API_URL}/api/coach/mark-read`, { method: 'POST', headers }).catch(() => {})
+        fetch(`${API_URL}/api/coach/mark-read`, { method: 'POST', headers })
+          .then(() => window.dispatchEvent(new Event('katie-unread-refresh')))
+          .catch(() => {})
 
         const res = await fetch(`${API_URL}/api/coach/history`, { headers })
         if (!res.ok) throw new Error('Failed to load history')

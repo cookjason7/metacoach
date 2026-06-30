@@ -574,8 +574,14 @@ export default function Layout() {
 
   useEffect(() => {
     fetchKatieUnread()
-    const id = setInterval(fetchKatieUnread, 60_000)
+    const id = setInterval(fetchKatieUnread, 15_000)
     return () => clearInterval(id)
+  }, [fetchKatieUnread])
+
+  useEffect(() => {
+    const handler = () => fetchKatieUnread()
+    window.addEventListener('katie-unread-refresh', handler)
+    return () => window.removeEventListener('katie-unread-refresh', handler)
   }, [fetchKatieUnread])
 
   useEffect(() => {
