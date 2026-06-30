@@ -691,16 +691,13 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     // Condition: exactly 1 prior message in history (the welcome) and the client
     // is sending their first reply — their favorite food answer.
     if (isAiClient && message && anthropicMessages.length === 1) {
-      const icebreakerReply = `${message} — I love it. And I want you to know right now, it's not going anywhere.\n\nHere's how this works. We start simple. No macro targets, no food rules, no restrictions. Your only job this week is to take a photo of everything you eat and drink. That's it. Don't change a single thing about your food — eat exactly how you normally eat. We just need to see your baseline first.\n\nHere's how to do it: tap the orange plus button at the bottom of the app, tap Food Photo, choose which meal it is, then take a photo and add a quick description of what you're eating. Something like: two slices of pizza, or a bacon burger. That's all I need.\n\nNo pressure, no perfection. Just photos. Can you do that this week?`
+      const icebreakerReply = `${message} — love it. Not going anywhere.\n\nHere is how this works. Your only job this week is to take a photo of everything you eat and drink. That is it. Do not change a single thing about your food. Eat exactly how you normally eat. We just need your baseline.\n\nHow to do it: tap the orange plus button at the bottom of the app, tap Food Photo, choose which meal it is, take a photo, and add a quick description. Something like: two hot dogs, or a slice of pizza. That is all.\n\nNo pressure. No perfection. Just photos. Can you do that this week?`
 
       res.setHeader('Content-Type', 'text/event-stream')
       res.setHeader('Cache-Control', 'no-cache')
       res.setHeader('Connection', 'keep-alive')
-
-      const words = icebreakerReply.split(' ')
-      for (const word of words) {
-        res.write(`data: ${JSON.stringify({ text: word + ' ' })}\n\n`)
-      }
+      res.write(`data: ${JSON.stringify({ text: icebreakerReply })}\n\n`)
+      res.write('data: [DONE]\n\n')
 
       try {
         await pool.query(
@@ -711,7 +708,6 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
         console.error('[coach] icebreaker save failed:', dbErr.message)
       }
 
-      res.write('data: [DONE]\n\n')
       res.end()
       return
     }
