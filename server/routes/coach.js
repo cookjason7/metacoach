@@ -691,55 +691,25 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     // Condition: exactly 1 prior message in history (the welcome) and the client
     // is sending their first reply — their favorite food answer.
     if (isAiClient && message && anthropicMessages.length === 1) {
-      const iceT0 = Date.now()
+      const icebreakerReply = `${message} — I love it. And I want you to know right now, it's not going anywhere.\n\nHere's how this works. We start simple. No macro targets, no food rules, no restrictions. Your only job this week is to take a photo of everything you eat and drink. That's it. Don't change a single thing about your food — eat exactly how you normally eat. We just need to see your baseline first.\n\nHere's how to do it: tap the orange plus button at the bottom of the app, tap Food Photo, choose which meal it is, then take a photo and add a quick description of what you're eating. Something like: two slices of pizza, or a bacon burger. That's all I need.\n\nNo pressure, no perfection. Just photos. Can you do that this week?`
 
-      // Step 1: LLM generates ONLY the food acknowledgment (2-3 sentences, not streamed)
-      const ackSystem = `You are Katie, an AI coach for Life Warrior Coaching. The client just told you their favorite food. Write 2-3 sentences only. Acknowledge their favorite food in a genuine, personalized way. Connect it warmly to the Life Warrior philosophy — food they love is never off the table, we just get smarter about how we work with it. Do NOT mention logging, photos, or next steps. Stop after the food acknowledgment. No bullet points, no headers.`
-
-      const ackMsg = await anthropic.messages.create({
-        model:    'claude-sonnet-4-6',
-        max_tokens: 150,
-        system:   ackSystem,
-        messages: [{ role: 'user', content: message }],
-      })
-      const fullAck = ackMsg.content[0]?.text?.trim() ?? ''
-
-      // Step 2: Append hardcoded homework — guarantees exact wording every time
-      const hardcodedHomework = `\n\nHere's how this works. We start simple. No macro targets, no food rules, no restrictions yet. Your only job this week is to take a photo of everything you eat and drink. That's it. Don't change a single thing about your food — eat exactly how you normally eat. We just need to see your baseline first.\n\nHere's how to do it: tap the orange plus button at the bottom of the app, tap Food Photo, choose which meal it is, then take a photo and add a quick description of what you're eating. Something like: two slices of pizza or a handful of chips. That's all I need.\n\nNo pressure, no perfection. Just photos. Can you do that this week?`
-
-      const finalMessage = fullAck + hardcodedHomework
-
-      // Step 3: Stream finalMessage to client via SSE
       res.setHeader('Content-Type', 'text/event-stream')
       res.setHeader('Cache-Control', 'no-cache')
       res.setHeader('Connection', 'keep-alive')
-      const words = finalMessage.split(' ')
+
+      const words = icebreakerReply.split(' ')
       for (const word of words) {
         res.write(`data: ${JSON.stringify({ text: word + ' ' })}\n\n`)
       }
 
-      // Step 4: Save finalMessage to DB
       try {
         await pool.query(
           `INSERT INTO coaching_conversations (user_id, role, message) VALUES ($1, 'assistant', $2)`,
-          [dbUserId, finalMessage],
+          [dbUserId, icebreakerReply],
         )
       } catch (dbErr) {
         console.error('[coach] icebreaker save failed:', dbErr.message)
       }
-
-      trackEvent({
-        actorUserId:  dbUserId,
-        feature:      'katie_chat',
-        action:       'ai_call',
-        provider:     'anthropic',
-        providerOp:   'messages.create',
-        model:        'claude-sonnet-4-6',
-        inputTokens:  ackMsg.usage?.input_tokens,
-        outputTokens: ackMsg.usage?.output_tokens,
-        durationMs:   Date.now() - iceT0,
-        metadata:     { coaching_type: user.coaching_type, turn: 'icebreaker' },
-      })
 
       res.write('data: [DONE]\n\n')
       res.end()
