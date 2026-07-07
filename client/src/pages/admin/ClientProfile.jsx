@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { API_URL } from '../../config.js'
 import BloodworkIntakeForm from '../../components/BloodworkIntakeForm.jsx'
+import LinkifiedText from '../../components/LinkifiedText.jsx'
 
 const TABS = [
   { id: 'overview',    label: 'Overview',   icon: '◉' },
@@ -3685,7 +3686,7 @@ function KatieHistoryPanel({ client, getToken }) {
                       </span>
                     )}
                   </p>
-                  <p className="text-sm whitespace-pre-wrap">{m.message}</p>
+                  <p className="text-sm whitespace-pre-wrap"><LinkifiedText text={m.message} /></p>
                 </div>
                 {!isKatie && (
                   <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-300 flex items-center justify-center text-gray-600 text-[10px] font-bold">
@@ -3844,7 +3845,7 @@ function MessagingTab({ client, role, getToken }) {
                       <p className="text-[10px] font-semibold opacity-70 mb-0.5">
                         {m.sender_name ?? m.sender_role} · {new Date(m.created_at).toLocaleString()}
                       </p>
-                      <p className="text-sm whitespace-pre-wrap">{m.message_body}</p>
+                      <p className="text-sm whitespace-pre-wrap"><LinkifiedText text={m.message_body} /></p>
                       {isStaff && m.read_at && (
                         <p className="text-[9px] opacity-60 text-right mt-0.5">
                           Read {new Date(m.read_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}

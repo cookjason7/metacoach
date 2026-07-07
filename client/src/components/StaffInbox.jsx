@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { API_URL } from '../config.js'
+import LinkifiedText from './LinkifiedText.jsx'
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder.js'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -811,7 +812,7 @@ export default function StaffInbox({ getToken, role }) {
                       <p className="text-[10px] font-semibold text-white/70 mb-0.5">
                         {m.sender_name ?? m.sender_role} · {fmtFull(m.created_at)}
                       </p>
-                      {m.message_body && <p className="text-sm whitespace-pre-wrap">{m.message_body}</p>}
+                      {m.message_body && <p className="text-sm whitespace-pre-wrap"><LinkifiedText text={m.message_body} /></p>}
                       {m.image_url && (
                         <img src={m.image_url} alt="attachment" className="max-w-[240px] rounded-lg mt-1 cursor-pointer" onClick={() => window.open(m.image_url, '_blank')} />
                       )}
