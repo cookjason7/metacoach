@@ -65,33 +65,51 @@ app.use(express.json())
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }))
 
-app.use('/api/users',      clerkMiddleware(), usersRouter)
-app.use('/api/meals',      clerkMiddleware(), mealsRouter)
-app.use('/api/daily-logs', clerkMiddleware(), dailyLogsRouter)
-app.use('/api/coach',      clerkMiddleware(), coachRouter)
-app.use('/api/community',       clerkMiddleware(), communityRouter)
-app.use('/api/progress-photos', clerkMiddleware(), progressPhotosRouter)
-app.use('/api/foods',           clerkMiddleware(), foodsRouter)
-app.use('/api/admin',           clerkMiddleware(), adminRouter)
-app.use('/api/recipes',         clerkMiddleware(), recipesRouter)
-app.use('/api/custom-foods',    clerkMiddleware(), customFoodsRouter)
-app.use('/api/workouts',        clerkMiddleware(), workoutsRouter)
-app.use('/api/gamification',      clerkMiddleware(), gamificationRouter)
-app.use('/api/health-assessment', clerkMiddleware(), healthAssessmentRouter)
-app.use('/api/coach-admin',       clerkMiddleware(), coachAdminRouter)
-app.use('/api/client-habits',     clerkMiddleware(), clientHabitsRouter)
-app.use('/api/messages',          clerkMiddleware(), messagesRouter)
-app.use('/api/client-invites',    clerkMiddleware(), invitesRouter)
-app.use('/api/staff-invites',     clerkMiddleware(), invitesRouter)
-app.use('/api/weekly-checkins',  clerkMiddleware(), weeklyCheckinsRouter)
-app.use('/api/forms',            clerkMiddleware(), formsRouter)
-app.use('/api/measurements',     clerkMiddleware(), measurementsRouter)
-app.use('/api/mindset-videos',        clerkMiddleware(), mindsetVideosRouter)
-app.use('/api/community-resources',   clerkMiddleware(), communityResourcesRouter)
-app.use('/api/fitbit',                clerkMiddleware(), fitbitRouter)
-app.use('/api/apple-health',          clerkMiddleware(), appleHealthRouter)
-app.use('/api/bloodwork',             clerkMiddleware(), bloodworkRouter)
-app.use('/api/push',                  clerkMiddleware(), pushRouter)
+// Blocks any authenticated request from a deactivated client. Runs after
+// clerkMiddleware() (which decorates req with auth) on every mounted API
+// router below. Paired with the Clerk session revocation that happens at
+// deactivation time (server/routes/coachAdmin.js) — that logs the client out
+// immediately, this stops any session (including a freshly-issued one) from
+// reaching the app while client_status stays 'deactivated'.
+async function blockDeactivatedClients(req, res, next) {
+  try {
+    const { userId } = getAuth(req)
+    if (!userId) return next()
+    const { rows } = await pool.query('SELECT client_status FROM users WHERE clerk_user_id = $1', [userId])
+    if (rows[0]?.client_status === 'deactivated') {
+      return res.status(403).json({ error: 'Your account has been deactivated. Please contact your coach.' })
+    }
+    next()
+  } catch (err) { next(err) }
+}
+
+app.use('/api/users',      clerkMiddleware(), blockDeactivatedClients, usersRouter)
+app.use('/api/meals',      clerkMiddleware(), blockDeactivatedClients, mealsRouter)
+app.use('/api/daily-logs', clerkMiddleware(), blockDeactivatedClients, dailyLogsRouter)
+app.use('/api/coach',      clerkMiddleware(), blockDeactivatedClients, coachRouter)
+app.use('/api/community',       clerkMiddleware(), blockDeactivatedClients, communityRouter)
+app.use('/api/progress-photos', clerkMiddleware(), blockDeactivatedClients, progressPhotosRouter)
+app.use('/api/foods',           clerkMiddleware(), blockDeactivatedClients, foodsRouter)
+app.use('/api/admin',           clerkMiddleware(), blockDeactivatedClients, adminRouter)
+app.use('/api/recipes',         clerkMiddleware(), blockDeactivatedClients, recipesRouter)
+app.use('/api/custom-foods',    clerkMiddleware(), blockDeactivatedClients, customFoodsRouter)
+app.use('/api/workouts',        clerkMiddleware(), blockDeactivatedClients, workoutsRouter)
+app.use('/api/gamification',      clerkMiddleware(), blockDeactivatedClients, gamificationRouter)
+app.use('/api/health-assessment', clerkMiddleware(), blockDeactivatedClients, healthAssessmentRouter)
+app.use('/api/coach-admin',       clerkMiddleware(), blockDeactivatedClients, coachAdminRouter)
+app.use('/api/client-habits',     clerkMiddleware(), blockDeactivatedClients, clientHabitsRouter)
+app.use('/api/messages',          clerkMiddleware(), blockDeactivatedClients, messagesRouter)
+app.use('/api/client-invites',    clerkMiddleware(), blockDeactivatedClients, invitesRouter)
+app.use('/api/staff-invites',     clerkMiddleware(), blockDeactivatedClients, invitesRouter)
+app.use('/api/weekly-checkins',  clerkMiddleware(), blockDeactivatedClients, weeklyCheckinsRouter)
+app.use('/api/forms',            clerkMiddleware(), blockDeactivatedClients, formsRouter)
+app.use('/api/measurements',     clerkMiddleware(), blockDeactivatedClients, measurementsRouter)
+app.use('/api/mindset-videos',        clerkMiddleware(), blockDeactivatedClients, mindsetVideosRouter)
+app.use('/api/community-resources',   clerkMiddleware(), blockDeactivatedClients, communityResourcesRouter)
+app.use('/api/fitbit',                clerkMiddleware(), blockDeactivatedClients, fitbitRouter)
+app.use('/api/apple-health',          clerkMiddleware(), blockDeactivatedClients, appleHealthRouter)
+app.use('/api/bloodwork',             clerkMiddleware(), blockDeactivatedClients, bloodworkRouter)
+app.use('/api/push',                  clerkMiddleware(), blockDeactivatedClients, pushRouter)
 
 // Demo seed endpoint — only mounted on staging / when explicitly allowed
 if (process.env.NODE_ENV !== 'production' || process.env.ALLOW_DEMO_SEED === 'true') {
@@ -102,7 +120,7 @@ if (process.env.NODE_ENV !== 'production' || process.env.ALLOW_DEMO_SEED === 'tr
 }
 
 // Admin backup status — admin-only, no sensitive data exposed
-app.get('/api/admin/backup/status', clerkMiddleware(), async (req, res) => {
+app.get('/api/admin/backup/status', clerkMiddleware(), blockDeactivatedClients, async (req, res) => {
   try {
     const { userId } = getAuth(req)
     if (!userId) return res.status(401).json({ error: 'Unauthorized' })

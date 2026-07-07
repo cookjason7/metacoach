@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import Anthropic from '@anthropic-ai/sdk'
-import { requireAuth, getAuth } from '@clerk/express'
+import { requireAuth, getAuth, clerkClient } from '@clerk/express'
 import { v2 as cloudinary } from 'cloudinary'
 import { pool, getOrCreateUser } from '../db.js'
 import { sendInviteEmail } from '../services/email.js'
@@ -129,7 +129,7 @@ function computeMomentum(adh7, adh30) {
 
 // ─── Clients list ─────────────────────────────────────────────────────────────
 
-// GET /api/coach-admin/clients?status=active|archived|all (default active)
+// GET /api/coach-admin/clients?status=active|deactivated|all (default active)
 router.get('/clients', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireStaff(req, res); if (!ctx) return
@@ -139,8 +139,8 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
     const statusFilter = req.query.status ?? 'active'
     if (statusFilter === 'active') {
       where += ` AND COALESCE(u.client_status, 'active') = 'active'`
-    } else if (statusFilter === 'archived') {
-      where += ` AND u.client_status = 'archived'`
+    } else if (statusFilter === 'deactivated') {
+      where += ` AND u.client_status = 'deactivated'`
     } else if (statusFilter === 'invited') {
       where += ` AND u.client_status = 'invited'`
     }
@@ -169,7 +169,7 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
         u.coaching_type, u.assigned_coach_id, u.role,
         u.onboarding_complete, u.assessment_complete,
         u.last_login_at, u.start_date, u.paid, u.paid_at, u.created_at,
-        u.client_status, u.archived_at,
+        u.client_status, u.deactivated_at,
         -- Effective start date: explicit start_date → paid_at → created_at
         COALESCE(u.start_date, u.paid_at::date, u.created_at::date) AS effective_start_date,
         (SELECT first_name FROM users WHERE id = u.assigned_coach_id) AS assigned_coach_name,
@@ -595,7 +595,7 @@ router.post('/clients/invite', requireAuth(), async (req, res, next) => {
       return res.status(400).json({ error: 'Please enter a valid email address.' })
     }
 
-    // Block if an active or archived user already exists for this email.
+    // Block if an active or deactivated user already exists for this email.
     // Soft-deleted rows (client_status = 'deleted') are intentionally excluded —
     // admins must be able to reinvite after deleting a test / incomplete client.
     const { rows: existing } = await pool.query(
@@ -606,11 +606,11 @@ router.post('/clients/invite', requireAuth(), async (req, res, next) => {
       [normalizedEmail],
     )
     if (existing.length > 0) {
-      const isArchived = existing[0].client_status === 'archived'
-      if (isArchived) {
+      const isDeactivated = existing[0].client_status === 'deactivated'
+      if (isDeactivated) {
         return res.status(409).json({
-          error:       'This email belongs to an archived client. Reactivate them from the client list before reinviting, or use a different email.',
-          is_archived: true,
+          error:          'This email belongs to a deactivated client. Reactivate them from the client list before reinviting, or use a different email.',
+          is_deactivated: true,
         })
       }
       return res.status(409).json({ error: 'A client with this email already exists in the system.' })
@@ -894,6 +894,10 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
       status_tag: computeStatusTag(c),
       momentum: computeMomentum(c.adherence_7d, c.adherence_30d),
     }
+    // Payment status is not shown in the Client Info view — strip before responding.
+    // (The underlying `paid` / `paid_at` data is untouched in the database.)
+    delete merged.paid
+    delete merged.paid_at
     res.json(merged)
   } catch (err) { next(err) }
 })
@@ -955,10 +959,15 @@ router.patch('/clients/:id', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-// ─── Lifecycle: archive / reactivate / soft-delete ────────────────────────────
+// ─── Lifecycle: deactivate / reactivate / soft-delete ─────────────────────────
 
-// PATCH /api/coach-admin/clients/:id/archive
-router.patch('/clients/:id/archive', requireAuth(), async (req, res, next) => {
+// PATCH /api/coach-admin/clients/:id/deactivate
+// Blocks the client's access two ways: (1) revokes any Clerk sessions they
+// currently hold, so they're logged out immediately, and (2) flips
+// client_status to 'deactivated', which the global blockDeactivatedClients
+// middleware (server/index.js) checks on every subsequent request — so even a
+// freshly-issued session can't be used again until they're reactivated.
+router.patch('/clients/:id/deactivate', requireAuth(), async (req, res, next) => {
   try {
     if (await requireAdmin(req, res) === null) return
     const id = parseInt(req.params.id, 10)
@@ -966,14 +975,25 @@ router.patch('/clients/:id/archive', requireAuth(), async (req, res, next) => {
     const adminDbId = await getOrCreateUser(userId)
     const { rows } = await pool.query(`
       UPDATE users
-      SET client_status = 'archived',
-          archived_at = NOW(),
-          archived_by = $2
+      SET client_status = 'deactivated',
+          deactivated_at = NOW(),
+          deactivated_by = $2
       WHERE id = $1 AND COALESCE(client_status, 'active') != 'deleted'
-      RETURNING id, client_status, archived_at
+      RETURNING id, client_status, deactivated_at, clerk_user_id
     `, [id, adminDbId])
     if (!rows.length) return res.status(404).json({ error: 'Client not found' })
-    res.json({ ok: true, ...rows[0] })
+
+    const clerkUserId = rows[0].clerk_user_id
+    if (clerkUserId) {
+      try {
+        const { data: sessions } = await clerkClient.sessions.getSessionList({ userId: clerkUserId, status: 'active' })
+        await Promise.all(sessions.map(s => clerkClient.sessions.revokeSession(s.id)))
+      } catch (sessionErr) {
+        console.error('[deactivate] failed to revoke Clerk sessions:', sessionErr.message)
+      }
+    }
+
+    res.json({ ok: true, id: rows[0].id, client_status: rows[0].client_status, deactivated_at: rows[0].deactivated_at })
   } catch (err) { next(err) }
 })
 
@@ -985,8 +1005,8 @@ router.patch('/clients/:id/reactivate', requireAuth(), async (req, res, next) =>
     const { rows } = await pool.query(`
       UPDATE users
       SET client_status = 'active',
-          archived_at = NULL,
-          archived_by = NULL,
+          deactivated_at = NULL,
+          deactivated_by = NULL,
           deleted_at = NULL,
           deleted_by = NULL
       WHERE id = $1
@@ -2742,7 +2762,7 @@ router.post('/forms/:id/send', requireAuth(), async (req, res, next) => {
         [clientId],
       )
       if (!client) { skipped.push({ client_id: clientId, reason: 'Client not found' }); continue }
-      if (client.client_status === 'archived' || client.client_status === 'deleted') {
+      if (client.client_status === 'deactivated' || client.client_status === 'deleted') {
         skipped.push({ client_id: clientId, reason: 'Client is not active' })
         continue
       }
@@ -2867,7 +2887,7 @@ router.post('/forms/:id/schedule', requireAuth(), async (req, res, next) => {
         [clientId],
       )
       if (!client) { skipped.push({ client_id: clientId, reason: 'Client not found' }); continue }
-      if (client.client_status === 'archived' || client.client_status === 'deleted') {
+      if (client.client_status === 'deactivated' || client.client_status === 'deleted') {
         skipped.push({ client_id: clientId, reason: 'Client is not active' }); continue
       }
 
