@@ -1644,6 +1644,7 @@ export default function CoachDashboard({ getToken, userRole }) {
       method: 'PATCH', headers: { Authorization: `Bearer ${token}` },
     })
     if (res.ok) reloadClients()
+    else { const err = await res.json().catch(() => ({})); alert(err.error ?? 'Could not deactivate client') }
   }
 
   async function reactivateClient(e, id) {

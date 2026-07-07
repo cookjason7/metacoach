@@ -973,6 +973,17 @@ router.patch('/clients/:id/deactivate', requireAuth(), async (req, res, next) =>
     const id = parseInt(req.params.id, 10)
     const { userId } = getAuth(req)
     const adminDbId = await getOrCreateUser(userId)
+
+    // Guardrail: admins can never deactivate themselves or another admin account.
+    if (id === adminDbId) {
+      return res.status(400).json({ error: 'You cannot deactivate your own account.' })
+    }
+    const { rows: targetRows } = await pool.query('SELECT role FROM users WHERE id = $1', [id])
+    if (!targetRows.length) return res.status(404).json({ error: 'Client not found' })
+    if (isAdminRole(targetRows[0].role)) {
+      return res.status(400).json({ error: 'Admin accounts cannot be deactivated.' })
+    }
+
     const { rows } = await pool.query(`
       UPDATE users
       SET client_status = 'deactivated',
