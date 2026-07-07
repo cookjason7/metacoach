@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 import StaffInbox from '../components/StaffInbox.jsx'
+import LinkifiedText from '../components/LinkifiedText.jsx'
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder.js'
 
 // Only these three thread types are shown to clients.
@@ -587,7 +588,7 @@ export default function Messages() {
                           <p className="text-[10px] font-semibold mb-0.5 text-white/80">
                             {isMe ? 'You' : (m.sender_name ?? m.sender_role)} · {fmtTime(m.created_at)}
                           </p>
-                          {m.message_body && <p className="text-sm whitespace-pre-wrap">{m.message_body}</p>}
+                          {m.message_body && <p className="text-sm whitespace-pre-wrap"><LinkifiedText text={m.message_body} /></p>}
                           {m.image_url && (
                             <img src={m.image_url} alt="attachment" className="max-w-[240px] rounded-lg mt-1 cursor-pointer" onClick={() => window.open(m.image_url, '_blank')} />
                           )}
