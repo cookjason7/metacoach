@@ -40,12 +40,19 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
 }
 
-function fmtDob(iso) {
+// Formats a DATE-only value (YYYY-MM-DD, no time component) as MM/DD/YYYY without
+// going through `new Date()` — that would parse bare dates as UTC midnight and can
+// shift the displayed day by one depending on the browser's local timezone.
+function fmtDateOnly(iso) {
   if (!iso) return null
   const s = String(iso).slice(0, 10)
   const [y, m, d] = s.split('-')
   if (!y || !m || !d) return s
   return `${m}/${d}/${y}`
+}
+
+function fmtDob(iso) {
+  return fmtDateOnly(iso)
 }
 
 function fmtHeight(inches) {
@@ -118,7 +125,6 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
     start_date:           startDateInitial,
     program_end_date:     client.program_end_date ? String(client.program_end_date).slice(0, 10) : '',
     phone_number:         client.phone_number ?? '',
-    paid:                 client.paid ?? false,
     starting_weight_lbs:  client.starting_weight_lbs != null ? String(client.starting_weight_lbs) : '',
   })
 
@@ -152,7 +158,6 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
           start_date:           form.start_date || null,
           program_end_date:     form.program_end_date || null,
           phone_number:         form.phone_number || null,
-          paid:                 form.paid,
           starting_weight_lbs:  form.starting_weight_lbs !== '' ? Number(form.starting_weight_lbs) : null,
         }),
       })
@@ -180,8 +185,8 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
   const adh30 = Math.round(Number(client.adherence_30d) || 0)
 
   const displayStartDate =
-    client.start_date ? String(client.start_date).slice(0, 10) :
-    client.effective_start_date ? `${String(client.effective_start_date).slice(0, 10)} (auto)` :
+    client.start_date ? fmtDateOnly(client.start_date) :
+    client.effective_start_date ? `${fmtDateOnly(client.effective_start_date)} (auto)` :
     '—'
 
   return (
@@ -270,8 +275,7 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 <InfoRow label="Food allergies"      value={client.food_allergies || null} />
                 <InfoRow label="Foods disliked"      value={client.food_dislikes || null} />
                 <InfoRow label="Program start date" value={displayStartDate} />
-                <InfoRow label="Program end date"   value={client.program_end_date ? String(client.program_end_date).slice(0, 10) : null} emptyText="Not set" />
-                <InfoRow label="Payment"         value={client.paid ? `✓ Active${client.paid_at ? ` (since ${String(client.paid_at).slice(0,10)})` : ''}` : '○ Not activated'} />
+                <InfoRow label="Program end date"   value={client.program_end_date ? fmtDateOnly(client.program_end_date) : null} emptyText="Not set" />
                 <InfoRow label="Last login"      value={fmtDate(client.last_login_at)} />
                 <InfoRow label="Last meal log"   value={client.last_meal_at ? `${daysSince(client.last_meal_at)}d ago` : null} emptyText="Not logged yet" />
                 <InfoRow label="Onboarding"      value={client.onboarding_complete ? '✓ Complete' : '○ In progress'} />
@@ -389,12 +393,6 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                   placeholder="e.g. 185"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
               </div>
-            </div>
-            <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-3">
-              <input type="checkbox" id="paid-check" checked={form.paid}
-                onChange={e => setForm(f => ({ ...f, paid: e.target.checked }))}
-                className="w-4 h-4 accent-[#E8670A]" />
-              <label htmlFor="paid-check" className="text-sm text-gray-800">Account activated / paid</label>
             </div>
             <div className="flex gap-2 pt-1">
               <button

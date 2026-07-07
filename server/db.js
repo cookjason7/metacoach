@@ -704,12 +704,27 @@ export async function migrate() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at     TIMESTAMPTZ`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS paid_at           TIMESTAMPTZ`)
 
-  // Client lifecycle: active | archived | deleted (soft delete)
+  // Client lifecycle: active | deactivated | deleted (soft delete)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS client_status     TEXT DEFAULT 'active'`)
-  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS archived_at       TIMESTAMPTZ`)
-  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS archived_by       INTEGER REFERENCES users(id) ON DELETE SET NULL`)
+  // Rename legacy archive columns to deactivate naming (idempotent — no-op once already renamed)
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'archived_at')
+         AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'deactivated_at') THEN
+        ALTER TABLE users RENAME COLUMN archived_at TO deactivated_at;
+      END IF;
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'archived_by')
+         AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'deactivated_by') THEN
+        ALTER TABLE users RENAME COLUMN archived_by TO deactivated_by;
+      END IF;
+    END $$;
+  `)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS deactivated_at    TIMESTAMPTZ`)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS deactivated_by    INTEGER REFERENCES users(id) ON DELETE SET NULL`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at        TIMESTAMPTZ`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_by        INTEGER REFERENCES users(id) ON DELETE SET NULL`)
+  await pool.query(`UPDATE users SET client_status = 'deactivated' WHERE client_status = 'archived'`)
   await pool.query(`UPDATE users SET client_status = 'active' WHERE client_status IS NULL`)
 
   // Staff lifecycle: active | archived (non-destructive; separate from client_status)

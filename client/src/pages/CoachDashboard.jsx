@@ -59,6 +59,23 @@ function fmtShortDate(iso) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+// MM/DD/YYYY — used for client-facing date fields (last login, date of birth, etc.)
+function fmtMDY(iso) {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+}
+
+// Formats a DATE-only value (YYYY-MM-DD, no time component) as MM/DD/YYYY without
+// going through `new Date()`, which parses bare dates as UTC midnight and can shift
+// the displayed day by one depending on the browser's local timezone.
+function fmtDateOnlyMDY(iso) {
+  if (!iso) return null
+  const s = String(iso).slice(0, 10)
+  const [y, m, d] = s.split('-')
+  if (!y || !m || !d) return s
+  return `${m}/${d}/${y}`
+}
+
 function fmtDateTime(iso) {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('en-US', {
@@ -89,8 +106,8 @@ function lastActivityAt(c) {
 }
 
 function accountStatus(c) {
-  if (c.client_status === 'invited')  return 'invited'
-  if (c.client_status === 'archived') return 'archived'
+  if (c.client_status === 'invited')     return 'invited'
+  if (c.client_status === 'deactivated') return 'deactivated'
   if (c.paid) return 'active'
   const last = lastActivityAt(c)
   if (!last) return 'inactive'
@@ -106,7 +123,7 @@ function accountStatusBadgeClass(c) {
   const s = accountStatus(c)
   if (s === 'active')   return 'bg-emerald-50 text-emerald-700 border-emerald-200'
   if (s === 'invited')  return 'bg-purple-50 text-purple-700 border-purple-200'
-  if (s === 'archived') return 'bg-red-50 text-red-500 border-red-200'
+  if (s === 'deactivated') return 'bg-red-50 text-red-500 border-red-200'
   return 'bg-gray-100 text-gray-600 border-gray-300'
 }
 
@@ -297,7 +314,7 @@ function AssessmentPanel({ clientId, getToken }) {
             </div>
           </div>
         ) : <Row label="Address" value={data.address} />}
-        <Row label="Date of birth" value={data.date_of_birth ? data.date_of_birth.slice(0,10) : null} />
+        <Row label="Date of birth" value={data.date_of_birth ? fmtDateOnlyMDY(data.date_of_birth) : null} />
         <Row label="Shirt size"    value={data.shirt_size} />
       </div>
       <p className="text-[10px] font-bold text-[#E8670A] uppercase tracking-wider">About You</p>
@@ -1275,7 +1292,7 @@ function InviteModal({ getToken, coaches = [], onClose, onSuccess }) {
   const [form,       setForm]       = useState(EMPTY_INVITE)
   const [saving,     setSaving]     = useState(false)
   const [error,      setError]      = useState(null)
-  const [isArchived, setIsArchived] = useState(false)
+  const [isDeactivated, setIsDeactivated] = useState(false)
   const [result,     setResult]     = useState(null)
   const [copied,     setCopied]     = useState(false)
 
@@ -1292,7 +1309,7 @@ function InviteModal({ getToken, coaches = [], onClose, onSuccess }) {
 
   async function submit(e) {
     e.preventDefault()
-    setSaving(true); setError(null); setIsArchived(false)
+    setSaving(true); setError(null); setIsDeactivated(false)
     try {
       const token = await getToken()
       const res = await fetch(`${API_URL}/api/coach-admin/clients/invite`, {
@@ -1308,7 +1325,7 @@ function InviteModal({ getToken, coaches = [], onClose, onSuccess }) {
         }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.error ?? 'Invite failed.'); setIsArchived(!!data.is_archived); return }
+      if (!res.ok) { setError(data.error ?? 'Invite failed.'); setIsDeactivated(!!data.is_deactivated); return }
       setResult(data)
     } catch { setError('Network error. Please try again.') }
     finally { setSaving(false) }
@@ -1427,10 +1444,10 @@ function InviteModal({ getToken, coaches = [], onClose, onSuccess }) {
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
                 <p className="text-xs text-red-700">{error}</p>
-                {isArchived && (
+                {isDeactivated && (
                   <button type="button" onClick={onClose}
                     className="text-xs text-[#E8670A] underline mt-1 block">
-                    View Archived Clients → Reactivate, then reinvite
+                    View Deactivated Clients → Reactivate, then reinvite
                   </button>
                 )}
               </div>
@@ -1619,11 +1636,11 @@ export default function CoachDashboard({ getToken, userRole }) {
   }
 
   // ── Client actions ───────────────────────────────────────────────────────────
-  async function archiveClient(e, id) {
+  async function deactivateClient(e, id) {
     e.stopPropagation()
-    if (!confirm('Archive this client? All their data is preserved.')) return
+    if (!confirm('Deactivate this client? They will be logged out and blocked from the app. All their data is preserved.')) return
     const token = await getToken()
-    const res = await fetch(`${API_URL}/api/coach-admin/clients/${id}/archive`, {
+    const res = await fetch(`${API_URL}/api/coach-admin/clients/${id}/deactivate`, {
       method: 'PATCH', headers: { Authorization: `Bearer ${token}` },
     })
     if (res.ok) reloadClients()
@@ -1836,7 +1853,7 @@ export default function CoachDashboard({ getToken, userRole }) {
                 <option value="active">Active</option>
                 <option value="invited">Awaiting Setup</option>
                 <option value="inactive">Inactive</option>
-                <option value="archived">Archived</option>
+                <option value="deactivated">Deactivated</option>
               </select>
               <select value={weekFilter} onChange={e => setWeekFilter(e.target.value)}
                 className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
@@ -1982,7 +1999,7 @@ export default function CoachDashboard({ getToken, userRole }) {
                         <td className="px-3 py-2 text-xs text-gray-500">
                           {c.last_login_at ? (
                             <>
-                              <span className="block font-medium text-gray-700">{fmtShortDate(c.last_login_at)}</span>
+                              <span className="block font-medium text-gray-700">{fmtMDY(c.last_login_at)}</span>
                               <span className="block text-[11px] text-gray-400">
                                 {daysSince(c.last_login_at) === 0 ? 'today' : `${daysSince(c.last_login_at)}d ago`}
                               </span>
@@ -2011,12 +2028,12 @@ export default function CoachDashboard({ getToken, userRole }) {
                           </span>
                         </td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
-                          {c.client_status === 'archived' ? (
+                          {c.client_status === 'deactivated' ? (
                             <button onClick={e => reactivateClient(e, c.id)}
                               className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold mr-2">Reactivate</button>
                           ) : (
-                            <button onClick={e => archiveClient(e, c.id)}
-                              className="text-xs text-gray-500 hover:text-gray-700 font-medium mr-2">Archive</button>
+                            <button onClick={e => deactivateClient(e, c.id)}
+                              className="text-xs text-gray-500 hover:text-gray-700 font-medium mr-2">Deactivate</button>
                           )}
                           <button onClick={e => deleteClient(e, c.id, c.first_name ?? 'this client')}
                             className="text-xs text-red-400 hover:text-red-600 font-medium">Delete</button>
@@ -2066,9 +2083,9 @@ export default function CoachDashboard({ getToken, userRole }) {
                         {accountStatusLabel(c)}
                       </span>
                       <div className="flex gap-3">
-                        {c.client_status === 'archived'
+                        {c.client_status === 'deactivated'
                           ? <button type="button" onClick={e => reactivateClient(e, c.id)} className="text-[11px] text-emerald-600 hover:text-emerald-700 font-semibold min-h-[44px] px-1">Reactivate</button>
-                          : <button type="button" onClick={e => archiveClient(e, c.id)} className="text-[11px] text-gray-500 hover:text-gray-700 font-medium min-h-[44px] px-1">Archive</button>
+                          : <button type="button" onClick={e => deactivateClient(e, c.id)} className="text-[11px] text-gray-500 hover:text-gray-700 font-medium min-h-[44px] px-1">Deactivate</button>
                         }
                         <button type="button" onClick={e => deleteClient(e, c.id, c.first_name ?? 'this client')}
                           className="text-[11px] text-red-400 hover:text-red-600 font-medium min-h-[44px] px-1">Delete</button>
