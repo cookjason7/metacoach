@@ -2,7 +2,64 @@ import { pool } from '../db.js'
 
 const GOOGLE_TOKEN_URL       = 'https://oauth2.googleapis.com/token'
 const GOOGLE_HEALTH_API_URL  = 'https://health.googleapis.com'
+const GOOGLE_USERINFO_URL    = 'https://www.googleapis.com/oauth2/v3/userinfo'
 const TOKEN_REFRESH_WINDOW_MS = 5 * 60 * 1000
+
+// Scopes the sync actually needs, plus basic identity so we can tell which
+// Google account a token belongs to (surfaced in logs and the status UI, and
+// used to catch the "authorized with the wrong account" failure mode).
+export const REQUIRED_HEALTH_SCOPES = [
+  'https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly',
+  'https://www.googleapis.com/auth/googlehealth.sleep.readonly',
+]
+export const IDENTITY_SCOPES = [
+  'openid',
+  'https://www.googleapis.com/auth/userinfo.email',
+]
+export const OAUTH_SCOPES = [...REQUIRED_HEALTH_SCOPES, ...IDENTITY_SCOPES].join(' ')
+
+function missingScopes(grantedScope) {
+  const granted = new Set((grantedScope || '').split(' ').filter(Boolean))
+  return REQUIRED_HEALTH_SCOPES.filter(s => !granted.has(s))
+}
+
+// Best-effort — identity isn't required for sync to function, only for
+// diagnostics, so a failure here must never block connect/sync.
+export async function fetchGoogleAccountEmail(accessToken) {
+  try {
+    const res = await fetch(GOOGLE_USERINFO_URL, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    if (!res.ok) return null
+    const data = await res.json().catch(() => ({}))
+    return data.email ?? null
+  } catch (e) {
+    console.warn('[googleHealth] could not fetch account email:', e.message)
+    return null
+  }
+}
+
+// Maps a raw Google API failure to a clear, actionable message for the user.
+// Never pass apiErr.message / apiErr.googleError straight through — Google's
+// wording is written for developers, not clients ("The account is not linked
+// to Google Health" reads like an app bug even though it usually just means
+// the connected Google account has no Fitbit/Health Connect data source).
+function translateGoogleHealthError(apiErr, googleEmail) {
+  const raw = String(apiErr.googleError?.message || apiErr.message || '').toLowerCase()
+  const account = googleEmail ? ` (${googleEmail})` : ''
+
+  if (apiErr.httpStatus === 401 || /invalid_grant|invalid credentials|token has been expired or revoked/.test(raw)) {
+    return 'Your Google Health connection has expired. Please reconnect Google Health.'
+  }
+  if (/insufficient|permission_denied|forbidden/.test(raw)) {
+    return 'Google Health sync needs additional permissions. Please reconnect and allow access to steps and sleep data.'
+  }
+  if (/not linked|no data source|not found/.test(raw)) {
+    return `No Fitbit or Health Connect data was found for the connected Google account${account}. ` +
+      'Make sure Fitbit is syncing into Health Connect on that same account, or reconnect using the correct one.'
+  }
+  return 'We couldn\'t sync with Google Health right now. Please try again, or reconnect Google Health if this keeps happening.'
+}
 
 function googleHealthConfig() {
   const { GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_CLIENT_SECRET } = process.env
@@ -41,6 +98,9 @@ export async function exchangeToken(params) {
   if (!res.ok) {
     const err = new Error(data.error_description || data.error || 'Google Health token exchange failed')
     err.status = 502
+    err.httpStatus = res.status
+    // Full raw error body, for logging only — never sent to the client as-is.
+    err.googleError = data
     throw err
   }
   return data
@@ -89,6 +149,9 @@ async function googleHealthRequest(path, accessToken, options = {}) {
   if (!res.ok) {
     const err = new Error(data.error?.message || 'Google Health API request failed')
     err.status = 502
+    err.httpStatus = res.status
+    // Full raw error body, for logging only — never sent to the client as-is.
+    err.googleError = data.error ?? data
     throw err
   }
   return data
@@ -175,13 +238,30 @@ export async function syncUser(dbUserId) {
     throw err
   }
 
+  console.log('[healthSync] starting sync', {
+    user_id:        dbUserId,
+    google_email:   rows[0].google_email ?? '(unknown — connected before account-email capture was added; reconnect to capture it)',
+    granted_scope:  rows[0].scope ?? '(none recorded)',
+    missing_scopes: missingScopes(rows[0].scope),
+  })
+
   let token
   try {
     token = await refreshTokenIfNeeded(rows[0])
   } catch (refreshErr) {
+    console.error('[healthSync] token refresh failed for user', dbUserId, ':', refreshErr.googleError ?? refreshErr.message)
     await recordSyncError(dbUserId, `Token refresh failed: ${refreshErr.message}`)
-    const err = new Error('Google Health authentication failed. Please disconnect and reconnect Google Health.')
-    err.status = 502
+    const err = new Error('Your Google Health connection has expired. Please reconnect Google Health.')
+    err.status = 401
+    throw err
+  }
+
+  const missing = missingScopes(token.scope)
+  if (missing.length) {
+    console.warn('[healthSync] user', dbUserId, 'is missing required scopes:', missing)
+    await recordSyncError(dbUserId, `Missing scopes: ${missing.join(', ')}`)
+    const err = new Error('Google Health sync needs additional permissions. Please reconnect and allow access to steps and sleep data.')
+    err.status = 403
     throw err
   }
 
@@ -192,8 +272,14 @@ export async function syncUser(dbUserId) {
       fetchTodaySleepMinutes(token.access_token),
     ])
   } catch (apiErr) {
+    // Full raw Google error, for our logs only.
+    console.error('[healthSync] Google API error for user', dbUserId, {
+      google_email: rows[0].google_email ?? null,
+      httpStatus:   apiErr.httpStatus ?? null,
+      googleError:  apiErr.googleError ?? apiErr.message,
+    })
     await recordSyncError(dbUserId, `API error: ${apiErr.message}`)
-    const err = new Error(`Google Health sync failed: ${apiErr.message}`)
+    const err = new Error(translateGoogleHealthError(apiErr, rows[0].google_email))
     err.status = 502
     throw err
   }
