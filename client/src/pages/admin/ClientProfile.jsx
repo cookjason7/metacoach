@@ -1478,6 +1478,8 @@ function HabitsTab({ clientId, getToken }) {
   const [compCalendar, setCompCalendar] = useState(null)
   const [compLoading, setCompLoading] = useState(false)
   const [compError, setCompError] = useState(null)
+  const [submitError, setSubmitError] = useState(null)
+  const [submitting, setSubmitting] = useState(false)
 
   const load = useCallback(async () => {
     const token = await getToken()
@@ -1542,27 +1544,39 @@ function HabitsTab({ clientId, getToken }) {
   }
 
   async function submit() {
-    if (!form.habit_name.trim() || !form.start_date) return
-    const token = await getToken()
-    const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/habits`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...form,
-        target_value:      form.target_value !== '' ? Number(form.target_value) : null,
-        end_date:          form.end_date || null,
-        days_of_week:      form.frequency === 'specific_days' ? (form.days_of_week || null) : null,
-        identity_category: form.identity_category || null,
-      }),
-    })
-    if (res.ok) {
+    if (!form.habit_name.trim() || !form.start_date) {
+      setSubmitError('Habit name and start date are required.')
+      return
+    }
+    setSubmitting(true); setSubmitError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/habits`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...form,
+          target_value:      form.target_value !== '' ? Number(form.target_value) : null,
+          end_date:          form.end_date || null,
+          days_of_week:      form.frequency === 'specific_days' ? (form.days_of_week || null) : null,
+          identity_category: form.identity_category || null,
+        }),
+      })
+      if (!res.ok) {
+        const { error: msg } = await res.json().catch(() => ({}))
+        throw new Error(msg || `Failed to assign habit (${res.status})`)
+      }
       setForm({
         habit_name: '', habit_type: 'boolean', target_value: '', unit: '',
         frequency: 'daily', start_date: localDateStr(),
         end_date: '', days_of_week: '', notes: '', identity_category: '',
       })
       setShowForm(false)
-      load()
+      await load()
+    } catch (err) {
+      setSubmitError(err.message)
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -1803,9 +1817,15 @@ function HabitsTab({ clientId, getToken }) {
           </div>
           {/* Coach note field hidden — notes column preserved in DB; existing
               notes still display on assigned habit cards below. */}
+          {submitError && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{submitError}</p>
+          )}
           <div className="flex gap-2">
-            <button onClick={submit} className="bg-[#E8670A] text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09]">Assign Habit</button>
-            <button onClick={() => setShowForm(false)} className="text-sm text-gray-500 px-3 py-2">Cancel</button>
+            <button onClick={submit} disabled={submitting}
+              className="bg-[#E8670A] text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60">
+              {submitting ? 'Assigning…' : 'Assign Habit'}
+            </button>
+            <button onClick={() => { setShowForm(false); setSubmitError(null) }} className="text-sm text-gray-500 px-3 py-2">Cancel</button>
           </div>
         </div>
       )}
@@ -4634,7 +4654,7 @@ const WO_GOALS = [
 const WO_SESSION_LENGTHS   = ['30 minutes', '45 minutes', '60 minutes', '90 minutes']
 const WO_EQUIPMENT_OPTIONS = ['Bodyweight only','Resistance bands','Dumbbells','Barbell + Rack','Full gym']
 const WO_FITNESS_LEVELS    = ['Beginner', 'Intermediate', 'Advanced']
-const WO_EMPTY_FORM        = { goals: [], days_per_week: '4', session_length: '45 minutes', equipment: 'Full gym', injuries: '', fitness_level: 'Intermediate' }
+const WO_EMPTY_FORM        = { goals: [], days_per_week: '4', session_length: '45 minutes', equipment: ['Full gym'], injuries: '', fitness_level: 'Intermediate' }
 
 function WorkoutsTab({ clientId, getToken }) {
   const BASE = `${API_URL}/api/coach-admin/clients/${clientId}/workouts`
@@ -4703,6 +4723,9 @@ function WorkoutsTab({ clientId, getToken }) {
   // ── Katie generation ───────────────────────────────────────────────────────
   function toggleGenGoal(id) {
     setGenForm(f => ({ ...f, goals: f.goals.includes(id) ? f.goals.filter(g => g !== id) : [...f.goals, id] }))
+  }
+  function toggleGenEquipment(eq) {
+    setGenForm(f => ({ ...f, equipment: f.equipment.includes(eq) ? f.equipment.filter(e => e !== eq) : [...f.equipment, eq] }))
   }
   async function generatePlan(e) {
     e.preventDefault()
@@ -5103,8 +5126,8 @@ function WorkoutsTab({ clientId, getToken }) {
             <label className="block text-sm font-semibold text-gray-700 mb-2">Available equipment</label>
             <div className="flex gap-2 flex-wrap">
               {WO_EQUIPMENT_OPTIONS.map(eq => (
-                <button key={eq} type="button" onClick={() => setGenForm(f => ({ ...f, equipment: eq }))}
-                  className={pillCls(genForm.equipment === eq)}>{eq}</button>
+                <button key={eq} type="button" onClick={() => toggleGenEquipment(eq)}
+                  className={pillCls(genForm.equipment.includes(eq))}>{eq}</button>
               ))}
             </div>
           </div>

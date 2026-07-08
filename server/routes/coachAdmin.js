@@ -11,12 +11,13 @@ const anthropic = new Anthropic()
 
 function buildClientWorkoutPrompt(firstName, answers) {
   const goals = Array.isArray(answers.goals) ? answers.goals.join(', ') : answers.goals
+  const equipment = Array.isArray(answers.equipment) ? answers.equipment.join(', ') : answers.equipment
   return `You are Katie, an enthusiastic and supportive fitness coach for the Life Warrior Coaching program.
 Create a personalized weekly workout program for ${firstName} based on their profile:
 - Fitness goals: ${goals}
 - Training days per week: ${answers.days_per_week}
 - Session length: ${answers.session_length}
-- Available equipment: ${answers.equipment}
+- Available equipment: ${equipment}
 - Injuries or limitations: ${answers.injuries || 'None'}
 - Fitness level: ${answers.fitness_level}
 
@@ -1830,7 +1831,7 @@ router.post('/clients/:id/habits', requireAuth(), async (req, res, next) => {
     if (!habit_name?.trim() || !start_date) {
       return res.status(400).json({ error: 'habit_name and start_date required' })
     }
-    const VALID_IC = ['food_tracking', 'movement', 'mindset', 'check_ins', 'progress']
+    const VALID_IC = ['food_tracking', 'hydration', 'movement', 'mindset', 'check_ins', 'progress']
     if (identity_category && !VALID_IC.includes(identity_category)) {
       return res.status(400).json({ error: 'Invalid identity_category' })
     }
@@ -1870,7 +1871,7 @@ router.patch('/habits/:habitId', requireAuth(), async (req, res, next) => {
       habit_name, habit_type, target_value, unit,
       frequency, start_date, end_date, days_of_week, notes, active, identity_category,
     } = req.body
-    const VALID_IC = ['food_tracking', 'movement', 'mindset', 'check_ins', 'progress']
+    const VALID_IC = ['food_tracking', 'hydration', 'movement', 'mindset', 'check_ins', 'progress']
     if (identity_category && !VALID_IC.includes(identity_category)) {
       return res.status(400).json({ error: 'Invalid identity_category' })
     }
