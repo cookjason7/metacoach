@@ -10,12 +10,13 @@ const anthropic = new Anthropic()
 
 function buildWorkoutPrompt(firstName, answers) {
   const goals = Array.isArray(answers.goals) ? answers.goals.join(', ') : answers.goals
+  const equipment = Array.isArray(answers.equipment) ? answers.equipment.join(', ') : answers.equipment
   return `You are Katie, an enthusiastic and supportive fitness coach for the Life Warrior Coaching program.
 Create a personalized weekly workout program for ${firstName} based on their profile:
 - Fitness goals: ${goals}
 - Training days per week: ${answers.days_per_week}
 - Session length: ${answers.session_length}
-- Available equipment: ${answers.equipment}
+- Available equipment: ${equipment}
 - Injuries or limitations: ${answers.injuries || 'None'}
 - Fitness level: ${answers.fitness_level}
 

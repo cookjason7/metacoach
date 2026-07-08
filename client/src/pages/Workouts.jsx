@@ -28,7 +28,7 @@ const EMPTY_FORM = {
   goals: [],
   days_per_week: '4',
   session_length: '45 minutes',
-  equipment: 'Full gym',
+  equipment: ['Full gym'],
   injuries: '',
   fitness_level: 'Intermediate',
 }
@@ -45,6 +45,13 @@ function Questionnaire({ onGenerate }) {
     setForm(f => ({
       ...f,
       goals: f.goals.includes(id) ? f.goals.filter(g => g !== id) : [...f.goals, id],
+    }))
+  }
+
+  function toggleEquipment(eq) {
+    setForm(f => ({
+      ...f,
+      equipment: f.equipment.includes(eq) ? f.equipment.filter(e => e !== eq) : [...f.equipment, eq],
     }))
   }
 
@@ -127,8 +134,8 @@ function Questionnaire({ onGenerate }) {
           <label className="block text-sm font-semibold text-gray-700 mb-2">Available equipment</label>
           <div className="flex gap-2 flex-wrap">
             {EQUIPMENT_OPTIONS.map(eq => (
-              <button key={eq} type="button" onClick={() => setForm(f => ({ ...f, equipment: eq }))}
-                className={pillCls(form.equipment === eq)}>{eq}</button>
+              <button key={eq} type="button" onClick={() => toggleEquipment(eq)}
+                className={pillCls(form.equipment.includes(eq))}>{eq}</button>
             ))}
           </div>
         </div>
