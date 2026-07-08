@@ -2362,11 +2362,11 @@ export default function Community() {
   const TABS = isStaff ? [
     { id: 'vip',       label: 'VIP Chat' },
     { id: 'ai',        label: 'AI Chat' },
-    { id: 'mindset',   label: 'Brain Mapping Trainings' },
+    { id: 'mindset',   label: 'Brain Mapping' },
     { id: 'resources', label: 'Resources' },
   ] : [
     { id: clientChannel, label: 'Group Chat' },
-    { id: 'mindset',     label: 'Brain Mapping Trainings' },
+    { id: 'mindset',     label: 'Brain Mapping' },
     { id: 'resources',   label: 'Resources' },
   ]
 
@@ -2425,12 +2425,12 @@ export default function Community() {
           </button>
         </div>
       ) : (
-        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6 overflow-x-auto">
+        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6">
           {TABS.map(t => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`flex-1 shrink-0 py-2 px-1.5 sm:px-2 rounded-lg text-xs sm:text-sm font-medium transition-colors text-center whitespace-nowrap ${
+              className={`flex-1 py-2 px-2 rounded-lg text-xs sm:text-sm font-medium transition-colors text-center leading-tight ${
                 tab === t.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
