@@ -3209,7 +3209,7 @@ router.get('/clients/:id/workouts', requireAuth(), async (req, res, next) => {
     const clientId = parseInt(req.params.id, 10)
     if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
     const { rows } = await pool.query(
-      `SELECT w.id, w.name, w.description, w.created_at,
+      `SELECT w.id, w.name, w.description, w.status, w.created_at,
               (SELECT COUNT(*) FROM workout_exercises WHERE workout_id = w.id)::int AS exercise_count,
               (SELECT COUNT(DISTINCT day) FROM workout_exercises WHERE workout_id = w.id)::int AS day_count,
               (SELECT MAX(completed_at) FROM workout_logs WHERE workout_id = w.id AND user_id = $1) AS last_logged_at,
@@ -3278,11 +3278,14 @@ router.post('/clients/:id/workouts', requireAuth(), async (req, res, next) => {
     const ctx = await requireStaff(req, res); if (!ctx) return
     const clientId = parseInt(req.params.id, 10)
     if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
-    const { name, description, days } = req.body
+    const { name, description, days, status } = req.body
     if (!name?.trim()) return res.status(400).json({ error: 'name required' })
+    if (status && !['draft', 'assigned'].includes(status)) {
+      return res.status(400).json({ error: 'status must be draft or assigned' })
+    }
     const { rows: [workout] } = await pool.query(
-      'INSERT INTO workouts (user_id, name, description) VALUES ($1,$2,$3) RETURNING *',
-      [clientId, name.trim(), description ?? null],
+      'INSERT INTO workouts (user_id, name, description, status) VALUES ($1,$2,$3,$4) RETURNING *',
+      [clientId, name.trim(), description ?? null, status === 'draft' ? 'draft' : 'assigned'],
     )
     // If a full plan with days was provided (e.g. from Katie generation), save exercises too
     if (Array.isArray(days) && days.length > 0) {
@@ -3310,11 +3313,15 @@ router.put('/clients/:id/workouts/:wid', requireAuth(), async (req, res, next) =
     const clientId  = parseInt(req.params.id, 10)
     const workoutId = parseInt(req.params.wid, 10)
     if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
-    const { name, description } = req.body
+    const { name, description, status } = req.body
+    if (status && !['draft', 'assigned'].includes(status)) {
+      return res.status(400).json({ error: 'status must be draft or assigned' })
+    }
     const { rows: [w] } = await pool.query(
-      `UPDATE workouts SET name=COALESCE($3, name), description=COALESCE($4, description)
+      `UPDATE workouts SET name=COALESCE($3, name), description=COALESCE($4, description),
+                            status=COALESCE($5, status)
        WHERE id=$1 AND user_id=$2 RETURNING *`,
-      [workoutId, clientId, name?.trim() ?? null, description ?? null],
+      [workoutId, clientId, name?.trim() ?? null, description ?? null, status ?? null],
     )
     if (!w) return res.status(404).json({ error: 'Workout not found' })
     res.json(w)

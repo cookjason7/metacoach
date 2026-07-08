@@ -119,7 +119,7 @@ router.get('/', requireAuth(), async (req, res, next) => {
               (SELECT MAX(completed_at) FROM workout_logs WHERE workout_id = w.id AND user_id = $1) AS last_logged_at,
               (SELECT COUNT(*) FROM workout_logs WHERE workout_id = w.id AND user_id = $1) AS log_count
        FROM workouts w
-       WHERE w.user_id = $1
+       WHERE w.user_id = $1 AND w.status = 'assigned'
        ORDER BY w.created_at DESC`,
       [dbUserId],
     )
@@ -137,7 +137,7 @@ router.get('/:id', requireAuth(), async (req, res, next) => {
     const workoutId = parseInt(req.params.id, 10)
 
     const { rows: [workout] } = await pool.query(
-      'SELECT * FROM workouts WHERE id = $1 AND user_id = $2',
+      "SELECT * FROM workouts WHERE id = $1 AND user_id = $2 AND status = 'assigned'",
       [workoutId, dbUserId],
     )
     if (!workout) return res.status(404).json({ error: 'Workout not found' })

@@ -385,6 +385,10 @@ export async function migrate() {
   await pool.query(`ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS weight TEXT`)
   await pool.query(`ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`)
 
+  // status: 'assigned' (visible to client, default — preserves prior behavior for
+  // existing rows) | 'draft' (coach-only, saved but not yet assigned to the client)
+  await pool.query(`ALTER TABLE workouts ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'assigned'`)
+
   // ── Custom foods ─────────────────────────────────────────────────────────────
   await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS sugar NUMERIC(6,1)`)
   await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS log_date DATE`)
