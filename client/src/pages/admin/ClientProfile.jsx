@@ -4674,6 +4674,7 @@ function WorkoutsTab({ clientId, getToken }) {
   const [generating,     setGenerating]     = useState(false)
   const [genError,       setGenError]       = useState(null)
   const [savingPlan,     setSavingPlan]     = useState(false)
+  const [assigningDraft, setAssigningDraft] = useState(false)
   // Inline edit state for the pre-save review table (operates on generatedPlan state)
   const [reviewEdit,     setReviewEdit]     = useState(null)   // { dayIdx, exIdx, field }
   const [reviewEditVal,  setReviewEditVal]  = useState('')
@@ -4709,7 +4710,7 @@ function WorkoutsTab({ clientId, getToken }) {
 
   // ── Open a workout ─────────────────────────────────────────────────────────
   async function openWorkout(w) {
-    setSelected(w); setDetailLoad(true); setExercises([]); setLogs([])
+    setSelected(w); setDetailLoad(true); setExercises([]); setLogs([]); setError(null)
     try {
       const token = await getToken()
       const res   = await fetch(`${BASE}/${w.id}`, { headers: { Authorization: `Bearer ${token}` } })
@@ -4746,7 +4747,7 @@ function WorkoutsTab({ clientId, getToken }) {
       setGenFlow('review')
     } catch (err) { setGenError(err.message) } finally { setGenerating(false) }
   }
-  async function savePlan() {
+  async function savePlan(status = 'assigned') {
     if (!generatedPlan) return
     setSavingPlan(true); setGenError(null)
     try {
@@ -4758,6 +4759,7 @@ function WorkoutsTab({ clientId, getToken }) {
           name:        generatedPlan.program_name,
           description: generatedPlan.description,
           days:        generatedPlan.days,
+          status,
         }),
       })
       if (!res.ok) throw new Error('Failed to save program')
@@ -4767,6 +4769,24 @@ function WorkoutsTab({ clientId, getToken }) {
       setGenFlow(null); setGeneratedPlan(null); setGenForm({ ...WO_EMPTY_FORM })
       openWorkout(w)
     } catch (err) { setGenError(err.message) } finally { setSavingPlan(false) }
+  }
+
+  // ── Assign a saved draft to the client ─────────────────────────────────────
+  async function assignDraft() {
+    if (!selected) return
+    setAssigningDraft(true); setError(null)
+    try {
+      const token = await getToken()
+      const res   = await fetch(`${BASE}/${selected.id}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'assigned' }),
+      })
+      if (!res.ok) throw new Error('Failed to assign program')
+      const updated = await res.json()
+      setSelected(updated)
+      setWorkouts(prev => prev.map(w => w.id === updated.id ? { ...w, status: updated.status } : w))
+    } catch (err) { setError(err.message) } finally { setAssigningDraft(false) }
   }
 
   // ── Review-panel edit helpers (operate on generatedPlan state, no API calls) ─
@@ -5064,9 +5084,13 @@ function WorkoutsTab({ clientId, getToken }) {
 
           {genError && <p className="text-xs text-red-500">{genError}</p>}
           <div className="flex gap-3 flex-wrap">
-            <button onClick={savePlan} disabled={savingPlan}
+            <button onClick={() => savePlan('assigned')} disabled={savingPlan}
               className="bg-[#E8670A] text-white px-5 py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors flex items-center gap-2">
               {savingPlan ? <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />Saving…</> : 'Assign to Client'}
+            </button>
+            <button onClick={() => savePlan('draft')} disabled={savingPlan}
+              className="px-5 py-2.5 rounded-lg text-sm font-semibold text-[#E8670A] border border-[#E8670A] hover:bg-orange-50 disabled:opacity-60 transition-colors">
+              {savingPlan ? 'Saving…' : 'Save as Draft'}
             </button>
             <button onClick={() => { setGenFlow('questionnaire'); setGeneratedPlan(null); setReviewEdit(null) }}
               className="px-5 py-2.5 rounded-lg text-sm font-medium text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors">
@@ -5222,7 +5246,14 @@ function WorkoutsTab({ clientId, getToken }) {
                 className="w-full text-left bg-white rounded-xl border border-gray-200 p-4 hover:border-[#E8670A] hover:shadow-sm transition-all">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-gray-900">{w.name}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-semibold text-gray-900">{w.name}</p>
+                      {w.status === 'draft' && (
+                        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                          Draft
+                        </span>
+                      )}
+                    </div>
                     {w.description && (
                       <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{w.description}</p>
                     )}
@@ -5231,6 +5262,9 @@ function WorkoutsTab({ clientId, getToken }) {
                       <span>{w.exercise_count ?? 0} exercises</span>
                       {w.log_count > 0 && (
                         <span className="text-green-600 font-medium">{w.log_count} logged</span>
+                      )}
+                      {w.status === 'draft' && (
+                        <span className="text-amber-600">Not visible to client</span>
                       )}
                     </div>
                   </div>
@@ -5249,17 +5283,33 @@ function WorkoutsTab({ clientId, getToken }) {
     <div className="space-y-5">
       {/* Header */}
       <div>
-        <button onClick={() => setSelected(null)} className="text-xs text-gray-400 hover:text-gray-600 mb-2 flex items-center gap-1">
+        <button onClick={() => { setSelected(null); setError(null) }} className="text-xs text-gray-400 hover:text-gray-600 mb-2 flex items-center gap-1">
           ← All Programs
         </button>
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-lg font-bold text-gray-900">{selected.name}</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-lg font-bold text-gray-900">{selected.name}</p>
+              {selected.status === 'draft' && (
+                <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                  Draft — not visible to client
+                </span>
+              )}
+            </div>
             {selected.description && (
               <p className="text-xs text-gray-500 mt-0.5 line-clamp-3">{selected.description}</p>
             )}
           </div>
-          <div className="flex gap-2 shrink-0">
+          <div className="flex gap-2 flex-wrap shrink-0">
+            {selected.status === 'draft' && (
+              <button
+                onClick={assignDraft}
+                disabled={assigningDraft}
+                className="bg-[#E8670A] text-white px-3 py-2 rounded-lg text-xs font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors min-h-[36px]"
+              >
+                {assigningDraft ? 'Assigning…' : 'Assign to Client'}
+              </button>
+            )}
             <button
               onClick={() => setShowAddEx(a => !a)}
               className="bg-[#E8670A] text-white px-3 py-2 rounded-lg text-xs font-semibold hover:bg-[#c45e09] transition-colors min-h-[36px]"
@@ -5270,11 +5320,14 @@ function WorkoutsTab({ clientId, getToken }) {
               onClick={deleteWorkout}
               className="px-3 py-2 rounded-lg text-xs font-medium text-red-400 border border-red-100 hover:bg-red-50 transition-colors min-h-[36px]"
             >
-              Delete Program
+              {selected.status === 'draft' ? 'Discard Draft' : 'Delete Program'}
             </button>
           </div>
         </div>
       </div>
+      {error && (
+        <p className="text-xs text-red-500 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
+      )}
 
       {/* Add exercise form */}
       {showAddEx && (
@@ -5317,7 +5370,6 @@ function WorkoutsTab({ clientId, getToken }) {
                 placeholder="Focus on chest-to-bar, pause 1s at bottom…" className={inputCls} />
             </div>
           </div>
-          {error && <p className="text-xs text-red-500">{error}</p>}
           <button type="submit" disabled={addingEx || !exForm.exercise_name.trim()}
             className="bg-[#E8670A] text-white px-5 py-2 rounded-lg text-xs font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
             {addingEx ? 'Adding…' : 'Add Exercise'}
