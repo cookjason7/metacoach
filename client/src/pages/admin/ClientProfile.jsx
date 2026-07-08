@@ -4656,6 +4656,20 @@ const WO_EQUIPMENT_OPTIONS = ['Bodyweight only','Resistance bands','Dumbbells','
 const WO_FITNESS_LEVELS    = ['Beginner', 'Intermediate', 'Advanced']
 const WO_EMPTY_FORM        = { goals: [], days_per_week: '4', session_length: '45 minutes', equipment: ['Full gym'], injuries: '', fitness_level: 'Intermediate' }
 
+// Movement patterns for the exercise-library search filter (mirrors the DB CHECK constraint)
+const MOVEMENT_PATTERNS = [
+  { id: 'squat_bilateral',  label: 'Squat' },
+  { id: 'squat_unilateral', label: 'Squat (Unilateral)' },
+  { id: 'hinge_bilateral',  label: 'Hinge' },
+  { id: 'hinge_unilateral', label: 'Hinge (Unilateral)' },
+  { id: 'upper_push',       label: 'Upper Push' },
+  { id: 'upper_pull',       label: 'Upper Pull' },
+  { id: 'core',             label: 'Core' },
+  { id: 'carry',            label: 'Carry' },
+  { id: 'conditioning',     label: 'Conditioning' },
+  { id: 'mobility',         label: 'Mobility' },
+]
+
 function WorkoutsTab({ clientId, getToken }) {
   const BASE = `${API_URL}/api/coach-admin/clients/${clientId}/workouts`
 
@@ -4687,8 +4701,37 @@ function WorkoutsTab({ clientId, getToken }) {
 
   // Add exercise form
   const [showAddEx,    setShowAddEx]    = useState(false)
-  const [exForm,       setExForm]       = useState({ day: 'Day 1', exercise_name: '', sets: '', reps: '', weight: '', rest_seconds: '', notes: '' })
+  const [exForm,       setExForm]       = useState({ day: 'Day 1', exercise_name: '', exercise_id: null, sets: '', reps: '', weight: '', rest_seconds: '', notes: '' })
   const [addingEx,     setAddingEx]     = useState(false)
+
+  // Exercise library autocomplete (search-as-you-type + movement pattern filter)
+  const [exSuggestions,   setExSuggestions]   = useState([])
+  const [exSuggestOpen,   setExSuggestOpen]   = useState(false)
+  const [exPatternFilter, setExPatternFilter] = useState('')
+  const exSearchTimer = useRef(null)
+
+  function searchExercises(term, pattern) {
+    clearTimeout(exSearchTimer.current)
+    if (!term.trim() && !pattern) { setExSuggestions([]); return }
+    exSearchTimer.current = setTimeout(async () => {
+      try {
+        const token = await getToken()
+        const params = new URLSearchParams()
+        if (term.trim()) params.set('search', term.trim())
+        if (pattern) params.set('movement_pattern', pattern)
+        const res = await fetch(`${API_URL}/api/coach-admin/exercises?${params}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.ok) setExSuggestions(await res.json())
+      } catch { /* silent — autocomplete is best-effort */ }
+    }, 250)
+  }
+
+  function pickSuggestedExercise(ex) {
+    setExForm(f => ({ ...f, exercise_name: ex.name, exercise_id: ex.id }))
+    setExSuggestOpen(false)
+    setExSuggestions([])
+  }
 
   // Inline edit state
   const [editCell,     setEditCell]     = useState(null)   // { exId, field }
@@ -4874,6 +4917,7 @@ function WorkoutsTab({ clientId, getToken }) {
       const body  = {
         day:           exForm.day || 'Day 1',
         exercise_name: exForm.exercise_name.trim(),
+        exercise_id:   exForm.exercise_id ?? null,
         sets:          exForm.sets !== '' ? Number(exForm.sets) : null,
         reps:          exForm.reps || null,
         weight:        exForm.weight || null,
@@ -4889,7 +4933,8 @@ function WorkoutsTab({ clientId, getToken }) {
       if (!res.ok) throw new Error('Failed to add exercise')
       const ex = await res.json()
       setExercises(prev => [...prev, ex])
-      setExForm({ day: exForm.day, exercise_name: '', sets: '', reps: '', weight: '', rest_seconds: '', notes: '' })
+      setExForm({ day: exForm.day, exercise_name: '', exercise_id: null, sets: '', reps: '', weight: '', rest_seconds: '', notes: '' })
+      setExSuggestions([]); setExSuggestOpen(false)
       setShowAddEx(false)
     } catch (err) { setError(err.message) } finally { setAddingEx(false) }
   }
@@ -5339,10 +5384,47 @@ function WorkoutsTab({ clientId, getToken }) {
               <input value={exForm.day} onChange={e => setExForm(f => ({ ...f, day: e.target.value }))}
                 placeholder="Day 1" className={inputCls} />
             </div>
-            <div className="col-span-2">
-              <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Exercise Name *</label>
-              <input value={exForm.exercise_name} onChange={e => setExForm(f => ({ ...f, exercise_name: e.target.value }))}
-                required placeholder="e.g. Barbell Back Squat" className={inputCls} />
+            <div className="col-span-2 sm:col-span-1 relative">
+              <label className="block text-[10px] font-medium text-gray-500 mb-0.5">
+                Exercise Name * <span className="text-gray-400 font-normal normal-case">(search library or type custom)</span>
+              </label>
+              <input
+                value={exForm.exercise_name}
+                onChange={e => {
+                  const val = e.target.value
+                  setExForm(f => ({ ...f, exercise_name: val, exercise_id: null }))
+                  setExSuggestOpen(true)
+                  searchExercises(val, exPatternFilter)
+                }}
+                onFocus={() => { if (exSuggestions.length) setExSuggestOpen(true) }}
+                onBlur={() => setTimeout(() => setExSuggestOpen(false), 150)}
+                required placeholder="e.g. Barbell Back Squat" className={inputCls} autoComplete="off"
+              />
+              {exForm.exercise_id && (
+                <span className="text-[10px] text-green-600 font-medium">✓ Linked to exercise library</span>
+              )}
+              {exSuggestOpen && exSuggestions.length > 0 && (
+                <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+                  {exSuggestions.map(sug => (
+                    <button key={sug.id} type="button" onMouseDown={() => pickSuggestedExercise(sug)}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-orange-50 transition-colors flex items-center justify-between gap-2 border-b border-gray-50 last:border-0">
+                      <span className="font-medium text-gray-800">{sug.name}</span>
+                      <span className="shrink-0 text-[10px] text-gray-400">
+                        {MOVEMENT_PATTERNS.find(p => p.id === sug.movement_pattern)?.label ?? sug.movement_pattern}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Filter by Pattern</label>
+              <select value={exPatternFilter}
+                onChange={e => { setExPatternFilter(e.target.value); searchExercises(exForm.exercise_name, e.target.value); setExSuggestOpen(true) }}
+                className={inputCls}>
+                <option value="">All patterns</option>
+                {MOVEMENT_PATTERNS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+              </select>
             </div>
             <div>
               <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Sets</label>

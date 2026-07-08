@@ -393,6 +393,47 @@ export async function migrate() {
   // existing rows) | 'draft' (coach-only, saved but not yet assigned to the client)
   await pool.query(`ALTER TABLE workouts ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'assigned'`)
 
+  // ── Exercise library ─────────────────────────────────────────────────────────
+  // Categorized exercise catalog, seeded from free-exercise-db (see
+  // server/scripts/import-exercises.js). movement_pattern drives Katie's
+  // day-template quota (one squat / hinge / upper_push / upper_pull / core,
+  // optional carry or conditioning) instead of freely-generated exercise names.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS exercises (
+      id                SERIAL PRIMARY KEY,
+      name              TEXT NOT NULL,
+      movement_pattern  TEXT NOT NULL CHECK (movement_pattern IN (
+                           'squat_bilateral', 'squat_unilateral',
+                           'hinge_bilateral', 'hinge_unilateral',
+                           'upper_push', 'upper_pull', 'core', 'carry',
+                           'conditioning', 'mobility'
+                         )),
+      is_unilateral     BOOLEAN NOT NULL DEFAULT FALSE,
+      primary_muscles   TEXT[] DEFAULT '{}',
+      secondary_muscles TEXT[] DEFAULT '{}',
+      equipment         TEXT,
+      difficulty        TEXT,
+      image_url         TEXT,
+      instructions      TEXT,
+      source            TEXT NOT NULL DEFAULT 'seed',
+      created_at        TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  // Lets the importer re-run safely (ON CONFLICT upsert) and lets future non-seed
+  // sources (e.g. a coach-submitted custom exercise) coexist with the same name.
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS exercises_name_source_uq ON exercises (name, source)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS exercises_movement_pattern_idx ON exercises (movement_pattern)`)
+
+  // exercise_id: links a workout_exercises row back to the library when the
+  // exercise was AI-selected or coach-picked from search. Nullable — free-typed
+  // custom entries (not in the library) keep exercise_name only, as before.
+  await pool.query(`ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS exercise_id INTEGER REFERENCES exercises(id) ON DELETE SET NULL`)
+  // day_focus: human-readable movement-pattern summary for the day (e.g.
+  // "Squat (Unilateral) • Hinge (Unilateral) • Upper Push • Upper Pull • Core").
+  // Previously this existed only as day.focus in the AI response and was
+  // dropped on save; now persisted per exercise row alongside its day.
+  await pool.query(`ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS day_focus TEXT`)
+
   // ── Custom foods ─────────────────────────────────────────────────────────────
   await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS sugar NUMERIC(6,1)`)
   await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS log_date DATE`)
