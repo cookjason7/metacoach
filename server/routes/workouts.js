@@ -1,51 +1,11 @@
 import { Router } from 'express'
-import Anthropic from '@anthropic-ai/sdk'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 import { awardAction } from '../gamification.js'
 import { workoutGenLimit } from '../middleware/rateLimits.js'
+import { generateWorkoutPlan } from '../services/workoutGenerator.js'
 
 const router = Router()
-const anthropic = new Anthropic()
-
-function buildWorkoutPrompt(firstName, answers) {
-  const goals = Array.isArray(answers.goals) ? answers.goals.join(', ') : answers.goals
-  const equipment = Array.isArray(answers.equipment) ? answers.equipment.join(', ') : answers.equipment
-  return `You are Katie, an enthusiastic and supportive fitness coach for the Life Warrior Coaching program.
-Create a personalized weekly workout program for ${firstName} based on their profile:
-- Fitness goals: ${goals}
-- Training days per week: ${answers.days_per_week}
-- Session length: ${answers.session_length}
-- Available equipment: ${equipment}
-- Injuries or limitations: ${answers.injuries || 'None'}
-- Fitness level: ${answers.fitness_level}
-
-Return ONLY a valid JSON object with this exact structure (no markdown, no extra text):
-{
-  "program_name": "string (creative, motivating program name)",
-  "description": "string (2-3 sentences, Katie-style intro to this program)",
-  "days": [
-    {
-      "day_name": "string (e.g. 'Day 1 — Upper Body Push')",
-      "focus": "string (e.g. 'Chest, Shoulders, Triceps')",
-      "exercises": [
-        {
-          "name": "string",
-          "sets": number,
-          "reps": "string (e.g. '10-12' or '30 seconds')",
-          "rest_seconds": number,
-          "notes": "string (brief form tip or coaching cue, 1 sentence)"
-        }
-      ]
-    }
-  ]
-}
-
-Include exactly ${answers.days_per_week} training days.
-Start each day with a short warm-up and end with a brief cool-down (these count as exercises with sets=1, reps like "5 minutes").
-Use only exercises appropriate for the available equipment.
-Make it realistic, progressive, and achievable for a ${answers.fitness_level} trainee.`
-}
 
 // POST /api/workouts/generate — AI generates a plan, not saved yet
 router.post('/generate', requireAuth(), workoutGenLimit, async (req, res, next) => {
@@ -60,17 +20,14 @@ router.post('/generate', requireAuth(), workoutGenLimit, async (req, res, next) 
       return res.status(400).json({ error: 'Missing required fields' })
     }
 
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
-      messages: [{ role: 'user', content: buildWorkoutPrompt(firstName, answers) }],
+    const { rows: [assessment] } = await pool.query(
+      'SELECT injuries_limitations FROM health_assessments WHERE user_id = $1', [dbUserId],
+    )
+
+    const plan = await generateWorkoutPlan(pool, firstName, answers, {
+      healthAssessmentInjuries: assessment?.injuries_limitations ?? null,
     })
-
-    let text = message.content[0].text.trim()
-    const fence = text.match(/```(?:json)?\n?([\s\S]+?)\n?```/)
-    if (fence) text = fence[1]
-
-    res.json(JSON.parse(text))
+    res.json(plan)
   } catch (err) {
     next(err)
   }
@@ -176,10 +133,10 @@ router.post('/', requireAuth(), async (req, res, next) => {
     for (const day of days) {
       for (const ex of (day.exercises || [])) {
         await pool.query(
-          `INSERT INTO workout_exercises (workout_id, day, exercise_name, sets, reps, rest_seconds, notes)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [workout.id, day.day_name, ex.name, ex.sets ?? null, ex.reps ?? null,
-           ex.rest_seconds ?? null, ex.notes ?? null],
+          `INSERT INTO workout_exercises (workout_id, day, exercise_name, exercise_id, day_focus, sets, reps, rest_seconds, notes)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [workout.id, day.day_name, ex.name, ex.exercise_id ?? null, day.focus ?? null,
+           ex.sets ?? null, ex.reps ?? null, ex.rest_seconds ?? null, ex.notes ?? null],
         )
       }
     }

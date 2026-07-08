@@ -1,52 +1,11 @@
 import { Router } from 'express'
-import Anthropic from '@anthropic-ai/sdk'
 import { requireAuth, getAuth, clerkClient } from '@clerk/express'
 import { v2 as cloudinary } from 'cloudinary'
 import { pool, getOrCreateUser } from '../db.js'
 import { sendInviteEmail } from '../services/email.js'
 import { getAppBaseUrl } from '../services/appUrl.js'
 import { notifyNewDirectMessage, notifyNewFormDelivery } from '../services/pushService.js'
-
-const anthropic = new Anthropic()
-
-function buildClientWorkoutPrompt(firstName, answers) {
-  const goals = Array.isArray(answers.goals) ? answers.goals.join(', ') : answers.goals
-  const equipment = Array.isArray(answers.equipment) ? answers.equipment.join(', ') : answers.equipment
-  return `You are Katie, an enthusiastic and supportive fitness coach for the Life Warrior Coaching program.
-Create a personalized weekly workout program for ${firstName} based on their profile:
-- Fitness goals: ${goals}
-- Training days per week: ${answers.days_per_week}
-- Session length: ${answers.session_length}
-- Available equipment: ${equipment}
-- Injuries or limitations: ${answers.injuries || 'None'}
-- Fitness level: ${answers.fitness_level}
-
-Return ONLY a valid JSON object with this exact structure (no markdown, no extra text):
-{
-  "program_name": "string (creative, motivating program name)",
-  "description": "string (2-3 sentences, Katie-style intro to this program)",
-  "days": [
-    {
-      "day_name": "string (e.g. 'Day 1 — Upper Body Push')",
-      "focus": "string (e.g. 'Chest, Shoulders, Triceps')",
-      "exercises": [
-        {
-          "name": "string",
-          "sets": number,
-          "reps": "string (e.g. '10-12' or '30 seconds')",
-          "rest_seconds": number,
-          "notes": "string (brief form tip or coaching cue, 1 sentence)"
-        }
-      ]
-    }
-  ]
-}
-
-Include exactly ${answers.days_per_week} training days.
-Start each day with a short warm-up and end with a brief cool-down (sets=1, reps like "5 minutes").
-Use only exercises appropriate for the available equipment.
-Make it realistic, progressive, and achievable for a ${answers.fitness_level} trainee.`
-}
+import { generateWorkoutPlan } from '../services/workoutGenerator.js'
 
 const router = Router()
 
@@ -3202,6 +3161,33 @@ router.post('/form-schedules/process', requireAuth(), async (req, res, next) => 
 // ─── Coach Workout Management ──────────────────────────────────────────────────
 // Coaches/admins can create, view, and edit workout programs assigned to clients.
 
+// GET /api/coach-admin/exercises?search=&movement_pattern= — library lookup for the
+// coach-side exercise autocomplete. Not client-scoped (the library is shared), so
+// only requireStaff applies — no canAccessClient check needed.
+router.get('/exercises', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const { search, movement_pattern } = req.query
+    const conditions = []
+    const params = []
+    if (search?.trim()) {
+      params.push(`%${search.trim()}%`)
+      conditions.push(`name ILIKE $${params.length}`)
+    }
+    if (movement_pattern?.trim()) {
+      params.push(movement_pattern.trim())
+      conditions.push(`movement_pattern = $${params.length}`)
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+    const { rows } = await pool.query(
+      `SELECT id, name, movement_pattern, is_unilateral, equipment, difficulty
+       FROM exercises ${where} ORDER BY name LIMIT 25`,
+      params,
+    )
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
 // GET /api/coach-admin/clients/:id/workouts
 router.get('/clients/:id/workouts', requireAuth(), async (req, res, next) => {
   try {
@@ -3257,17 +3243,15 @@ router.post('/clients/:id/workouts/generate', requireAuth(), async (req, res, ne
     const { rows: [client] } = await pool.query('SELECT first_name FROM users WHERE id=$1', [clientId])
     const firstName = client?.first_name || 'your client'
 
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
-      messages: [{ role: 'user', content: buildClientWorkoutPrompt(firstName, answers) }],
+    const { rows: [assessment] } = await pool.query(
+      'SELECT injuries_limitations FROM health_assessments WHERE user_id = $1', [clientId],
+    )
+
+    const plan = await generateWorkoutPlan(pool, firstName, answers, {
+      healthAssessmentInjuries: assessment?.injuries_limitations ?? null,
+      forceBilateral: answers.force_bilateral === true,
     })
-
-    let text = message.content[0].text.trim()
-    const fence = text.match(/```(?:json)?\n?([\s\S]+?)\n?```/)
-    if (fence) text = fence[1]
-
-    res.json(JSON.parse(text))
+    res.json(plan)
   } catch (err) { next(err) }
 })
 
@@ -3294,10 +3278,10 @@ router.post('/clients/:id/workouts', requireAuth(), async (req, res, next) => {
         for (const ex of (day.exercises || [])) {
           await pool.query(
             `INSERT INTO workout_exercises
-               (workout_id, day, exercise_name, sets, reps, rest_seconds, notes, sort_order)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-            [workout.id, day.day_name, ex.name, ex.sets ?? null, ex.reps ?? null,
-             ex.rest_seconds ?? null, ex.notes ?? null, dayOrder++],
+               (workout_id, day, exercise_name, exercise_id, day_focus, sets, reps, rest_seconds, notes, sort_order)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+            [workout.id, day.day_name, ex.name, ex.exercise_id ?? null, day.focus ?? null,
+             ex.sets ?? null, ex.reps ?? null, ex.rest_seconds ?? null, ex.notes ?? null, dayOrder++],
           )
         }
       }
@@ -3338,12 +3322,12 @@ router.post('/clients/:id/workouts/:wid/exercises', requireAuth(), async (req, r
     const { rows: [w] } = await pool.query(
       'SELECT id FROM workouts WHERE id=$1 AND user_id=$2', [workoutId, clientId])
     if (!w) return res.status(404).json({ error: 'Workout not found' })
-    const { day, exercise_name, sets, reps, weight, rest_seconds, notes, sort_order } = req.body
+    const { day, exercise_name, exercise_id, sets, reps, weight, rest_seconds, notes, sort_order } = req.body
     if (!exercise_name?.trim()) return res.status(400).json({ error: 'exercise_name required' })
     const { rows: [ex] } = await pool.query(
-      `INSERT INTO workout_exercises (workout_id, day, exercise_name, sets, reps, weight, rest_seconds, notes, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [workoutId, day ?? 'Day 1', exercise_name.trim(), sets ?? null, reps ?? null,
+      `INSERT INTO workout_exercises (workout_id, day, exercise_name, exercise_id, sets, reps, weight, rest_seconds, notes, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [workoutId, day ?? 'Day 1', exercise_name.trim(), exercise_id ?? null, sets ?? null, reps ?? null,
        weight ?? null, rest_seconds ?? null, notes ?? null, sort_order ?? 0],
     )
     res.status(201).json(ex)
@@ -3362,7 +3346,7 @@ router.put('/clients/:id/workouts/exercises/:eid', requireAuth(), async (req, re
       `SELECT we.* FROM workout_exercises we JOIN workouts w ON w.id=we.workout_id
        WHERE we.id=$1 AND w.user_id=$2`, [exId, clientId])
     if (!ex) return res.status(404).json({ error: 'Exercise not found' })
-    const allowed = ['exercise_name', 'sets', 'reps', 'weight', 'rest_seconds', 'notes', 'day', 'sort_order']
+    const allowed = ['exercise_name', 'exercise_id', 'sets', 'reps', 'weight', 'rest_seconds', 'notes', 'day', 'sort_order']
     const entries = Object.entries(req.body).filter(([k]) => allowed.includes(k))
     if (!entries.length) return res.status(400).json({ error: 'No valid fields' })
     const setClauses = entries.map(([k], i) => `${k}=$${i + 2}`).join(', ')
