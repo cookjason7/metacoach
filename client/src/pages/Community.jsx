@@ -1232,38 +1232,23 @@ function YoutubePlayer({ vid, videoId, getToken, onFallback, onProgressSaved }) 
   }
 
   async function reportPct(pct) {
-    console.log('[MindsetVideo] reportPct fired — videoId:', videoId, 'pct:', pct)
     const gt = getTokenRef.current
-    if (!gt) {
-      console.warn('[MindsetVideo] progress skipped: no auth token getter')
-      return
-    }
+    if (!gt) return
     try {
       const token = await gt()
-      if (!token) {
-        console.warn('[MindsetVideo] progress skipped: missing auth token')
-        return
-      }
+      if (!token) return
       const url = `${API_URL}/api/mindset-videos/${videoId}/progress`
-      console.log('[MindsetVideo] POST', url, { pct })
       const res = await fetch(url, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ pct }),
       })
-      if (!res.ok) {
-        const detail = await res.json().catch(() => ({}))
-        console.warn('[MindsetVideo] progress save failed:', res.status, detail.error ?? res.statusText)
-        return
-      }
+      if (!res.ok) return
       const data = await res.json().catch(() => ({}))
-      console.log('[MindsetVideo] progress saved OK:', data)
       if (onProgressSavedRef.current) {
         onProgressSavedRef.current(videoId, data.highest_pct ?? pct, Boolean(data.completed))
       }
-    } catch (err) {
-      console.warn('[MindsetVideo] progress save error:', err)
-    }
+    } catch { }
   }
   // Always keep reportPctRef pointing at the latest reportPct closure,
   // so YT event handlers set up on mount always call the current version.
@@ -1327,14 +1312,11 @@ function YoutubePlayer({ vid, videoId, getToken, onFallback, onProgressSaved }) 
               sentRef.current.add(100); reportPctRef.current(100)
             }
           },
-          onError: (e) => {
-            console.warn('[YoutubePlayer] player error code:', e.data)
-          },
+          onError: () => {},
         },
       })
-    }).catch(err => {
+    }).catch(() => {
       if (!cancelled) {
-        console.warn('[YoutubePlayer] API failed to load:', err.message)
         if (onFallbackRef.current) onFallbackRef.current()
       }
     })
@@ -1613,8 +1595,6 @@ function MindsetTab({ getToken, isStaff }) {
       if (progressRes) {
         if (progressRes.ok) {
           setMyProgress(await progressRes.json())
-        } else {
-          console.warn('[MindsetVideo] progress fetch failed:', progressRes.status, progressRes.statusText)
         }
       }
     } catch (e) { setError(e.message) }
@@ -1633,9 +1613,7 @@ function MindsetTab({ getToken, isStaff }) {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (res.ok) setMyProgress(await res.json())
-    } catch (e) {
-      console.warn('[MindsetVideo] progress refresh failed:', e)
-    }
+    } catch { }
   }
 
   const handleProgressSaved = useCallback((videoId, highestPct, completed) => {
