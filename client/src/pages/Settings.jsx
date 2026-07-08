@@ -1821,6 +1821,13 @@ export default function Settings() {
                               : 'Not synced yet'}
                           </p>
                         )}
+                        {fitbitStatus.connected && (
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            {fitbitStatus.google_email
+                              ? `Connected as ${fitbitStatus.google_email}`
+                              : 'Connected Google account unknown — reconnect to confirm it’s the right one'}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2 sm:justify-end">
@@ -1833,6 +1840,15 @@ export default function Settings() {
                             className="px-3 py-2 rounded-lg bg-[#E8670A] text-white text-xs font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors"
                           >
                             {fitbitSyncing ? 'Syncing...' : 'Sync Now'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={connectFitbit}
+                            disabled={fitbitLoading || fitbitSyncing}
+                            title="Re-run Google sign-in — use this if the wrong Google account got connected"
+                            className="px-3 py-2 rounded-lg border border-gray-200 text-gray-600 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 transition-colors"
+                          >
+                            Reconnect
                           </button>
                           <button
                             type="button"

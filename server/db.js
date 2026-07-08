@@ -75,6 +75,10 @@ export async function migrate() {
   `)
   await pool.query(`ALTER TABLE fitbit_tokens ADD COLUMN IF NOT EXISTS last_sync_error    TEXT`)
   await pool.query(`ALTER TABLE fitbit_tokens ADD COLUMN IF NOT EXISTS last_sync_error_at TIMESTAMPTZ`)
+  // The Google account email the OAuth token belongs to — captured from Google's
+  // userinfo endpoint at connect/reconnect time. Lets us detect and surface the
+  // case where the account authorized here isn't the one Fitbit data flows into.
+  await pool.query(`ALTER TABLE fitbit_tokens ADD COLUMN IF NOT EXISTS google_email TEXT`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_fitbit_tokens_user ON fitbit_tokens (user_id)`)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS fitbit_oauth_state (

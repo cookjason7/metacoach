@@ -2,16 +2,12 @@ import { Router } from 'express'
 import { requireAuth, getAuth } from '@clerk/express'
 import crypto from 'crypto'
 import { pool, getOrCreateUser } from '../db.js'
-import { syncUser, exchangeToken } from '../services/googleHealthSync.js'
+import { syncUser, exchangeToken, fetchGoogleAccountEmail, OAUTH_SCOPES } from '../services/googleHealthSync.js'
 import { getAppBaseUrl } from '../services/appUrl.js'
 
 const router = Router()
 
 const GOOGLE_AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
-const SCOPES = [
-  'https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly',
-  'https://www.googleapis.com/auth/googlehealth.sleep.readonly',
-].join(' ')
 
 function googleHealthConfig() {
   const { GOOGLE_HEALTH_CLIENT_ID, GOOGLE_HEALTH_CLIENT_SECRET } = process.env
@@ -142,10 +138,13 @@ async function createGoogleHealthOAuthUrl(req) {
   url.searchParams.set('response_type', 'code')
   url.searchParams.set('client_id', GOOGLE_HEALTH_CLIENT_ID)
   url.searchParams.set('redirect_uri', GOOGLE_HEALTH_REDIRECT_URI)
-  url.searchParams.set('scope', SCOPES)
+  url.searchParams.set('scope', OAUTH_SCOPES)
   url.searchParams.set('state', state)
   url.searchParams.set('access_type', 'offline')
-  url.searchParams.set('prompt', 'consent')
+  // select_account forces Google's account chooser every time (not just on first
+  // consent) — without it, a user signed into one Google account in their browser
+  // may never see the chooser and silently reconnect the same (wrong) account.
+  url.searchParams.set('prompt', 'consent select_account')
   return url.toString()
 }
 
@@ -213,19 +212,29 @@ router.get('/callback', async (req, res, next) => {
       return redirectToSettingsError(req, res, 'missing_refresh_token')
     }
 
+    const googleEmail = await fetchGoogleAccountEmail(data.access_token)
+    const grantedScope = data.scope || OAUTH_SCOPES
+    console.log('[fitbit callback] token granted:', {
+      user_id:         dbUserId,
+      google_email:    googleEmail ?? '(could not fetch — userinfo call failed or email scope not granted)',
+      requested_scope: OAUTH_SCOPES,
+      granted_scope:   grantedScope,
+    })
+
     await pool.query(
       `INSERT INTO fitbit_tokens
-        (user_id, fitbit_user_id, access_token, refresh_token, scope, expires_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+        (user_id, fitbit_user_id, access_token, refresh_token, scope, expires_at, google_email, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
        ON CONFLICT (user_id) DO UPDATE SET
          fitbit_user_id=EXCLUDED.fitbit_user_id,
          access_token=EXCLUDED.access_token,
          refresh_token=EXCLUDED.refresh_token,
          scope=EXCLUDED.scope,
          expires_at=EXCLUDED.expires_at,
+         google_email=EXCLUDED.google_email,
          updated_at=NOW()`,
       [dbUserId, null, data.access_token, data.refresh_token,
-       data.scope || SCOPES, addSeconds(data.expires_in)],
+       grantedScope, addSeconds(data.expires_in), googleEmail],
     )
 
     const successRedirectUrl = frontendUrl(req, '/settings', { connected: 'fitbit' })
@@ -244,7 +253,7 @@ router.get('/status', requireAuth(), async (req, res, next) => {
   try {
     const dbUserId = await currentDbUserId(req)
     const { rows } = await pool.query(
-      `SELECT fitbit_user_id, last_synced_at, last_sync_error, last_sync_error_at
+      `SELECT fitbit_user_id, last_synced_at, last_sync_error, last_sync_error_at, google_email, scope
        FROM fitbit_tokens WHERE user_id=$1`,
       [dbUserId],
     )
@@ -255,6 +264,7 @@ router.get('/status', requireAuth(), async (req, res, next) => {
       last_synced_at:      token?.last_synced_at      ?? null,
       last_sync_error:     token?.last_sync_error     ?? null,
       last_sync_error_at:  token?.last_sync_error_at  ?? null,
+      google_email:        token?.google_email        ?? null,
     })
   } catch (err) {
     next(err)
@@ -268,8 +278,7 @@ router.post('/sync', requireAuth(), async (req, res, next) => {
     const result = await syncUser(dbUserId)
     res.json(result)
   } catch (err) {
-    if (err.status === 404) return res.status(404).json({ error: err.message })
-    if (err.status === 502) return res.status(502).json({ error: err.message })
+    if ([404, 401, 403, 502].includes(err.status)) return res.status(err.status).json({ error: err.message })
     next(err)
   }
 })
