@@ -772,7 +772,7 @@ export default function Layout() {
             Basic:       Home | Food Log | Katie | Support
             AI/Hybrid:   Home | Food Log | Katie | Community
             VIP:         Home | Calendar | Food Log | Messages | Community  */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200 flex pb-[env(safe-area-inset-bottom)]">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 flex pb-[env(safe-area-inset-bottom)]">
         {(isStaff ? [
           // Staff bottom nav (unchanged)
           { to: '/dashboard',     label: 'Coaching',  badge: false,             icon: <path strokeLinecap="round" strokeLinejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" /> },
@@ -824,7 +824,7 @@ export default function Layout() {
       {/* Floating quick-log button — client only, above bottom nav on the right */}
       {!isStaff && !quickMenuOpen && (
         <button
-          className="lg:hidden fixed right-4 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-50 flex flex-col items-center gap-1 active:scale-95 transition-transform"
+          className="lg:hidden fixed right-4 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 flex flex-col items-center gap-1 active:scale-95 transition-transform"
           onClick={openQuickMenu}
           aria-label="Quick log"
         >
