@@ -4708,9 +4708,19 @@ const WO_GOALS = [
   { id: 'general_fitness', label: 'General Fitness'},
 ]
 const WO_SESSION_LENGTHS   = ['30 minutes', '45 minutes', '60 minutes', '90 minutes']
-const WO_EQUIPMENT_OPTIONS = ['Bodyweight only','Resistance bands','Dumbbells','Barbell + Rack','Full gym']
+const WO_EQUIPMENT_OPTIONS = ['Kettlebell', 'Dumbbells', 'Body Weight', 'Barbell', 'Benches', 'Cable Machine', 'Full Gym', 'Resistance Bands']
 const WO_FITNESS_LEVELS    = ['Beginner', 'Intermediate', 'Advanced']
-const WO_EMPTY_FORM        = { goals: [], days_per_week: '4', session_length: '45 minutes', equipment: ['Full gym'], injuries: '', fitness_level: 'Intermediate' }
+const WO_SUPERSET_OPTIONS = [
+  { id: 'none', icon: '✕', title: 'No Supersets',   subtitle: 'Standard workout' },
+  { id: 'some', icon: '⚡', title: 'Some Supersets', subtitle: '1 per workout' },
+  { id: 'full', icon: '🔥', title: 'Full Supersets', subtitle: 'Maximum intensity' },
+]
+const WO_CIRCUIT_OPTIONS = [
+  { id: 'none', icon: '✕', title: 'No Circuits',   subtitle: 'Standard format' },
+  { id: 'some', icon: '🔄', title: 'Some Circuits', subtitle: '1 per workout' },
+  { id: 'full', icon: '🔥', title: 'Full Circuits', subtitle: 'Multiple circuits' },
+]
+const WO_EMPTY_FORM        = { goals: [], days_per_week: '4', session_length: '45 minutes', equipment: ['Full Gym'], injuries: '', fitness_level: 'Intermediate', supersets: '', circuits: '' }
 
 // Movement patterns for the exercise-library search filter (mirrors the DB CHECK constraint)
 const MOVEMENT_PATTERNS = [
@@ -5067,7 +5077,7 @@ function ScheduleWorkoutModal({ clientId, workout, dayLabels, getToken, onClose,
   )
 }
 
-function WorkoutsTab({ clientId, getToken }) {
+function WorkoutsTab({ clientId, clientFirstName, getToken }) {
   const BASE = `${API_URL}/api/coach-admin/clients/${clientId}/workouts`
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -5175,6 +5185,8 @@ function WorkoutsTab({ clientId, getToken }) {
   async function generatePlan(e) {
     e.preventDefault()
     if (!genForm.goals.length) { setGenError('Select at least one goal.'); return }
+    if (!genForm.supersets) { setGenError('Select a superset preference.'); return }
+    if (!genForm.circuits) { setGenError('Select a circuit preference.'); return }
     setGenerating(true); setGenError(null)
     try {
       const token = await getToken()
@@ -5611,6 +5623,46 @@ function WorkoutsTab({ clientId, getToken }) {
             </div>
           </div>
           <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Would {clientFirstName || 'your client'} like to include supersets for added intensity? <span className="text-red-400">*</span>
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {WO_SUPERSET_OPTIONS.map(opt => {
+                const active = genForm.supersets === opt.id
+                return (
+                  <button key={opt.id} type="button" onClick={() => setGenForm(f => ({ ...f, supersets: opt.id }))}
+                    className={`flex flex-col items-center text-center gap-1 rounded-xl border-2 p-3 transition-all ${
+                      active ? 'border-[#E8670A] bg-orange-50' : 'border-gray-200 hover:border-[#E8670A]/50 bg-white'
+                    }`}>
+                    <span className="text-xl">{opt.icon}</span>
+                    <span className={`text-xs font-semibold ${active ? 'text-[#E8670A]' : 'text-gray-800'}`}>{opt.title}</span>
+                    <span className="text-[11px] text-gray-500">{opt.subtitle}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Would {clientFirstName || 'your client'} like to include circuits (3+ exercises in a row)? <span className="text-red-400">*</span>
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {WO_CIRCUIT_OPTIONS.map(opt => {
+                const active = genForm.circuits === opt.id
+                return (
+                  <button key={opt.id} type="button" onClick={() => setGenForm(f => ({ ...f, circuits: opt.id }))}
+                    className={`flex flex-col items-center text-center gap-1 rounded-xl border-2 p-3 transition-all ${
+                      active ? 'border-[#E8670A] bg-orange-50' : 'border-gray-200 hover:border-[#E8670A]/50 bg-white'
+                    }`}>
+                    <span className="text-xl">{opt.icon}</span>
+                    <span className={`text-xs font-semibold ${active ? 'text-[#E8670A]' : 'text-gray-800'}`}>{opt.title}</span>
+                    <span className="text-[11px] text-gray-500">{opt.subtitle}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">
               Injuries or limitations <span className="text-gray-400 font-normal">(optional)</span>
             </label>
@@ -5618,7 +5670,7 @@ function WorkoutsTab({ clientId, getToken }) {
               placeholder="e.g. Bad left knee, lower back pain" className={inputCls} />
           </div>
           {genError && <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">{genError}</div>}
-          <button type="submit" disabled={generating || !genForm.goals.length}
+          <button type="submit" disabled={generating || !genForm.goals.length || !genForm.supersets || !genForm.circuits}
             className="w-full bg-[#E8670A] text-white py-3 rounded-xl text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
             {generating
               ? <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />Katie is building the program…</>
@@ -6214,7 +6266,7 @@ export default function ClientProfile() {
       {tab === 'messaging'  && <MessagingTab   client={client} role={meRole} meId={meId} getToken={getToken} />}
       {tab === 'engagement' && <EngagementTab  clientId={client.id} getToken={getToken} />}
       {tab === 'bloodwork'  && <BloodworkTab   clientId={client.id} getToken={getToken} bloodworkEnabled={client.bloodwork_enabled ?? false} onClientUpdate={u => setClient(c => ({ ...c, ...u }))} client={client} />}
-      {tab === 'workouts'   && <WorkoutsTab    clientId={client.id} getToken={getToken} />}
+      {tab === 'workouts'   && <WorkoutsTab    clientId={client.id} clientFirstName={client.display_first_name || client.first_name} getToken={getToken} />}
     </div>
   )
 }

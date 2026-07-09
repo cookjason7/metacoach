@@ -3276,7 +3276,7 @@ router.post('/clients/:id/workouts/generate', requireAuth(), async (req, res, ne
     if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
 
     const answers = req.body
-    if (!answers.goals || !answers.days_per_week || !answers.fitness_level) {
+    if (!answers.goals || !answers.days_per_week || !answers.fitness_level || !answers.supersets || !answers.circuits) {
       return res.status(400).json({ error: 'Missing required fields' })
     }
 
