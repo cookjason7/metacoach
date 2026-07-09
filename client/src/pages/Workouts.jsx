@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
+import ExerciseThumb from '../components/ExerciseThumb.jsx'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -453,7 +454,10 @@ function ProgramDetail({ program, onBack }) {
           <div className="lg:hidden divide-y divide-gray-100">
             {exs.map(ex => (
               <div key={ex.id} className="p-4">
-                <p className="text-sm font-semibold text-gray-900 mb-3">{ex.exercise_name}</p>
+                <div className="flex items-center gap-3 mb-3">
+                  <ExerciseThumb src={ex.image_url} alt={ex.exercise_name} />
+                  <p className="text-sm font-semibold text-gray-900">{ex.exercise_name}</p>
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   {[['Sets', ex.sets], ['Reps', ex.reps], ['Weight', ex.weight], ['Rest', ex.rest_seconds ? `${ex.rest_seconds}s` : null]].map(([label, val]) => (
                     <div key={label} className="bg-gray-50 rounded-lg py-2 px-3 text-center">
@@ -488,7 +492,12 @@ function ProgramDetail({ program, onBack }) {
               <tbody className="divide-y divide-gray-50">
                 {exs.map(ex => (
                   <tr key={ex.id} className="hover:bg-gray-50/30">
-                    <td className="px-4 py-3 font-medium text-gray-900">{ex.exercise_name}</td>
+                    <td className="px-4 py-3 font-medium text-gray-900">
+                      <div className="flex items-center gap-3">
+                        <ExerciseThumb src={ex.image_url} alt={ex.exercise_name} />
+                        <span>{ex.exercise_name}</span>
+                      </div>
+                    </td>
                     <td className="px-3 py-3 text-center text-gray-600">{ex.sets ?? '—'}</td>
                     <td className="px-3 py-3 text-center text-gray-600">{ex.reps ?? '—'}</td>
                     <td className="px-3 py-3 text-center text-gray-600">{ex.weight ?? '—'}</td>
