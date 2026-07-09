@@ -7,7 +7,8 @@
     "build": "cd client && npm install && npm run build",
     "build:android": "npm --prefix client run build -- --mode android && npx cap sync android",
     "start": "node server/index.js",
-    "dev": "concurrently \"node server/index.js\" \"npm --prefix client run dev\""
+    "dev": "concurrently \"node server/index.js\" \"npm --prefix client run dev\"",
+    "test": "node --test server/services/workoutGenerator.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.93.0",
