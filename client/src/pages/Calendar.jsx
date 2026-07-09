@@ -405,7 +405,7 @@ function WorkoutDetailModal({ entry, dateISO, getToken, onClose, onSaved }) {
                       {ex.weight ? ` · ${ex.weight}` : ''}
                       {ex.rest_seconds ? ` · ${ex.rest_seconds}s rest` : ''}
                     </p>
-                    {ex.notes && <p className="text-[11px] text-gray-400 line-clamp-2">{ex.notes}</p>}
+                    {ex.notes && <p className="text-[11px] text-gray-400 whitespace-pre-wrap break-words">{ex.notes}</p>}
                   </div>
                 </div>
                 <div className="p-2.5 space-y-1.5">
