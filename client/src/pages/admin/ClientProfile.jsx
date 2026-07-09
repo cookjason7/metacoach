@@ -4707,7 +4707,7 @@ const WO_GOALS = [
   { id: 'flexibility',     label: 'Flexibility'    },
   { id: 'general_fitness', label: 'General Fitness'},
 ]
-const WO_SESSION_LENGTHS   = ['30 minutes', '45 minutes', '60 minutes', '90 minutes']
+const WO_SESSION_LENGTHS   = ['20 minutes', '30 minutes', '45 minutes', '60 minutes', '90 minutes']
 const WO_EQUIPMENT_OPTIONS = ['Bodyweight only','Resistance bands','Dumbbells','Barbell + Rack','Full gym']
 const WO_FITNESS_LEVELS    = ['Beginner', 'Intermediate', 'Advanced']
 const WO_EMPTY_FORM        = { goals: [], days_per_week: '4', session_length: '45 minutes', equipment: ['Full gym'], injuries: '', fitness_level: 'Intermediate' }

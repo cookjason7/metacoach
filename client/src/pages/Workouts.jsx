@@ -13,7 +13,7 @@ const GOALS = [
   { id: 'general_fitness',  label: 'General Fitness' },
 ]
 
-const SESSION_LENGTHS = ['30 minutes', '45 minutes', '60 minutes', '90 minutes']
+const SESSION_LENGTHS = ['20 minutes', '30 minutes', '45 minutes', '60 minutes', '90 minutes']
 
 const EQUIPMENT_OPTIONS = [
   'Bodyweight only',
