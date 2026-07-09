@@ -2122,6 +2122,33 @@ router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// GET /api/coach-admin/messaging/unread-count — total unread client messages across
+// accessible conversations (nav badge). Mirrors the scoping in messaging/inbox above.
+router.get('/messaging/unread-count', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const isAdmin = isAdminRole(ctx.role)
+
+    const params = [ctx.dbUserId]
+    let extraWhere = `COALESCE(u.client_status, 'active') != 'deleted'`
+      + ` AND m.deleted_at IS NULL`
+      + ` AND m.thread_type IN ('admin_private', 'coach_thread', 'ai_admin')`
+    if (!isAdmin) {
+      extraWhere += ` AND u.assigned_coach_id = $1 AND m.thread_type = 'coach_thread'`
+    }
+    const { rows } = await pool.query(`
+      SELECT COUNT(*) FILTER (WHERE m.sender_role = 'client' AND m.read_at IS NULL)::int AS unread
+      FROM client_messages m
+      JOIN users u ON u.id = m.client_id
+      LEFT JOIN staff_inbox_states sis
+        ON sis.staff_id = $1 AND sis.client_id = u.id AND sis.thread_type = m.thread_type
+      WHERE ${extraWhere}
+        AND COALESCE(sis.archived, FALSE) = FALSE
+    `, params)
+    res.json({ unread: rows[0]?.unread ?? 0 })
+  } catch (err) { next(err) }
+})
+
 // GET /api/coach-admin/messaging/client-search?q=... — lightweight name/email search for compose
 // Admin: all active clients. Coach: only assigned clients.
 // Returns: [{ id, full_name, email, coaching_type }]

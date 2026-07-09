@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth, useUser } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
@@ -70,6 +70,70 @@ function TextInput({ value, onChange, placeholder, type = 'text', readOnly = fal
           : 'border-gray-300 bg-white text-gray-900 hover:border-gray-400'
       }`}
     />
+  )
+}
+
+// Typeable MM / DD / YYYY date entry — replaces the native <input type="date">, which
+// renders as a scroll/wheel picker on iOS/Android and can't be typed into directly there.
+// `value` / `onChange` use the same ISO 'YYYY-MM-DD' string as the rest of the form.
+function DateOfBirthInput({ value, onChange }) {
+  const [month, setMonth] = useState('')
+  const [day,   setDay]   = useState('')
+  const [year,  setYear]  = useState('')
+  const monthRef = useRef(null)
+  const dayRef   = useRef(null)
+  const yearRef  = useRef(null)
+
+  // Sync from parent (e.g. an assessment loaded from the server after mount).
+  useEffect(() => {
+    if (value && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      const [y, m, d] = value.split('-')
+      setYear(y); setMonth(m); setDay(d)
+    } else if (!value) {
+      setYear(''); setMonth(''); setDay('')
+    }
+  }, [value])
+
+  function emit(m, d, y) {
+    onChange(m.length === 2 && d.length === 2 && y.length === 4 ? `${y}-${m}-${d}` : '')
+  }
+
+  const segmentCls = 'border border-gray-300 rounded-xl px-3 py-3 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#E8670A] transition-colors hover:border-gray-400 bg-white text-gray-900'
+
+  return (
+    <div className="flex gap-2">
+      <input
+        ref={monthRef} type="text" inputMode="numeric" pattern="[0-9]*" placeholder="MM" maxLength={2}
+        value={month}
+        onChange={e => {
+          const v = e.target.value.replace(/\D/g, '').slice(0, 2)
+          setMonth(v); emit(v, day, year)
+          if (v.length === 2) dayRef.current?.focus()
+        }}
+        className={`w-16 ${segmentCls}`}
+      />
+      <input
+        ref={dayRef} type="text" inputMode="numeric" pattern="[0-9]*" placeholder="DD" maxLength={2}
+        value={day}
+        onChange={e => {
+          const v = e.target.value.replace(/\D/g, '').slice(0, 2)
+          setDay(v); emit(month, v, year)
+          if (v.length === 2) yearRef.current?.focus()
+        }}
+        onKeyDown={e => { if (e.key === 'Backspace' && day === '') monthRef.current?.focus() }}
+        className={`w-16 ${segmentCls}`}
+      />
+      <input
+        ref={yearRef} type="text" inputMode="numeric" pattern="[0-9]*" placeholder="YYYY" maxLength={4}
+        value={year}
+        onChange={e => {
+          const v = e.target.value.replace(/\D/g, '').slice(0, 4)
+          setYear(v); emit(month, day, v)
+        }}
+        onKeyDown={e => { if (e.key === 'Backspace' && year === '') dayRef.current?.focus() }}
+        className={`w-24 ${segmentCls}`}
+      />
+    </div>
   )
 }
 
@@ -228,6 +292,17 @@ const EMPTY_FORM = {
   identity_traits: [],
 }
 
+// Real-calendar-date check for the typed MM/DD/YYYY -> 'YYYY-MM-DD' value (rejects
+// things like Feb 31 that pass a simple regex but aren't real dates).
+function isValidISODate(str) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(str)) return false
+  const [y, m, d] = str.split('-').map(Number)
+  if (m < 1 || m > 12) return false
+  if (d < 1 || d > new Date(y, m, 0).getDate()) return false
+  const currentYear = new Date().getFullYear()
+  return y >= currentYear - 120 && y <= currentYear
+}
+
 // ── Per-section validation ───────────────────────────────────────────────────
 // Returns null if valid, or a supportive message string if invalid.
 function validateSection(section, form) {
@@ -241,6 +316,7 @@ function validateSection(section, form) {
     if (!form.zip_code.trim())       return 'Please add your zip code.'
     if (!form.country.trim())        return 'Please add your country.'
     if (!form.date_of_birth)         return 'Please add your date of birth.'
+    if (!isValidISODate(form.date_of_birth)) return 'Please enter a valid date of birth.'
     if (!form.shirt_size)            return 'Please choose a shirt size.'
     if (!form.gender)                return 'Please select your biological sex — it\'s required for your calorie calculations.'
     const wt = Number(form.starting_weight_lbs)
@@ -708,7 +784,7 @@ export default function HealthAssessment() {
                 </div>
 
                 <Field label="Date of birth">
-                  <TextInput value={form.date_of_birth} onChange={set('date_of_birth')} type="date" />
+                  <DateOfBirthInput value={form.date_of_birth} onChange={setVal('date_of_birth')} />
                 </Field>
 
                 <Field label="Shirt size">

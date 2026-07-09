@@ -161,18 +161,19 @@ export async function notifyLateCheckInSubmitted(clientUserId) {
 }
 // Notify community members about a new post.
 // Generic copy only — no post content, no health data.
-// v1: notifies staff/admin only to limit spam. Leave a clear note for product.
-//
-// PRODUCT NOTE: For v1, community push is sent only to staff/admin users
-// to avoid flooding all clients. Expand to clients in a future iteration
-// after notification opt-out UX is validated with real usage.
-export async function notifyNewCommunityPost(authorUserId) {
+// Staff/admin are always notified of any new post (staff or client authored).
+// Clients are only notified when the post is staff-authored (authorIsStaff=true) —
+// posts from other clients don't push to the whole client base, to limit spam.
+export async function notifyNewCommunityPost(authorUserId, authorIsStaff = false) {
   try {
+    const roleFilter = authorIsStaff
+      ? `(role IN ('admin', 'coach') OR (role = 'client' AND COALESCE(coaching_type, '') != 'basic'))`
+      : `role IN ('admin', 'coach')`
     const { rows } = await pool.query(
       `SELECT id, notif_master_enabled, notif_community_enabled
        FROM users
        WHERE id != $1
-         AND role IN ('admin', 'coach')
+         AND ${roleFilter}
          AND notif_master_enabled = TRUE
          AND notif_community_enabled = TRUE`,
       [authorUserId],
