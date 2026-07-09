@@ -642,7 +642,7 @@ export default function Layout() {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto px-3 space-y-0.5">
+      <nav className="flex-1 min-h-0 overflow-y-auto px-3 space-y-0.5">
         {items.map(({ to, href, label, matchPath, matchSearch }) =>
           href ? (
             <a
@@ -705,7 +705,7 @@ export default function Layout() {
       </div>
 
       {/* Logout — always visible, pinned to bottom */}
-      <div className="px-4 pb-20 lg:pb-4">
+      <div className="px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] lg:pb-4">
         <button
           onClick={async () => {
             // Unregister push token on logout so stale tokens are cleaned up promptly
@@ -742,21 +742,21 @@ export default function Layout() {
 
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
-        <div className="lg:hidden fixed inset-0 z-40 flex">
+        <div className="lg:hidden fixed inset-0 z-[60] flex">
           <div
             className="fixed inset-0 bg-black/50"
             onClick={() => setSidebarOpen(false)}
           />
-          <aside className="relative z-50 w-60 flex flex-col flex-shrink-0" style={{ backgroundColor: SIDEBAR_BG }}>
+          <aside className="relative z-[61] h-[100dvh] max-h-[100dvh] w-60 flex flex-col flex-shrink-0" style={{ backgroundColor: SIDEBAR_BG }}>
             {buildSidebarContent(mobileNavItems, true)}
           </aside>
         </div>
       )}
 
-      <main ref={mainRef} className="flex-1 overflow-y-auto p-4 lg:p-8 pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-8">
+      <main ref={mainRef} className="flex-1 overflow-y-auto px-4 pt-[calc(1rem+env(safe-area-inset-top))] lg:p-8 pb-[calc(7.5rem+env(safe-area-inset-bottom))] lg:pb-8">
         {/* Mobile hamburger */}
         <button
-          className="lg:hidden mb-4 p-2 min-w-[44px] min-h-[44px] rounded-lg text-gray-500 hover:bg-gray-200 transition-colors"
+          className="lg:hidden relative z-[55] mb-4 flex h-11 w-11 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-200 transition-colors touch-manipulation"
           onClick={() => setSidebarOpen(true)}
           aria-label="Open menu"
         >
