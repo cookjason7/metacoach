@@ -5364,7 +5364,7 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
       const val   = field === 'sets' || field === 'rest_seconds'
         ? (editVal !== '' ? Number(editVal) : null)
         : (editVal || null)
-      const res = await fetch(`${BASE}/${selected.id}/exercises/${exId}`, {
+      const res = await fetch(`${BASE}/exercises/${exId}`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ [field]: val }),
@@ -5380,7 +5380,7 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
   async function deleteExercise(exId, name) {
     if (!window.confirm(`Remove "${name}" from this workout?`)) return
     const token = await getToken()
-    const res   = await fetch(`${BASE}/${selected.id}/exercises/${exId}`, {
+    const res   = await fetch(`${BASE}/exercises/${exId}`, {
       method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
     })
     if (res.ok) setExercises(prev => prev.filter(e => e.id !== exId))
@@ -5411,7 +5411,7 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
     await Promise.all(
       updates
         .filter(u => u.id === exId || u.id === dayExs[targetIdx].id)
-        .map(u => fetch(`${BASE}/${selected.id}/exercises/${u.id}`, {
+        .map(u => fetch(`${BASE}/exercises/${u.id}`, {
           method: 'PUT',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ sort_order: u.sort_order }),
@@ -5664,10 +5664,15 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
           </div>
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">
-              Injuries or limitations <span className="text-gray-400 font-normal">(optional)</span>
+              Injuries/limitations &amp; program direction <span className="text-gray-400 font-normal">(optional)</span>
             </label>
-            <input type="text" value={genForm.injuries} onChange={e => setGenForm(f => ({ ...f, injuries: e.target.value }))}
-              placeholder="e.g. Bad left knee, lower back pain" className={inputCls} />
+            <p className="text-[11px] text-gray-400 mb-1">
+              Note any injuries or physical limitations, plus how you want this program structured —
+              Katie factors both into the plan she builds.
+            </p>
+            <textarea rows={3} value={genForm.injuries} onChange={e => setGenForm(f => ({ ...f, injuries: e.target.value }))}
+              placeholder="e.g. Bad left knee, lower back pain — favor unilateral work over back squats, keep it strength-focused with minimal cardio"
+              className={`${inputCls} resize-none`} />
           </div>
           {genError && <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">{genError}</div>}
           <button type="submit" disabled={generating || !genForm.goals.length || !genForm.supersets || !genForm.circuits}
@@ -5864,8 +5869,19 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             <div className="col-span-2 sm:col-span-1">
               <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Day / Session</label>
-              <input value={exForm.day} onChange={e => setExForm(f => ({ ...f, day: e.target.value }))}
-                placeholder="Day 1" className={inputCls} />
+              {(() => {
+                const dayKeys = Object.keys(days)
+                const nextDay = `Day ${dayKeys.length + 1}`
+                const dayOptions = dayKeys.includes(nextDay) ? dayKeys : [...dayKeys, nextDay]
+                return (
+                  <select value={exForm.day || nextDay} onChange={e => setExForm(f => ({ ...f, day: e.target.value }))}
+                    className={inputCls}>
+                    {dayOptions.map(d => (
+                      <option key={d} value={d}>{d}{!dayKeys.includes(d) ? ' (new)' : ''}</option>
+                    ))}
+                  </select>
+                )
+              })()}
             </div>
             <div className="col-span-2 sm:col-span-1 relative">
               <label className="block text-[10px] font-medium text-gray-500 mb-0.5">

@@ -231,13 +231,17 @@ Create a personalized weekly workout program for ${firstName} based on their pro
 - Fitness level: ${answers.fitness_level}
 - Supersets: ${SUPERSET_LABELS[answers.supersets] || 'No supersets — standard workout'}
 - Circuits: ${CIRCUIT_LABELS[answers.circuits] || 'No circuits — standard format'}
-- Injuries or limitations: ${answers.injuries || 'None'}
+- Injuries/limitations and program direction: ${answers.injuries || 'None'}
 
 The exercises for each day have already been selected from our exercise library by
 movement pattern — you must NOT change, substitute, rename, or add exercise names.
 Your job is to write sets/reps/rest and a short coaching cue for each listed exercise,
 add a warm-up and cool-down for each day, and give the whole program a name and a
-short Katie-style intro.
+short Katie-style intro. The "injuries/limitations and program direction" line above may
+contain physical limitations to work around (already reflected in exercise selection —
+just keep cues aware of them), and/or the coach's direction on how they want this program
+structured (e.g. strength- vs. conditioning-focused, higher/lower rep ranges, rest periods,
+pacing) — apply that direction to the sets/reps/rest/cues you write.
 
 ${skeletonText}
 
@@ -247,7 +251,6 @@ Return ONLY a valid JSON object with this exact structure (no markdown, no extra
   "description": "string (2-3 sentences, Katie-style intro to this program)",
   "days": [
     {
-      "day_name": "string (e.g. 'Day 1 — Full Body')",
       "warmup": { "reps": "string (e.g. '5 minutes')", "notes": "string, brief warm-up description" },
       "cooldown": { "reps": "string (e.g. '5 minutes')", "notes": "string, brief cool-down description" },
       "exercises": [
@@ -295,7 +298,8 @@ function mergeResponse(daySkeletons, aiPlan) {
     }
 
     return {
-      day_name: aiDay.day_name ?? `Day ${i + 1}`,
+      // Always sequential — day naming is positional, not a creative/AI-generated label.
+      day_name: `Day ${i + 1}`,
       focus: skeleton.day_focus,
       exercises,
     }
