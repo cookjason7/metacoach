@@ -292,14 +292,17 @@ export default function Layout() {
   const fetchMsgUnread = useCallback(async () => {
     try {
       const token = await getToken()
-      const res   = await fetch(`${API_URL}/api/messages/unread-count`, {
+      const endpoint = isStaff
+        ? `${API_URL}/api/coach-admin/messaging/unread-count`
+        : `${API_URL}/api/messages/unread-count`
+      const res = await fetch(endpoint, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok) return
       const data = await res.json()
       setMsgUnread(data.unread ?? 0)
     } catch {}
-  }, [getToken])
+  }, [getToken, isStaff])
 
   const fetchKatieUnread = useCallback(async () => {
     try {
