@@ -100,7 +100,10 @@ router.get('/:id', requireAuth(), async (req, res, next) => {
     if (!workout) return res.status(404).json({ error: 'Workout not found' })
 
     const { rows: exercises } = await pool.query(
-      'SELECT * FROM workout_exercises WHERE workout_id = $1 ORDER BY id',
+      `SELECT we.*, e.image_url
+       FROM workout_exercises we
+       LEFT JOIN exercises e ON e.id = we.exercise_id
+       WHERE we.workout_id = $1 ORDER BY we.id`,
       [workoutId],
     )
 

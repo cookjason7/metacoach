@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm'
 import { API_URL } from '../../config.js'
 import BloodworkIntakeForm from '../../components/BloodworkIntakeForm.jsx'
 import LinkifiedText from '../../components/LinkifiedText.jsx'
+import ExerciseThumb from '../../components/ExerciseThumb.jsx'
 
 const TABS = [
   { id: 'overview',    label: 'Overview',   icon: '◉' },
@@ -5512,7 +5513,10 @@ function WorkoutsTab({ clientId, getToken }) {
                   return (
                     <tr key={ex.id} className="hover:bg-gray-50/40">
                       <td className="px-3 py-2.5 font-medium text-gray-900">
-                        {cell('exercise_name', ex.exercise_name)}
+                        <div className="flex items-center gap-2">
+                          <ExerciseThumb src={ex.image_url} alt={ex.exercise_name} />
+                          {cell('exercise_name', ex.exercise_name)}
+                        </div>
                       </td>
                       <td className="px-2 py-2.5 text-center text-gray-600">
                         {cell('sets', ex.sets, 'number', '3')}
