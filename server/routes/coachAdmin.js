@@ -3218,9 +3218,15 @@ router.get('/clients/:id/workouts/:wid', requireAuth(), async (req, res, next) =
       'SELECT * FROM workouts WHERE id=$1 AND user_id=$2', [workoutId, clientId])
     if (!workout) return res.status(404).json({ error: 'Workout not found' })
     const { rows: exercises } = await pool.query(
-      `SELECT we.*, e.image_url
+      `SELECT we.*,
+              COALESCE(
+                (SELECT image_url FROM exercises WHERE id = we.exercise_id),
+                (SELECT image_url FROM exercises
+                   WHERE lower(trim(name)) = lower(trim(we.exercise_name))
+                     AND image_url IS NOT NULL
+                   ORDER BY id LIMIT 1)
+              ) AS image_url
        FROM workout_exercises we
-       LEFT JOIN exercises e ON e.id = we.exercise_id
        WHERE we.workout_id=$1 ORDER BY we.sort_order, we.id`, [workoutId])
     const { rows: logs } = await pool.query(
       'SELECT * FROM workout_logs WHERE workout_id=$1 AND user_id=$2 ORDER BY completed_at DESC LIMIT 10',
@@ -3330,7 +3336,13 @@ router.post('/clients/:id/workouts/:wid/exercises', requireAuth(), async (req, r
     const { rows: [ex] } = await pool.query(
       `INSERT INTO workout_exercises (workout_id, day, exercise_name, exercise_id, sets, reps, weight, rest_seconds, notes, sort_order)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       RETURNING *, (SELECT image_url FROM exercises WHERE id = workout_exercises.exercise_id) AS image_url`,
+       RETURNING *, COALESCE(
+         (SELECT image_url FROM exercises WHERE id = workout_exercises.exercise_id),
+         (SELECT image_url FROM exercises
+            WHERE lower(trim(name)) = lower(trim(workout_exercises.exercise_name))
+              AND image_url IS NOT NULL
+            ORDER BY id LIMIT 1)
+       ) AS image_url`,
       [workoutId, day ?? 'Day 1', exercise_name.trim(), exercise_id ?? null, sets ?? null, reps ?? null,
        weight ?? null, rest_seconds ?? null, notes ?? null, sort_order ?? 0],
     )
@@ -3356,7 +3368,13 @@ router.put('/clients/:id/workouts/exercises/:eid', requireAuth(), async (req, re
     const setClauses = entries.map(([k], i) => `${k}=$${i + 2}`).join(', ')
     const { rows: [updated] } = await pool.query(
       `UPDATE workout_exercises SET ${setClauses} WHERE id=$1
-       RETURNING *, (SELECT image_url FROM exercises WHERE id = workout_exercises.exercise_id) AS image_url`,
+       RETURNING *, COALESCE(
+         (SELECT image_url FROM exercises WHERE id = workout_exercises.exercise_id),
+         (SELECT image_url FROM exercises
+            WHERE lower(trim(name)) = lower(trim(workout_exercises.exercise_name))
+              AND image_url IS NOT NULL
+            ORDER BY id LIMIT 1)
+       ) AS image_url`,
       [exId, ...entries.map(([, v]) => v)],
     )
     res.json(updated)
