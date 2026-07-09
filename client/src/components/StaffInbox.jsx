@@ -201,6 +201,9 @@ export default function StaffInbox({ getToken, role }) {
   const [imgPreview,  setImgPreview]  = useState(null)
   const [imgFile,     setImgFile]     = useState(null)
   const [uploading,   setUploading]   = useState(false)
+  const [myId,        setMyId]        = useState(null) // current staff user's db id — identifies own messages
+  const [menuMsgId,   setMenuMsgId]   = useState(null) // message id with delete affordance revealed (mobile long-press)
+  const longPressTimer = useRef(null)
 
   const [inboxView, setInboxView] = useState('active') // 'active' | 'archived'
   const [availableThreads, setAvailableThreads] = useState([]) // thread types for current client (ignores archive state)
@@ -437,6 +440,19 @@ export default function StaffInbox({ getToken, role }) {
     } catch {}
   }, [getToken, inboxView])
 
+  // Identify the current staff user so we only offer delete on their own messages.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
+        if (res.ok && !cancelled) { const me = await res.json(); setMyId(me.id ?? null) }
+      } catch {}
+    })()
+    return () => { cancelled = true }
+  }, [getToken])
+
   useEffect(() => { fetchInbox().finally(() => setLoading(false)) }, [fetchInbox])
   useEffect(() => {
     const id = setInterval(fetchInbox, 30_000)
@@ -579,6 +595,35 @@ export default function StaffInbox({ getToken, role }) {
       }
     } catch { showToast('Failed to send. Please try again.') }
     finally { setSending(false) }
+  }
+
+  // Delete own message (soft-delete on the server). Confirm first.
+  async function deleteMessage(id) {
+    if (!selected) return
+    if (!window.confirm('Delete this message?')) { setMenuMsgId(null); return }
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/${selected.clientId}/messages/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        setMessages(prev => prev.filter(m => m.id !== id))
+        fetchInbox()
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.error ?? 'Could not delete message')
+      }
+    } catch { alert('Could not delete message') }
+    finally { setMenuMsgId(null) }
+  }
+
+  function startLongPress(id) {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current)
+    longPressTimer.current = setTimeout(() => setMenuMsgId(id), 500)
+  }
+  function cancelLongPress() {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null }
   }
 
   if (loading) return <p className="text-sm text-gray-400 py-8 text-center">Loading inbox…</p>
@@ -823,14 +868,39 @@ export default function StaffInbox({ getToken, role }) {
               {!loadingMsgs && messages.length === 0 && (
                 <p className="text-center text-xs text-gray-400 py-8">No messages in this thread yet.</p>
               )}
-              {messages.map(m => {
+              {messages.filter(m => !m.deleted_at).map(m => {
                 const isStaff = m.sender_role === 'admin' || m.sender_role === 'coach'
+                const isMine = myId != null && m.sender_id === myId
                 const metadata = parseMessageMetadata(m.metadata)
                 return (
                   <div key={m.id} className={`flex ${isStaff ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[80%] rounded-2xl px-4 py-2 ${
-                      isStaff ? 'bg-[#E8670A] text-white' : 'bg-blue-500 text-white'
-                    }`}>
+                    <div
+                      className="group relative flex items-end gap-1 max-w-[80%]"
+                      onTouchStart={isMine ? () => startLongPress(m.id) : undefined}
+                      onTouchEnd={isMine ? cancelLongPress : undefined}
+                      onTouchMove={isMine ? cancelLongPress : undefined}
+                      onContextMenu={isMine ? e => { e.preventDefault(); setMenuMsgId(m.id) } : undefined}
+                    >
+                      {isMine && (
+                        <button
+                          type="button"
+                          onClick={() => deleteMessage(m.id)}
+                          aria-label="Delete message"
+                          title="Delete message"
+                          className={`shrink-0 flex items-center justify-center min-w-[44px] min-h-[44px] rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 transition-opacity ${
+                            menuMsgId === m.id
+                              ? 'opacity-100 pointer-events-auto'
+                              : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto'
+                          }`}
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      )}
+                      <div className={`min-w-0 rounded-2xl px-4 py-2 ${
+                        isStaff ? 'bg-[#E8670A] text-white' : 'bg-blue-500 text-white'
+                      }`}>
                       <p className="text-[10px] font-semibold text-white/70 mb-0.5">
                         {m.sender_name ?? m.sender_role} · {fmtFull(m.created_at)}
                       </p>
@@ -857,6 +927,7 @@ export default function StaffInbox({ getToken, role }) {
                           {m.read_at ? `Read ${fmtFull(m.read_at)}` : 'Not read'}
                         </p>
                       )}
+                      </div>
                     </div>
                   </div>
                 )

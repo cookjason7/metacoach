@@ -3723,7 +3723,7 @@ function KatieHistoryPanel({ client, getToken }) {
   )
 }
 
-function MessagingTab({ client, role, getToken }) {
+function MessagingTab({ client, role, meId, getToken }) {
   const isAI = client.coaching_type === 'ai'
   // Admin defaults to admin_private (their own thread) so they don't accidentally reply in coach_thread.
   // AI clients with admin: default to ai_admin, with Katie Chat also available.
@@ -3736,6 +3736,8 @@ function MessagingTab({ client, role, getToken }) {
   const [loading, setLoading] = useState(true)
   const [body, setBody] = useState('')
   const [sending, setSending] = useState(false)
+  const [menuMsgId, setMenuMsgId] = useState(null) // message id with delete affordance revealed (mobile long-press)
+  const longPressTimer = useRef(null)
 
   const availableThreads = []
   if (isAI) {
@@ -3805,6 +3807,33 @@ function MessagingTab({ client, role, getToken }) {
     }
   }
 
+  // Delete own message (soft-delete on the server). Confirm first.
+  async function deleteMessage(id) {
+    if (!window.confirm('Delete this message?')) { setMenuMsgId(null); return }
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/${client.id}/messages/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        setMessages(prev => prev.filter(m => m.id !== id))
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.error ?? 'Could not delete message')
+      }
+    } catch { alert('Could not delete message') }
+    finally { setMenuMsgId(null) }
+  }
+
+  function startLongPress(id) {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current)
+    longPressTimer.current = setTimeout(() => setMenuMsgId(id), 500)
+  }
+  function cancelLongPress() {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null }
+  }
+
   if (availableThreads.length === 0) {
     return (
       <div className="bg-white border border-gray-200 rounded-xl p-8 text-center">
@@ -3854,24 +3883,50 @@ function MessagingTab({ client, role, getToken }) {
               </p>
             )}
             <div className="space-y-3">
-              {messages.map(m => {
+              {messages.filter(m => !m.deleted_at).map(m => {
                 const isStaff = m.sender_role === 'admin' || m.sender_role === 'coach'
+                const isMine = meId != null && m.sender_id === meId
                 return (
                   <div key={m.id} className={`flex ${isStaff ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[80%] rounded-2xl px-4 py-2 ${
-                      isStaff
-                        ? 'bg-[#E8670A] text-white'
-                        : 'bg-white border border-gray-200 text-gray-800'
-                    }`}>
-                      <p className="text-[10px] font-semibold opacity-70 mb-0.5">
-                        {m.sender_name ?? m.sender_role} · {new Date(m.created_at).toLocaleString()}
-                      </p>
-                      <p className="text-sm whitespace-pre-wrap"><LinkifiedText text={m.message_body} /></p>
-                      {isStaff && m.read_at && (
-                        <p className="text-[9px] opacity-60 text-right mt-0.5">
-                          Read {new Date(m.read_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                        </p>
+                    <div
+                      className="group relative flex items-end gap-1 max-w-[80%]"
+                      onTouchStart={isMine ? () => startLongPress(m.id) : undefined}
+                      onTouchEnd={isMine ? cancelLongPress : undefined}
+                      onTouchMove={isMine ? cancelLongPress : undefined}
+                      onContextMenu={isMine ? e => { e.preventDefault(); setMenuMsgId(m.id) } : undefined}
+                    >
+                      {isMine && (
+                        <button
+                          type="button"
+                          onClick={() => deleteMessage(m.id)}
+                          aria-label="Delete message"
+                          title="Delete message"
+                          className={`shrink-0 flex items-center justify-center min-w-[44px] min-h-[44px] rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 transition-opacity ${
+                            menuMsgId === m.id
+                              ? 'opacity-100 pointer-events-auto'
+                              : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto'
+                          }`}
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
                       )}
+                      <div className={`min-w-0 rounded-2xl px-4 py-2 ${
+                        isStaff
+                          ? 'bg-[#E8670A] text-white'
+                          : 'bg-white border border-gray-200 text-gray-800'
+                      }`}>
+                        <p className="text-[10px] font-semibold opacity-70 mb-0.5">
+                          {m.sender_name ?? m.sender_role} · {new Date(m.created_at).toLocaleString()}
+                        </p>
+                        <p className="text-sm whitespace-pre-wrap"><LinkifiedText text={m.message_body} /></p>
+                        {isStaff && m.read_at && (
+                          <p className="text-[9px] opacity-60 text-right mt-0.5">
+                            Read {new Date(m.read_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )
@@ -5603,6 +5658,7 @@ export default function ClientProfile() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [client, setClient] = useState(null)
   const [meRole, setMeRole] = useState(null)
+  const [meId, setMeId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [tab, setTab] = useState('overview')
@@ -5625,6 +5681,7 @@ export default function ClientProfile() {
         if (meRes.ok) {
           const me = await meRes.json()
           setMeRole(me.role)
+          setMeId(me.id ?? null)
         }
         if (cRes.status === 403) { navigate('/dashboard', { replace: true }); return }
         if (!cRes.ok) throw new Error(`Server ${cRes.status}`)
@@ -5779,7 +5836,7 @@ export default function ClientProfile() {
       {tab === 'progress'   && <ProgressTab    clientId={client.id} getToken={getToken} role={meRole} clientName={[client.display_first_name || client.first_name, client.display_last_name || client.last_name].filter(Boolean).join(' ') || client.email?.split('@')[0] || null} />}
       {tab === 'assessment' && <AssessmentTab  clientId={client.id} getToken={getToken} />}
       {tab === 'notes'      && <NotesTab       clientId={client.id} role={meRole} getToken={getToken} />}
-      {tab === 'messaging'  && <MessagingTab   client={client} role={meRole} getToken={getToken} />}
+      {tab === 'messaging'  && <MessagingTab   client={client} role={meRole} meId={meId} getToken={getToken} />}
       {tab === 'engagement' && <EngagementTab  clientId={client.id} getToken={getToken} />}
       {tab === 'bloodwork'  && <BloodworkTab   clientId={client.id} getToken={getToken} bloodworkEnabled={client.bloodwork_enabled ?? false} onClientUpdate={u => setClient(c => ({ ...c, ...u }))} client={client} />}
       {tab === 'workouts'   && <WorkoutsTab    clientId={client.id} getToken={getToken} />}

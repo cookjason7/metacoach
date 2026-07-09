@@ -97,10 +97,10 @@ async function listThreadsForClient(dbUserId, coachingType) {
           ELSE ''
         END
         FROM client_messages
-        WHERE client_id = $1 AND thread_type = m.thread_type
+        WHERE client_id = $1 AND thread_type = m.thread_type AND deleted_at IS NULL
         ORDER BY created_at DESC LIMIT 1) AS last_message_body
     FROM client_messages m
-    WHERE client_id = $1 AND thread_type = ANY($2::text[])
+    WHERE client_id = $1 AND thread_type = ANY($2::text[]) AND m.deleted_at IS NULL
     GROUP BY thread_type
     ORDER BY MAX(created_at) DESC
   `, [dbUserId, visibleThreadTypes])
@@ -180,6 +180,7 @@ router.get('/unread-count', requireAuth(), async (req, res, next) => {
        WHERE client_id = $1
          AND read_at IS NULL
          AND sender_id != $1
+         AND deleted_at IS NULL
          AND thread_type = ANY($2::text[])`,
       [ctx.dbUserId, visibleThreadTypesForClient(ctx.coaching_type)],
     )
@@ -216,7 +217,7 @@ router.get('/thread/:threadType', requireAuth(), async (req, res, next) => {
       SELECT m.*, u.first_name AS sender_name
       FROM client_messages m
       LEFT JOIN users u ON u.id = m.sender_id
-      WHERE m.client_id = $1 AND m.thread_type = $2${extraWhere}
+      WHERE m.client_id = $1 AND m.thread_type = $2 AND m.deleted_at IS NULL${extraWhere}
       ORDER BY m.id DESC
       LIMIT $${qParams.length}
     `, qParams)
@@ -295,6 +296,34 @@ router.post('/thread/:threadType', requireAuth(), async (req, res, next) => {
     }).catch(() => {})
 
     res.status(201).json(rows[0])
+  } catch (err) { next(err) }
+})
+
+// DELETE /api/messages/:id
+// Soft-delete: only the original sender (this client) may delete their own message.
+// The row is retained with deleted_at set so history/threads stay consistent.
+router.delete('/:id', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await getClientContext(req)
+    const id = parseInt(req.params.id, 10)
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid message id' })
+
+    const { rows } = await pool.query(
+      'SELECT client_id, sender_id, sender_role, deleted_at FROM client_messages WHERE id = $1',
+      [id],
+    )
+    const msg = rows[0]
+    if (!msg) return res.status(404).json({ error: 'Message not found' })
+
+    // Sender identity check: must be a client message the requester sent, in their own thread.
+    if (msg.sender_role !== 'client' || msg.sender_id !== ctx.dbUserId || msg.client_id !== ctx.dbUserId) {
+      return res.status(403).json({ error: 'You can only delete your own messages' })
+    }
+
+    if (!msg.deleted_at) {
+      await pool.query('UPDATE client_messages SET deleted_at = NOW() WHERE id = $1', [id])
+    }
+    res.json({ ok: true, id })
   } catch (err) { next(err) }
 })
 
