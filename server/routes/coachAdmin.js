@@ -277,6 +277,7 @@ router.get('/dashboard-summary', requireAuth(), async (req, res, next) => {
           FROM client_messages m
           JOIN accessible_clients ac ON ac.id = m.client_id
           WHERE m.sender_role = 'client'
+            AND m.deleted_at IS NULL
             AND m.created_at >= NOW() - INTERVAL '14 days'
 
           UNION ALL
@@ -2075,6 +2076,7 @@ router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
     // $2 = wantArchived (archived state filter)
     const params = [ctx.dbUserId, wantArchived]
     let extraWhere = `COALESCE(u.client_status, 'active') != 'deleted'`
+      + ` AND m.deleted_at IS NULL`
       + ` AND m.thread_type IN ('admin_private', 'coach_thread', 'ai_admin')`
     if (!isAdmin) {
       extraWhere += ` AND u.assigned_coach_id = $1 AND m.thread_type = 'coach_thread'`
@@ -2097,10 +2099,10 @@ router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
             ELSE ''
           END
           FROM client_messages
-          WHERE client_id = u.id AND thread_type = m.thread_type
+          WHERE client_id = u.id AND thread_type = m.thread_type AND deleted_at IS NULL
           ORDER BY created_at DESC LIMIT 1) AS last_message_body,
         (SELECT sender_role FROM client_messages
-          WHERE client_id = u.id AND thread_type = m.thread_type
+          WHERE client_id = u.id AND thread_type = m.thread_type AND deleted_at IS NULL
           ORDER BY created_at DESC LIMIT 1) AS last_sender_role
       FROM client_messages m
       JOIN users u ON u.id = m.client_id
@@ -2164,7 +2166,7 @@ router.get('/clients/:id/messages/unread', requireAuth(), async (req, res, next)
     const id = parseInt(req.params.id, 10)
     if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
 
-    let where = `client_id = $1 AND sender_role = 'client' AND read_at IS NULL`
+    let where = `client_id = $1 AND sender_role = 'client' AND read_at IS NULL AND deleted_at IS NULL`
     const params = [id]
     if (!isAdminRole(ctx.role)) where += ` AND thread_type = 'coach_thread'`
 
@@ -2193,7 +2195,7 @@ router.get('/clients/:id/messages', requireAuth(), async (req, res, next) => {
     }
 
     const params = [id]
-    let where = 'WHERE m.client_id = $1'
+    let where = 'WHERE m.client_id = $1 AND m.deleted_at IS NULL'
     if (thread) {
       params.push(thread)
       where += ` AND m.thread_type = $${params.length}`
@@ -2285,6 +2287,36 @@ router.post('/clients/:id/messages', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// DELETE /api/coach-admin/clients/:id/messages/:messageId
+// Soft-delete: only the original sender (this staff member) may delete their own message.
+// The row is retained with deleted_at set so history/threads stay consistent.
+router.delete('/clients/:id/messages/:messageId', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId  = parseInt(req.params.id, 10)
+    const messageId = parseInt(req.params.messageId, 10)
+    if (!Number.isInteger(messageId)) return res.status(400).json({ error: 'Invalid message id' })
+    if (!await canAccessClient(ctx, clientId)) return res.status(403).json({ error: 'Forbidden' })
+
+    const { rows } = await pool.query(
+      'SELECT client_id, sender_id, sender_role, deleted_at FROM client_messages WHERE id = $1',
+      [messageId],
+    )
+    const msg = rows[0]
+    if (!msg || msg.client_id !== clientId) return res.status(404).json({ error: 'Message not found' })
+
+    // Sender identity check: must be a staff message this exact user sent.
+    if (msg.sender_role === 'client' || msg.sender_id !== ctx.dbUserId) {
+      return res.status(403).json({ error: 'You can only delete your own messages' })
+    }
+
+    if (!msg.deleted_at) {
+      await pool.query('UPDATE client_messages SET deleted_at = NOW() WHERE id = $1', [messageId])
+    }
+    res.json({ ok: true, id: messageId })
+  } catch (err) { next(err) }
+})
+
 // PATCH /api/coach-admin/messaging/states/:clientId/:threadType
 // Upserts per-staff conversation state: archived, marked_unread.
 // Body: { archived?: boolean, marked_unread?: boolean }
@@ -2350,7 +2382,7 @@ router.get('/clients/:id/thread-types', requireAuth(), async (req, res, next) =>
         COUNT(*) FILTER (WHERE sender_role = 'client' AND read_at IS NULL)::int AS unread,
         MAX(created_at) AS last_message_at
       FROM client_messages
-      WHERE client_id = $1 AND thread_type = ANY($2::text[])
+      WHERE client_id = $1 AND thread_type = ANY($2::text[]) AND deleted_at IS NULL
       GROUP BY thread_type
       ORDER BY MAX(created_at) DESC
     `, [id, allowedTypes])
