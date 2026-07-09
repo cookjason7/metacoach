@@ -292,6 +292,83 @@ function mergeResponse(daySkeletons, aiPlan) {
   }
 }
 
+// ── Response parsing ─────────────────────────────────────────────────────────
+// Claude occasionally substitutes fullwidth/CJK punctuation for the ASCII
+// characters JSON syntax requires (observed: U+FF0C fullwidth comma in place
+// of ','). These look visually near-identical to their ASCII counterparts but
+// break JSON.parse. Sanitize known substitutes before parsing, and retry the
+// API call once if parsing still fails afterward.
+
+export class WorkoutGenerationParseError extends Error {
+  constructor(message, originalError) {
+    super(message)
+    this.name = 'WorkoutGenerationParseError'
+    this.status = 502
+    this.originalError = originalError
+  }
+}
+
+const UNICODE_PUNCTUATION_MAP = {
+  '，': ',', // fullwidth comma
+  '：': ':', // fullwidth colon
+  '＂': '"', // fullwidth quotation mark
+}
+
+/** Replaces known problematic Unicode punctuation substitutes with their ASCII
+ * equivalents, on a copy of `text` — never mutates the input. Logs (via
+ * console.warn) which character was substituted and how many times, so a
+ * malformed-but-recovered response is never silently rewritten. */
+export function sanitizeJsonText(text) {
+  let sanitized = text
+  for (const [bad, good] of Object.entries(UNICODE_PUNCTUATION_MAP)) {
+    if (!sanitized.includes(bad)) continue
+    const count = sanitized.split(bad).length - 1
+    const codePoint = `U+${bad.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`
+    console.warn(`[workoutGenerator] Sanitized ${count} occurrence(s) of ${codePoint} (${JSON.stringify(bad)}) -> ${JSON.stringify(good)} in Claude's workout response before JSON.parse`)
+    sanitized = sanitized.split(bad).join(good)
+  }
+  return sanitized
+}
+
+function extractJsonText(rawText) {
+  let text = rawText.trim()
+  const fence = text.match(/```(?:json)?\n?([\s\S]+?)\n?```/)
+  if (fence) text = fence[1]
+  return text
+}
+
+async function requestPlanFromClaude(prompt) {
+  const message = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 4096,
+    messages: [{ role: 'user', content: prompt }],
+  })
+  return message.content[0].text
+}
+
+/** Requests a plan from Claude and parses it, sanitizing known Unicode
+ * punctuation issues first. Retries the API call once (same prompt) if
+ * parsing still fails after sanitization; throws WorkoutGenerationParseError
+ * if the retry also fails to parse, rather than crashing with a raw
+ * JSON.parse exception or returning a partial/broken result. */
+async function requestAndParsePlan(prompt) {
+  let lastErr
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const rawText = await requestPlanFromClaude(prompt)
+    const jsonText = sanitizeJsonText(extractJsonText(rawText))
+    try {
+      return JSON.parse(jsonText)
+    } catch (err) {
+      lastErr = err
+      console.warn(`[workoutGenerator] Failed to parse Claude's workout response on attempt ${attempt}/2: ${err.message}`)
+    }
+  }
+  throw new WorkoutGenerationParseError(
+    `Failed to parse workout plan JSON after sanitization and retry: ${lastErr.message}`,
+    lastErr,
+  )
+}
+
 // ── Public entry point ───────────────────────────────────────────────────────
 
 /**
@@ -326,16 +403,8 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
     preferBilateral,
   })
 
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 4096,
-    messages: [{ role: 'user', content: buildWorkoutPrompt(firstName, answers, daySkeletons) }],
-  })
-
-  let text = message.content[0].text.trim()
-  const fence = text.match(/```(?:json)?\n?([\s\S]+?)\n?```/)
-  if (fence) text = fence[1]
-  const aiPlan = JSON.parse(text)
+  const prompt = buildWorkoutPrompt(firstName, answers, daySkeletons)
+  const aiPlan = await requestAndParsePlan(prompt)
 
   return mergeResponse(daySkeletons, aiPlan)
 }
