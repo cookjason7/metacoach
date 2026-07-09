@@ -206,6 +206,7 @@ export default function StaffInbox({ getToken, role }) {
 
   const [inboxView, setInboxView] = useState('active') // 'active' | 'archived'
   const [availableThreads, setAvailableThreads] = useState([]) // thread types for current client (ignores archive state)
+  const [actionError, setActionError] = useState(null) // surfaced when archive/unarchive/mark-unread fails
 
   // ── Client search (compose new conversation) ──────────────────────────────
   const [searchQuery,   setSearchQuery]   = useState('')
@@ -270,39 +271,59 @@ export default function StaffInbox({ getToken, role }) {
   }
 
   // ── Inbox state helpers (archive / mark-unread) ───────────────────────────
+  // Throws on any failure (network error or non-2xx response) instead of swallowing it,
+  // so callers that need to confirm success (archive/unarchive/mark-unread) can tell
+  // the difference between "done" and "silently failed" and surface it to the user.
   async function patchInboxState(clientId, threadType, patch) {
-    try {
-      const token = await getToken()
-      await fetch(`${API_URL}/api/coach-admin/messaging/states/${clientId}/${threadType}`, {
-        method:  'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body:    JSON.stringify(patch),
-      })
-    } catch {}
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/coach-admin/messaging/states/${clientId}/${threadType}`, {
+      method:  'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body:    JSON.stringify(patch),
+    })
+    if (!res.ok) {
+      const { error } = await res.json().catch(() => ({}))
+      throw new Error(error || `Request failed (${res.status})`)
+    }
   }
 
   async function archiveConversation() {
     if (!selected) return
-    await patchInboxState(selected.clientId, selected.threadType, { archived: true })
-    selectedRef.current = null
-    setSelected(null)
-    fetchInbox()
+    setActionError(null)
+    try {
+      await patchInboxState(selected.clientId, selected.threadType, { archived: true })
+      selectedRef.current = null
+      setSelected(null)
+      await fetchInbox()
+    } catch (err) {
+      setActionError(`Couldn't archive this conversation: ${err.message}`)
+    }
   }
 
   async function unarchiveConversation() {
     if (!selected) return
-    await patchInboxState(selected.clientId, selected.threadType, { archived: false })
-    selectedRef.current = null
-    setSelected(null)
-    fetchInbox()
+    setActionError(null)
+    try {
+      await patchInboxState(selected.clientId, selected.threadType, { archived: false })
+      selectedRef.current = null
+      setSelected(null)
+      await fetchInbox()
+    } catch (err) {
+      setActionError(`Couldn't restore this conversation: ${err.message}`)
+    }
   }
 
   async function markUnread() {
     if (!selected) return
-    await patchInboxState(selected.clientId, selected.threadType, { marked_unread: true })
-    selectedRef.current = null
-    setSelected(null)
-    fetchInbox()
+    setActionError(null)
+    try {
+      await patchInboxState(selected.clientId, selected.threadType, { marked_unread: true })
+      selectedRef.current = null
+      setSelected(null)
+      await fetchInbox()
+    } catch (err) {
+      setActionError(`Couldn't mark this conversation unread: ${err.message}`)
+    }
   }
 
   // Reset inboxView back to active & clear selection when switching tabs
@@ -796,6 +817,12 @@ export default function StaffInbox({ getToken, role }) {
                   </button>
                 )}
               </div>
+              {actionError && (
+                <div className="mt-2 flex items-start justify-between gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  <p className="text-xs text-red-700">{actionError}</p>
+                  <button onClick={() => setActionError(null)} className="shrink-0 text-red-400 hover:text-red-600 text-xs font-semibold">✕</button>
+                </div>
+              )}
               {(() => {
                 // Hide admin_private tab when admin is also the assigned coach —
                 // avoids two sendable tabs for the same person.

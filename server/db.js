@@ -182,6 +182,15 @@ export async function migrate() {
       created_at   TIMESTAMPTZ DEFAULT NOW()
     )
   `)
+  // Widen the notifications.type CHECK to add 'new_post' (staff creates a community
+  // post -> clients get a badge notification), alongside the existing comment/mention types.
+  await pool.query(`
+    DO $$ BEGIN
+      ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_type_check;
+      ALTER TABLE notifications ADD CONSTRAINT notifications_type_check
+        CHECK (type IN ('comment', 'mention', 'new_post'));
+    END $$;
+  `)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS community_polls (
       id         SERIAL PRIMARY KEY,

@@ -93,6 +93,24 @@ async function createMentionNotifications(content, postId, fromUserId) {
   }
 }
 
+// In-app badge notification for clients when a coach/admin creates a new community post.
+// Never fires for client-authored posts — only notifies about the other clients' own
+// mentions/comments, not every new post from peers.
+async function createNewPostNotifications(postId, fromUserId) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id FROM users WHERE role = 'client' AND COALESCE(coaching_type, '') != 'basic' AND id != $1`,
+      [fromUserId],
+    )
+    for (const u of rows) {
+      await pool.query(
+        `INSERT INTO notifications (user_id, type, post_id, from_user_id) VALUES ($1, 'new_post', $2, $3)`,
+        [u.id, postId, fromUserId],
+      ).catch(() => {})
+    }
+  } catch {}
+}
+
 // ── Delete ────────────────────────────────────────────────────────────────────
 
 router.delete('/posts/:id', requireAuth(), async (req, res, next) => {
@@ -331,8 +349,12 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
 
     await createMentionNotifications(content.trim(), post.id, dbUserId)
 
-    // Push: notify community — fire-and-forget
-    notifyNewCommunityPost(dbUserId).catch(() => {})
+    // Staff post -> clients get an in-app badge notification too (fire-and-forget)
+    if (isStaff) createNewPostNotifications(post.id, dbUserId).catch(() => {})
+
+    // Push: notify community — fire-and-forget. Clients only pushed when a staff
+    // member authored this post (see notifyNewCommunityPost for the role filter).
+    notifyNewCommunityPost(dbUserId, isStaff).catch(() => {})
 
     const { rows: userRows } = await pool.query(
       'SELECT first_name FROM users WHERE id = $1', [dbUserId],
