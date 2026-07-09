@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
+import ExerciseThumb from '../components/ExerciseThumb.jsx'
 
 // Same mapping as Dashboard's getProgressCurrent — keeps both pages in sync.
 // Returns the current live value for a progress habit, or null for plain checkboxes.
@@ -202,9 +203,278 @@ function HabitPill({ entry, dateISO, onComplete, isPast, liveCurrent = null, com
   )
 }
 
+// ─── Workout pill (one scheduled workout day on one date) ─────────────────────
+
+// Distinct from HabitPill: a rounded-SQUARE dumbbell badge (indigo) vs the habit's
+// round checkmark (emerald/amber). Tapping opens the WorkoutDetailModal to log sets.
+function DumbbellGlyph({ className = 'w-3 h-3' }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden="true">
+      <rect x="1.5"  y="7.5"  width="3.2"  height="9"   rx="1" />
+      <rect x="19.3" y="7.5"  width="3.2"  height="9"   rx="1" />
+      <rect x="4.7"  y="10.4" width="14.6" height="3.2" rx="1" />
+    </svg>
+  )
+}
+
+function WorkoutBadge({ done }) {
+  return (
+    <span className={`inline-flex items-center justify-center w-5 h-5 rounded-md shrink-0 ${
+      done ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-600 border border-indigo-200'
+    }`}>
+      {done ? <span className="text-[11px] font-bold leading-none">✓</span> : <DumbbellGlyph />}
+    </span>
+  )
+}
+
+function WorkoutPill({ entry, dateISO, onOpen, compact = false }) {
+  const { assignment, log, exercises } = entry
+  const done = !!log
+  const exCount = exercises?.length ?? 0
+  const base = done ? 'bg-indigo-50 border-indigo-300' : 'bg-white border-indigo-200'
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(entry, dateISO)}
+      className={`w-full flex items-center gap-1.5 rounded-md border px-1.5 ${compact ? 'py-1' : 'py-1.5'} text-left transition-colors hover:border-indigo-400 hover:bg-indigo-50 ${base}`}
+      title={`${assignment.day_label} · ${assignment.workout_name}`}
+    >
+      <WorkoutBadge done={done} />
+      <span className="min-w-0 flex-1">
+        <span className={`block text-[11px] truncate font-medium ${done ? 'text-indigo-800' : 'text-gray-800'}`}>
+          {assignment.day_label}
+        </span>
+        {!compact && (
+          <span className="block text-[10px] text-gray-400 truncate">{assignment.workout_name}</span>
+        )}
+      </span>
+      {done
+        ? <span className="ml-auto text-[9px] font-bold text-indigo-600 uppercase tracking-wide shrink-0">Logged</span>
+        : (!compact && exCount > 0)
+          ? <span className="ml-auto text-[9px] text-gray-400 shrink-0">{exCount} ex</span>
+          : null}
+    </button>
+  )
+}
+
+// ─── Workout detail modal (log actual sets for a scheduled day) ───────────────
+
+function WorkoutDetailModal({ entry, dateISO, getToken, onClose, onSaved }) {
+  const { assignment, exercises } = entry
+
+  // Each exercise gets max(sets,1) editable set rows: { reps, weight }
+  function buildInitial() {
+    const map = {}
+    for (const ex of exercises ?? []) {
+      const n = Math.max(1, Number(ex.sets) || 1)
+      map[ex.id] = Array.from({ length: n }, () => ({ reps: '', weight: '' }))
+    }
+    return map
+  }
+
+  const [rows,    setRows]    = useState(buildInitial)
+  const [notes,   setNotes]   = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving,  setSaving]  = useState(false)
+  const [error,   setError]   = useState(null)
+  const done = !!entry.log
+
+  // Prefill from an existing log for this (assignment, date)
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      setLoading(true)
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/client-workouts/me/logs/${assignment.id}/${dateISO}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.ok) {
+          const data = await res.json()
+          if (!alive) return
+          if (data.log?.notes) setNotes(data.log.notes)
+          if (data.sets?.length) {
+            setRows(prev => {
+              const next = { ...prev }
+              for (const s of data.sets) {
+                const exId = s.workout_exercise_id
+                if (exId == null || !next[exId]) continue
+                const idx = (Number(s.set_number) || 1) - 1
+                const arr = next[exId].slice()
+                while (arr.length <= idx) arr.push({ reps: '', weight: '' })
+                arr[idx] = { reps: s.actual_reps ?? '', weight: s.actual_weight ?? '' }
+                next[exId] = arr
+              }
+              return next
+            })
+          }
+        }
+      } catch { /* prefill is best-effort */ }
+      finally { if (alive) setLoading(false) }
+    })()
+    return () => { alive = false }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function updateRow(exId, idx, field, val) {
+    setRows(prev => {
+      const arr = (prev[exId] ?? []).slice()
+      arr[idx] = { ...(arr[idx] ?? { reps: '', weight: '' }), [field]: val }
+      return { ...prev, [exId]: arr }
+    })
+  }
+
+  async function save() {
+    setSaving(true); setError(null)
+    try {
+      const sets = []
+      for (const ex of (exercises ?? [])) {
+        ;(rows[ex.id] ?? []).forEach((r, i) => {
+          sets.push({
+            workout_exercise_id: ex.id,
+            set_number:    i + 1,
+            actual_reps:   r.reps?.trim()   ? r.reps.trim()   : null,
+            actual_weight: r.weight?.trim() ? r.weight.trim() : null,
+          })
+        })
+      }
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/client-workouts/me/logs`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assignment_id:  assignment.id,
+          scheduled_date: dateISO,
+          notes:          notes.trim() || null,
+          sets,
+        }),
+      })
+      if (!res.ok) {
+        const { error: msg } = await res.json().catch(() => ({}))
+        throw new Error(msg || `Server error ${res.status}`)
+      }
+      const data = await res.json()
+      onSaved(dateISO, assignment.id, data.log)
+    } catch (err) {
+      setError(err.message)
+    } finally { setSaving(false) }
+  }
+
+  const dateLabel = new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric',
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
+      onClick={onClose}>
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[92vh] flex flex-col overflow-hidden shadow-xl"
+        onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold text-gray-900 truncate">{assignment.day_label}</p>
+              {done && (
+                <span className="text-[10px] font-bold uppercase tracking-wide text-indigo-600 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded-full shrink-0">
+                  Logged
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-gray-400 truncate">{assignment.workout_name} · {dateLabel}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1.5 leading-none shrink-0 text-lg">✕</button>
+        </div>
+
+        {/* Body */}
+        <div className="overflow-y-auto flex-1 p-4 space-y-4">
+          {loading ? (
+            <p className="text-xs text-gray-400">Loading…</p>
+          ) : (exercises ?? []).length === 0 ? (
+            <p className="text-sm text-gray-500">No exercises found for this workout day.</p>
+          ) : (exercises ?? []).map(ex => {
+            const nSets = Math.max(1, Number(ex.sets) || 1)
+            return (
+              <div key={ex.id} className="rounded-xl border border-gray-200 overflow-hidden">
+                <div className="flex items-center gap-2.5 p-2.5 bg-gray-50 border-b border-gray-100">
+                  <ExerciseThumb src={ex.image_url} alt={ex.exercise_name} />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{ex.exercise_name}</p>
+                    <p className="text-[11px] text-gray-500">
+                      {ex.sets ?? '—'} sets
+                      {ex.reps ? ` · ${ex.reps} reps` : ''}
+                      {ex.weight ? ` · ${ex.weight}` : ''}
+                      {ex.rest_seconds ? ` · ${ex.rest_seconds}s rest` : ''}
+                    </p>
+                    {ex.notes && <p className="text-[11px] text-gray-400 line-clamp-2">{ex.notes}</p>}
+                  </div>
+                </div>
+                <div className="p-2.5 space-y-1.5">
+                  <div className="flex items-center gap-2 px-0.5">
+                    <span className="w-12 shrink-0" />
+                    <span className="flex-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+                      Reps{ex.reps ? ` · tgt ${ex.reps}` : ''}
+                    </span>
+                    <span className="flex-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+                      Weight{ex.weight ? ` · tgt ${ex.weight}` : ''}
+                    </span>
+                  </div>
+                  {Array.from({ length: nSets }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="w-12 shrink-0 text-[11px] font-medium text-gray-500">Set {i + 1}</span>
+                      <input
+                        value={rows[ex.id]?.[i]?.reps ?? ''}
+                        onChange={e => updateRow(ex.id, i, 'reps', e.target.value)}
+                        inputMode="numeric" placeholder={ex.reps || '—'}
+                        className="flex-1 min-w-0 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30"
+                      />
+                      <input
+                        value={rows[ex.id]?.[i]?.weight ?? ''}
+                        onChange={e => updateRow(ex.id, i, 'weight', e.target.value)}
+                        placeholder={ex.weight || 'lbs'}
+                        className="flex-1 min-w-0 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+
+          {!loading && (exercises ?? []).length > 0 && (
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Notes (optional)</label>
+              <textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)}
+                placeholder="How did it go? Anything to remember for next time…"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 resize-none" />
+            </div>
+          )}
+
+          {error && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-gray-100 shrink-0">
+          <button onClick={onClose}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors">
+            Close
+          </button>
+          <button onClick={save} disabled={saving || loading}
+            className="bg-[#E8670A] text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors flex items-center gap-2">
+            {saving
+              ? <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />Saving…</>
+              : (done ? 'Update Log' : 'Save Workout')}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Day cell ─────────────────────────────────────────────────────────────────
 
-function DayCell({ date, inMonth, entries, onComplete, isToday, todayLog = null, todayMeals = null }) {
+function DayCell({ date, inMonth, entries, workoutEntries = [], onComplete, onOpenWorkout, isToday, todayLog = null, todayMeals = null }) {
   const dateISO = isoDate(date)
   const dayNum = date.getDate()
   const isPast = date < new Date(new Date().toDateString())
@@ -236,6 +506,15 @@ function DayCell({ date, inMonth, entries, onComplete, isToday, todayLog = null,
             compact={true}
           />
         ))}
+        {workoutEntries.map((wEntry, i) => (
+          <WorkoutPill
+            key={`w-${wEntry.assignment.id}-${i}`}
+            entry={wEntry}
+            dateISO={dateISO}
+            onOpen={onOpenWorkout}
+            compact={true}
+          />
+        ))}
       </div>
     </div>
   )
@@ -259,6 +538,8 @@ export default function Calendar() {
     return d
   })
   const [calendar,    setCalendar]    = useState({})
+  const [workoutCal,  setWorkoutCal]  = useState({})   // scheduled workouts by date
+  const [activeWorkout, setActiveWorkout] = useState(null)  // { entry, dateISO } → modal
   const [loading,     setLoading]     = useState(true)
   const [loadError,   setLoadError]   = useState(false)
   const [toast,       setToast]       = useState(null)
@@ -298,14 +579,20 @@ export default function Calendar() {
       const token = await getToken()
       const start = isoDate(gridStart)
       const end   = isoDate(gridEnd)
-      const res = await fetch(`${API_URL}/api/client-habits/me/calendar?start=${start}&end=${end}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (res.ok) {
-        const data = await res.json()
-        setCalendar(data.calendar ?? {})
+      const headers = { Authorization: `Bearer ${token}` }
+      const [habitRes, workoutRes] = await Promise.all([
+        fetch(`${API_URL}/api/client-habits/me/calendar?start=${start}&end=${end}`, { headers }),
+        fetch(`${API_URL}/api/client-workouts/me/calendar?start=${start}&end=${end}`, { headers }),
+      ])
+      if (habitRes.ok) {
+        setCalendar((await habitRes.json()).calendar ?? {})
       } else {
         setLoadError(true)
+      }
+      if (workoutRes.ok) {
+        setWorkoutCal((await workoutRes.json()).calendar ?? {})
+      } else {
+        console.warn('[calendar] workout load failed:', workoutRes.status)
       }
     } catch {
       setLoadError(true)
@@ -410,6 +697,27 @@ export default function Calendar() {
     }
   }
 
+  // ── Workout scheduling: open the detail modal, patch state after a save ──────
+  function openWorkout(entry, dateISO) {
+    setActiveWorkout({ entry, dateISO })
+  }
+  function handleWorkoutSaved(dateISO, assignmentId, log) {
+    // Reflect the new log on the matching calendar entry (flips pill → "Logged")
+    setWorkoutCal(prev => {
+      const day = (prev[dateISO] ?? []).map(e =>
+        e.assignment.id === assignmentId ? { ...e, log } : e
+      )
+      return { ...prev, [dateISO]: day }
+    })
+    // Keep the modal open but reflect the saved state (button → "Update Log")
+    setActiveWorkout(aw =>
+      aw && aw.dateISO === dateISO && aw.entry.assignment.id === assignmentId
+        ? { ...aw, entry: { ...aw.entry, log } }
+        : aw
+    )
+    showToast('Workout logged 💪')
+  }
+
   function prev() {
     if (viewMode === 'month') {
       setAnchor(new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1))
@@ -482,7 +790,7 @@ export default function Calendar() {
       <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Calendar</h1>
-          <p className="text-sm text-gray-500">Tap a circle to complete a habit. Progress goals update automatically.</p>
+          <p className="text-sm text-gray-500">Tap a circle to complete a habit, or a workout to log your sets.</p>
         </div>
         {/* View mode switcher */}
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
@@ -518,6 +826,8 @@ export default function Calendar() {
           {cells.map((d, i) => {
             const dKey = isoDate(d)
             const entries = calendar[dKey] ?? []
+            const wEntries = workoutCal[dKey] ?? []
+            const total = entries.length + wEntries.length
             const isToday = dKey === todayISO_
             return (
               <div key={i} className={`bg-white border rounded-xl p-3 ${
@@ -532,12 +842,16 @@ export default function Calendar() {
                       {MONTHS[d.getMonth()]} {d.getDate()}
                     </p>
                   </div>
-                  {entries.length > 0 && (
-                    <span className="text-[10px] font-bold text-gray-400">{entries.length} habit{entries.length === 1 ? '' : 's'}</span>
+                  {total > 0 && (
+                    <span className="text-[10px] font-bold text-gray-400">
+                      {entries.length > 0 && `${entries.length} habit${entries.length === 1 ? '' : 's'}`}
+                      {entries.length > 0 && wEntries.length > 0 && ' · '}
+                      {wEntries.length > 0 && `${wEntries.length} workout${wEntries.length === 1 ? '' : 's'}`}
+                    </span>
                   )}
                 </div>
-                {entries.length === 0 ? (
-                  <p className="text-xs text-gray-400 italic">No habits assigned</p>
+                {total === 0 ? (
+                  <p className="text-xs text-gray-400 italic">Nothing scheduled</p>
                 ) : (
                   <div className="space-y-1.5">
                     {entries.map((entry, j) => (
@@ -547,6 +861,14 @@ export default function Calendar() {
                         dateISO={dKey}
                         onComplete={handleComplete}
                         liveCurrent={isToday ? getProgressCurrent(entry.habit, todayLog, todayMeals) : null}
+                      />
+                    ))}
+                    {wEntries.map((wEntry, j) => (
+                      <WorkoutPill
+                        key={`w-${wEntry.assignment.id}-${j}`}
+                        entry={wEntry}
+                        dateISO={dKey}
+                        onOpen={openWorkout}
                       />
                     ))}
                   </div>
@@ -577,7 +899,9 @@ export default function Calendar() {
                     date={d}
                     inMonth={true}
                     entries={entries}
+                    workoutEntries={workoutCal[dKey] ?? []}
                     onComplete={handleComplete}
+                    onOpenWorkout={openWorkout}
                     isToday={dKey === todayISO_}
                     todayLog={dKey === todayISO_ ? todayLog : null}
                     todayMeals={dKey === todayISO_ ? todayMeals : null}
@@ -610,7 +934,9 @@ export default function Calendar() {
                     date={d}
                     inMonth={inMonth}
                     entries={entries}
+                    workoutEntries={workoutCal[dKey] ?? []}
                     onComplete={handleComplete}
+                    onOpenWorkout={openWorkout}
                     isToday={dKey === todayISO_}
                     todayLog={dKey === todayISO_ ? todayLog : null}
                     todayMeals={dKey === todayISO_ ? todayMeals : null}
@@ -623,7 +949,7 @@ export default function Calendar() {
       )}
 
       {loading && (
-        <p className="text-center text-xs text-gray-400 mt-3">Loading habits…</p>
+        <p className="text-center text-xs text-gray-400 mt-3">Loading…</p>
       )}
 
       {!loading && loadError && (
@@ -655,7 +981,24 @@ export default function Calendar() {
           <span className="w-4 h-4 rounded-full bg-emerald-500 inline-flex items-center justify-center text-white text-[10px] font-bold">✓</span>
           <span className="text-gray-500">Complete (80%+)</span>
         </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-4 h-4 rounded-md bg-indigo-100 border border-indigo-200 text-indigo-600 inline-flex items-center justify-center">
+            <DumbbellGlyph className="w-2.5 h-2.5" />
+          </span>
+          <span className="text-gray-500">Scheduled workout</span>
+        </span>
       </div>
+
+      {/* Workout detail modal */}
+      {activeWorkout && (
+        <WorkoutDetailModal
+          entry={activeWorkout.entry}
+          dateISO={activeWorkout.dateISO}
+          getToken={getToken}
+          onClose={() => setActiveWorkout(null)}
+          onSaved={handleWorkoutSaved}
+        />
+      )}
 
       {/* Toast */}
       {toast && (

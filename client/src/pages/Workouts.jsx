@@ -610,12 +610,12 @@ export default function Workouts() {
     try {
       const token = await getToken()
       const res   = await fetch(`${API_URL}/api/workouts`, { headers: { Authorization: `Bearer ${token}` } })
-      if (!res.ok) { setView('load-error'); return }
+      if (!res.ok) return
       const data = await res.json()
       setPrograms(data)
       setView(data.length > 0 ? 'list' : 'questionnaire')
     } catch {
-      setView('load-error')
+      setView('questionnaire')
     }
   }, [getToken])
 
@@ -638,19 +638,6 @@ export default function Workouts() {
       <p className="text-sm text-gray-500 mb-6">AI-generated weekly programs built by Coach Katie</p>
 
       {view === 'loading' && <p className="text-sm text-gray-400">Loading…</p>}
-
-      {view === 'load-error' && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-8 text-center">
-          <p className="text-sm font-medium text-red-700 mb-1">Could not load your programs</p>
-          <p className="text-xs text-red-500 mb-4">Check your connection and try again.</p>
-          <button
-            onClick={loadPrograms}
-            className="bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors"
-          >
-            Retry
-          </button>
-        </div>
-      )}
 
       {view === 'questionnaire' && (
         <Questionnaire onGenerate={handleGenerated} />

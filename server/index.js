@@ -21,6 +21,7 @@ import gamificationRouter from './routes/gamification.js'
 import healthAssessmentRouter from './routes/healthAssessment.js'
 import coachAdminRouter from './routes/coachAdmin.js'
 import clientHabitsRouter from './routes/clientHabits.js'
+import clientWorkoutsRouter from './routes/clientWorkouts.js'
 import messagesRouter from './routes/messages.js'
 import invitesRouter from './routes/invites.js'
 import weeklyCheckinsRouter from './routes/weeklyCheckins.js'
@@ -98,6 +99,7 @@ app.use('/api/gamification',      clerkMiddleware(), blockDeactivatedClients, ga
 app.use('/api/health-assessment', clerkMiddleware(), blockDeactivatedClients, healthAssessmentRouter)
 app.use('/api/coach-admin',       clerkMiddleware(), blockDeactivatedClients, coachAdminRouter)
 app.use('/api/client-habits',     clerkMiddleware(), blockDeactivatedClients, clientHabitsRouter)
+app.use('/api/client-workouts',   clerkMiddleware(), blockDeactivatedClients, clientWorkoutsRouter)
 app.use('/api/messages',          clerkMiddleware(), blockDeactivatedClients, messagesRouter)
 app.use('/api/client-invites',    clerkMiddleware(), blockDeactivatedClients, invitesRouter)
 app.use('/api/staff-invites',     clerkMiddleware(), blockDeactivatedClients, invitesRouter)
@@ -131,6 +133,7 @@ app.get('/api/admin/backup/status', clerkMiddleware(), blockDeactivatedClients, 
     res.status(500).json({ error: err.message })
   }
 })
+
 
 // Serve React client if dist exists — must come after all API routes
 const distPath = path.join(__dirname, '../client/dist')
@@ -170,6 +173,7 @@ migrate()
   .finally(() => {
     app.listen(PORT, () => {
       console.log(`WarriorFIT AI server running on http://localhost:${PORT}`)
+
       initPush()
       if (process.env.DISABLE_BACKGROUND_JOBS === 'true') {
         console.log('Background jobs disabled by DISABLE_BACKGROUND_JOBS=true')

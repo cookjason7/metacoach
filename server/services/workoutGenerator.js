@@ -62,16 +62,25 @@ export function shouldPreferBilateral({ injuries, healthAssessmentInjuries, forc
 // ── Exercise selection ───────────────────────────────────────────────────────
 
 const EQUIPMENT_MAP = {
+  // Coach "Generate with Katie" questionnaire (client/src/pages/admin/ClientProfile.jsx)
+  'Kettlebell':        ['kettlebells'],
+  'Dumbbells':         ['dumbbell'],
+  'Body Weight':       ['body only'],
+  'Barbell':           ['barbell'],
+  'Benches':           [], // no dedicated "bench" equipment tag in the library — contributes no filter on its own
+  'Cable Machine':     ['cable', 'machine'],
+  'Full Gym':          null, // no filter — everything available
+  'Resistance Bands':  ['bands'],
+  // Legacy client-facing questionnaire (client/src/pages/Workouts.jsx)
   'Bodyweight only':   ['body only'],
   'Resistance bands':  ['bands', 'body only'],
-  'Dumbbells':         ['dumbbell', 'body only'],
   'Barbell + Rack':    ['barbell', 'dumbbell', 'body only'],
-  'Full gym':          null, // no filter — everything available
+  'Full gym':          null,
 }
 
 function resolveEquipmentList(equipmentAnswers) {
   const list = Array.isArray(equipmentAnswers) ? equipmentAnswers : [equipmentAnswers].filter(Boolean)
-  if (!list.length || list.includes('Full gym')) return null
+  if (!list.length || list.includes('Full gym') || list.includes('Full Gym')) return null
   const set = new Set()
   for (const eq of list) {
     for (const mapped of EQUIPMENT_MAP[eq] ?? []) set.add(mapped)
@@ -202,8 +211,12 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
 
 // ── Prompt ───────────────────────────────────────────────────────────────────
 
+const SUPERSET_LABELS = { none: 'No supersets — standard workout', some: 'Some supersets — about 1 per workout', full: 'Full supersets — maximum intensity' }
+const CIRCUIT_LABELS  = { none: 'No circuits — standard format', some: 'Some circuits — about 1 per workout', full: 'Full circuits — multiple circuits' }
+
 function buildWorkoutPrompt(firstName, answers, daySkeletons) {
   const goals = Array.isArray(answers.goals) ? answers.goals.join(', ') : answers.goals
+  const equipment = Array.isArray(answers.equipment) ? answers.equipment.join(', ') : answers.equipment
   const skeletonText = daySkeletons.map(day => (
     `Day ${day.day_index + 1} (${day.day_focus}):\n` +
     day.slots.map(s => `  - [${s.slot_id}] "${s.name}"`).join('\n')
@@ -214,7 +227,10 @@ Create a personalized weekly workout program for ${firstName} based on their pro
 - Fitness goals: ${goals}
 - Training days per week: ${answers.days_per_week}
 - Session length: ${answers.session_length}
+- Available equipment: ${equipment || 'Full Gym'}
 - Fitness level: ${answers.fitness_level}
+- Supersets: ${SUPERSET_LABELS[answers.supersets] || 'No supersets — standard workout'}
+- Circuits: ${CIRCUIT_LABELS[answers.circuits] || 'No circuits — standard format'}
 - Injuries or limitations: ${answers.injuries || 'None'}
 
 The exercises for each day have already been selected from our exercise library by

@@ -4708,9 +4708,19 @@ const WO_GOALS = [
   { id: 'general_fitness', label: 'General Fitness'},
 ]
 const WO_SESSION_LENGTHS   = ['20 minutes', '30 minutes', '45 minutes', '60 minutes', '90 minutes']
-const WO_EQUIPMENT_OPTIONS = ['Bodyweight only','Resistance bands','Dumbbells','Barbell + Rack','Full gym']
+const WO_EQUIPMENT_OPTIONS = ['Kettlebell', 'Dumbbells', 'Body Weight', 'Barbell', 'Benches', 'Cable Machine', 'Full Gym', 'Resistance Bands']
 const WO_FITNESS_LEVELS    = ['Beginner', 'Intermediate', 'Advanced']
-const WO_EMPTY_FORM        = { goals: [], days_per_week: '4', session_length: '45 minutes', equipment: ['Full gym'], injuries: '', fitness_level: 'Intermediate' }
+const WO_SUPERSET_OPTIONS = [
+  { id: 'none', icon: '✕', title: 'No Supersets',   subtitle: 'Standard workout' },
+  { id: 'some', icon: '⚡', title: 'Some Supersets', subtitle: '1 per workout' },
+  { id: 'full', icon: '🔥', title: 'Full Supersets', subtitle: 'Maximum intensity' },
+]
+const WO_CIRCUIT_OPTIONS = [
+  { id: 'none', icon: '✕', title: 'No Circuits',   subtitle: 'Standard format' },
+  { id: 'some', icon: '🔄', title: 'Some Circuits', subtitle: '1 per workout' },
+  { id: 'full', icon: '🔥', title: 'Full Circuits', subtitle: 'Multiple circuits' },
+]
+const WO_EMPTY_FORM        = { goals: [], days_per_week: '4', session_length: '45 minutes', equipment: ['Full Gym'], injuries: '', fitness_level: 'Intermediate', supersets: '', circuits: '' }
 
 // Movement patterns for the exercise-library search filter (mirrors the DB CHECK constraint)
 const MOVEMENT_PATTERNS = [
@@ -4726,7 +4736,348 @@ const MOVEMENT_PATTERNS = [
   { id: 'mobility',         label: 'Mobility' },
 ]
 
-function WorkoutsTab({ clientId, getToken }) {
+// ── Workout-scheduling date helpers (YYYY-MM-DD, local, no TZ shifts) ─────────
+function schedIsoToday() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+function schedAddDays(iso, n) {
+  const d = new Date(iso + 'T00:00:00')
+  d.setDate(d.getDate() + n)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+function schedAddMonths(iso, n) {
+  const d = new Date(iso + 'T00:00:00')
+  d.setMonth(d.getMonth() + n)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+function schedDaysInclusive(startIso, endIso) {
+  const a = new Date(startIso + 'T00:00:00')
+  const b = new Date(endIso + 'T00:00:00')
+  return Math.round((b - a) / 86400000) + 1
+}
+function schedFmt(iso) {
+  if (!iso) return ''
+  return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+const WO_DURATION_TYPES = [
+  { id: 'weekly',  icon: '📅', title: 'Weekly Duration',     subtitle: 'Repeat for a set number of weeks' },
+  { id: 'monthly', icon: '🗓️', title: 'Monthly Duration',    subtitle: 'Repeat for a set number of months' },
+  { id: 'range',   icon: '📆', title: 'Specific Date Range',  subtitle: 'Pick exact start and end dates' },
+]
+
+// ── Modal: schedule a saved program's days onto the client's calendar ─────────
+function ScheduleWorkoutModal({ clientId, workout, dayLabels, getToken, onClose, onScheduled }) {
+  const BASE = `${API_URL}/api/coach-admin/clients/${clientId}`
+
+  const [step,          setStep]          = useState(1)
+  const [durationType,  setDurationType]  = useState('weekly')
+  const [weeks,         setWeeks]         = useState('4')
+  const [months,        setMonths]        = useState('1')
+  const [startDate,     setStartDate]     = useState(schedIsoToday())
+  const [rangeEnd,      setRangeEnd]      = useState(schedAddDays(schedIsoToday(), 27))
+  const [dayAssignments, setDayAssignments] = useState({})   // { [dayLabel]: number[] (0=Sun..6=Sat) }
+  const [existing,      setExisting]      = useState([])
+  const [loadingExisting, setLoadingExisting] = useState(true)
+  const [submitting,    setSubmitting]    = useState(false)
+  const [error,         setError]         = useState(null)
+
+  // Computed end date + duration from step-1 inputs
+  const endDate =
+    durationType === 'weekly'
+      ? (weeks  && parseInt(weeks, 10)  > 0 ? schedAddDays(startDate, parseInt(weeks, 10) * 7 - 1) : null)
+    : durationType === 'monthly'
+      ? (months && parseInt(months, 10) > 0 ? schedAddDays(schedAddMonths(startDate, parseInt(months, 10)), -1) : null)
+      : (rangeEnd || null)
+
+  const durationValid = !!(startDate && endDate && endDate >= startDate)
+  const durationDays  = durationValid ? schedDaysInclusive(startDate, endDate) : null
+
+  // Load existing scheduled programs for this client (deduped by assignment id)
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      setLoadingExisting(true)
+      try {
+        const token = await getToken()
+        const start = schedAddDays(schedIsoToday(), -30)
+        const end   = schedAddDays(schedIsoToday(), 365)
+        const res = await fetch(`${BASE}/workout-schedules/calendar?start=${start}&end=${end}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.ok) {
+          const data = await res.json()
+          const map = new Map()
+          for (const entries of Object.values(data.calendar ?? {})) {
+            for (const { assignment } of entries) {
+              if (assignment && !map.has(assignment.id)) map.set(assignment.id, assignment)
+            }
+          }
+          if (alive) setExisting([...map.values()])
+        }
+      } catch { /* best effort — existing list is informational */ }
+      finally { if (alive) setLoadingExisting(false) }
+    })()
+    return () => { alive = false }
+  }, [clientId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function toggleDow(dayLabel, dow) {
+    setDayAssignments(prev => {
+      const cur = prev[dayLabel] ?? []
+      const next = cur.includes(dow) ? cur.filter(x => x !== dow) : [...cur, dow]
+      return { ...prev, [dayLabel]: next.sort((a, b) => a - b) }
+    })
+  }
+
+  async function deleteExisting(assignmentId) {
+    if (!window.confirm('Cancel this scheduled program? It will be removed from the client’s calendar.')) return
+    try {
+      const token = await getToken()
+      const res = await fetch(`${BASE}/workout-schedules/${assignmentId}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) setExisting(prev => prev.filter(a => a.id !== assignmentId))
+    } catch { /* ignore — coach can retry */ }
+  }
+
+  async function submit() {
+    setError(null)
+    if (!durationValid) { setError('Set a valid program duration first.'); setStep(1); return }
+    const assignments = dayLabels
+      .filter(dl => (dayAssignments[dl] ?? []).length > 0)
+      .map(dl => ({
+        day_label:    dl,
+        frequency:    'specific_days',
+        days_of_week: (dayAssignments[dl] ?? []).slice().sort((a, b) => a - b).join(','),
+        start_date:   startDate,
+        end_date:     endDate,
+      }))
+    if (!assignments.length) {
+      setError('Pick at least one day of the week for at least one workout day.'); return
+    }
+    setSubmitting(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${BASE}/workouts/${workout.id}/schedule`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignments }),
+      })
+      if (!res.ok) {
+        const { error: msg } = await res.json().catch(() => ({}))
+        throw new Error(msg || `Server error ${res.status}`)
+      }
+      onScheduled(assignments.length)
+    } catch (err) {
+      setError(err.message)
+    } finally { setSubmitting(false) }
+  }
+
+  const dowBtn = (active) =>
+    `px-2.5 py-1.5 rounded-lg text-xs font-semibold border-2 transition-colors min-h-[36px] ${
+      active ? 'bg-[#E8670A] border-[#E8670A] text-white'
+             : 'border-gray-200 text-gray-600 hover:border-[#E8670A] bg-white'
+    }`
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
+      onClick={onClose}>
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[92vh] flex flex-col overflow-hidden shadow-xl"
+        onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
+          <div className="min-w-0">
+            <p className="text-[11px] text-gray-400 truncate">Schedule Program</p>
+            <p className="text-sm font-semibold text-gray-900 truncate">{workout.name}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1.5 leading-none shrink-0 text-lg">✕</button>
+        </div>
+
+        {/* Step indicator */}
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-100 shrink-0">
+          {[1, 2].map(s => (
+            <div key={s} className="flex items-center gap-2">
+              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${
+                step === s ? 'bg-[#E8670A] text-white' : step > s ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-400'
+              }`}>{step > s ? '✓' : s}</span>
+              <span className={`text-xs font-medium ${step === s ? 'text-gray-900' : 'text-gray-400'}`}>
+                {s === 1 ? 'Set Duration' : 'Schedule Days'}
+              </span>
+              {s === 1 && <span className="text-gray-300 mx-1">›</span>}
+            </div>
+          ))}
+        </div>
+
+        {/* Body */}
+        <div className="overflow-y-auto flex-1 p-4 space-y-5">
+          {step === 1 && (
+            <>
+              <div>
+                <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Program Duration Type</p>
+                <div className="space-y-2">
+                  {WO_DURATION_TYPES.map(dt => {
+                    const active = durationType === dt.id
+                    return (
+                      <button key={dt.id} type="button" onClick={() => setDurationType(dt.id)}
+                        className={`w-full text-left flex items-center gap-3 rounded-xl border-2 p-3 transition-all ${
+                          active ? 'border-[#E8670A] bg-orange-50' : 'border-gray-200 hover:border-[#E8670A]/50 bg-white'
+                        }`}>
+                        <span className="text-2xl shrink-0">{dt.icon}</span>
+                        <span className="min-w-0">
+                          <span className={`block text-sm font-semibold ${active ? 'text-[#E8670A]' : 'text-gray-800'}`}>{dt.title}</span>
+                          <span className="block text-xs text-gray-500">{dt.subtitle}</span>
+                        </span>
+                        <span className={`ml-auto shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                          active ? 'border-[#E8670A] bg-[#E8670A]' : 'border-gray-300'
+                        }`}>{active && <span className="w-2 h-2 rounded-full bg-white" />}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {durationType === 'weekly' && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Duration (weeks)</label>
+                  <input type="number" min="1" value={weeks} onChange={e => setWeeks(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30" />
+                </div>
+              )}
+              {durationType === 'monthly' && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Duration (months)</label>
+                  <input type="number" min="1" value={months} onChange={e => setMonths(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30" />
+                </div>
+              )}
+
+              <div className={`grid gap-2 ${durationType === 'range' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Start date</label>
+                  <input type="date" value={startDate} min={schedIsoToday()}
+                    onChange={e => setStartDate(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                </div>
+                {durationType === 'range' && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">End date</label>
+                    <input type="date" value={rangeEnd} min={startDate}
+                      onChange={e => setRangeEnd(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                )}
+              </div>
+
+              {durationValid ? (
+                <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2.5">
+                  <p className="text-sm font-semibold text-gray-800">Program duration: {durationDays} days</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{schedFmt(startDate)} → {schedFmt(endDate)}</p>
+                </div>
+              ) : (
+                <p className="text-xs text-amber-600">Enter a valid duration to continue.</p>
+              )}
+            </>
+          )}
+
+          {step === 2 && (
+            <>
+              <div>
+                <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-1">Schedule each workout day</p>
+                <p className="text-xs text-gray-500 mb-3">
+                  Pick which day(s) of the week each workout repeats on, between{' '}
+                  <span className="font-medium text-gray-700">{schedFmt(startDate)}</span> and{' '}
+                  <span className="font-medium text-gray-700">{schedFmt(endDate)}</span>.
+                </p>
+                <div className="space-y-3">
+                  {dayLabels.map(dl => (
+                    <div key={dl} className="rounded-xl border border-gray-200 p-3">
+                      <p className="text-sm font-semibold text-gray-800 mb-2">{dl}</p>
+                      <div className="flex gap-1.5 flex-wrap">
+                        {DAYS.map((d, i) => {
+                          const active = (dayAssignments[dl] ?? []).includes(i)
+                          return (
+                            <button key={d} type="button" onClick={() => toggleDow(dl, i)}
+                              className={dowBtn(active)}>{d}</button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Existing scheduled programs */}
+              <div>
+                <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">Existing schedules for this client</p>
+                {loadingExisting ? (
+                  <p className="text-xs text-gray-400">Loading…</p>
+                ) : existing.length === 0 ? (
+                  <p className="text-xs text-gray-400">No scheduled programs yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {existing.map(a => (
+                      <div key={a.id} className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-gray-800 truncate">
+                            {a.workout_name} · {a.day_label}
+                          </p>
+                          <p className="text-[11px] text-gray-500 truncate">
+                            {a.days_of_week
+                              ? a.days_of_week.split(',').map(n => DAYS[Number(n)]).join(', ')
+                              : a.frequency}
+                            {' · '}{schedFmt(a.start_date)}{a.end_date ? ` → ${schedFmt(a.end_date)}` : ''}
+                          </p>
+                        </div>
+                        <button onClick={() => deleteExisting(a.id)}
+                          title="Cancel this schedule"
+                          className="shrink-0 text-gray-300 hover:text-red-500 transition-colors p-1.5 leading-none">🗑</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {error && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-gray-100 shrink-0">
+          {step === 1 ? (
+            <button onClick={onClose}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors">
+              Cancel
+            </button>
+          ) : (
+            <button onClick={() => { setStep(1); setError(null) }}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
+              ‹ Back
+            </button>
+          )}
+          {step === 1 ? (
+            <button onClick={() => { setError(null); setStep(2) }} disabled={!durationValid}
+              className="bg-[#E8670A] text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
+              Next ›
+            </button>
+          ) : (
+            <button onClick={submit} disabled={submitting}
+              className="bg-[#E8670A] text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors flex items-center gap-2">
+              {submitting
+                ? <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />Scheduling…</>
+                : 'Schedule Workouts'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function WorkoutsTab({ clientId, clientFirstName, getToken }) {
   const BASE = `${API_URL}/api/coach-admin/clients/${clientId}/workouts`
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -4796,6 +5147,10 @@ function WorkoutsTab({ clientId, getToken }) {
 
   const [error, setError] = useState(null)
 
+  // Scheduling modal
+  const [scheduling,      setScheduling]      = useState(false)
+  const [scheduleSuccess, setScheduleSuccess] = useState(null)
+
   // ── Load list ──────────────────────────────────────────────────────────────
   async function loadWorkouts() {
     setLoading(true)
@@ -4830,6 +5185,8 @@ function WorkoutsTab({ clientId, getToken }) {
   async function generatePlan(e) {
     e.preventDefault()
     if (!genForm.goals.length) { setGenError('Select at least one goal.'); return }
+    if (!genForm.supersets) { setGenError('Select a superset preference.'); return }
+    if (!genForm.circuits) { setGenError('Select a circuit preference.'); return }
     setGenerating(true); setGenError(null)
     try {
       const token = await getToken()
@@ -5266,6 +5623,46 @@ function WorkoutsTab({ clientId, getToken }) {
             </div>
           </div>
           <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Would {clientFirstName || 'your client'} like to include supersets for added intensity? <span className="text-red-400">*</span>
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {WO_SUPERSET_OPTIONS.map(opt => {
+                const active = genForm.supersets === opt.id
+                return (
+                  <button key={opt.id} type="button" onClick={() => setGenForm(f => ({ ...f, supersets: opt.id }))}
+                    className={`flex flex-col items-center text-center gap-1 rounded-xl border-2 p-3 transition-all ${
+                      active ? 'border-[#E8670A] bg-orange-50' : 'border-gray-200 hover:border-[#E8670A]/50 bg-white'
+                    }`}>
+                    <span className="text-xl">{opt.icon}</span>
+                    <span className={`text-xs font-semibold ${active ? 'text-[#E8670A]' : 'text-gray-800'}`}>{opt.title}</span>
+                    <span className="text-[11px] text-gray-500">{opt.subtitle}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Would {clientFirstName || 'your client'} like to include circuits (3+ exercises in a row)? <span className="text-red-400">*</span>
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {WO_CIRCUIT_OPTIONS.map(opt => {
+                const active = genForm.circuits === opt.id
+                return (
+                  <button key={opt.id} type="button" onClick={() => setGenForm(f => ({ ...f, circuits: opt.id }))}
+                    className={`flex flex-col items-center text-center gap-1 rounded-xl border-2 p-3 transition-all ${
+                      active ? 'border-[#E8670A] bg-orange-50' : 'border-gray-200 hover:border-[#E8670A]/50 bg-white'
+                    }`}>
+                    <span className="text-xl">{opt.icon}</span>
+                    <span className={`text-xs font-semibold ${active ? 'text-[#E8670A]' : 'text-gray-800'}`}>{opt.title}</span>
+                    <span className="text-[11px] text-gray-500">{opt.subtitle}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">
               Injuries or limitations <span className="text-gray-400 font-normal">(optional)</span>
             </label>
@@ -5273,7 +5670,7 @@ function WorkoutsTab({ clientId, getToken }) {
               placeholder="e.g. Bad left knee, lower back pain" className={inputCls} />
           </div>
           {genError && <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">{genError}</div>}
-          <button type="submit" disabled={generating || !genForm.goals.length}
+          <button type="submit" disabled={generating || !genForm.goals.length || !genForm.supersets || !genForm.circuits}
             className="w-full bg-[#E8670A] text-white py-3 rounded-xl text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
             {generating
               ? <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />Katie is building the program…</>
@@ -5411,6 +5808,14 @@ function WorkoutsTab({ clientId, getToken }) {
                 {assigningDraft ? 'Assigning…' : 'Assign to Client'}
               </button>
             )}
+            {Object.keys(days).length > 0 && (
+              <button
+                onClick={() => setScheduling(true)}
+                className="bg-[#0F1E35] text-white px-3 py-2 rounded-lg text-xs font-semibold hover:bg-[#1b2f52] transition-colors min-h-[36px] flex items-center gap-1"
+              >
+                📅 Schedule
+              </button>
+            )}
             <button
               onClick={() => setShowAddEx(a => !a)}
               className="bg-[#E8670A] text-white px-3 py-2 rounded-lg text-xs font-semibold hover:bg-[#c45e09] transition-colors min-h-[36px]"
@@ -5428,6 +5833,28 @@ function WorkoutsTab({ clientId, getToken }) {
       </div>
       {error && (
         <p className="text-xs text-red-500 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
+      )}
+      {scheduleSuccess && (
+        <div className="flex items-start justify-between gap-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+          <span className="flex items-center gap-1.5"><span>✓</span>{scheduleSuccess}</span>
+          <button onClick={() => setScheduleSuccess(null)} className="text-green-500 hover:text-green-700 leading-none shrink-0">✕</button>
+        </div>
+      )}
+
+      {/* Schedule modal */}
+      {scheduling && (
+        <ScheduleWorkoutModal
+          clientId={clientId}
+          workout={selected}
+          dayLabels={Object.keys(days)}
+          getToken={getToken}
+          onClose={() => setScheduling(false)}
+          onScheduled={(count) => {
+            setScheduling(false)
+            setScheduleSuccess(`Scheduled ${count} workout day${count !== 1 ? 's' : ''} onto the client's calendar.`)
+            setTimeout(() => setScheduleSuccess(null), 6000)
+          }}
+        />
       )}
 
       {/* Add exercise form */}
@@ -5839,7 +6266,7 @@ export default function ClientProfile() {
       {tab === 'messaging'  && <MessagingTab   client={client} role={meRole} meId={meId} getToken={getToken} />}
       {tab === 'engagement' && <EngagementTab  clientId={client.id} getToken={getToken} />}
       {tab === 'bloodwork'  && <BloodworkTab   clientId={client.id} getToken={getToken} bloodworkEnabled={client.bloodwork_enabled ?? false} onClientUpdate={u => setClient(c => ({ ...c, ...u }))} client={client} />}
-      {tab === 'workouts'   && <WorkoutsTab    clientId={client.id} getToken={getToken} />}
+      {tab === 'workouts'   && <WorkoutsTab    clientId={client.id} clientFirstName={client.display_first_name || client.first_name} getToken={getToken} />}
     </div>
   )
 }

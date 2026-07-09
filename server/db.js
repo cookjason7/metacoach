@@ -434,6 +434,60 @@ export async function migrate() {
   // dropped on save; now persisted per exercise row alongside its day.
   await pool.query(`ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS day_focus TEXT`)
 
+  // ── Workout scheduling ───────────────────────────────────────────────────────
+  // Mirrors the coach_assigned_habits / habit_completions pattern, but assigns a
+  // saved workout program's individual "day" onto the client's calendar. One row
+  // per (workout_id, day_label): a 3-day program yields 3 independently-schedulable
+  // rows, each with its own weekday cadence. day_label matches a distinct
+  // workout_exercises.day value for that workout_id.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS coach_assigned_workouts (
+      id                  SERIAL PRIMARY KEY,
+      user_id             INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      assigned_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      workout_id          INTEGER NOT NULL REFERENCES workouts(id) ON DELETE CASCADE,
+      day_label           TEXT NOT NULL,                       -- matches a workout_exercises.day value
+      frequency           TEXT NOT NULL DEFAULT 'weekly',      -- 'daily' | 'weekly' | 'specific_days'
+      start_date          DATE NOT NULL,
+      end_date            DATE,
+      days_of_week        TEXT,                                -- comma-separated 0-6 (Sun=0)
+      active              BOOLEAN DEFAULT TRUE,
+      created_at          TIMESTAMPTZ DEFAULT NOW(),
+      updated_at          TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_assigned_workouts_user_date ON coach_assigned_workouts (user_id, start_date)`)
+
+  // workout_logs gains per-calendar-slot linkage, mirroring habit_completions:
+  //   scheduled_date — the calendar date this log satisfies
+  //   assignment_id  — the coach_assigned_workouts row it belongs to (nullable so
+  //                    pre-existing ad-hoc logs, which have neither, still work)
+  await pool.query(`ALTER TABLE workout_logs ADD COLUMN IF NOT EXISTS scheduled_date DATE`)
+  await pool.query(`ALTER TABLE workout_logs ADD COLUMN IF NOT EXISTS assignment_id INTEGER REFERENCES coach_assigned_workouts(id) ON DELETE SET NULL`)
+  // One log per (assignment, calendar date) — mirrors habit_completions'
+  // UNIQUE(habit_id, completion_date). A unique INDEX (not a table constraint) so
+  // it's idempotent via IF NOT EXISTS. NULLs are distinct in Postgres, so legacy
+  // rows with NULL assignment_id/scheduled_date are unaffected, and the index still
+  // backs ON CONFLICT (assignment_id, scheduled_date) upserts.
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS workout_logs_assignment_date_uq
+      ON workout_logs (assignment_id, scheduled_date)
+  `)
+
+  // Per-set actuals for a workout log (actual reps/weight vs the exercise's target).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS workout_set_logs (
+      id                  SERIAL PRIMARY KEY,
+      workout_log_id      INTEGER NOT NULL REFERENCES workout_logs(id) ON DELETE CASCADE,
+      workout_exercise_id INTEGER REFERENCES workout_exercises(id) ON DELETE SET NULL,
+      set_number          INTEGER,
+      actual_reps         TEXT,
+      actual_weight       TEXT,
+      created_at          TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_workout_set_logs_log ON workout_set_logs (workout_log_id)`)
+
   // ── Custom foods ─────────────────────────────────────────────────────────────
   await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS sugar NUMERIC(6,1)`)
   await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS log_date DATE`)

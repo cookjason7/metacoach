@@ -3276,7 +3276,7 @@ router.post('/clients/:id/workouts/generate', requireAuth(), async (req, res, ne
     if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
 
     const answers = req.body
-    if (!answers.goals || !answers.days_per_week || !answers.fitness_level) {
+    if (!answers.goals || !answers.days_per_week || !answers.fitness_level || !answers.supersets || !answers.circuits) {
       return res.status(400).json({ error: 'Missing required fields' })
     }
 
@@ -3438,6 +3438,218 @@ router.delete('/clients/:id/workouts/:wid', requireAuth(), async (req, res, next
     const { rowCount } = await pool.query(
       'DELETE FROM workouts WHERE id=$1 AND user_id=$2', [workoutId, clientId])
     if (!rowCount) return res.status(404).json({ error: 'Workout not found' })
+    res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
+// ─── Workout scheduling ─────────────────────────────────────────────────────────
+// Assign a saved workout program's days onto a client's calendar. Mirrors the
+// habit-assignment routes. NOTE: edit/list/delete live under /workout-schedules
+// (not /workouts/:id) to avoid colliding with the existing GET/PUT/DELETE
+// /clients/:id/workouts/:wid program routes — the requested
+// DELETE /clients/:id/workouts/:assignmentId would be an identical pattern to the
+// program-delete route and could never be reached.
+
+// pg returns DATE as a JS Date in server-local TZ. Use local components — never
+// toISOString(), which can shift the day. Shared by the schedule routes below.
+function scheduleISODate(v) {
+  if (v == null) return null
+  if (typeof v === 'string') return v.slice(0, 10)
+  if (v instanceof Date) {
+    const y = v.getFullYear()
+    const m = String(v.getMonth() + 1).padStart(2, '0')
+    const d = String(v.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }
+  return String(v).slice(0, 10)
+}
+
+const VALID_WORKOUT_FREQ = ['daily', 'weekly', 'specific_days']
+
+// Expand coach_assigned_workouts rows into per-day calendar instances over the
+// [startDate, endDate] window, honouring frequency/days_of_week/start/end. Mirrors
+// the habit expandCalendar logic. Returns { 'YYYY-MM-DD': [{ assignment, log }] }.
+function expandWorkoutCalendar(schedules, logs, startDate, endDate) {
+  const logMap = {}  // { assignment_id: { date: log } }
+  for (const l of logs) {
+    const dateKey = scheduleISODate(l.scheduled_date)
+    if (!logMap[l.assignment_id]) logMap[l.assignment_id] = {}
+    logMap[l.assignment_id][dateKey] = l
+  }
+
+  const calendar = {}
+  const winStart = new Date(`${startDate}T00:00:00`)
+  const winEnd   = new Date(`${endDate}T00:00:00`)
+  for (const s of schedules) {
+    const sStartISO = scheduleISODate(s.start_date)
+    const sEndISO   = scheduleISODate(s.end_date)
+    const sStart = new Date(`${sStartISO}T00:00:00`)
+    const sEnd   = sEndISO ? new Date(`${sEndISO}T00:00:00`) : winEnd
+    const allowed = s.days_of_week
+      ? s.days_of_week.split(',').map(x => parseInt(x, 10)).filter(n => !Number.isNaN(n))
+      : null
+
+    const iterStart = new Date(Math.max(winStart.getTime(), sStart.getTime()))
+    const iterEnd   = new Date(Math.min(winEnd.getTime(), sEnd.getTime()))
+    for (let d = new Date(iterStart); d <= iterEnd; d.setDate(d.getDate() + 1)) {
+      if (s.frequency === 'specific_days' && allowed && !allowed.includes(d.getDay())) continue
+      if (s.frequency === 'weekly' && d.getDay() !== sStart.getDay()) continue
+      const key = scheduleISODate(d)
+      if (!calendar[key]) calendar[key] = []
+      calendar[key].push({
+        assignment: { ...s, start_date: sStartISO, end_date: sEndISO },
+        log: logMap[s.id]?.[key] ?? null,
+      })
+    }
+  }
+  return calendar
+}
+
+// POST /api/coach-admin/clients/:id/workouts/:workoutId/schedule
+// body: { assignments: [{ day_label, frequency, start_date, end_date, days_of_week }] }
+// Creates one coach_assigned_workouts row per assignment.
+router.post('/clients/:id/workouts/:workoutId/schedule', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId  = parseInt(req.params.id, 10)
+    const workoutId = parseInt(req.params.workoutId, 10)
+    if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
+
+    // Workout must exist and belong to this client
+    const { rows: [w] } = await pool.query(
+      'SELECT id FROM workouts WHERE id=$1 AND user_id=$2', [workoutId, clientId])
+    if (!w) return res.status(404).json({ error: 'Workout not found' })
+
+    const { assignments } = req.body
+    if (!Array.isArray(assignments) || !assignments.length) {
+      return res.status(400).json({ error: 'assignments array required' })
+    }
+
+    // Valid day_labels = the distinct workout_exercises.day values for this workout
+    const { rows: dayRows } = await pool.query(
+      'SELECT DISTINCT day FROM workout_exercises WHERE workout_id=$1', [workoutId])
+    const validDays = new Set(dayRows.map(r => r.day))
+
+    for (const a of assignments) {
+      if (!a.day_label || !validDays.has(a.day_label)) {
+        return res.status(400).json({ error: `Invalid day_label: ${a.day_label}` })
+      }
+      if (!a.start_date) return res.status(400).json({ error: 'start_date required for each assignment' })
+      if (a.frequency && !VALID_WORKOUT_FREQ.includes(a.frequency)) {
+        return res.status(400).json({ error: `Invalid frequency: ${a.frequency}` })
+      }
+    }
+
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      const created = []
+      for (const a of assignments) {
+        const { rows } = await client.query(`
+          INSERT INTO coach_assigned_workouts
+            (user_id, assigned_by_user_id, workout_id, day_label,
+             frequency, start_date, end_date, days_of_week)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+          RETURNING *
+        `, [
+          clientId, ctx.dbUserId, workoutId, a.day_label,
+          a.frequency ?? 'weekly', a.start_date, a.end_date ?? null,
+          a.days_of_week ?? null,
+        ])
+        created.push(rows[0])
+      }
+      await client.query('COMMIT')
+      res.status(201).json({ assignments: created })
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
+  } catch (err) { next(err) }
+})
+
+// GET /api/coach-admin/clients/:id/workout-schedules/calendar?start=...&end=...
+// Expand scheduled workouts into per-day instances, same shape as the habits
+// calendar route: { start, end, calendar: { 'YYYY-MM-DD': [{ assignment, log }] } }
+router.get('/clients/:id/workout-schedules/calendar', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+
+    const startDate = req.query.start ?? new Date().toISOString().slice(0, 10)
+    const endDate   = req.query.end   ?? new Date(Date.now() + 30 * 86400_000).toISOString().slice(0, 10)
+
+    const { rows: schedules } = await pool.query(`
+      SELECT s.*, w.name AS workout_name
+      FROM coach_assigned_workouts s
+      JOIN workouts w ON w.id = s.workout_id
+      WHERE s.user_id = $1 AND s.active = TRUE
+        AND s.start_date <= $3::date
+        AND (s.end_date IS NULL OR s.end_date >= $2::date)
+    `, [id, startDate, endDate])
+
+    const { rows: logs } = await pool.query(`
+      SELECT id, assignment_id, scheduled_date, notes, completed_at
+      FROM workout_logs
+      WHERE user_id = $1 AND assignment_id IS NOT NULL
+        AND scheduled_date BETWEEN $2::date AND $3::date
+    `, [id, startDate, endDate])
+
+    res.json({ start: startDate, end: endDate, calendar: expandWorkoutCalendar(schedules, logs, startDate, endDate) })
+  } catch (err) { next(err) }
+})
+
+// PATCH /api/coach-admin/clients/:id/workout-schedules/:assignmentId — edit a schedule
+router.patch('/clients/:id/workout-schedules/:assignmentId', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId     = parseInt(req.params.id, 10)
+    const assignmentId = parseInt(req.params.assignmentId, 10)
+    if (!await canAccessClient(ctx, clientId)) return res.status(403).json({ error: 'Forbidden' })
+
+    const { rows: aRows } = await pool.query(
+      'SELECT user_id FROM coach_assigned_workouts WHERE id = $1', [assignmentId])
+    if (!aRows.length || aRows[0].user_id !== clientId) {
+      return res.status(404).json({ error: 'Schedule not found' })
+    }
+
+    const { frequency, start_date, end_date, days_of_week, day_label, active } = req.body
+    if (frequency && !VALID_WORKOUT_FREQ.includes(frequency)) {
+      return res.status(400).json({ error: `Invalid frequency: ${frequency}` })
+    }
+
+    const { rows } = await pool.query(`
+      UPDATE coach_assigned_workouts SET
+        frequency    = COALESCE($1, frequency),
+        start_date   = COALESCE($2, start_date),
+        end_date     = $3,
+        days_of_week = COALESCE($4, days_of_week),
+        day_label    = COALESCE($5, day_label),
+        active       = COALESCE($6, active),
+        updated_at   = NOW()
+      WHERE id = $7 RETURNING *
+    `, [
+      frequency ?? null, start_date ?? null, end_date ?? null,
+      days_of_week ?? null, day_label ?? null, active ?? null,
+      assignmentId,
+    ])
+    res.json(rows[0])
+  } catch (err) { next(err) }
+})
+
+// DELETE /api/coach-admin/clients/:id/workout-schedules/:assignmentId — remove a schedule
+router.delete('/clients/:id/workout-schedules/:assignmentId', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId     = parseInt(req.params.id, 10)
+    const assignmentId = parseInt(req.params.assignmentId, 10)
+    if (!await canAccessClient(ctx, clientId)) return res.status(403).json({ error: 'Forbidden' })
+
+    const { rowCount } = await pool.query(
+      'DELETE FROM coach_assigned_workouts WHERE id = $1 AND user_id = $2', [assignmentId, clientId])
+    if (!rowCount) return res.status(404).json({ error: 'Schedule not found' })
     res.json({ ok: true })
   } catch (err) { next(err) }
 })
