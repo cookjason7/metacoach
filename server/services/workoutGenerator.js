@@ -25,6 +25,16 @@ import Anthropic from '@anthropic-ai/sdk'
 
 const anthropic = new Anthropic()
 
+/** Thrown when the exercise library can't support the requested plan — surfaced to
+ * the API as an explicit error response instead of silently returning a broken plan. */
+export class ExerciseLibraryError extends Error {
+  constructor(message) {
+    super(message)
+    this.name = 'ExerciseLibraryError'
+    this.status = 503
+  }
+}
+
 // ── Day template ─────────────────────────────────────────────────────────────
 // Core quota every training day gets, plus one bonus slot on longer sessions.
 const BASE_QUOTA  = ['squat', 'hinge', 'upper_push', 'upper_pull', 'core']
@@ -125,18 +135,50 @@ function slotToPattern(slot, preferBilateral) {
   return slot // upper_push, upper_pull, core, carry, conditioning map 1:1
 }
 
+/** Every distinct movement_pattern the day templates will actually query for this plan. */
+function getRequiredPatterns(daysPerWeek, sessionLength, preferBilateral) {
+  const patterns = new Set()
+  for (let d = 0; d < daysPerWeek; d++) {
+    for (const slot of buildDayQuota(d, sessionLength)) patterns.add(slotToPattern(slot, preferBilateral))
+  }
+  return [...patterns]
+}
+
+/** Pre-generation sanity check: fail loudly and early if the library can't back
+ * the requested plan, instead of silently producing a warmup/cooldown-only plan. */
+async function assertLibraryHasRequiredPatterns(pool, requiredPatterns) {
+  const { rows } = await pool.query(
+    `SELECT movement_pattern, COUNT(*)::int AS count FROM exercises WHERE movement_pattern = ANY($1) GROUP BY movement_pattern`,
+    [requiredPatterns],
+  )
+  const counts = new Map(rows.map(r => [r.movement_pattern, r.count]))
+  const missing = requiredPatterns.filter(p => !counts.get(p))
+  if (missing.length) {
+    const msg = `Exercise library has zero exercises for required movement pattern(s): ${missing.join(', ')}. Cannot generate a categorized workout — is the exercises table seeded on this database?`
+    console.error(`[workoutGenerator] ${msg}`)
+    throw new ExerciseLibraryError(msg)
+  }
+}
+
 /** Builds the per-day exercise skeleton (deterministic DB picks, no AI involved yet). */
 async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentList, difficulty, preferBilateral }) {
   const usedIds = []
   const days = []
+  let totalFilled = 0
   for (let d = 0; d < daysPerWeek; d++) {
     const quota = buildDayQuota(d, sessionLength)
     const slots = []
     for (const slot of quota) {
       const pattern = slotToPattern(slot, preferBilateral)
       const exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds })
-      if (!exercise) continue // library has nothing for this pattern; skip slot rather than fail the whole plan
+      if (!exercise) {
+        console.error(
+          `[workoutGenerator] No exercise found for slot: pattern=${pattern} equipment=${JSON.stringify(equipmentList)} difficulty=${difficulty ?? 'any'} (day ${d + 1}) — skipping slot`,
+        )
+        continue // library has nothing matching this exact slot; skip it rather than fail the whole plan
+      }
       usedIds.push(exercise.id)
+      totalFilled++
       slots.push({
         slot_id: `d${d}-${slots.length}`,
         exercise_id: exercise.id,
@@ -149,6 +191,11 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
       slots,
       day_focus: [...new Set(slots.map(s => PATTERN_LABELS[s.movement_pattern] ?? s.movement_pattern))].join(' • '),
     })
+  }
+  if (totalFilled === 0) {
+    const msg = 'Zero exercise slots were filled across the entire plan — refusing to return a warmup/cooldown-only workout.'
+    console.error(`[workoutGenerator] ${msg}`)
+    throw new ExerciseLibraryError(msg)
   }
   return days
 }
@@ -267,6 +314,9 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
     healthAssessmentInjuries: opts.healthAssessmentInjuries,
     forceBilateral: opts.forceBilateral,
   })
+
+  const requiredPatterns = getRequiredPatterns(answers.days_per_week, answers.session_length, preferBilateral)
+  await assertLibraryHasRequiredPatterns(pool, requiredPatterns)
 
   const daySkeletons = await buildDaySkeletons(pool, {
     daysPerWeek: answers.days_per_week,
