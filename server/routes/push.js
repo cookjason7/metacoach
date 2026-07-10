@@ -10,6 +10,12 @@ const router = Router()
 const appLoadEvents = []
 const APP_LOAD_MAX = 25
 
+// In-memory ring buffer of the last 100 push-registration step events (native-detected,
+// bridge-ready-timeout, permission, register-called, etc. — see sendDebug() in Layout.jsx).
+// Stores the internal numeric user id only, never a token/email/name.
+const pushDebugEvents = []
+const PUSH_DEBUG_MAX = 100
+
 // POST /api/push/app-load-debug — unauthenticated ping fired on every app mount.
 // Proves whether the Android WebView is running the current production bundle at all.
 router.post('/app-load-debug', (req, res) => {
@@ -81,8 +87,24 @@ router.post('/debug', requireAuth(), async (req, res, next) => {
     } else {
       console.log(`[push-debug] user=${dbUserId} step=${safeStep}`)
     }
+
+    pushDebugEvents.push({
+      receivedAt: new Date().toISOString(),
+      user:       dbUserId,
+      step:       safeStep,
+      ...(safeValue !== undefined ? { value: safeValue } : {}),
+    })
+    if (pushDebugEvents.length > PUSH_DEBUG_MAX) pushDebugEvents.shift()
+
     res.status(204).end()
   } catch (err) { next(err) }
+})
+
+// GET /api/push/debug/recent — returns last 100 stored push-registration step events.
+// TEMPORARY: unauthenticated, same as /app-load-debug/recent — contains no tokens,
+// emails, or names, only internal numeric user ids. Remove once push debugging is complete.
+router.get('/debug/recent', (req, res) => {
+  res.json({ ok: true, count: pushDebugEvents.length, events: [...pushDebugEvents].reverse() })
 })
 
 // POST /api/push/unregister — remove a device token for the authenticated user
