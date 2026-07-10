@@ -355,26 +355,52 @@ export default function Layout() {
   // confirms readiness avoids the race entirely.
   const pushTokenRef = useRef(null)
   useEffect(() => {
+    // Fire-and-forget diagnostic ping — never includes the FCM token value.
+    // Every failure mode is logged to console rather than swallowed: a fetch()
+    // call resolving with a non-ok status (e.g. a 401 from an expired/missing
+    // Clerk token) does NOT throw, so a bare `catch {}` here would silently
+    // discard exactly the failures most worth knowing about.
+    const sendDebug = async (step, value) => {
+      const body = { step }
+      if (value !== undefined) body.value = String(value)
+
+      let clerkToken
+      try {
+        clerkToken = await getToken()
+      } catch (tokenErr) {
+        console.warn('[push] sendDebug getToken() failed — step not reported', step, String(tokenErr?.message ?? tokenErr))
+        return
+      }
+      if (!clerkToken) {
+        console.warn('[push] sendDebug has no Clerk token yet — step not reported', step)
+        return
+      }
+
+      try {
+        const res = await fetch(`${API_URL}/api/push/debug`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${clerkToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        if (!res.ok) {
+          console.warn('[push] sendDebug POST not ok', { step, status: res.status })
+        }
+      } catch (err) {
+        console.warn('[push] sendDebug fetch failed', { step, error: String(err?.message ?? err) })
+      }
+    }
+
+    // Unconditional — fires on every run of this effect, before the isLoaded/user
+    // gate below, so we can tell "effect never ran" apart from "effect ran but
+    // bailed because auth wasn't ready yet."
+    sendDebug('push-effect-start', `platform=${Capacitor.getPlatform()} isLoaded=${isLoaded} hasUser=${!!user}`)
+
     if (!isLoaded || !user) return
 
     let cancelled = false
     let regListener = null
     let errListener = null
     let platform = null // set once the plugin is confirmed available, below
-
-    // Fire-and-forget diagnostic ping — never includes the FCM token value
-    const sendDebug = async (step, value) => {
-      try {
-        const clerkToken = await getToken()
-        const body = { step }
-        if (value !== undefined) body.value = String(value)
-        await fetch(`${API_URL}/api/push/debug`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${clerkToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        })
-      } catch {}
-    }
 
     // Poll the live Capacitor bridge state rather than trusting a one-shot
     // check — isPluginAvailable() re-reads window.Capacitor.PluginHeaders on
@@ -463,14 +489,18 @@ export default function Layout() {
       if (cancelled) return
 
       if (!pluginReady) {
+        // Always log the timeout, regardless of what platform is detected —
+        // a false 'web' reading on a real native device is exactly the kind
+        // of thing this is meant to catch, not silently swallow.
         const platformNow = Capacitor.getPlatform()
+        sendDebug('bridge-ready-timeout', `platform=${platformNow}`)
+
         if (platformNow === 'web') {
           // Expected — plain browser tab, not the native app. No push support here.
           return
         }
         // Native platform, but the bridge never confirmed the plugin — worth tracing.
         console.warn('[push] native bridge never became ready — push unavailable this session')
-        sendDebug('bridge-ready-timeout', `platform=${platformNow}`)
         return
       }
 
