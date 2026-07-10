@@ -1431,12 +1431,13 @@ function habitActiveOnDay(h, date) {
   return true
 }
 
-// Build a full-month grid for the coach calendar preview (habits + scheduled workouts)
-function buildMonthCalendar(habits, workoutCal = {}) {
-  const today = new Date(); today.setHours(0,0,0,0)
+// Build a full-month grid for the coach calendar preview (habits + scheduled workouts).
+// `viewMonth` is a Date anchored to the 1st of the month to display; defaults to the
+// current month. `isToday` still compares against the real today, not viewMonth.
+function buildMonthCalendar(habits, workoutCal = {}, viewMonth = new Date()) {
   const todayKey = localDateStr()
-  const year = today.getFullYear()
-  const month = today.getMonth()
+  const year = viewMonth.getFullYear()
+  const month = viewMonth.getMonth()
   const firstDay = new Date(year, month, 1)
   const lastDay  = new Date(year, month + 1, 0)
   const monthName = firstDay.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
@@ -1502,6 +1503,11 @@ function CalendarTab({ clientId, getToken }) {
   const [editForm, setEditForm] = useState({})
   const [workoutCal, setWorkoutCal] = useState({})
   const [workoutDetail, setWorkoutDetail] = useState(null) // { assignment, dateISO } for read-only exercise list
+  // Month currently shown in the calendar preview grid (1st-of-month anchor); navigable via prev/next.
+  const [viewMonth, setViewMonth] = useState(() => {
+    const n = new Date()
+    return new Date(n.getFullYear(), n.getMonth(), 1)
+  })
   const [form, setForm] = useState({
     habit_name: '', habit_type: 'boolean', target_value: '', unit: '',
     frequency: 'daily', start_date: localDateStr(),
@@ -1553,13 +1559,13 @@ function CalendarTab({ clientId, getToken }) {
 
   // Scheduled workouts for the visible month-grid — same shape as habits/calendar,
   // fetched with a week of padding on each side to cover the grid's leading/trailing days.
+  // Re-fetches whenever the coach navigates to a different month.
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
-        const now = new Date()
-        const first = new Date(now.getFullYear(), now.getMonth(), 1 - 7)
-        const last  = new Date(now.getFullYear(), now.getMonth() + 1, 0 + 7)
+        const first = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1 - 7)
+        const last  = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 0 + 7)
         const fmt = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
         const token = await getToken()
         const res = await fetch(
@@ -1570,7 +1576,7 @@ function CalendarTab({ clientId, getToken }) {
       } catch { /* calendar preview is best-effort */ }
     })()
     return () => { cancelled = true }
-  }, [clientId, getToken])
+  }, [clientId, getToken, viewMonth])
 
   function applyPreset(p) {
     setForm(f => ({
@@ -1687,8 +1693,18 @@ function CalendarTab({ clientId, getToken }) {
     setEditForm(f => ({ ...f, days_of_week: next.join(',') }))
   }
 
-  const monthCal = buildMonthCalendar(habits, workoutCal)
+  const monthCal = buildMonthCalendar(habits, workoutCal, viewMonth)
   const hasCalendarData = habits.length > 0 || Object.keys(workoutCal).length > 0
+  const isCurrentMonth = (() => {
+    const n = new Date()
+    return viewMonth.getFullYear() === n.getFullYear() && viewMonth.getMonth() === n.getMonth()
+  })()
+  function prevMonth() { setViewMonth(m => new Date(m.getFullYear(), m.getMonth() - 1, 1)) }
+  function nextMonth() { setViewMonth(m => new Date(m.getFullYear(), m.getMonth() + 1, 1)) }
+  function jumpToCurrentMonth() {
+    const n = new Date()
+    setViewMonth(new Date(n.getFullYear(), n.getMonth(), 1))
+  }
 
   return (
     <div className="space-y-4">
@@ -1722,7 +1738,24 @@ function CalendarTab({ clientId, getToken }) {
       {/* Month calendar — habits + scheduled workouts together */}
       {showPreview && hasCalendarData && (
         <div className="bg-white border border-gray-200 rounded-xl p-4">
-          <p className="text-sm font-semibold text-gray-700 mb-3">📅 {monthCal.monthName} — Client calendar</p>
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <p className="text-sm font-semibold text-gray-700">📅 {monthCal.monthName} — Client calendar</p>
+            <div className="flex items-center gap-2">
+              <button onClick={prevMonth} aria-label="Previous month"
+                className="w-9 h-9 rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 min-h-[44px] min-w-[44px] flex items-center justify-center">
+                ←
+              </button>
+              {!isCurrentMonth && (
+                <button onClick={jumpToCurrentMonth} className="text-xs text-[#E8670A] hover:text-[#c45e09] font-semibold px-1">
+                  Today
+                </button>
+              )}
+              <button onClick={nextMonth} aria-label="Next month"
+                className="w-9 h-9 rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 min-h-[44px] min-w-[44px] flex items-center justify-center">
+                →
+              </button>
+            </div>
+          </div>
           <div className="grid grid-cols-7 gap-1 mb-1">
             {DAYS.map(d => (
               <p key={d} className="text-[10px] font-bold text-gray-400 text-center py-1">{d}</p>
