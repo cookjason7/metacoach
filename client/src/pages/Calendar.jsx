@@ -15,6 +15,12 @@ function getProgressCurrent(habit, todayLog, todayMeals) {
   return null
 }
 
+// Display-only: "Day 1" -> "Day 1 Workout". Sequential day labels are the stored
+// identifier (used to match exercises/schedules); this never touches that value.
+function formatDayLabel(label) {
+  return label && /^Day \d+$/.test(label) ? `${label} Workout` : label
+}
+
 // Monday-first week order
 const WEEKDAY_HEADERS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -238,12 +244,12 @@ function WorkoutPill({ entry, dateISO, onOpen, compact = false }) {
       type="button"
       onClick={() => onOpen(entry, dateISO)}
       className={`w-full flex items-center gap-1.5 rounded-md border px-1.5 ${compact ? 'py-1' : 'py-1.5'} text-left transition-colors hover:border-indigo-400 hover:bg-indigo-50 ${base}`}
-      title={`${assignment.day_label} · ${assignment.workout_name}`}
+      title={`${formatDayLabel(assignment.day_label)} · ${assignment.workout_name}`}
     >
       <WorkoutBadge done={done} />
       <span className="min-w-0 flex-1">
         <span className={`block text-[11px] truncate font-medium ${done ? 'text-indigo-800' : 'text-gray-800'}`}>
-          {assignment.day_label}
+          {formatDayLabel(assignment.day_label)}
         </span>
         {!compact && (
           <span className="block text-[10px] text-gray-400 truncate">{assignment.workout_name}</span>
@@ -373,7 +379,7 @@ function WorkoutDetailModal({ entry, dateISO, getToken, onClose, onSaved }) {
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <p className="text-sm font-semibold text-gray-900 truncate">{assignment.day_label}</p>
+              <p className="text-sm font-semibold text-gray-900 truncate">{formatDayLabel(assignment.day_label)}</p>
               {done && (
                 <span className="text-[10px] font-bold uppercase tracking-wide text-indigo-600 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded-full shrink-0">
                   Logged
