@@ -109,7 +109,68 @@ function statusTagStyle(tag) {
 
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
-function OverviewTab({ client, role, getToken, onUpdate }) {
+// Shows whether this client has any scheduled/recurring/pending form deliveries,
+// without requiring a click into the Forms tab. Renders nothing while loading.
+function ScheduledFormsStatus({ clientId, getToken, onGoToForms }) {
+  const [items,   setItems]   = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/coach-admin/form-schedules?client_id=${clientId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.ok && !cancelled) {
+          const rows = await res.json()
+          setItems(rows.filter(r => ['pending', 'active', 'paused'].includes(r.status)))
+        }
+      } catch {} finally { if (!cancelled) setLoading(false) }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [clientId, getToken])
+
+  if (loading) return null
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-4">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-semibold text-gray-900">Scheduled Forms</h3>
+        <button onClick={onGoToForms} className="text-xs text-[#E8670A] hover:text-[#c45e09] font-medium">
+          Manage in Forms →
+        </button>
+      </div>
+      {items.length === 0 ? (
+        <p className="text-xs text-gray-400">No forms currently scheduled for this client.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {items.map(it => (
+            <div key={it.id} className="flex items-center justify-between gap-2 text-xs">
+              <span className="font-medium text-gray-700 truncate">{it.form_title}</span>
+              <span className="flex items-center gap-1.5 shrink-0">
+                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                  it.assignment_type === 'recurring'
+                    ? (it.status === 'paused' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-blue-50 text-blue-700 border-blue-200')
+                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                }`}>
+                  {it.assignment_type === 'recurring' ? (it.status === 'paused' ? 'Recurring · Paused' : 'Recurring') : 'Scheduled'}
+                </span>
+                <span className="text-gray-400">
+                  {it.next_send_at ? `Next ${fmtDateTime(it.next_send_at)}` : '—'}
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function OverviewTab({ client, role, getToken, onUpdate, onGoToForms }) {
   const [coaches, setCoaches] = useState([])
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -222,6 +283,9 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
           </div>
         </div>
       </div>
+
+      {/* Scheduled forms status */}
+      <ScheduledFormsStatus clientId={client.id} getToken={getToken} onGoToForms={onGoToForms} />
 
       {/* Info card */}
       <div className="bg-white border border-gray-200 rounded-xl p-5">
@@ -6400,7 +6464,13 @@ export default function ClientProfile() {
       </div>
 
       {/* Tab content */}
-      {tab === 'overview'   && <OverviewTab    client={client} role={meRole} getToken={getToken} onUpdate={u => setClient(c => ({ ...c, ...u }))} />}
+      {tab === 'overview'   && <OverviewTab    client={client} role={meRole} getToken={getToken} onUpdate={u => setClient(c => ({ ...c, ...u }))}
+        onGoToForms={() => {
+          setTab('assessment')
+          const next = new URLSearchParams(searchParams)
+          next.set('tab', 'assessment')
+          setSearchParams(next, { replace: true })
+        }} />}
       {tab === 'nutrition'  && <NutritionTab   client={client} clientId={client.id} getToken={getToken} onUpdate={u => setClient(c => ({ ...c, ...u }))} />}
       {tab === 'habits'     && <CalendarTab    clientId={client.id} getToken={getToken} />}
       {tab === 'progress'   && <ProgressTab    clientId={client.id} getToken={getToken} role={meRole} clientName={[client.display_first_name || client.first_name, client.display_last_name || client.last_name].filter(Boolean).join(' ') || client.email?.split('@')[0] || null} />}

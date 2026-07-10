@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { API_URL } from '../config.js'
 import FoodSourceBadge from '../components/FoodSourceBadge.jsx'
+import StaffInbox from '../components/StaffInbox.jsx'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -25,6 +26,16 @@ const STATUS_STYLES = {
   'Needs Attention':     'bg-orange-50 text-[#E8670A] border-orange-200',
   'New Client':          'bg-gray-50 text-gray-600 border-gray-200',
   'Invited':             'bg-purple-50 text-purple-700 border-purple-200',
+}
+
+// Sort order for the Momentum column — best momentum first when sorted ascending.
+const MOMENTUM_RANK = {
+  'Consistent':          0,
+  'Building Momentum':   1,
+  'Rebuilding Momentum': 2,
+  'Needs Attention':     3,
+  'New Client':          4,
+  'Invited':             5,
 }
 
 const EMPTY_INVITE = {
@@ -1469,6 +1480,82 @@ function InviteModal({ getToken, coaches = [], onClose, onSuccess }) {
   )
 }
 
+// ── Client table sorting ──────────────────────────────────────────────────────
+
+// Ascending comparator for a given column key. Callers negate for descending.
+function compareClients(a, b, col) {
+  switch (col) {
+    case 'client':   return clientName(a).localeCompare(clientName(b))
+    case 'type':     return coachingLabel(a.coaching_type).localeCompare(coachingLabel(b.coaching_type))
+    case 'coach':    return (a.assigned_coach_name || '').localeCompare(b.assigned_coach_name || '')
+    case 'activity': return (lastActivityAt(a)?.getTime() ?? 0) - (lastActivityAt(b)?.getTime() ?? 0)
+    case 'login':    return (new Date(a.last_login_at   ?? 0).getTime()) - (new Date(b.last_login_at   ?? 0).getTime())
+    case 'checkin':  return (new Date(a.last_checkin_at ?? 0).getTime()) - (new Date(b.last_checkin_at ?? 0).getTime())
+    case 'momentum': return (MOMENTUM_RANK[a.status_tag] ?? 6) - (MOMENTUM_RANK[b.status_tag] ?? 6)
+    case 'status':   return accountStatus(a).localeCompare(accountStatus(b))
+    default:         return 0
+  }
+}
+
+// Clickable <th> that toggles ascending/descending sort on the given column.
+function SortHeader({ col, sortCol, sortDir, onSort, className = '', title, children }) {
+  const active = sortCol === col
+  return (
+    <th
+      onClick={() => onSort(col)}
+      title={title}
+      className={`text-left px-3 py-2 font-semibold cursor-pointer select-none hover:text-gray-700 transition-colors ${className}`}
+    >
+      <span className="inline-flex items-center gap-1">
+        {children}
+        <span className={`text-[9px] ${active ? 'text-[#E8670A]' : 'text-gray-300'}`}>
+          {active && sortDir === 'desc' ? '▼' : '▲'}
+        </span>
+      </span>
+    </th>
+  )
+}
+
+// ── Quick-message modal ───────────────────────────────────────────────────────
+// Opens a client's conversation directly (via StaffInbox) without leaving the dashboard.
+
+function MessageIconButton({ onClick, className = '' }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title="Message client"
+      aria-label="Message client"
+      className={`inline-flex items-center justify-center min-w-[36px] min-h-[36px] rounded-lg text-gray-400 hover:text-[#E8670A] hover:bg-orange-50 transition-colors ${className}`}
+    >
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+      </svg>
+    </button>
+  )
+}
+
+function MessageClientModal({ client, getToken, role, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4 py-0 sm:py-6">
+      <div className="w-full sm:max-w-4xl h-full sm:h-[80vh] sm:max-h-[720px] bg-white sm:rounded-xl shadow-xl overflow-hidden flex flex-col">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
+          <p className="text-sm font-semibold text-gray-900 truncate">Message {client.name}</p>
+          <button onClick={onClose} aria-label="Close"
+            className="shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-gray-600">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto p-3">
+          <StaffInbox getToken={getToken} role={role} focusClientId={client.id} focusClientName={client.name} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main CoachDashboard ───────────────────────────────────────────────────────
 
 export default function CoachDashboard({ getToken, userRole }) {
@@ -1488,15 +1575,26 @@ export default function CoachDashboard({ getToken, userRole }) {
   const [pendingLoading, setPendingLoading] = useState(true)
   const [inviteOpen,     setInviteOpen]     = useState(false)
   const [isAdmin,        setIsAdmin]        = useState(userRole === 'admin' || userRole === 'account_owner')
+  const [messageClient,  setMessageClient]  = useState(null) // { id, name } — quick-message modal target
 
   // ── Filters ─────────────────────────────────────────────────────────────────
   const [clientSearch,   setClientSearch]   = useState('')
   const [coachFilter,    setCoachFilter]    = useState('all')
   const [typeFilter,     setTypeFilter]     = useState('all')
-  const [statusFilter,   setStatusFilter]   = useState('all')
+  const [statusFilter,   setStatusFilter]   = useState('active')
   const [checkinFilter,  setCheckinFilter]  = useState('all')
   const [weekFilter,     setWeekFilter]     = useState(() => getMondayISO())
-  const [sortBy,         setSortBy]         = useState('activity')
+  const [sortCol,        setSortCol]        = useState('activity')
+  const [sortDir,        setSortDir]        = useState('desc')
+
+  function handleSort(col) {
+    if (sortCol === col) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortCol(col)
+      setSortDir('asc')
+    }
+  }
   const [repliedIds,     setRepliedIds]     = useState(() => new Set()) // optimistic checkin-replied toggles
 
   // ── Tabs ─────────────────────────────────────────────────────────────────────
@@ -1717,13 +1815,10 @@ export default function CoachDashboard({ getToken, userRole }) {
         return true
       })
       .sort((a, b) => {
-        if (sortBy === 'activity') return (lastActivityAt(b)?.getTime() ?? 0) - (lastActivityAt(a)?.getTime() ?? 0)
-        if (sortBy === 'login')  return (new Date(b.last_login_at ?? 0).getTime()) - (new Date(a.last_login_at ?? 0).getTime())
-        if (sortBy === 'coach')  return (a.assigned_coach_name || '').localeCompare(b.assigned_coach_name || '')
-        if (sortBy === 'status') return accountStatus(a).localeCompare(accountStatus(b)) || clientName(a).localeCompare(clientName(b))
-        return clientName(a).localeCompare(clientName(b))
+        const cmp = compareClients(a, b, sortCol) || clientName(a).localeCompare(clientName(b))
+        return sortDir === 'desc' ? -cmp : cmp
       })
-  }, [clients, clientSearch, coachFilter, typeFilter, statusFilter, checkinFilter, weekFilter, sortBy, isAdmin])
+  }, [clients, clientSearch, coachFilter, typeFilter, statusFilter, checkinFilter, weekFilter, sortCol, sortDir, isAdmin])
 
   const tabs = [
     { id: 'clients',     label: 'Clients' },
@@ -1758,6 +1853,16 @@ export default function CoachDashboard({ getToken, userRole }) {
           coaches={coaches}
           onClose={() => setInviteOpen(false)}
           onSuccess={() => { setInviteOpen(false); reloadClients(); loadPendingInvites() }}
+        />
+      )}
+
+      {/* Quick-message modal */}
+      {messageClient && (
+        <MessageClientModal
+          client={messageClient}
+          getToken={getToken}
+          role={userRole}
+          onClose={() => setMessageClient(null)}
         />
       )}
 
@@ -1868,14 +1973,27 @@ export default function CoachDashboard({ getToken, userRole }) {
                 <option value="received">Check-in received</option>
                 <option value="none">No check-in</option>
               </select>
-              <select value={sortBy} onChange={e => setSortBy(e.target.value)}
-                className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
-                <option value="activity">Sort by activity</option>
-                <option value="login">Sort by last login</option>
-                <option value="name">Sort by name</option>
-                <option value="coach">Sort by coach</option>
-                <option value="status">Sort by status</option>
-              </select>
+              <div className="flex gap-2">
+                <select value={sortCol} onChange={e => setSortCol(e.target.value)}
+                  className="flex-1 border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+                  <option value="client">Sort by name</option>
+                  <option value="type">Sort by type</option>
+                  <option value="coach">Sort by coach</option>
+                  <option value="activity">Sort by activity</option>
+                  <option value="login">Sort by last login</option>
+                  <option value="checkin">Sort by check-in</option>
+                  <option value="momentum">Sort by momentum</option>
+                  <option value="status">Sort by status</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+                  title={sortDir === 'asc' ? 'Ascending — click for descending' : 'Descending — click for ascending'}
+                  className="shrink-0 border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white hover:bg-gray-50 transition-colors min-w-[44px] min-h-[36px]"
+                >
+                  {sortDir === 'asc' ? '↑' : '↓'}
+                </button>
+              </div>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <p className="text-xs text-gray-400">{filteredClients.length} of {clients.length} clients</p>
@@ -1960,17 +2078,17 @@ export default function CoachDashboard({ getToken, userRole }) {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase tracking-wider">
                     <tr>
-                      <th className="text-left px-3 py-2 font-semibold">Client</th>
-                      <th className="text-left px-3 py-2 font-semibold">Type</th>
-                      <th className="text-left px-3 py-2 font-semibold">Coach</th>
-                      <th className="text-left px-3 py-2 font-semibold">Last Activity</th>
-                      <th className="text-left px-3 py-2 font-semibold">Last Login</th>
-                      <th className="text-left px-3 py-2 font-semibold"
+                      <SortHeader col="client"   sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Client</SortHeader>
+                      <SortHeader col="type"     sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Type</SortHeader>
+                      <SortHeader col="coach"    sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Coach</SortHeader>
+                      <SortHeader col="activity" sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Last Activity</SortHeader>
+                      <SortHeader col="login"    sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Last Login</SortHeader>
+                      <SortHeader col="checkin"  sortCol={sortCol} sortDir={sortDir} onSort={handleSort}
                           title="Shows the client's current/latest check-in and reply status — independent of the historical week chosen in the filter above.">
                         Check-In (current)
-                      </th>
-                      <th className="text-left px-3 py-2 font-semibold">Momentum</th>
-                      <th className="text-left px-3 py-2 font-semibold">Status</th>
+                      </SortHeader>
+                      <SortHeader col="momentum" sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Momentum</SortHeader>
+                      <SortHeader col="status"   sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Status</SortHeader>
                       <th className="text-right px-3 py-2 font-semibold">Actions</th>
                     </tr>
                   </thead>
@@ -2029,6 +2147,10 @@ export default function CoachDashboard({ getToken, userRole }) {
                           </span>
                         </td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
+                          <MessageIconButton
+                            className="mr-1 align-middle"
+                            onClick={e => { e.stopPropagation(); setMessageClient({ id: c.id, name: clientName(c) }) }}
+                          />
                           {c.client_status === 'deactivated' ? (
                             <button onClick={e => reactivateClient(e, c.id)}
                               className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold mr-2">Reactivate</button>
@@ -2083,7 +2205,11 @@ export default function CoachDashboard({ getToken, userRole }) {
                       <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${accountStatusBadgeClass(c)}`}>
                         {accountStatusLabel(c)}
                       </span>
-                      <div className="flex gap-3">
+                      <div className="flex items-center gap-3">
+                        <MessageIconButton
+                          className="min-w-[44px] min-h-[44px]"
+                          onClick={e => { e.stopPropagation(); setMessageClient({ id: c.id, name: clientName(c) }) }}
+                        />
                         {c.client_status === 'deactivated'
                           ? <button type="button" onClick={e => reactivateClient(e, c.id)} className="text-[11px] text-emerald-600 hover:text-emerald-700 font-semibold min-h-[44px] px-1">Reactivate</button>
                           : <button type="button" onClick={e => deactivateClient(e, c.id)} className="text-[11px] text-gray-500 hover:text-gray-700 font-medium min-h-[44px] px-1">Deactivate</button>
