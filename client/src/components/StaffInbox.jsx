@@ -181,10 +181,16 @@ const STAFF_VISIBLE_THREADS = ['admin_private', 'coach_thread', 'ai_admin']
 // ── Staff Inbox component ─────────────────────────────────────────────────────
 // Reused on the Coaching → Messaging tab AND the main Messages page for staff.
 
-export default function StaffInbox({ getToken, role }) {
+// focusClientId/focusClientName: when provided, the inbox opens directly to that
+// client's conversation (used for the dashboard's per-row "Message" quick action).
+export default function StaffInbox({ getToken, role, focusClientId = null, focusClientName = null }) {
   const [inbox,       setInbox]       = useState([])
   const [loading,     setLoading]     = useState(true)
-  const [selected,    setSelected]    = useState(null) // { clientId, clientName, threadType }
+  const [selected,    setSelected]    = useState(() => {
+    if (!focusClientId) return null
+    const threadType = (role === 'admin' || role === 'account_owner') ? 'admin_private' : 'coach_thread'
+    return { clientId: focusClientId, clientName: focusClientName, threadType, isAssignedCoach: false }
+  }) // { clientId, clientName, threadType }
   const [messages,     setMessages]     = useState([])
   const [hasMore,      setHasMore]      = useState(false)
   const [nextBeforeId, setNextBeforeId] = useState(null)

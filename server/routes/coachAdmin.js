@@ -3027,6 +3027,7 @@ router.post('/forms/:id/schedule', requireAuth(), async (req, res, next) => {
 
 // GET /api/coach-admin/form-schedules
 // Returns form delivery assignments; admin sees all, coach sees assigned clients only.
+// Optional ?client_id= narrows to a single client (used by the client profile Overview tab).
 router.get('/form-schedules', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireStaff(req, res); if (!ctx) return
@@ -3043,13 +3044,20 @@ router.get('/form-schedules', requireAuth(), async (req, res, next) => {
       WHERE fa.assignment_type IN ('manual', 'scheduled', 'recurring')
     `
 
+    const clientId = req.query.client_id ? parseInt(req.query.client_id, 10) : null
+    const clientClause = clientId ? ' AND fa.client_id = $__CLIENT__' : ''
+
     let rows
     if (isAdminRole(ctx.role)) {
-      ;({ rows } = await pool.query(baseSelect + ' ORDER BY fa.created_at DESC LIMIT 200'))
+      const params = clientId ? [clientId] : []
+      const clause = clientId ? clientClause.replace('$__CLIENT__', '$1') : ''
+      ;({ rows } = await pool.query(baseSelect + clause + ' ORDER BY fa.created_at DESC LIMIT 200', params))
     } else {
+      const params = clientId ? [ctx.dbUserId, clientId] : [ctx.dbUserId]
+      const clause = clientId ? clientClause.replace('$__CLIENT__', '$2') : ''
       ;({ rows } = await pool.query(
-        baseSelect + ' AND u.assigned_coach_id = $1 ORDER BY fa.created_at DESC LIMIT 200',
-        [ctx.dbUserId],
+        baseSelect + ' AND u.assigned_coach_id = $1' + clause + ' ORDER BY fa.created_at DESC LIMIT 200',
+        params,
       ))
     }
 
