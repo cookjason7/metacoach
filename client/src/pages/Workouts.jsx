@@ -3,6 +3,12 @@ import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 import ExerciseThumb from '../components/ExerciseThumb.jsx'
 
+// Display-only: "Day 1" -> "Day 1 Workout". Sequential day labels are the stored
+// identifier (used to match exercises/schedules); this never touches that value.
+function formatDayLabel(label) {
+  return label && /^Day \d+$/.test(label) ? `${label} Workout` : label
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const GOALS = [
@@ -219,7 +225,7 @@ function PlanReview({ plan, form, onSave, onRegenerate, onDiscard }) {
       {plan.days?.map((day, di) => (
         <div key={di} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="bg-[#0F1E35] px-5 py-3">
-            <p className="text-sm font-semibold text-white">{day.day_name}</p>
+            <p className="text-sm font-semibold text-white">{formatDayLabel(day.day_name)}</p>
             {day.focus && <p className="text-xs text-white/60 mt-0.5">{day.focus}</p>}
           </div>
 
@@ -447,7 +453,7 @@ function ProgramDetail({ program, onBack }) {
       {!loading && Object.entries(days).map(([dayName, exs]) => (
         <div key={dayName} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="bg-[#0F1E35] px-5 py-3">
-            <p className="text-sm font-semibold text-white">{dayName}</p>
+            <p className="text-sm font-semibold text-white">{formatDayLabel(dayName)}</p>
           </div>
 
           {/* Mobile cards — read-only */}

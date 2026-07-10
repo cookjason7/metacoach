@@ -8,6 +8,12 @@ import BloodworkIntakeForm from '../../components/BloodworkIntakeForm.jsx'
 import LinkifiedText from '../../components/LinkifiedText.jsx'
 import ExerciseThumb from '../../components/ExerciseThumb.jsx'
 
+// Display-only: "Day 1" -> "Day 1 Workout". Sequential day labels are the stored
+// identifier (used to match exercises/schedules); this never touches that value.
+function formatDayLabel(label) {
+  return label && /^Day \d+$/.test(label) ? `${label} Workout` : label
+}
+
 const TABS = [
   { id: 'overview',    label: 'Overview',   icon: '◉' },
   { id: 'nutrition',   label: 'Nutrition',  icon: '🥗' },
@@ -1721,10 +1727,10 @@ function CalendarTab({ clientId, getToken }) {
                       <button
                         key={`w-${w.assignment.id}-${wi2}`}
                         onClick={() => setWorkoutDetail({ assignment: w.assignment, dateISO: dateKey })}
-                        title={`${w.assignment.day_label} · ${w.assignment.workout_name}`}
+                        title={`${formatDayLabel(w.assignment.day_label)} · ${w.assignment.workout_name}`}
                         className="w-full text-left text-[8px] font-semibold bg-orange-50 text-[#c45e09] border border-orange-200 px-1 py-px rounded truncate leading-tight hover:bg-orange-100 transition-colors"
                       >
-                        {w.log ? '✓ ' : ''}{w.assignment.day_label}
+                        {w.log ? '✓ ' : ''}{formatDayLabel(w.assignment.day_label)}
                       </button>
                     ))}
                     {dayHabits.slice(0, 3).map(h => (
@@ -2076,7 +2082,7 @@ function WorkoutDetailPanel({ clientId, assignment, dateISO, getToken, onClose }
         onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-gray-900 truncate">{assignment.day_label}</p>
+            <p className="text-sm font-semibold text-gray-900 truncate">{formatDayLabel(assignment.day_label)}</p>
             <p className="text-[11px] text-gray-400 truncate">{assignment.workout_name} &middot; {dateLabel}</p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1.5 leading-none shrink-0 text-lg">&#10005;</button>
@@ -5176,7 +5182,7 @@ function ScheduleWorkoutModal({ clientId, workout, dayLabels, getToken, onClose,
                 <div className="space-y-3">
                   {dayLabels.map(dl => (
                     <div key={dl} className="rounded-xl border border-gray-200 p-3">
-                      <p className="text-sm font-semibold text-gray-800 mb-2">{dl}</p>
+                      <p className="text-sm font-semibold text-gray-800 mb-2">{formatDayLabel(dl)}</p>
                       <div className="flex gap-1.5 flex-wrap">
                         {DAYS.map((d, i) => {
                           const active = (dayAssignments[dl] ?? []).includes(i)
@@ -5204,7 +5210,7 @@ function ScheduleWorkoutModal({ clientId, workout, dayLabels, getToken, onClose,
                       <div key={a.id} className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 px-3 py-2">
                         <div className="min-w-0">
                           <p className="text-xs font-semibold text-gray-800 truncate">
-                            {a.workout_name} · {a.day_label}
+                            {a.workout_name} · {formatDayLabel(a.day_label)}
                           </p>
                           <p className="text-[11px] text-gray-500 truncate">
                             {a.days_of_week
@@ -5661,7 +5667,7 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
           {generatedPlan.days?.map((day, dayIdx) => (
             <div key={dayIdx} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               <div className="bg-[#0F1E35] px-4 py-2.5 flex items-center justify-between">
-                <p className="text-sm font-semibold text-white">{day.day_name}</p>
+                <p className="text-sm font-semibold text-white">{formatDayLabel(day.day_name)}</p>
                 {day.focus && <p className="text-[10px] text-white/50">{day.focus}</p>}
               </div>
               <div className="overflow-x-auto">
@@ -6061,7 +6067,7 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
                   <select value={exForm.day || nextDay} onChange={e => setExForm(f => ({ ...f, day: e.target.value }))}
                     className={inputCls}>
                     {dayOptions.map(d => (
-                      <option key={d} value={d}>{d}{!dayKeys.includes(d) ? ' (new)' : ''}</option>
+                      <option key={d} value={d}>{formatDayLabel(d)}{!dayKeys.includes(d) ? ' (new)' : ''}</option>
                     ))}
                   </select>
                 )
@@ -6148,7 +6154,7 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
       {!detailLoad && Object.entries(days).map(([dayName, exs]) => (
         <div key={dayName} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="bg-[#0F1E35] px-4 py-2.5 flex items-center justify-between">
-            <p className="text-sm font-semibold text-white">{dayName}</p>
+            <p className="text-sm font-semibold text-white">{formatDayLabel(dayName)}</p>
             <span className="text-[10px] text-white/50">{exs.length} exercise{exs.length !== 1 ? 's' : ''}</span>
           </div>
           <div className="overflow-x-auto">
