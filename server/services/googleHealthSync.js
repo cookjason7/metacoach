@@ -285,40 +285,71 @@ export async function syncUser(dbUserId) {
   }
 
   // COALESCE(source, 'manual') ensures any NULL source is treated as 'manual'
-  // (safe / do-not-overwrite). Sync may only write when:
-  //   • the existing value is NULL (nothing there yet), OR
-  //   • source is already a sync-originated value ('fitbit', 'google_health', 'synced')
+  // (safe / do-not-overwrite — manual entries are never touched by any sync).
+  // Among automated sources ('fitbit', 'google_health', 'apple_health', 'synced'),
+  // precedence is most-recent-write-wins: a sync may overwrite another sync's
+  // value regardless of which source wrote it, as long as this write is not
+  // older than the last recorded write (steps_source_updated_at/sleep_source_
+  // updated_at). Since every sync writes with NOW() at execution time, this
+  // means whichever source syncs most recently holds the value — no source is
+  // permanently locked out by another (the prior bug: apple_health wasn't in
+  // this allow-list, so once Apple Health wrote a row, Google Health could
+  // never write it again).
+  const SYNC_SOURCES = "('fitbit','google_health','synced','apple_health')"
+
   const { rows: logRows } = await pool.query(
-    `INSERT INTO daily_logs (user_id, logged_date, steps, sleep_minutes, steps_source, sleep_source)
+    `INSERT INTO daily_logs (user_id, logged_date, steps, sleep_minutes, steps_source, sleep_source, steps_source_updated_at, sleep_source_updated_at)
      VALUES ($1, CURRENT_DATE, $2, $3,
              CASE WHEN $2::integer IS NULL THEN 'manual' ELSE 'fitbit' END,
-             CASE WHEN $3::integer IS NULL THEN 'manual' ELSE 'fitbit' END)
+             CASE WHEN $3::integer IS NULL THEN 'manual' ELSE 'fitbit' END,
+             CASE WHEN $2::integer IS NULL THEN NULL ELSE NOW() END,
+             CASE WHEN $3::integer IS NULL THEN NULL ELSE NOW() END)
      ON CONFLICT (user_id, logged_date) DO UPDATE SET
        steps = CASE
          WHEN daily_logs.steps IS NULL
-              OR COALESCE(daily_logs.steps_source, 'manual') IN ('fitbit', 'google_health', 'synced')
+              OR (COALESCE(daily_logs.steps_source, 'manual') IN ${SYNC_SOURCES}
+                  AND (daily_logs.steps_source_updated_at IS NULL OR daily_logs.steps_source_updated_at <= NOW()))
            THEN COALESCE(EXCLUDED.steps, daily_logs.steps)
          ELSE daily_logs.steps
        END,
        steps_source = CASE
          WHEN EXCLUDED.steps IS NOT NULL
               AND (daily_logs.steps IS NULL
-                   OR COALESCE(daily_logs.steps_source, 'manual') IN ('fitbit', 'google_health', 'synced'))
+                   OR (COALESCE(daily_logs.steps_source, 'manual') IN ${SYNC_SOURCES}
+                       AND (daily_logs.steps_source_updated_at IS NULL OR daily_logs.steps_source_updated_at <= NOW())))
            THEN 'fitbit'
          ELSE COALESCE(daily_logs.steps_source, 'manual')
        END,
+       steps_source_updated_at = CASE
+         WHEN EXCLUDED.steps IS NOT NULL
+              AND (daily_logs.steps IS NULL
+                   OR (COALESCE(daily_logs.steps_source, 'manual') IN ${SYNC_SOURCES}
+                       AND (daily_logs.steps_source_updated_at IS NULL OR daily_logs.steps_source_updated_at <= NOW())))
+           THEN NOW()
+         ELSE daily_logs.steps_source_updated_at
+       END,
        sleep_minutes = CASE
          WHEN daily_logs.sleep_minutes IS NULL
-              OR COALESCE(daily_logs.sleep_source, 'manual') IN ('fitbit', 'google_health', 'synced')
+              OR (COALESCE(daily_logs.sleep_source, 'manual') IN ${SYNC_SOURCES}
+                  AND (daily_logs.sleep_source_updated_at IS NULL OR daily_logs.sleep_source_updated_at <= NOW()))
            THEN COALESCE(EXCLUDED.sleep_minutes, daily_logs.sleep_minutes)
          ELSE daily_logs.sleep_minutes
        END,
        sleep_source = CASE
          WHEN EXCLUDED.sleep_minutes IS NOT NULL
               AND (daily_logs.sleep_minutes IS NULL
-                   OR COALESCE(daily_logs.sleep_source, 'manual') IN ('fitbit', 'google_health', 'synced'))
+                   OR (COALESCE(daily_logs.sleep_source, 'manual') IN ${SYNC_SOURCES}
+                       AND (daily_logs.sleep_source_updated_at IS NULL OR daily_logs.sleep_source_updated_at <= NOW())))
            THEN 'fitbit'
          ELSE COALESCE(daily_logs.sleep_source, 'manual')
+       END,
+       sleep_source_updated_at = CASE
+         WHEN EXCLUDED.sleep_minutes IS NOT NULL
+              AND (daily_logs.sleep_minutes IS NULL
+                   OR (COALESCE(daily_logs.sleep_source, 'manual') IN ${SYNC_SOURCES}
+                       AND (daily_logs.sleep_source_updated_at IS NULL OR daily_logs.sleep_source_updated_at <= NOW())))
+           THEN NOW()
+         ELSE daily_logs.sleep_source_updated_at
        END
      RETURNING steps, sleep_minutes, steps_source, sleep_source`,
     [dbUserId, steps, sleepMinutes],
