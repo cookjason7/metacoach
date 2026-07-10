@@ -17,16 +17,24 @@ function formatDayLabel(label) {
 // Small dot shown next to a metric value when it has a note attached. Clicking it
 // toggles an inline reveal of the note text without triggering an ancestor row's
 // onClick (e.g. the Progress table's row-opens-meal-modal behavior).
+//
+// The visible dot is only 8x8px — too small to reliably land a click on. A click
+// aimed at the dot but landing 1-2px off hits the surrounding <span>/<td> instead,
+// which has no stopPropagation and lets it bubble to the row's onClick. Padding
+// the actual <button> (with a matching negative margin to keep layout unchanged)
+// gives the click a realistic hit target while keeping the visual dot small.
 function NoteDot({ isOpen, onToggle }) {
   return (
     <button
       type="button"
       onClick={e => { e.stopPropagation(); onToggle() }}
       title="Has a note — click to view"
-      className={`inline-block w-2 h-2 rounded-full shrink-0 align-middle transition-colors ${
-        isOpen ? 'bg-[#c45e09]' : 'bg-[#E8670A] hover:bg-[#c45e09]'
+      className={`inline-flex items-center justify-center shrink-0 p-2 -m-2 align-middle ${
+        isOpen ? 'text-[#c45e09]' : 'text-[#E8670A] hover:text-[#c45e09]'
       }`}
-    />
+    >
+      <span className="block w-2 h-2 rounded-full bg-current transition-colors" />
+    </button>
   )
 }
 
