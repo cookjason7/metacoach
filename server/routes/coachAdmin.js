@@ -1167,6 +1167,11 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
          FROM daily_logs WHERE user_id=$1 AND water_oz IS NOT NULL
            AND logged_date BETWEEN $2::date AND $3::date
          GROUP BY 1 ORDER BY 1`
+    // Notes are per-day; for weekly/monthly ranges concatenate same-period notes.
+    const note_q = `SELECT ${group.exprLog} AS date, string_agg(note, ' | ') AS value
+       FROM daily_logs WHERE user_id=$1 AND note IS NOT NULL AND note <> ''
+         AND logged_date BETWEEN $2::date AND $3::date
+       GROUP BY 1 ORDER BY 1`
 
     // ── Summary — all core metrics follow the selected date range ──────────────
     const sum_q = `
@@ -1199,7 +1204,7 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
            (SELECT SUM((micronutrients->>'sodium_mg')::numeric) dns FROM meals WHERE user_id=$1
               AND ${md} BETWEEN $2::date AND $3::date GROUP BY ${md}) t) AS avg_sodium_mg`
 
-    const [sumR, wtR, macR, stpR, slpR, movR, chkR, photoR, watR, profR, wtCurR] = await Promise.all([
+    const [sumR, wtR, macR, stpR, slpR, movR, chkR, photoR, watR, noteR, profR, wtCurR] = await Promise.all([
       pool.query(sum_q, [id, startDate, endDate]),
       pool.query(wt_q,  [id, startDate, endDate]),
       pool.query(mac_q, [id, startDate, endDate]),
@@ -1228,6 +1233,7 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
         [id, startDate, endDate],
       ),
       pool.query(wat_q, [id, startDate, endDate]),
+      pool.query(note_q, [id, startDate, endDate]),
       pool.query(`
         SELECT u.age, u.height_inches, u.starting_weight_lbs,
           COALESCE(u.start_date, u.paid_at::date, u.created_at::date) AS effective_start_date,
@@ -1271,6 +1277,7 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
     for (const r of slpR.rows) { const o = row(r.date); o.sleep_minutes = r.value }
     for (const r of movR.rows) { const o = row(r.date); o.movement      = r.count }
     for (const r of watR.rows) { const o = row(r.date); o.water_oz      = r.value }
+    for (const r of noteR.rows) { const o = row(r.date); o.note         = r.value }
     for (const r of chkR.rows) {
       const o = row(r.date)
       if (r.sleep_quality  != null) o.sleep_quality = r.sleep_quality

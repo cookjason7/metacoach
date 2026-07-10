@@ -2624,7 +2624,7 @@ function ProgressTab({ clientId, clientName, getToken, role }) {
                 </p>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-xs min-w-[720px]">
+                <table className="w-full text-xs min-w-[860px]">
                   <thead>
                     <tr className="bg-gray-50 text-gray-500 text-[10px] uppercase tracking-wide">
                       <th className="px-3 py-2 text-left font-semibold sticky left-0 bg-gray-50">Period</th>
@@ -2639,6 +2639,7 @@ function ProgressTab({ clientId, clientName, getToken, role }) {
                       <th className="px-2 py-2 text-right font-semibold">Steps</th>
                       <th className="px-2 py-2 text-right font-semibold">Sleep</th>
                       <th className="px-2 py-2 text-right font-semibold">Water</th>
+                      <th className="px-2 py-2 text-left font-semibold">Note</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -2667,6 +2668,7 @@ function ProgressTab({ clientId, clientName, getToken, role }) {
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.steps      ? Number(r.steps).toLocaleString()                      : '—'}</td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.sleep_minutes != null ? fmtSleep(r.sleep_minutes)                  : '—'}</td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.water_oz  ? `${r.water_oz} oz`                                     : '—'}</td>
+                          <td className="px-2 py-2 text-left text-gray-500 italic max-w-[200px] truncate" title={r.note ?? ''}>{r.note ?? '—'}</td>
                         </tr>
                       )
                     })}

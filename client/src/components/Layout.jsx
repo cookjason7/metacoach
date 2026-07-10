@@ -167,7 +167,7 @@ export default function Layout() {
       } else if (quickAction === 'sleep') {
         body.sleep_minutes = Math.round(Number(quickValue) * 60)
       }
-      if ((quickAction === 'water' || quickAction === 'sleep') && quickNote.trim()) {
+      if ((quickAction === 'water' || quickAction === 'sleep' || quickAction === 'weight') && quickNote.trim()) {
         body.note = quickNote.trim()
       }
       const res = await fetch(`${API_URL}/api/daily-logs`, {
@@ -1198,6 +1198,13 @@ export default function Layout() {
                     <input type="number" step="0.1" value={quickValue}
                       onChange={e => setQuickValue(e.target.value)}
                       placeholder="e.g. 145.5"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-3"
+                    />
+                    <input
+                      type="text"
+                      value={quickNote}
+                      onChange={e => setQuickNote(e.target.value)}
+                      placeholder="Note (optional)"
                       className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-4"
                     />
                     <button onClick={submitQuickLog} disabled={!quickValue || quickSaving}
