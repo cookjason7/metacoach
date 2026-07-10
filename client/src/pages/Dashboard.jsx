@@ -498,28 +498,25 @@ function fmtSleepMins(mins) {
   return h > 0 ? `${h}h ${m > 0 ? m + 'm' : ''}`.trim() : `${m}m`
 }
 
-// `note`, when present, shows a small dot next to the label — tapping it toggles
-// an inline reveal of the note text (doesn't affect the rest of the pill).
+// Truncates a note for inline display under a metric value (static text, no interaction).
+function truncateNote(note, max = 30) {
+  const text = String(note ?? '').trim()
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text
+}
+
+// `note`, when present, renders as small static italic text under the value —
+// always visible, no click/interaction.
 function StatPill({ icon, label, value, note }) {
-  const [open, setOpen] = useState(false)
   return (
     <div className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2.5 min-w-0">
       <span className="text-base shrink-0">{icon}</span>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide leading-none mb-0.5">{label}</p>
-          {note && (
-            <button
-              type="button"
-              onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
-              title="Has a note — tap to view"
-              className={`w-2 h-2 rounded-full shrink-0 transition-colors ${open ? 'bg-[#c45e09]' : 'bg-[#f97316]'}`}
-            />
-          )}
-        </div>
+        <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide leading-none mb-0.5">{label}</p>
         <p className="text-sm font-bold text-gray-800 leading-none truncate">{value}</p>
-        {open && note && (
-          <p className="text-[10px] text-gray-400 italic mt-1 whitespace-normal">"{note}"</p>
+        {note && (
+          <p className="text-[10px] text-gray-400 italic mt-1 truncate" title={note}>
+            {truncateNote(note)}
+          </p>
         )}
       </div>
     </div>

@@ -14,28 +14,10 @@ function formatDayLabel(label) {
   return label && /^Day \d+$/.test(label) ? `${label} Workout` : label
 }
 
-// Small dot shown next to a metric value when it has a note attached. Clicking it
-// toggles an inline reveal of the note text without triggering an ancestor row's
-// onClick (e.g. the Progress table's row-opens-meal-modal behavior).
-//
-// The visible dot is only 8x8px — too small to reliably land a click on. A click
-// aimed at the dot but landing 1-2px off hits the surrounding <span>/<td> instead,
-// which has no stopPropagation and lets it bubble to the row's onClick. Padding
-// the actual <button> (with a matching negative margin to keep layout unchanged)
-// gives the click a realistic hit target while keeping the visual dot small.
-function NoteDot({ isOpen, onToggle }) {
-  return (
-    <button
-      type="button"
-      onClick={e => { e.stopPropagation(); onToggle() }}
-      title="Has a note — click to view"
-      className={`inline-flex items-center justify-center shrink-0 p-2 -m-2 align-middle ${
-        isOpen ? 'text-[#c45e09]' : 'text-[#E8670A] hover:text-[#c45e09]'
-      }`}
-    >
-      <span className="block w-2 h-2 rounded-full bg-current transition-colors" />
-    </button>
-  )
+// Truncates a note for inline display under a metric value (static text, no interaction).
+function truncateNote(note, max = 30) {
+  const text = String(note ?? '').trim()
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text
 }
 
 const TABS = [
@@ -2484,8 +2466,6 @@ function SummaryCard({ label, value, sub, color }) {
 function ProgressTab({ clientId, clientName, getToken, role }) {
   const [range,       setRange]       = useState('daily')
   const [foodLogDate, setFoodLogDate] = useState(null)
-  // Which metric-note popover is open, keyed `${rowIndex}-${metric}`; null = none open.
-  const [openNoteKey, setOpenNoteKey] = useState(null)
   const today = localDateStr()
   const thirtyDaysAgo = (() => {
     const d = new Date()
@@ -2722,19 +2702,11 @@ function ProgressTab({ clientId, clientName, getToken, role }) {
                               : r.period}
                           </td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums whitespace-nowrap align-top">
-                            <span className="inline-flex items-center gap-1 justify-end">
-                              {r.weight ? `${r.weight} lbs` : '—'}
-                              {r.weight_note && (
-                                <NoteDot
-                                  isOpen={openNoteKey === `${i}-weight`}
-                                  onToggle={() => setOpenNoteKey(k => k === `${i}-weight` ? null : `${i}-weight`)}
-                                />
-                              )}
-                            </span>
-                            {openNoteKey === `${i}-weight` && r.weight_note && (
-                              <div className="mt-1 text-left text-[10px] text-gray-500 italic whitespace-normal max-w-[160px] ml-auto" onClick={e => e.stopPropagation()}>
-                                &ldquo;{r.weight_note}&rdquo;
-                              </div>
+                            {r.weight ? `${r.weight} lbs` : '—'}
+                            {r.weight_note && (
+                              <p className="text-[10px] text-gray-400 italic truncate" title={r.weight_note}>
+                                {truncateNote(r.weight_note)}
+                              </p>
                             )}
                           </td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums font-medium">{r.calories  ? Number(r.calories).toLocaleString()          : '—'}</td>
@@ -2746,35 +2718,19 @@ function ProgressTab({ clientId, clientName, getToken, role }) {
                           <td className="px-2 py-2 text-left text-[10px] text-gray-400 whitespace-nowrap">{gt ?? '—'}</td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.steps      ? Number(r.steps).toLocaleString()                      : '—'}</td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums whitespace-nowrap align-top">
-                            <span className="inline-flex items-center gap-1 justify-end">
-                              {r.sleep_minutes != null ? fmtSleep(r.sleep_minutes) : '—'}
-                              {r.sleep_note && (
-                                <NoteDot
-                                  isOpen={openNoteKey === `${i}-sleep`}
-                                  onToggle={() => setOpenNoteKey(k => k === `${i}-sleep` ? null : `${i}-sleep`)}
-                                />
-                              )}
-                            </span>
-                            {openNoteKey === `${i}-sleep` && r.sleep_note && (
-                              <div className="mt-1 text-left text-[10px] text-gray-500 italic whitespace-normal max-w-[160px] ml-auto" onClick={e => e.stopPropagation()}>
-                                &ldquo;{r.sleep_note}&rdquo;
-                              </div>
+                            {r.sleep_minutes != null ? fmtSleep(r.sleep_minutes) : '—'}
+                            {r.sleep_note && (
+                              <p className="text-[10px] text-gray-400 italic truncate" title={r.sleep_note}>
+                                {truncateNote(r.sleep_note)}
+                              </p>
                             )}
                           </td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums whitespace-nowrap align-top">
-                            <span className="inline-flex items-center gap-1 justify-end">
-                              {r.water_oz ? `${r.water_oz} oz` : '—'}
-                              {r.water_note && (
-                                <NoteDot
-                                  isOpen={openNoteKey === `${i}-water`}
-                                  onToggle={() => setOpenNoteKey(k => k === `${i}-water` ? null : `${i}-water`)}
-                                />
-                              )}
-                            </span>
-                            {openNoteKey === `${i}-water` && r.water_note && (
-                              <div className="mt-1 text-left text-[10px] text-gray-500 italic whitespace-normal max-w-[160px] ml-auto" onClick={e => e.stopPropagation()}>
-                                &ldquo;{r.water_note}&rdquo;
-                              </div>
+                            {r.water_oz ? `${r.water_oz} oz` : '—'}
+                            {r.water_note && (
+                              <p className="text-[10px] text-gray-400 italic truncate" title={r.water_note}>
+                                {truncateNote(r.water_note)}
+                              </p>
                             )}
                           </td>
                         </tr>
