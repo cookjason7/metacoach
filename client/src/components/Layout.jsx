@@ -3,7 +3,6 @@ import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { UserButton, useUser, useAuth, useClerk } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 import { Capacitor } from '@capacitor/core'
-import { PushNotifications } from '@capacitor/push-notifications'
 import { syncAppleHealthToday } from '../hooks/useAppleHealth.js'
 
 // Client-facing sidebar nav
@@ -338,14 +337,30 @@ export default function Layout() {
     } catch {}
   }, [])
 
-  // ── Android push notification registration ────────────────────────────────
+  // ── Android/iOS push notification registration ─────────────────────────────
   // Runs once the user is authenticated. Non-blocking — all errors are warnings.
+  //
+  // @capacitor/push-notifications is imported dynamically (not at module top
+  // level) and only after Capacitor.isPluginAvailable('PushNotifications')
+  // confirms the native bridge has finished injecting. registerPlugin() inside
+  // @capacitor/core captures the platform/native-headers state ONCE, synchronously,
+  // at the moment the plugin module is first imported — if that happens before the
+  // native bridge has injected into the WebView (a real race in this app's
+  // server.url remote-content mode, since the web bundle is fetched over the
+  // network rather than loaded from a bundled local asset), the plugin proxy is
+  // permanently stuck treating the device as "web" for the rest of that page
+  // load, and every later call throws "plugin is not implemented" — no amount
+  // of retrying checkPermissions()/register() afterwards fixes it. Deferring the
+  // import itself until isPluginAvailable() (which re-checks live on every call)
+  // confirms readiness avoids the race entirely.
   const pushTokenRef = useRef(null)
   useEffect(() => {
     if (!isLoaded || !user) return
-    const isNative = Capacitor.isNativePlatform()
-    const platform = Capacitor.getPlatform()
-    console.log('[push] native platform check', { isNative, platform })
+
+    let cancelled = false
+    let regListener = null
+    let errListener = null
+    let platform = null // set once the plugin is confirmed available, below
 
     // Fire-and-forget diagnostic ping — never includes the FCM token value
     const sendDebug = async (step, value) => {
@@ -361,14 +376,18 @@ export default function Layout() {
       } catch {}
     }
 
-    // Always fires — visible in production logs even when isNative=false
-    sendDebug('native-detected', `isNative=${isNative} platform=${platform}`)
-
-    if (!isNative) return
-
-    let cancelled = false
-    let regListener = null
-    let errListener = null
+    // Poll the live Capacitor bridge state rather than trusting a one-shot
+    // check — isPluginAvailable() re-reads window.Capacitor.PluginHeaders on
+    // every call, so it correctly reflects the bridge finishing injection
+    // after this effect has already started running.
+    const waitForPushPlugin = async (timeoutMs = 5000, intervalMs = 100) => {
+      const start = Date.now()
+      while (!cancelled && Date.now() - start < timeoutMs) {
+        if (window.Capacitor?.isPluginAvailable?.('PushNotifications')) return true
+        await new Promise(resolve => setTimeout(resolve, intervalMs))
+      }
+      return false
+    }
 
     const getCachedPushToken = () => {
       try {
@@ -440,7 +459,31 @@ export default function Layout() {
     }
 
     ;(async () => {
+      const pluginReady = await waitForPushPlugin()
+      if (cancelled) return
+
+      if (!pluginReady) {
+        const platformNow = Capacitor.getPlatform()
+        if (platformNow === 'web') {
+          // Expected — plain browser tab, not the native app. No push support here.
+          return
+        }
+        // Native platform, but the bridge never confirmed the plugin — worth tracing.
+        console.warn('[push] native bridge never became ready — push unavailable this session')
+        sendDebug('bridge-ready-timeout', `platform=${platformNow}`)
+        return
+      }
+
+      platform = Capacitor.getPlatform()
+      sendDebug('native-detected', `platform=${platform}`)
+
       try {
+        // Import only now — importing at module load time registers the plugin's
+        // Capacitor proxy before we can guarantee the bridge is ready (see comment
+        // above this effect). isPluginAvailable() having just returned true means
+        // this import resolves against a bridge that's already live.
+        const { PushNotifications } = await import('@capacitor/push-notifications')
+
         // Register listeners BEFORE calling register() so the token event is not missed
         regListener = await PushNotifications.addListener('registration', async ({ value: token }) => {
           if (cancelled) return
