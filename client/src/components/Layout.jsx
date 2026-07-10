@@ -374,6 +374,24 @@ export default function Layout() {
   // confirms readiness avoids the race entirely.
   const pushTokenRef = useRef(null)
   useEffect(() => {
+    // getToken() needs a live Clerk token, which POST /api/push/debug requires
+    // (requireAuth()). Clerk can genuinely need a beat to initialize in the
+    // WebView right at effect-mount — one retry after a short delay gives it
+    // that beat instead of giving up on the very first attempt.
+    const getTokenRetried = async () => {
+      try {
+        const t = await getToken()
+        if (t) return t
+      } catch {}
+      await new Promise(resolve => setTimeout(resolve, 500))
+      try {
+        return await getToken()
+      } catch (err) {
+        console.warn('[push] sendDebug getToken() retry also failed', String(err?.message ?? err))
+        return null
+      }
+    }
+
     // Fire-and-forget diagnostic ping — never includes the FCM token value.
     // Every failure mode is logged to console rather than swallowed: a fetch()
     // call resolving with a non-ok status (e.g. a 401 from an expired/missing
@@ -383,15 +401,9 @@ export default function Layout() {
       const body = { step }
       if (value !== undefined) body.value = String(value)
 
-      let clerkToken
-      try {
-        clerkToken = await getToken()
-      } catch (tokenErr) {
-        console.warn('[push] sendDebug getToken() failed — step not reported', step, String(tokenErr?.message ?? tokenErr))
-        return
-      }
+      const clerkToken = await getTokenRetried()
       if (!clerkToken) {
-        console.warn('[push] sendDebug has no Clerk token yet — step not reported', step)
+        console.warn('[push] sendDebug has no Clerk token after retry — step not reported', step)
         return
       }
 
@@ -411,8 +423,24 @@ export default function Layout() {
 
     // Unconditional — fires on every run of this effect, before the isLoaded/user
     // gate below, so we can tell "effect never ran" apart from "effect ran but
-    // bailed because auth wasn't ready yet."
-    sendDebug('push-effect-start', `platform=${Capacitor.getPlatform()} isLoaded=${isLoaded} hasUser=${!!user}`)
+    // bailed because auth wasn't ready yet." Uses the unauthenticated
+    // /api/push/app-load-debug endpoint rather than sendDebug()/api/push/debug —
+    // this is the single most critical log point (confirming the effect runs
+    // at all), and it must not depend on getToken() having already resolved at
+    // this exact instant, which is the one thing we can't guarantee this early.
+    try {
+      fetch(`${API_URL}/api/push/app-load-debug`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          build:     'push-effect-start',
+          platform:  Capacitor.getPlatform(),
+          isNative:  String(window.Capacitor?.isNative ?? false),
+          href:      'push-effect',
+          userAgent: `isLoaded=${isLoaded} hasUser=${!!user}`,
+        }),
+      }).catch(() => {})
+    } catch {}
 
     if (!isLoaded || !user) return
 
