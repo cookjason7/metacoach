@@ -3,7 +3,6 @@ import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { UserButton, useUser, useAuth, useClerk } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 import { Capacitor } from '@capacitor/core'
-import { PushNotifications } from '@capacitor/push-notifications'
 import { syncAppleHealthToday } from '../hooks/useAppleHealth.js'
 
 // Client-facing sidebar nav
@@ -357,14 +356,30 @@ export default function Layout() {
     } catch {}
   }, [isLoaded, user])
 
-  // ── Android push notification registration ────────────────────────────────
+  // ── Android/iOS push notification registration ─────────────────────────────
   // Runs once the user is authenticated. Non-blocking — all errors are warnings.
+  //
+  // @capacitor/push-notifications is imported dynamically (not at module top
+  // level) and only after Capacitor.isPluginAvailable('PushNotifications')
+  // confirms the native bridge has finished injecting. registerPlugin() inside
+  // @capacitor/core captures the platform/native-headers state ONCE, synchronously,
+  // at the moment the plugin module is first imported — if that happens before the
+  // native bridge has injected into the WebView (a real race in this app's
+  // server.url remote-content mode, since the web bundle is fetched over the
+  // network rather than loaded from a bundled local asset), the plugin proxy is
+  // permanently stuck treating the device as "web" for the rest of that page
+  // load, and every later call throws "plugin is not implemented" — no amount
+  // of retrying checkPermissions()/register() afterwards fixes it. Deferring the
+  // import itself until isPluginAvailable() (which re-checks live on every call)
+  // confirms readiness avoids the race entirely.
   const pushTokenRef = useRef(null)
   useEffect(() => {
     if (!isLoaded || !user) return
-    const rawPlatform = Capacitor.getPlatform()
-    // platform is resolved async after duck-typing the plugin (see IIFE below)
-    let platform = rawPlatform !== 'web' ? rawPlatform : 'android'
+
+    let cancelled = false
+    let regListener = null
+    let errListener = null
+    let platform = null // set once the plugin is confirmed available, below
 
     // Fire-and-forget diagnostic ping — never includes the FCM token value
     const sendDebug = async (step, value) => {
@@ -380,12 +395,18 @@ export default function Layout() {
       } catch {}
     }
 
-    const isNativeSyncGuess = Capacitor.isNativePlatform() || window.Capacitor?.isNative === true
-    sendDebug('native-detected', `isNative=${isNativeSyncGuess} platform=${platform} rawPlatform=${rawPlatform} bridgeIsNative=${window.Capacitor?.isNative} pushAvailable=probe`)
-
-    let cancelled = false
-    let regListener = null
-    let errListener = null
+    // Poll the live Capacitor bridge state rather than trusting a one-shot
+    // check — isPluginAvailable() re-reads window.Capacitor.PluginHeaders on
+    // every call, so it correctly reflects the bridge finishing injection
+    // after this effect has already started running.
+    const waitForPushPlugin = async (timeoutMs = 5000, intervalMs = 100) => {
+      const start = Date.now()
+      while (!cancelled && Date.now() - start < timeoutMs) {
+        if (window.Capacitor?.isPluginAvailable?.('PushNotifications')) return true
+        await new Promise(resolve => setTimeout(resolve, intervalMs))
+      }
+      return false
+    }
 
     const getCachedPushToken = () => {
       try {
@@ -457,20 +478,30 @@ export default function Layout() {
     }
 
     ;(async () => {
-      try {
-        // Duck-type the plugin: if checkPermissions() throws, the native bridge is absent
-        // and we are running in a plain browser — bail silently.
-        // This replaces the sync Capacitor.isNativePlatform() / isPluginAvailable() checks
-        // which both return false when server.url is active (bridge injects after module init).
-        let existingPerms
-        try {
-          existingPerms = await PushNotifications.checkPermissions()
-          platform = rawPlatform !== 'web' ? rawPlatform : 'android'
-          sendDebug('plugin-probe-ok', `existing=${existingPerms?.receive}`)
-        } catch (probeErr) {
-          sendDebug('plugin-probe-fail', String(probeErr?.message ?? probeErr ?? 'unknown').slice(0, 80))
+      const pluginReady = await waitForPushPlugin()
+      if (cancelled) return
+
+      if (!pluginReady) {
+        const platformNow = Capacitor.getPlatform()
+        if (platformNow === 'web') {
+          // Expected — plain browser tab, not the native app. No push support here.
           return
         }
+        // Native platform, but the bridge never confirmed the plugin — worth tracing.
+        console.warn('[push] native bridge never became ready — push unavailable this session')
+        sendDebug('bridge-ready-timeout', `platform=${platformNow}`)
+        return
+      }
+
+      platform = Capacitor.getPlatform()
+      sendDebug('native-detected', `platform=${platform}`)
+
+      try {
+        // Import only now — importing at module load time registers the plugin's
+        // Capacitor proxy before we can guarantee the bridge is ready (see comment
+        // above this effect). isPluginAvailable() having just returned true means
+        // this import resolves against a bridge that's already live.
+        const { PushNotifications } = await import('@capacitor/push-notifications')
 
         // Register listeners BEFORE calling register() so the token event is not missed
         regListener = await PushNotifications.addListener('registration', async ({ value: token }) => {
@@ -493,10 +524,7 @@ export default function Layout() {
 
         sendDebug('listeners-added')
 
-        let receive = existingPerms?.receive
-        if (receive !== 'granted') {
-          ;({ receive } = await PushNotifications.requestPermissions())
-        }
+        const { receive } = await PushNotifications.requestPermissions()
         console.log('[push] permission result', { receive, platform })
         sendDebug('permission', receive)
         if (receive !== 'granted') {
