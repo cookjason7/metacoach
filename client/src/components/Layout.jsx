@@ -69,6 +69,7 @@ export default function Layout() {
   const [quickMenuOpen,       setQuickMenuOpen]       = useState(false)
   const [quickAction,         setQuickAction]         = useState(null)
   const [quickValue,          setQuickValue]          = useState('')
+  const [quickNote,           setQuickNote]           = useState('')
   const [quickWaterMode,      setQuickWaterMode]      = useState('add')
   const [quickSaving,         setQuickSaving]         = useState(false)
   const [quickDone,           setQuickDone]           = useState(false)
@@ -104,6 +105,7 @@ export default function Layout() {
     setQuickMenuOpen(true)
     setQuickAction(null)
     setQuickValue('')
+    setQuickNote('')
     setQuickWaterMode('add')
     setQuickDone(false)
     setQuickError(null)
@@ -129,6 +131,7 @@ export default function Layout() {
     setQuickMenuOpen(false)
     setQuickAction(null)
     setQuickValue('')
+    setQuickNote('')
     setQuickWaterMode('add')
     setQuickDone(false)
     setQuickError(null)
@@ -163,6 +166,9 @@ export default function Layout() {
         body.steps = Number(quickValue)
       } else if (quickAction === 'sleep') {
         body.sleep_minutes = Math.round(Number(quickValue) * 60)
+      }
+      if ((quickAction === 'water' || quickAction === 'sleep') && quickNote.trim()) {
+        body.note = quickNote.trim()
       }
       const res = await fetch(`${API_URL}/api/daily-logs`, {
         method: 'POST',
@@ -942,7 +948,7 @@ export default function Layout() {
               {(quickAction || quickFoodMode) ? (
                 <button
                   onClick={() => {
-                    if (quickAction) { setQuickAction(null); setQuickValue(''); setQuickDone(false); setQuickError(null); resetQuickExtras() }
+                    if (quickAction) { setQuickAction(null); setQuickValue(''); setQuickNote(''); setQuickDone(false); setQuickError(null); resetQuickExtras() }
                     else setQuickFoodMode(null)
                   }}
                   className="flex items-center gap-1 text-sm font-medium text-gray-500 hover:text-gray-800"
@@ -1149,6 +1155,13 @@ export default function Layout() {
                       placeholder={quickActionDate === new Date().toISOString().slice(0, 10) ? 'Custom amount (oz)' : 'Total oz for this day'}
                       className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-3"
                     />
+                    <input
+                      type="text"
+                      value={quickNote}
+                      onChange={e => setQuickNote(e.target.value)}
+                      placeholder="Note (optional)"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-3"
+                    />
                     {quickActionDate === new Date().toISOString().slice(0, 10) ? (
                       <div className="grid grid-cols-2 gap-2">
                         <button
@@ -1239,6 +1252,13 @@ export default function Layout() {
                       value={quickValue}
                       onChange={e => setQuickValue(e.target.value)}
                       placeholder="Custom hours (e.g. 7.5)"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-3"
+                    />
+                    <input
+                      type="text"
+                      value={quickNote}
+                      onChange={e => setQuickNote(e.target.value)}
+                      placeholder="Note (optional)"
                       className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-4"
                     />
                     <button onClick={submitQuickLog} disabled={!quickValue || quickSaving}
