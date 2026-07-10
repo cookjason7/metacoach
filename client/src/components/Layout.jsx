@@ -34,6 +34,24 @@ const SIDEBAR_BG = '#0F1E35'
 const PHOTO_ANGLE_SEQUENCE = ['front', 'side', 'back']
 
 export default function Layout() {
+  // ── Blunter diagnostic: fires synchronously during Layout's render body,
+  // before any hook is declared. Confirms whether Layout's function is
+  // executing fresh code on the device under test at all, independent of
+  // any specific effect/hook ordering or timing further down.
+  try {
+    fetch(`${API_URL}/api/push/app-load-debug`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        build:     'layout-render-start',
+        platform:  Capacitor.getPlatform(),
+        isNative:  String(window.Capacitor?.isNative ?? false),
+        href:      window.location.href,
+        userAgent: navigator.userAgent,
+      }),
+    }).catch(() => {})
+  } catch {}
+
   const { user, isLoaded } = useUser()
   const { getToken }       = useAuth()
   const { signOut }        = useClerk()
