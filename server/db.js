@@ -59,6 +59,12 @@ export async function migrate() {
   await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS sleep_note TEXT`)
   // Replaced by the per-metric columns above (added same day, no production data to migrate).
   await pool.query(`ALTER TABLE daily_logs DROP COLUMN IF EXISTS note`)
+  // Tracks when steps_source/sleep_source were last written by an automated sync
+  // (fitbit/google_health/apple_health/synced). Lets a newer sync from one source
+  // overwrite an older sync from another instead of being permanently locked out
+  // once a different source claims the row. NULL for legacy rows / manual entries.
+  await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS steps_source_updated_at TIMESTAMPTZ`)
+  await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS sleep_source_updated_at TIMESTAMPTZ`)
   // Backfill: any row where steps or sleep has a value but source is NULL
   // should be treated as manually entered. The DEFAULT handles new rows; this
   // catches rows created before the column existed or via raw INSERT paths.
