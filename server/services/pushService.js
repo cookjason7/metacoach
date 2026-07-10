@@ -174,32 +174,30 @@ export async function notifyNewFormDelivery(clientUserId) {
   }
 }
 
-// Notify community members about a new post.
-// Generic copy only — no post content, no health data.
-// Staff/admin are always notified of any new post (staff or client authored).
-// Clients are only notified when the post is staff-authored (authorIsStaff=true) —
-// posts from other clients don't push to the whole client base, to limit spam.
-export async function notifyNewCommunityPost(authorUserId, authorIsStaff = false) {
+// Notify a user about a new top-level community post.
+// Generic copy only - no post content, no health data.
+export async function notifyNewCommunityPost(recipientUserId) {
   try {
-    const roleFilter = authorIsStaff
-      ? `(role IN ('admin', 'coach') OR (role = 'client' AND COALESCE(coaching_type, '') != 'basic'))`
-      : `role IN ('admin', 'coach')`
     const { rows } = await pool.query(
-      `SELECT id, notif_master_enabled, notif_community_enabled
-       FROM users
-       WHERE id != $1
-         AND ${roleFilter}
-         AND notif_master_enabled = TRUE
-         AND notif_community_enabled = TRUE`,
-      [authorUserId],
+      `SELECT notif_master_enabled, notif_community_enabled FROM users WHERE id = $1`,
+      [recipientUserId],
     )
-    for (const user of rows) {
-      await sendToUser(user.id, {
-        title: 'New Post',
-        body:  "There's a new group post.",
-      }).catch(() => {})
+    const prefs = rows[0]
+    if (!prefs) {
+      console.warn('[push] notifyNewCommunityPost - user not found userId=%s', recipientUserId)
+      return
     }
+    if (!prefs.notif_master_enabled || !prefs.notif_community_enabled) {
+      console.log('[push] notifyNewCommunityPost - suppressed by prefs userId=%s master=%s community=%s',
+        recipientUserId, prefs.notif_master_enabled, prefs.notif_community_enabled)
+      return
+    }
+    console.log('[push] notifyNewCommunityPost - sending to userId=%s', recipientUserId)
+    await sendToUser(recipientUserId, {
+      title: 'New Post',
+      body:  "There's a new group post.",
+    })
   } catch (err) {
-    console.warn('[push] notifyNewCommunityPost error:', err.message)
+    console.warn('[push] notifyNewCommunityPost error userId=%s: %s', recipientUserId, err.message)
   }
 }

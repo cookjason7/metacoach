@@ -110,8 +110,44 @@ async function createNewPostNotifications(postId, fromUserId) {
     }
   } catch {}
 }
+async function notifyTopLevelCommunityPost({ authorUserId, authorIsStaff, postChannel }) {
+  try {
+    if (authorIsStaff) {
+      if (postChannel !== 'vip') {
+        console.log('[push] community post skipped for clients - channel=%s has no client-visible audience', postChannel)
+        return
+      }
+      const { rows: clients } = await pool.query(
+        `SELECT id
+         FROM users
+         WHERE role = 'client'
+           AND COALESCE(coaching_type, '') != 'basic'
+           AND id != $1`,
+        [authorUserId],
+      )
+      for (const client of clients) await notifyNewCommunityPost(client.id).catch(() => {})
+      return
+    }
 
-// ── Delete ────────────────────────────────────────────────────────────────────
+    const { rows: [author] } = await pool.query(
+      `SELECT assigned_coach_id AS coach_id FROM users WHERE id = $1`,
+      [authorUserId],
+    )
+    if (author?.coach_id) {
+      await notifyNewCommunityPost(author.coach_id).catch(() => {})
+      return
+    }
+
+    const { rows: admins } = await pool.query(
+      `SELECT id FROM users WHERE role = 'admin' AND id != $1`,
+      [authorUserId],
+    )
+    for (const admin of admins) await notifyNewCommunityPost(admin.id).catch(() => {})
+  } catch (err) {
+    console.warn('[push] notifyTopLevelCommunityPost error:', err.message)
+  }
+}
+// -- Delete -------------------------------------------------------------------
 
 router.delete('/posts/:id', requireAuth(), async (req, res, next) => {
   try {
@@ -128,7 +164,6 @@ router.delete('/posts/:id', requireAuth(), async (req, res, next) => {
     res.json({ ok: true })
   } catch (err) { next(err) }
 })
-
 router.delete('/comments/:id', requireAuth(), async (req, res, next) => {
   try {
     if (await checkAdmin(req, res) === null) return
@@ -352,10 +387,12 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
     // Staff post -> clients get an in-app badge notification too (fire-and-forget)
     if (isStaff) createNewPostNotifications(post.id, dbUserId).catch(() => {})
 
-    // Push: notify community — fire-and-forget. Clients only pushed when a staff
-    // member authored this post (see notifyNewCommunityPost for the role filter).
-    notifyNewCommunityPost(dbUserId, isStaff).catch(() => {})
-
+    // Push only for top-level post creation. Comments intentionally do not dispatch push.
+    notifyTopLevelCommunityPost({
+      authorUserId: dbUserId,
+      authorIsStaff: isStaff,
+      postChannel,
+    }).catch(() => {})
     const { rows: userRows } = await pool.query(
       'SELECT first_name FROM users WHERE id = $1', [dbUserId],
     )
