@@ -22,7 +22,6 @@ import HealthAssessment from './pages/HealthAssessment'
 import Messages from './pages/Messages'
 import ClientList from './pages/admin/ClientList'
 import ClientProfile from './pages/admin/ClientProfile'
-import CoachCalendar from './pages/admin/CoachCalendar'
 import UsageAnalytics from './pages/admin/UsageAnalytics'
 import InviteAccept from './pages/InviteAccept'
 import StaffInviteAccept from './pages/StaffInviteAccept'
@@ -206,7 +205,6 @@ export default function App() {
             <Route path="/admin"               element={<Admin />} />
             <Route path="/admin/clients"       element={<ClientList />} />
             <Route path="/admin/clients/:id"   element={<ClientProfile />} />
-            <Route path="/admin/calendar"      element={<CoachCalendar />} />
             <Route path="/admin/forms"         element={<FormsList />} />
             <Route path="/admin/forms/:id/edit" element={<FormBuilder />} />
             <Route path="/admin/usage"         element={<UsageAnalytics />} />

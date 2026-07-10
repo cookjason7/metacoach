@@ -11,11 +11,11 @@ import ExerciseThumb from '../../components/ExerciseThumb.jsx'
 const TABS = [
   { id: 'overview',    label: 'Overview',   icon: '◉' },
   { id: 'nutrition',   label: 'Nutrition',  icon: '🥗' },
-  { id: 'habits',      label: 'Habits',     icon: '✓' },
   { id: 'progress',    label: 'Progress',   icon: '↗' },
   { id: 'assessment',  label: 'Forms',      icon: '★' },
   { id: 'notes',       label: 'Notes',      icon: '✎' },
   { id: 'messaging',   label: 'Messages',   icon: '✉' },
+  { id: 'habits',      label: 'Calendar',   icon: '📅' },
   { id: 'engagement',  label: 'Engagement', icon: '⚡' },
   { id: 'bloodwork',   label: 'Bloodwork',  icon: '🩸' },
   { id: 'workouts',    label: 'Workouts',   icon: '💪' },
@@ -1409,8 +1409,8 @@ function habitActiveOnDay(h, date) {
   return true
 }
 
-// Build a full-month grid for the coach habit calendar preview
-function buildMonthCalendar(habits) {
+// Build a full-month grid for the coach calendar preview (habits + scheduled workouts)
+function buildMonthCalendar(habits, workoutCal = {}) {
   const today = new Date(); today.setHours(0,0,0,0)
   const todayKey = localDateStr()
   const year = today.getFullYear()
@@ -1419,24 +1419,31 @@ function buildMonthCalendar(habits) {
   const lastDay  = new Date(year, month + 1, 0)
   const monthName = firstDay.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 
+  function cellFor(d, inMonth) {
+    const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    return {
+      date: d, dateKey, inMonth, isToday: dateKey === todayKey,
+      habits:   inMonth ? habits.filter(h => habitActiveOnDay(h, d)) : [],
+      workouts: inMonth ? (workoutCal[dateKey] ?? []) : [],
+    }
+  }
+
   const cells = []
   // Pad days before month start
   for (let i = 0; i < firstDay.getDay(); i++) {
     const d = new Date(firstDay); d.setDate(d.getDate() - (firstDay.getDay() - i))
-    cells.push({ date: d, dateKey: d.toISOString().slice(0,10), habits: [], inMonth: false, isToday: false })
+    cells.push(cellFor(d, false))
   }
   // Days in month
   for (let n = 1; n <= lastDay.getDate(); n++) {
-    const d = new Date(year, month, n)
-    const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    cells.push({ date: d, dateKey, habits: habits.filter(h => habitActiveOnDay(h, d)), inMonth: true, isToday: dateKey === todayKey })
+    cells.push(cellFor(new Date(year, month, n), true))
   }
   // Pad end of last week
   const tail = cells.length % 7
   if (tail > 0) {
     let pad = new Date(lastDay); pad.setDate(pad.getDate() + 1)
     for (let i = 0; i < 7 - tail; i++) {
-      cells.push({ date: pad, dateKey: pad.toISOString().slice(0,10), habits: [], inMonth: false, isToday: false })
+      cells.push(cellFor(pad, false))
       pad = new Date(pad); pad.setDate(pad.getDate() + 1)
     }
   }
@@ -1463,14 +1470,16 @@ function getHabitDots(habitId, calendar) {
   return dots
 }
 
-function HabitsTab({ clientId, getToken }) {
+function CalendarTab({ clientId, getToken }) {
   const [habits, setHabits] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [showLibrary, setShowLibrary] = useState(false)
-  const [showPreview, setShowPreview] = useState(false)
+  const [showPreview, setShowPreview] = useState(true)
   const [editingId, setEditingId] = useState(null)
   const [editForm, setEditForm] = useState({})
+  const [workoutCal, setWorkoutCal] = useState({})
+  const [workoutDetail, setWorkoutDetail] = useState(null) // { assignment, dateISO } for read-only exercise list
   const [form, setForm] = useState({
     habit_name: '', habit_type: 'boolean', target_value: '', unit: '',
     frequency: 'daily', start_date: localDateStr(),
@@ -1517,6 +1526,27 @@ function HabitsTab({ clientId, getToken }) {
       }
     }
     loadCompliance()
+    return () => { cancelled = true }
+  }, [clientId, getToken])
+
+  // Scheduled workouts for the visible month-grid — same shape as habits/calendar,
+  // fetched with a week of padding on each side to cover the grid's leading/trailing days.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const now = new Date()
+        const first = new Date(now.getFullYear(), now.getMonth(), 1 - 7)
+        const last  = new Date(now.getFullYear(), now.getMonth() + 1, 0 + 7)
+        const fmt = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        const token = await getToken()
+        const res = await fetch(
+          `${API_URL}/api/coach-admin/clients/${clientId}/workout-schedules/calendar?start=${fmt(first)}&end=${fmt(last)}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        )
+        if (res.ok && !cancelled) setWorkoutCal((await res.json()).calendar ?? {})
+      } catch { /* calendar preview is best-effort */ }
+    })()
     return () => { cancelled = true }
   }, [clientId, getToken])
 
@@ -1635,7 +1665,8 @@ function HabitsTab({ clientId, getToken }) {
     setEditForm(f => ({ ...f, days_of_week: next.join(',') }))
   }
 
-  const monthCal = buildMonthCalendar(habits)
+  const monthCal = buildMonthCalendar(habits, workoutCal)
+  const hasCalendarData = habits.length > 0 || Object.keys(workoutCal).length > 0
 
   return (
     <div className="space-y-4">
@@ -1657,19 +1688,19 @@ function HabitsTab({ clientId, getToken }) {
             className="px-2 py-1 rounded-lg text-xs font-medium border border-[#1e2a3a] text-[#1e2a3a] hover:bg-[#1e2a3a] hover:text-white transition-colors">
             📚 Library
           </button>
-          {habits.length > 0 && (
+          {hasCalendarData && (
             <button onClick={() => setShowPreview(s => !s)}
               className="px-2 py-1 rounded-lg text-xs font-medium border border-[#1e2a3a] text-[#1e2a3a] hover:bg-[#1e2a3a] hover:text-white transition-colors">
-              📅 {showPreview ? 'Hide Calendar' : 'Habit Calendar'}
+              📅 {showPreview ? 'Hide Calendar' : 'Show Calendar'}
             </button>
           )}
         </div>
       </div>
 
-      {/* Month habit calendar */}
-      {showPreview && habits.length > 0 && (
+      {/* Month calendar — habits + scheduled workouts together */}
+      {showPreview && hasCalendarData && (
         <div className="bg-white border border-gray-200 rounded-xl p-4">
-          <p className="text-sm font-semibold text-gray-700 mb-3">📅 {monthCal.monthName} — Client habit view</p>
+          <p className="text-sm font-semibold text-gray-700 mb-3">📅 {monthCal.monthName} — Client calendar</p>
           <div className="grid grid-cols-7 gap-1 mb-1">
             {DAYS.map(d => (
               <p key={d} className="text-[10px] font-bold text-gray-400 text-center py-1">{d}</p>
@@ -1677,7 +1708,7 @@ function HabitsTab({ clientId, getToken }) {
           </div>
           {monthCal.weeks.map((week, wi) => (
             <div key={wi} className="grid grid-cols-7 gap-1 mb-1">
-              {week.map(({ date, dateKey, habits: dayHabits, inMonth, isToday }) => (
+              {week.map(({ date, dateKey, habits: dayHabits, workouts: dayWorkouts, inMonth, isToday }) => (
                 <div key={dateKey} className={`border rounded-lg p-1 min-h-[68px] ${
                   !inMonth ? 'border-transparent bg-gray-50/40 opacity-40' :
                   isToday  ? 'border-[#E8670A] bg-orange-50' : 'border-gray-200 bg-white'
@@ -1686,6 +1717,16 @@ function HabitsTab({ clientId, getToken }) {
                     {date.getDate()}
                   </p>
                   <div className="space-y-0.5">
+                    {dayWorkouts.map((w, wi2) => (
+                      <button
+                        key={`w-${w.assignment.id}-${wi2}`}
+                        onClick={() => setWorkoutDetail({ assignment: w.assignment, dateISO: dateKey })}
+                        title={`${w.assignment.day_label} · ${w.assignment.workout_name}`}
+                        className="w-full text-left text-[8px] font-semibold bg-orange-50 text-[#c45e09] border border-orange-200 px-1 py-px rounded truncate leading-tight hover:bg-orange-100 transition-colors"
+                      >
+                        {w.log ? '✓ ' : ''}{w.assignment.day_label}
+                      </button>
+                    ))}
                     {dayHabits.slice(0, 3).map(h => (
                       <div key={h.id} className="text-[8px] bg-emerald-50 text-emerald-700 px-1 py-px rounded truncate leading-tight" title={h.habit_name}>
                         {h.habit_name}
@@ -1986,6 +2027,92 @@ function HabitsTab({ clientId, getToken }) {
         </div>
       </div>
 
+      {workoutDetail && (
+        <WorkoutDetailPanel
+          clientId={clientId}
+          assignment={workoutDetail.assignment}
+          dateISO={workoutDetail.dateISO}
+          getToken={getToken}
+          onClose={() => setWorkoutDetail(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// Read-only exercise list for a scheduled workout day — coaches view what's
+// scheduled, they don't log sets on a client's behalf (that stays client-only).
+function WorkoutDetailPanel({ clientId, assignment, dateISO, getToken, onClose }) {
+  const [exercises, setExercises] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      setLoading(true); setError(null)
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/workouts/${assignment.workout_id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok) throw new Error(`Server error ${res.status}`)
+        const data = await res.json()
+        if (alive) setExercises((data.exercises ?? []).filter(ex => ex.day === assignment.day_label))
+      } catch (err) {
+        if (alive) setError(err.message)
+      } finally { if (alive) setLoading(false) }
+    })()
+    return () => { alive = false }
+  }, [clientId, assignment, getToken])
+
+  const dateLabel = new Date(dateISO + 'T00:00:00').toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric',
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[92vh] flex flex-col overflow-hidden shadow-xl"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-gray-900 truncate">{assignment.day_label}</p>
+            <p className="text-[11px] text-gray-400 truncate">{assignment.workout_name} &middot; {dateLabel}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1.5 leading-none shrink-0 text-lg">&#10005;</button>
+        </div>
+        <div className="overflow-y-auto flex-1 p-4 space-y-3">
+          {loading ? (
+            <p className="text-xs text-gray-400">Loading&hellip;</p>
+          ) : error ? (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
+          ) : exercises.length === 0 ? (
+            <p className="text-sm text-gray-500">No exercises found for this workout day.</p>
+          ) : exercises.map(ex => (
+            <div key={ex.id} className="rounded-xl border border-gray-200 overflow-hidden">
+              <div className="flex items-center gap-2.5 p-2.5 bg-gray-50">
+                <ExerciseThumb src={ex.image_url} alt={ex.exercise_name} />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{ex.exercise_name}</p>
+                  <p className="text-[11px] text-gray-500">
+                    {ex.sets ?? '—'} sets
+                    {ex.reps ? ` · ${ex.reps} reps` : ''}
+                    {ex.weight ? ` · ${ex.weight}` : ''}
+                    {ex.rest_seconds ? ` · ${ex.rest_seconds}s rest` : ''}
+                  </p>
+                  {ex.notes && <p className="text-[11px] text-gray-400 whitespace-pre-wrap break-words">{ex.notes}</p>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center justify-end px-4 py-3 border-t border-gray-100 shrink-0">
+          <button onClick={onClose}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors">
+            Close
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -6275,7 +6402,7 @@ export default function ClientProfile() {
       {/* Tab content */}
       {tab === 'overview'   && <OverviewTab    client={client} role={meRole} getToken={getToken} onUpdate={u => setClient(c => ({ ...c, ...u }))} />}
       {tab === 'nutrition'  && <NutritionTab   client={client} clientId={client.id} getToken={getToken} onUpdate={u => setClient(c => ({ ...c, ...u }))} />}
-      {tab === 'habits'     && <HabitsTab      clientId={client.id} getToken={getToken} />}
+      {tab === 'habits'     && <CalendarTab    clientId={client.id} getToken={getToken} />}
       {tab === 'progress'   && <ProgressTab    clientId={client.id} getToken={getToken} role={meRole} clientName={[client.display_first_name || client.first_name, client.display_last_name || client.last_name].filter(Boolean).join(' ') || client.email?.split('@')[0] || null} />}
       {tab === 'assessment' && <AssessmentTab  clientId={client.id} getToken={getToken} />}
       {tab === 'notes'      && <NotesTab       clientId={client.id} role={meRole} getToken={getToken} />}
