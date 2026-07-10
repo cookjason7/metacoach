@@ -11,7 +11,8 @@ router.get('/today', requireAuth(), async (req, res, next) => {
     const { userId } = getAuth(req)
 
     const { rows } = await pool.query(
-      `SELECT dl.water_oz, dl.steps, dl.weight_lbs, dl.sleep_minutes, dl.note
+      `SELECT dl.water_oz, dl.steps, dl.weight_lbs, dl.sleep_minutes,
+              dl.weight_note, dl.water_note, dl.sleep_note
        FROM daily_logs dl
        JOIN users u ON u.id = dl.user_id
        WHERE u.clerk_user_id = $1
@@ -20,7 +21,10 @@ router.get('/today', requireAuth(), async (req, res, next) => {
     )
 
     res.set('Cache-Control', 'no-store')
-    res.json(rows[0] ?? { water_oz: null, steps: null, weight_lbs: null, sleep_minutes: null, note: null })
+    res.json(rows[0] ?? {
+      water_oz: null, steps: null, weight_lbs: null, sleep_minutes: null,
+      weight_note: null, water_note: null, sleep_note: null,
+    })
   } catch (err) {
     next(err)
   }
@@ -228,17 +232,22 @@ router.post('/', requireAuth(), async (req, res, next) => {
       return res.json(cleared[0] ?? { water_oz: null, steps: null, weight_lbs: null, sleep_minutes: null })
     }
 
-    const { water_oz = null, steps = null, weight_lbs = null, sleep_minutes = null, note = null } = body
+    const {
+      water_oz = null, steps = null, weight_lbs = null, sleep_minutes = null,
+      weight_note = null, water_note = null, sleep_note = null,
+    } = body
 
     const { rows } = await pool.query(
-      `INSERT INTO daily_logs (user_id, logged_date, water_oz, steps, weight_lbs, steps_source, sleep_minutes, sleep_source, note)
-       VALUES ($1, $2::date, $3, $4, $5, 'manual', $6, 'manual', $7)
+      `INSERT INTO daily_logs (user_id, logged_date, water_oz, steps, weight_lbs, steps_source, sleep_minutes, sleep_source, weight_note, water_note, sleep_note)
+       VALUES ($1, $2::date, $3, $4, $5, 'manual', $6, 'manual', $7, $8, $9)
        ON CONFLICT (user_id, logged_date) DO UPDATE SET
          water_oz      = COALESCE(EXCLUDED.water_oz,      daily_logs.water_oz),
          steps         = COALESCE(EXCLUDED.steps,         daily_logs.steps),
          weight_lbs    = COALESCE(EXCLUDED.weight_lbs,    daily_logs.weight_lbs),
          sleep_minutes = COALESCE(EXCLUDED.sleep_minutes, daily_logs.sleep_minutes),
-         note          = COALESCE(EXCLUDED.note,          daily_logs.note),
+         weight_note   = COALESCE(EXCLUDED.weight_note,   daily_logs.weight_note),
+         water_note    = COALESCE(EXCLUDED.water_note,    daily_logs.water_note),
+         sleep_note    = COALESCE(EXCLUDED.sleep_note,    daily_logs.sleep_note),
          steps_source = CASE
            WHEN EXCLUDED.steps IS NOT NULL THEN 'manual'
            ELSE COALESCE(daily_logs.steps_source, 'manual')
@@ -247,8 +256,8 @@ router.post('/', requireAuth(), async (req, res, next) => {
            WHEN EXCLUDED.sleep_minutes IS NOT NULL THEN 'manual'
            ELSE COALESCE(daily_logs.sleep_source, 'manual')
          END
-       RETURNING water_oz, steps, weight_lbs, sleep_minutes, note`,
-      [dbUserId, targetDate, water_oz, steps, weight_lbs, sleep_minutes, note],
+       RETURNING water_oz, steps, weight_lbs, sleep_minutes, weight_note, water_note, sleep_note`,
+      [dbUserId, targetDate, water_oz, steps, weight_lbs, sleep_minutes, weight_note, water_note, sleep_note],
     )
 
     if (rows[0].water_oz != null) {
