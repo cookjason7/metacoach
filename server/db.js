@@ -54,7 +54,11 @@ export async function migrate() {
   await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS sleep_minutes INTEGER`)
   await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS steps_source TEXT DEFAULT 'manual'`)
   await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS sleep_source TEXT DEFAULT 'manual'`)
-  await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS note TEXT`)
+  await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS weight_note TEXT`)
+  await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS water_note TEXT`)
+  await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS sleep_note TEXT`)
+  // Replaced by the per-metric columns above (added same day, no production data to migrate).
+  await pool.query(`ALTER TABLE daily_logs DROP COLUMN IF EXISTS note`)
   // Backfill: any row where steps or sleep has a value but source is NULL
   // should be treated as manually entered. The DEFAULT handles new rows; this
   // catches rows created before the column existed or via raw INSERT paths.

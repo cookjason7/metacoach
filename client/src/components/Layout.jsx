@@ -167,8 +167,10 @@ export default function Layout() {
       } else if (quickAction === 'sleep') {
         body.sleep_minutes = Math.round(Number(quickValue) * 60)
       }
-      if ((quickAction === 'water' || quickAction === 'sleep' || quickAction === 'weight') && quickNote.trim()) {
-        body.note = quickNote.trim()
+      if (quickNote.trim()) {
+        if (quickAction === 'water')  body.water_note  = quickNote.trim()
+        if (quickAction === 'sleep')  body.sleep_note  = quickNote.trim()
+        if (quickAction === 'weight') body.weight_note = quickNote.trim()
       }
       const res = await fetch(`${API_URL}/api/daily-logs`, {
         method: 'POST',

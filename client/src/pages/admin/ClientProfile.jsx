@@ -14,6 +14,22 @@ function formatDayLabel(label) {
   return label && /^Day \d+$/.test(label) ? `${label} Workout` : label
 }
 
+// Small dot shown next to a metric value when it has a note attached. Clicking it
+// toggles an inline reveal of the note text without triggering an ancestor row's
+// onClick (e.g. the Progress table's row-opens-meal-modal behavior).
+function NoteDot({ isOpen, onToggle }) {
+  return (
+    <button
+      type="button"
+      onClick={e => { e.stopPropagation(); onToggle() }}
+      title="Has a note — click to view"
+      className={`inline-block w-2 h-2 rounded-full shrink-0 align-middle transition-colors ${
+        isOpen ? 'bg-[#c45e09]' : 'bg-[#E8670A] hover:bg-[#c45e09]'
+      }`}
+    />
+  )
+}
+
 const TABS = [
   { id: 'overview',    label: 'Overview',   icon: '◉' },
   { id: 'nutrition',   label: 'Nutrition',  icon: '🥗' },
@@ -2427,6 +2443,8 @@ function SummaryCard({ label, value, sub, color }) {
 function ProgressTab({ clientId, clientName, getToken, role }) {
   const [range,       setRange]       = useState('daily')
   const [foodLogDate, setFoodLogDate] = useState(null)
+  // Which metric-note popover is open, keyed `${rowIndex}-${metric}`; null = none open.
+  const [openNoteKey, setOpenNoteKey] = useState(null)
   const today = localDateStr()
   const thirtyDaysAgo = (() => {
     const d = new Date()
@@ -2645,7 +2663,6 @@ function ProgressTab({ clientId, clientName, getToken, role }) {
                       <th className="px-2 py-2 text-right font-semibold">Steps</th>
                       <th className="px-2 py-2 text-right font-semibold">Sleep</th>
                       <th className="px-2 py-2 text-right font-semibold">Water</th>
-                      <th className="px-2 py-2 text-left font-semibold">Note</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -2663,7 +2680,22 @@ function ProgressTab({ clientId, clientName, getToken, role }) {
                               ? <span className="text-[#E8670A] hover:underline">{r.period}</span>
                               : r.period}
                           </td>
-                          <td className="px-2 py-2 text-right text-gray-600 tabular-nums whitespace-nowrap">{r.weight   ? `${r.weight} lbs`                       : '—'}</td>
+                          <td className="px-2 py-2 text-right text-gray-600 tabular-nums whitespace-nowrap align-top">
+                            <span className="inline-flex items-center gap-1 justify-end">
+                              {r.weight ? `${r.weight} lbs` : '—'}
+                              {r.weight_note && (
+                                <NoteDot
+                                  isOpen={openNoteKey === `${i}-weight`}
+                                  onToggle={() => setOpenNoteKey(k => k === `${i}-weight` ? null : `${i}-weight`)}
+                                />
+                              )}
+                            </span>
+                            {openNoteKey === `${i}-weight` && r.weight_note && (
+                              <div className="mt-1 text-left text-[10px] text-gray-500 italic whitespace-normal max-w-[160px] ml-auto" onClick={e => e.stopPropagation()}>
+                                &ldquo;{r.weight_note}&rdquo;
+                              </div>
+                            )}
+                          </td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums font-medium">{r.calories  ? Number(r.calories).toLocaleString()          : '—'}</td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.protein   ? `${r.protein}g`                                         : '—'}</td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.fat       ? `${r.fat}g`                                             : '—'}</td>
@@ -2672,9 +2704,38 @@ function ProgressTab({ clientId, clientName, getToken, role }) {
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.sugar     ? `${r.sugar}g`                                           : '—'}</td>
                           <td className="px-2 py-2 text-left text-[10px] text-gray-400 whitespace-nowrap">{gt ?? '—'}</td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.steps      ? Number(r.steps).toLocaleString()                      : '—'}</td>
-                          <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.sleep_minutes != null ? fmtSleep(r.sleep_minutes)                  : '—'}</td>
-                          <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.water_oz  ? `${r.water_oz} oz`                                     : '—'}</td>
-                          <td className="px-2 py-2 text-left text-gray-500 italic max-w-[200px] truncate" title={r.note ?? ''}>{r.note ?? '—'}</td>
+                          <td className="px-2 py-2 text-right text-gray-600 tabular-nums whitespace-nowrap align-top">
+                            <span className="inline-flex items-center gap-1 justify-end">
+                              {r.sleep_minutes != null ? fmtSleep(r.sleep_minutes) : '—'}
+                              {r.sleep_note && (
+                                <NoteDot
+                                  isOpen={openNoteKey === `${i}-sleep`}
+                                  onToggle={() => setOpenNoteKey(k => k === `${i}-sleep` ? null : `${i}-sleep`)}
+                                />
+                              )}
+                            </span>
+                            {openNoteKey === `${i}-sleep` && r.sleep_note && (
+                              <div className="mt-1 text-left text-[10px] text-gray-500 italic whitespace-normal max-w-[160px] ml-auto" onClick={e => e.stopPropagation()}>
+                                &ldquo;{r.sleep_note}&rdquo;
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-2 py-2 text-right text-gray-600 tabular-nums whitespace-nowrap align-top">
+                            <span className="inline-flex items-center gap-1 justify-end">
+                              {r.water_oz ? `${r.water_oz} oz` : '—'}
+                              {r.water_note && (
+                                <NoteDot
+                                  isOpen={openNoteKey === `${i}-water`}
+                                  onToggle={() => setOpenNoteKey(k => k === `${i}-water` ? null : `${i}-water`)}
+                                />
+                              )}
+                            </span>
+                            {openNoteKey === `${i}-water` && r.water_note && (
+                              <div className="mt-1 text-left text-[10px] text-gray-500 italic whitespace-normal max-w-[160px] ml-auto" onClick={e => e.stopPropagation()}>
+                                &ldquo;{r.water_note}&rdquo;
+                              </div>
+                            )}
+                          </td>
                         </tr>
                       )
                     })}

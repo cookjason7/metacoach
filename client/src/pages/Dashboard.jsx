@@ -498,13 +498,29 @@ function fmtSleepMins(mins) {
   return h > 0 ? `${h}h ${m > 0 ? m + 'm' : ''}`.trim() : `${m}m`
 }
 
-function StatPill({ icon, label, value }) {
+// `note`, when present, shows a small dot next to the label — tapping it toggles
+// an inline reveal of the note text (doesn't affect the rest of the pill).
+function StatPill({ icon, label, value, note }) {
+  const [open, setOpen] = useState(false)
   return (
     <div className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2.5 min-w-0">
       <span className="text-base shrink-0">{icon}</span>
-      <div className="min-w-0">
-        <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide leading-none mb-0.5">{label}</p>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide leading-none mb-0.5">{label}</p>
+          {note && (
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
+              title="Has a note — tap to view"
+              className={`w-2 h-2 rounded-full shrink-0 transition-colors ${open ? 'bg-[#c45e09]' : 'bg-[#f97316]'}`}
+            />
+          )}
+        </div>
         <p className="text-sm font-bold text-gray-800 leading-none truncate">{value}</p>
+        {open && note && (
+          <p className="text-[10px] text-gray-400 italic mt-1 whitespace-normal">"{note}"</p>
+        )}
       </div>
     </div>
   )
@@ -515,7 +531,6 @@ function TodayStatsStrip({ todayLog }) {
   const sleep   = todayLog?.sleep_minutes != null ? fmtSleepMins(todayLog.sleep_minutes) : null
   const water   = todayLog?.water_oz    != null ? `${todayLog.water_oz} oz` : null
   const weight  = todayLog?.weight_lbs  != null ? `${todayLog.weight_lbs} lbs` : null
-  const note    = todayLog?.note ? String(todayLog.note) : null
 
   if (!steps && !sleep && !water && !weight) return null
 
@@ -527,11 +542,10 @@ function TodayStatsStrip({ todayLog }) {
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {steps  != null && <StatPill icon="👟" label="Steps"  value={steps.toLocaleString()} />}
-        {sleep  != null && <StatPill icon="😴" label="Sleep"  value={sleep} />}
-        {water  != null && <StatPill icon="💧" label="Water"  value={water} />}
-        {weight != null && <StatPill icon="⚖️" label="Weight" value={weight} />}
+        {sleep  != null && <StatPill icon="😴" label="Sleep"  value={sleep} note={todayLog?.sleep_note} />}
+        {water  != null && <StatPill icon="💧" label="Water"  value={water} note={todayLog?.water_note} />}
+        {weight != null && <StatPill icon="⚖️" label="Weight" value={weight} note={todayLog?.weight_note} />}
       </div>
-      {note && <p className="text-xs text-gray-400 mt-2 italic">"{note}"</p>}
     </div>
   )
 }
