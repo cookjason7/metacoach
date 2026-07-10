@@ -515,6 +515,7 @@ function TodayStatsStrip({ todayLog }) {
   const sleep   = todayLog?.sleep_minutes != null ? fmtSleepMins(todayLog.sleep_minutes) : null
   const water   = todayLog?.water_oz    != null ? `${todayLog.water_oz} oz` : null
   const weight  = todayLog?.weight_lbs  != null ? `${todayLog.weight_lbs} lbs` : null
+  const note    = todayLog?.note ? String(todayLog.note) : null
 
   if (!steps && !sleep && !water && !weight) return null
 
@@ -530,6 +531,7 @@ function TodayStatsStrip({ todayLog }) {
         {water  != null && <StatPill icon="💧" label="Water"  value={water} />}
         {weight != null && <StatPill icon="⚖️" label="Weight" value={weight} />}
       </div>
+      {note && <p className="text-xs text-gray-400 mt-2 italic">"{note}"</p>}
     </div>
   )
 }
