@@ -1466,6 +1466,163 @@ export async function migrate() {
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_katie_corrections_active ON katie_corrections (active)`)
 
+  // ── Exercise Library (Programming Guide schema) ─────────────────────────────
+  // Structural catalog + templating config for a future template-driven workout
+  // generator. Schema + seed data only — no assembly/generation logic yet (separate
+  // build). Additive: does not touch the existing `exercises` catalog (seeded from
+  // free-exercise-db, see server/scripts/import-exercises.js) or the
+  // workouts/workout_exercises tables backing the current Katie-generated programs.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS exercise_library (
+      id                 SERIAL PRIMARY KEY,
+      name               TEXT NOT NULL,
+      category           TEXT NOT NULL CHECK (category IN (
+                            'foam_roll', 'mobility', 'lengthen', 'combo_mobility',
+                            'activation', 'mini_band', 'big_band', 'plyo', 'core',
+                            'main_lift', 'finisher', 'stretch'
+                          )),
+      movement_pattern   TEXT CHECK (movement_pattern IN (
+                            'hinge', 'squat', 'vertical_push', 'vertical_pull',
+                            'horizontal_push', 'horizontal_pull', 'lift', 'carry'
+                          )),
+      core_subtype       TEXT CHECK (core_subtype IN (
+                            'anti_extension', 'anti_rotation', 'anti_lateral_flexion'
+                          )),
+      plyo_level         INTEGER CHECK (plyo_level BETWEEN 1 AND 4),
+      plyo_type          TEXT CHECK (plyo_type IN ('jump', 'hop', 'bound', 'skip')),
+      equipment_required TEXT[] NOT NULL DEFAULT '{}',
+      level_min          TEXT NOT NULL DEFAULT 'beginner' CHECK (level_min IN ('beginner', 'intermediate', 'advanced')),
+      unilateral         BOOLEAN NOT NULL DEFAULT FALSE,
+      plane              TEXT CHECK (plane IN ('linear', 'lateral')),
+      instructions       TEXT,
+      source_program     TEXT,
+      active             BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at         TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  // Composite uniqueness (not just name) — the same exercise name legitimately
+  // recurs across different circuits/programs (e.g. "Windmills" in both the PVC
+  // Stick mobility drills and the medicine ball power list) as distinct rows.
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS exercise_library_name_source_uq ON exercise_library (name, source_program)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS exercise_library_category_idx ON exercise_library (category)`)
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS program_templates (
+      id               SERIAL PRIMARY KEY,
+      session_length   INTEGER NOT NULL CHECK (session_length IN (20, 30, 45, 60, 90)),
+      block_order      INTEGER NOT NULL,
+      block_type       TEXT NOT NULL CHECK (block_type IN (
+                          'foam_roll', 'mobility', 'activation', 'plyo', 'core', 'circuit', 'stretch'
+                        )),
+      time_minutes_min INTEGER NOT NULL,
+      time_minutes_max INTEGER NOT NULL,
+      slot_count       INTEGER NOT NULL,
+      created_at       TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS program_templates_length_order_uq ON program_templates (session_length, block_order)`)
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS program_day_patterns (
+      id               SERIAL PRIMARY KEY,
+      day_label        TEXT NOT NULL CHECK (day_label IN ('A', 'B')),
+      movement_pattern TEXT NOT NULL CHECK (movement_pattern IN (
+                          'hinge', 'squat', 'vertical_push', 'vertical_pull',
+                          'horizontal_push', 'horizontal_pull', 'lift', 'carry'
+                        )),
+      sequence         INTEGER NOT NULL,
+      created_at       TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS program_day_patterns_label_seq_uq ON program_day_patterns (day_label, sequence)`)
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS volume_rules (
+      id         SERIAL PRIMARY KEY,
+      goal       TEXT NOT NULL UNIQUE CHECK (goal IN ('strength', 'power', 'hypertrophy', 'endurance')),
+      rep_range  TEXT NOT NULL,
+      sets_min   INTEGER NOT NULL,
+      sets_max   INTEGER NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+
+  // Seed program_templates — 60-min layout is the guide's baseline; 20/45/90 scale
+  // time + slot_count proportionally (0.33x / 0.75x / 1.5x); 30-min uses the guide's
+  // own explicit ranges directly (Workout Prep + Stretch are "on own" => slot_count 0
+  // at 30 min only). The guide gives time ranges but never slot_count for any
+  // duration — these slot_count values are a reasonable starting baseline for a
+  // future generator to refine, not a source-given prescription. Workout Prep in the
+  // guide covers two block_types here (foam_roll, mobility); the guide doesn't split
+  // its 6-10 min range between them, so both blocks share the same range.
+  await pool.query(`
+    INSERT INTO program_templates (session_length, block_order, block_type, time_minutes_min, time_minutes_max, slot_count) VALUES
+      (20, 1, 'foam_roll',  2,  3, 1),
+      (20, 2, 'mobility',   2,  3, 1),
+      (20, 3, 'activation', 2,  2, 1),
+      (20, 4, 'plyo',       2,  2, 1),
+      (20, 5, 'core',       1,  1, 1),
+      (20, 6, 'circuit',    8, 12, 2),
+      (20, 7, 'stretch',    2,  2, 1),
+
+      (30, 1, 'foam_roll',  0,  0, 0),
+      (30, 2, 'mobility',   0,  0, 0),
+      (30, 3, 'activation', 2,  3, 1),
+      (30, 4, 'plyo',       2,  3, 1),
+      (30, 5, 'core',       1,  2, 1),
+      (30, 6, 'circuit',   17, 22, 4),
+      (30, 7, 'stretch',    0,  0, 0),
+
+      (45, 1, 'foam_roll',  5,  8, 2),
+      (45, 2, 'mobility',   5,  8, 3),
+      (45, 3, 'activation', 4,  5, 2),
+      (45, 4, 'plyo',       4,  4, 1),
+      (45, 5, 'core',       2,  2, 2),
+      (45, 6, 'circuit',   19, 26, 5),
+      (45, 7, 'stretch',    4,  4, 2),
+
+      (60, 1, 'foam_roll',  6, 10, 2),
+      (60, 2, 'mobility',   6, 10, 4),
+      (60, 3, 'activation', 5,  7, 3),
+      (60, 4, 'plyo',       5,  5, 1),
+      (60, 5, 'core',       2,  3, 2),
+      (60, 6, 'circuit',   25, 35, 6),
+      (60, 7, 'stretch',    5,  5, 3),
+
+      (90, 1, 'foam_roll',  9, 15, 3),
+      (90, 2, 'mobility',   9, 15, 6),
+      (90, 3, 'activation', 8, 11, 5),
+      (90, 4, 'plyo',       8,  8, 2),
+      (90, 5, 'core',       3,  5, 3),
+      (90, 6, 'circuit',   38, 53, 9),
+      (90, 7, 'stretch',    8,  8, 5)
+    ON CONFLICT (session_length, block_order) DO NOTHING
+  `)
+
+  // Seed program_day_patterns from the guide's sample movement layout
+  await pool.query(`
+    INSERT INTO program_day_patterns (day_label, movement_pattern, sequence) VALUES
+      ('A', 'squat',           1),
+      ('A', 'horizontal_pull', 2),
+      ('A', 'horizontal_push', 3),
+      ('A', 'carry',           4),
+      ('B', 'hinge',           1),
+      ('B', 'vertical_pull',   2),
+      ('B', 'vertical_push',   3),
+      ('B', 'lift',            4)
+    ON CONFLICT (day_label, sequence) DO NOTHING
+  `)
+
+  // Seed volume_rules from the guide's volume/intensity table
+  await pool.query(`
+    INSERT INTO volume_rules (goal, rep_range, sets_min, sets_max) VALUES
+      ('strength',    '<6',   2, 6),
+      ('power',       '3-5',  3, 5),
+      ('hypertrophy', '6-12', 3, 5),
+      ('endurance',   '>12',  2, 3)
+    ON CONFLICT (goal) DO NOTHING
+  `)
+
   // ── Admin allowlist bootstrap ───────────────────────────────────────────────
   // Force role=admin for the hard-coded ADMIN_EMAILS list on every startup.
   // Existing user data (meals, workouts, journal, etc.) is preserved — this
