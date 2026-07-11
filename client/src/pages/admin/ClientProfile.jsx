@@ -438,6 +438,43 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
 
 // ─── Health Data Connections Card ─────────────────────────────────────────────
 
+// Apple Health has no persistent connection flag (see server/routes/coachAdmin.js
+// health-connections route) — "connected" is inferred from recency of the last
+// synced-from-apple_health daily_logs write. Past this many days with no new
+// sync, the row is shown as "Stale" instead of "Connected" so a coach can tell
+// the data may be out of date. Adjust this single constant to change the cutoff.
+const APPLE_HEALTH_STALE_AFTER_DAYS = 14
+
+const BADGE_TONE_CLASSES = {
+  green: 'bg-emerald-50 text-emerald-700',
+  amber: 'bg-amber-50 text-amber-700',
+  gray:  'bg-gray-100 text-gray-500',
+}
+
+function daysSinceTs(ts) {
+  if (!ts) return null
+  return Math.floor((Date.now() - new Date(ts).getTime()) / 86400000)
+}
+
+function fmtSync(ts) {
+  const days = daysSinceTs(ts)
+  if (days === null) return null
+  if (days <= 0) return 'today'
+  if (days === 1) return 'yesterday'
+  return `${days}d ago`
+}
+
+function appleHealthBadge(lastSyncedAt) {
+  const days = daysSinceTs(lastSyncedAt)
+  if (days === null) return { text: 'Not Connected', tone: 'gray' }
+  if (days > APPLE_HEALTH_STALE_AFTER_DAYS) return { text: 'Stale', tone: 'amber' }
+  return { text: 'Connected', tone: 'green' }
+}
+
+function googleHealthBadge(connected) {
+  return connected ? { text: 'Connected', tone: 'green' } : { text: 'Not Connected', tone: 'gray' }
+}
+
 function HealthConnectionsCard({ clientId, getToken }) {
   const [data, setData]       = useState(null)
   const [loading, setLoading] = useState(true)
@@ -466,17 +503,19 @@ function HealthConnectionsCard({ clientId, getToken }) {
     return () => { cancelled = true }
   }, [clientId, getToken])
 
-  function fmtSync(ts) {
-    if (!ts) return null
-    const days = Math.floor((Date.now() - new Date(ts).getTime()) / 86400000)
-    if (days <= 0) return 'today'
-    if (days === 1) return 'yesterday'
-    return `${days}d ago`
-  }
-
   const sources = data ? [
-    { key: 'apple_health',  label: 'Apple Health',           ...data.apple_health },
-    { key: 'google_health', label: 'Google Health / Fitbit', ...data.google_health },
+    {
+      key: 'apple_health',
+      label: 'Apple Health',
+      last_synced_at: data.apple_health.last_synced_at,
+      badge: appleHealthBadge(data.apple_health.last_synced_at),
+    },
+    {
+      key: 'google_health',
+      label: 'Google Health / Fitbit',
+      last_synced_at: data.google_health.last_synced_at,
+      badge: googleHealthBadge(data.google_health.connected),
+    },
   ] : []
 
   return (
@@ -492,14 +531,14 @@ function HealthConnectionsCard({ clientId, getToken }) {
             <div key={s.key} className="flex items-center justify-between border border-gray-100 rounded-lg px-3 py-2.5 gap-2">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-800 truncate">{s.label}</p>
-                {s.connected && s.last_synced_at && (
-                  <p className="text-xs text-gray-400 mt-0.5">Last synced {fmtSync(s.last_synced_at)}</p>
+                {s.last_synced_at && (
+                  <p className={`text-xs mt-0.5 ${s.badge.tone === 'amber' ? 'text-amber-600 font-medium' : 'text-gray-400'}`}>
+                    Last synced {fmtSync(s.last_synced_at)}
+                  </p>
                 )}
               </div>
-              <span className={`shrink-0 inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
-                s.connected ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'
-              }`}>
-                {s.connected ? 'Connected' : 'Not Connected'}
+              <span className={`shrink-0 inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${BADGE_TONE_CLASSES[s.badge.tone]}`}>
+                {s.badge.text}
               </span>
             </div>
           ))}
