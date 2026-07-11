@@ -50,6 +50,45 @@ async function canAccessClient(ctx, clientId) {
   return rows.length > 0
 }
 
+// True when this admin IS the client's assigned coach — coach_thread and admin_private
+// then point at the same person and should present/behave as a single merged thread
+// instead of two (a client reply could otherwise land in whichever tab staff wasn't
+// looking at, making it look like the message never arrived).
+async function isAdminAssignedCoach(ctx, clientId) {
+  if (!isAdminRole(ctx.role)) return false
+  const { rows } = await pool.query('SELECT assigned_coach_id FROM users WHERE id = $1', [clientId])
+  return rows[0]?.assigned_coach_id === ctx.dbUserId
+}
+
+// Collapse per-client coach_thread/admin_private row pairs into one 'coach_thread' row
+// wherever is_assigned_coach is true. Used to post-process /messaging/inbox and
+// /clients/:id/thread-types results (see isAdminAssignedCoach).
+function mergeAssignedCoachRows(rows) {
+  const passthrough = []
+  const byClient = new Map()
+  for (const row of rows) {
+    const mergeable = row.is_assigned_coach === true
+      && (row.thread_type === 'coach_thread' || row.thread_type === 'admin_private')
+    if (!mergeable) { passthrough.push(row); continue }
+    const existing = byClient.get(row.client_id)
+    if (!existing) {
+      byClient.set(row.client_id, { ...row, thread_type: 'coach_thread' })
+      continue
+    }
+    existing.unread = (Number(existing.unread) || 0) + (Number(row.unread) || 0)
+    existing.marked_unread = existing.marked_unread || row.marked_unread
+    existing.archived = existing.archived && row.archived
+    const existingTime = existing.last_message_at ? new Date(existing.last_message_at).getTime() : -1
+    const rowTime = row.last_message_at ? new Date(row.last_message_at).getTime() : -1
+    if (rowTime > existingTime) {
+      existing.last_message_at = row.last_message_at
+      existing.last_message_body = row.last_message_body
+      if ('last_sender_role' in row) existing.last_sender_role = row.last_sender_role
+    }
+  }
+  return [...passthrough, ...byClient.values()]
+}
+
 function publicIdFromCloudinaryUrl(url) {
   try {
     const parsed = new URL(url)
@@ -2183,7 +2222,19 @@ router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
          OR COALESCE(sis.marked_unread, FALSE)) DESC,
         MAX(m.created_at) DESC
     `, params)
-    res.json(rows)
+
+    // Merge coach_thread + admin_private for clients whose assigned coach is this admin,
+    // then restore the unread/recency ordering the SQL above already established.
+    const merged = isAdmin ? mergeAssignedCoachRows(rows) : rows
+    merged.sort((a, b) => {
+      const aUnread = (Number(a.unread) > 0 || a.marked_unread) ? 1 : 0
+      const bUnread = (Number(b.unread) > 0 || b.marked_unread) ? 1 : 0
+      if (bUnread !== aUnread) return bUnread - aUnread
+      const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : 0
+      const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : 0
+      return bTime - aTime
+    })
+    res.json(merged)
   } catch (err) { next(err) }
 })
 
@@ -2223,11 +2274,10 @@ router.get('/messaging/client-search', requireAuth(), async (req, res, next) => 
     const q = (req.query.q ?? '').trim()
     if (!q) return res.json([])
 
-    const params = [`%${q}%`, `%${q}%`]
+    const params = [`%${q}%`, `%${q}%`, ctx.dbUserId]
     let coachFilter = ''
     if (ctx.role === 'coach') {
-      params.push(ctx.dbUserId)
-      coachFilter = ` AND u.assigned_coach_id = $${params.length}`
+      coachFilter = ` AND u.assigned_coach_id = $3`
     }
 
     const { rows } = await pool.query(`
@@ -2235,7 +2285,8 @@ router.get('/messaging/client-search', requireAuth(), async (req, res, next) => 
         u.id,
         COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), ''), u.email, 'Client') AS full_name,
         u.email,
-        u.coaching_type
+        u.coaching_type,
+        (u.assigned_coach_id = $3) AS is_assigned_coach
       FROM users u
       WHERE u.role = 'client'
         AND COALESCE(u.client_status, 'active') = 'active'
@@ -2286,14 +2337,20 @@ router.get('/clients/:id/messages', requireAuth(), async (req, res, next) => {
       return res.status(403).json({ error: 'Admin only thread' })
     }
 
+    // When this admin is the client's assigned coach, coach_thread and admin_private
+    // are the same person — read and mark-read across both (see isAdminAssignedCoach)
+    // so a message sent to either tab is never hidden from the other.
+    const merged = (thread === 'coach_thread' || thread === 'admin_private')
+      && await isAdminAssignedCoach(ctx, id)
+    const threadTypes = merged
+      ? ['coach_thread', 'admin_private']
+      : thread ? [thread] : (!isAdminRole(ctx.role) ? ['coach_thread'] : null)
+
     const params = [id]
     let where = 'WHERE m.client_id = $1 AND m.deleted_at IS NULL'
-    if (thread) {
-      params.push(thread)
-      where += ` AND m.thread_type = $${params.length}`
-    } else if (!isAdminRole(ctx.role)) {
-      // Coaches default to coach_thread only
-      where += ` AND m.thread_type = 'coach_thread'`
+    if (threadTypes) {
+      params.push(threadTypes)
+      where += ` AND m.thread_type = ANY($${params.length}::text[])`
     }
 
     const limit = Math.min(parseInt(req.query.limit) || 50, 200)
@@ -2322,11 +2379,9 @@ router.get('/clients/:id/messages', requireAuth(), async (req, res, next) => {
     // Mark client messages as read now that staff has viewed the thread
     const readParams = [id]
     let readWhere = `WHERE client_id = $1 AND sender_role = 'client' AND read_at IS NULL`
-    if (thread) {
-      readParams.push(thread)
-      readWhere += ` AND thread_type = $${readParams.length}`
-    } else if (!isAdminRole(ctx.role)) {
-      readWhere += ` AND thread_type = 'coach_thread'`
+    if (threadTypes) {
+      readParams.push(threadTypes)
+      readWhere += ` AND thread_type = ANY($${readParams.length}::text[])`
     }
     await pool.query(`UPDATE client_messages SET read_at = NOW() ${readWhere}`, readParams)
 
@@ -2353,13 +2408,20 @@ router.post('/clients/:id/messages', requireAuth(), async (req, res, next) => {
       return res.status(403).json({ error: 'Coaches can only send to coach thread' })
     }
 
+    // Canonicalize to coach_thread when this admin is the client's assigned coach, so
+    // sends never re-fragment across the two thread_types (see isAdminAssignedCoach).
+    const canonicalThreadType = (thread_type === 'coach_thread' || thread_type === 'admin_private')
+      && await isAdminAssignedCoach(ctx, id)
+      ? 'coach_thread'
+      : thread_type
+
     // Determine visibility based on thread_type
-    const visibility = (thread_type === 'admin_private' || thread_type === 'ai_admin')
+    const visibility = (canonicalThreadType === 'admin_private' || canonicalThreadType === 'ai_admin')
       ? 'client_and_admin_only'
       : 'client_and_staff'
 
     // If sending to ai_admin, verify client is an AI client
-    if (thread_type === 'ai_admin') {
+    if (canonicalThreadType === 'ai_admin') {
       const { rows } = await pool.query('SELECT coaching_type FROM users WHERE id = $1', [id])
       if (rows[0]?.coaching_type !== 'ai') {
         return res.status(400).json({ error: 'ai_admin thread is only for AI coaching clients' })
@@ -2370,7 +2432,7 @@ router.post('/clients/:id/messages', requireAuth(), async (req, res, next) => {
       INSERT INTO client_messages
         (client_id, sender_id, sender_role, message_body, thread_type, visibility, image_url, audio_url)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *
-    `, [id, ctx.dbUserId, ctx.role, message_body.trim(), thread_type, visibility, image_url ?? null, audio_url ?? null])
+    `, [id, ctx.dbUserId, ctx.role, message_body.trim(), canonicalThreadType, visibility, image_url ?? null, audio_url ?? null])
 
     // Push: notify the client — fire-and-forget
     notifyNewDirectMessage(id).catch(() => {})
@@ -2479,7 +2541,32 @@ router.get('/clients/:id/thread-types', requireAuth(), async (req, res, next) =>
       ORDER BY MAX(created_at) DESC
     `, [id, allowedTypes])
 
-    res.json(rows)
+    // Merge coach_thread + admin_private into one tab when this admin is the
+    // client's assigned coach (see isAdminAssignedCoach).
+    let result = rows
+    if (await isAdminAssignedCoach(ctx, id)) {
+      const coachRow = rows.find(r => r.thread_type === 'coach_thread')
+      const adminRow = rows.find(r => r.thread_type === 'admin_private')
+      if (coachRow || adminRow) {
+        const coachTime = coachRow?.last_message_at ? new Date(coachRow.last_message_at).getTime() : -1
+        const adminTime = adminRow?.last_message_at ? new Date(adminRow.last_message_at).getTime() : -1
+        const mergedRow = {
+          thread_type: 'coach_thread',
+          unread: (Number(coachRow?.unread) || 0) + (Number(adminRow?.unread) || 0),
+          last_message_at: adminTime > coachTime ? adminRow.last_message_at : (coachRow?.last_message_at ?? adminRow?.last_message_at),
+        }
+        result = rows
+          .filter(r => r.thread_type !== 'coach_thread' && r.thread_type !== 'admin_private')
+          .concat([mergedRow])
+          .sort((a, b) => {
+            const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : 0
+            const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : 0
+            return bTime - aTime
+          })
+      }
+    }
+
+    res.json(result)
   } catch (err) { next(err) }
 })
 

@@ -70,7 +70,8 @@ async function getClientContext(req) {
   const dbUserId = await getOrCreateUser(userId)
   const { rows } = await pool.query(
     `SELECT u.id, u.coaching_type, u.assigned_coach_id,
-            coach.first_name AS assigned_coach_name
+            coach.first_name AS assigned_coach_name,
+            coach.role AS assigned_coach_role
      FROM users u
      LEFT JOIN users coach ON coach.id = u.assigned_coach_id
      WHERE u.id = $1`,
@@ -79,11 +80,23 @@ async function getClientContext(req) {
   return { dbUserId, ...(rows[0] ?? {}) }
 }
 
+// True when the client's assigned coach IS an admin — in that case coach_thread and
+// admin_private point at the same person, so they should present as one thread instead
+// of two (previously a client reply could land in whichever tab they happened to use,
+// leaving staff staring at the other tab wondering why nothing arrived).
+function isCoachAdminMerge(ctx) {
+  return ctx.coaching_type === 'vip'
+    && ctx.assigned_coach_id != null
+    && (ctx.assigned_coach_role === 'admin' || ctx.assigned_coach_role === 'account_owner')
+}
+
 // Which threads should this client see? Clients see all their own messages.
 // Coaches see admin_private messages, but those messages are visible
 // to the *recipient* client too — admin_private is private from OTHER staff,
 // not from the client they're addressed to.
-async function listThreadsForClient(dbUserId, coachingType) {
+async function listThreadsForClient(ctx) {
+  const { dbUserId, coaching_type: coachingType } = ctx
+  const merged = isCoachAdminMerge(ctx)
   const visibleThreadTypes = visibleThreadTypesForClient(coachingType)
   const { rows } = await pool.query(`
     SELECT
@@ -105,15 +118,34 @@ async function listThreadsForClient(dbUserId, coachingType) {
     ORDER BY MAX(created_at) DESC
   `, [dbUserId, visibleThreadTypes])
 
+  let list = rows
+  if (merged) {
+    const coachRow = rows.find(r => r.thread_type === 'coach_thread')
+    const adminRow = rows.find(r => r.thread_type === 'admin_private')
+    if (coachRow || adminRow) {
+      const coachTime = coachRow?.last_message_at ? new Date(coachRow.last_message_at).getTime() : -1
+      const adminTime = adminRow?.last_message_at ? new Date(adminRow.last_message_at).getTime() : -1
+      const mostRecent = adminTime > coachTime ? adminRow : (coachRow ?? adminRow)
+      list = rows
+        .filter(r => r.thread_type !== 'coach_thread' && r.thread_type !== 'admin_private')
+        .concat([{
+          thread_type: 'coach_thread',
+          unread: (Number(coachRow?.unread) || 0) + (Number(adminRow?.unread) || 0),
+          last_message_at: mostRecent.last_message_at,
+          last_message_body: mostRecent.last_message_body,
+        }])
+    }
+  }
+
   // Inject available threads even if no messages yet so UI can show them
-  const existing = new Set(rows.map(r => r.thread_type))
+  const existing = new Set(list.map(r => r.thread_type))
   const all = []
   if (coachingType !== 'vip') {
     if (!existing.has('ai_admin')) all.push({ thread_type: 'ai_admin', unread: 0, last_message_at: null, last_message_body: null })
   } else {
     if (!existing.has('coach_thread')) all.push({ thread_type: 'coach_thread', unread: 0, last_message_at: null, last_message_body: null })
   }
-  return [...rows, ...all]
+  return [...list, ...all]
 }
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
@@ -165,7 +197,7 @@ router.post('/upload-audio', requireAuth(), uploadAudioMulter.single('audio'), a
 router.get('/threads', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await getClientContext(req)
-    const threads = await listThreadsForClient(ctx.dbUserId, ctx.coaching_type)
+    const threads = await listThreadsForClient(ctx)
     res.json({ threads, coachName: ctx.assigned_coach_name ?? null })
   } catch (err) { next(err) }
 })
@@ -202,10 +234,17 @@ router.get('/thread/:threadType', requireAuth(), async (req, res, next) => {
       return res.status(403).json({ error: 'Not available for non-VIP clients' })
     }
 
+    // When the assigned coach is an admin, coach_thread and admin_private are the
+    // same person — fetch and mark-read across both so no message can hide in the
+    // tab the client isn't currently viewing (see isCoachAdminMerge).
+    const threadTypes = (thread === 'coach_thread' || thread === 'admin_private') && isCoachAdminMerge(ctx)
+      ? ['coach_thread', 'admin_private']
+      : [thread]
+
     const limit = Math.min(parseInt(req.query.limit) || 50, 200)
     const beforeId = req.query.before_id ? parseInt(req.query.before_id) : null
 
-    const qParams = [ctx.dbUserId, thread]
+    const qParams = [ctx.dbUserId, threadTypes]
     let extraWhere = ''
     if (beforeId) {
       qParams.push(beforeId)
@@ -217,7 +256,7 @@ router.get('/thread/:threadType', requireAuth(), async (req, res, next) => {
       SELECT m.*, u.first_name AS sender_name
       FROM client_messages m
       LEFT JOIN users u ON u.id = m.sender_id
-      WHERE m.client_id = $1 AND m.thread_type = $2 AND m.deleted_at IS NULL${extraWhere}
+      WHERE m.client_id = $1 AND m.thread_type = ANY($2::text[]) AND m.deleted_at IS NULL${extraWhere}
       ORDER BY m.id DESC
       LIMIT $${qParams.length}
     `, qParams)
@@ -230,9 +269,9 @@ router.get('/thread/:threadType', requireAuth(), async (req, res, next) => {
     await pool.query(`
       UPDATE client_messages
       SET read_at = NOW()
-      WHERE client_id = $1 AND thread_type = $2
+      WHERE client_id = $1 AND thread_type = ANY($2::text[])
         AND read_at IS NULL AND sender_id != $1
-    `, [ctx.dbUserId, thread])
+    `, [ctx.dbUserId, threadTypes])
 
     res.json({
       messages: rows,
@@ -264,6 +303,12 @@ router.post('/thread/:threadType', requireAuth(), async (req, res, next) => {
       return res.status(403).json({ error: 'Not available for non-VIP clients' })
     }
 
+    // Canonicalize to coach_thread when the assigned coach is an admin, so new
+    // messages never re-fragment across the two thread_types (see isCoachAdminMerge).
+    const canonicalThread = (thread === 'coach_thread' || thread === 'admin_private') && isCoachAdminMerge(ctx)
+      ? 'coach_thread'
+      : thread
+
     const visibility = 'client_and_staff'
 
     const { rows } = await pool.query(`
@@ -271,14 +316,14 @@ router.post('/thread/:threadType', requireAuth(), async (req, res, next) => {
         (client_id, sender_id, sender_role, message_body, thread_type, visibility, image_url, audio_url)
       VALUES ($1, $2, 'client', $3, $4, $5, $6, $7)
       RETURNING *
-    `, [ctx.dbUserId, ctx.dbUserId, message_body.trim(), thread, visibility, image_url ?? null, audio_url ?? null])
+    `, [ctx.dbUserId, ctx.dbUserId, message_body.trim(), canonicalThread, visibility, image_url ?? null, audio_url ?? null])
 
     // Auto-restore archived conversations when client sends a new message
     await pool.query(`
       UPDATE staff_inbox_states
       SET archived = FALSE, archived_at = NULL
       WHERE client_id = $1 AND thread_type = $2 AND archived = TRUE
-    `, [ctx.dbUserId, thread])
+    `, [ctx.dbUserId, canonicalThread])
 
     // Push: notify assigned coach (or admins if no coach assigned) — fire-and-forget
     pool.query(

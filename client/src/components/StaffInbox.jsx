@@ -418,13 +418,17 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
   }, [searchQuery, getToken])
 
   function openClientConversation(client) {
-    // Default thread: coaches use coach_thread, admins use admin_private
-    const threadType = (role === 'admin' || role === 'account_owner') ? 'admin_private' : 'coach_thread'
+    // Default thread: coaches use coach_thread, admins use admin_private — unless this
+    // admin is the client's assigned coach, in which case it's a single merged thread.
+    const isAssignedCoach = (role === 'admin' || role === 'account_owner') && client.is_assigned_coach === true
+    const threadType = isAssignedCoach
+      ? 'coach_thread'
+      : (role === 'admin' || role === 'account_owner') ? 'admin_private' : 'coach_thread'
     setSelected({
-      clientId:        client.id,
-      clientName:      client.full_name,
+      clientId:   client.id,
+      clientName: client.full_name,
       threadType,
-      isAssignedCoach: false,
+      isAssignedCoach,
     })
     setSearchQuery('')
     setSearchResults([])
