@@ -448,6 +448,23 @@ router.post('/posts/:id/like', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// GET /api/community/posts/:id/likers — who liked this post, most recent first.
+// Visible to any community member regardless of role — names only, no profile data.
+router.get('/posts/:id/likers', requireAuth(), async (req, res, next) => {
+  try {
+    const postId = parseInt(req.params.id, 10)
+    const { rows } = await pool.query(
+      `SELECT u.id, u.first_name, u.last_name
+       FROM post_likes pl
+       JOIN users u ON u.id = pl.user_id
+       WHERE pl.post_id = $1
+       ORDER BY pl.created_at DESC`,
+      [postId],
+    )
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
 // GET/POST /api/community/posts/:id/reactions
 router.get('/posts/:id/reactions', requireAuth(), async (req, res, next) => {
   try {
