@@ -4087,13 +4087,17 @@ function KatieHistoryPanel({ client, getToken }) {
 
 function MessagingTab({ client, role, meId, getToken }) {
   const isAI = client.coaching_type === 'ai'
+  // When this admin IS the client's assigned coach, coach_thread and admin_private point
+  // at the same person — merge into one sendable tab instead of showing both (a client
+  // reply could otherwise land in whichever tab staff wasn't looking at).
+  const isAssignedCoach = role === 'admin' && meId != null && client.assigned_coach_id === meId
 
   const availableThreads = []
   if (isAI) {
     if (role === 'admin') availableThreads.push({ id: 'ai_admin', label: 'AI ↔ Admin', icon: '🤖' })
   } else {
     availableThreads.push({ id: 'coach_thread', label: 'Coach Thread', icon: '💬' })
-    if (role === 'admin') availableThreads.push({ id: 'admin_private', label: 'Admin Private', icon: '🔒' })
+    if (role === 'admin' && !isAssignedCoach) availableThreads.push({ id: 'admin_private', label: 'Admin Private', icon: '🔒' })
   }
   // Katie Chat: available for all client types, admin + coaches (canAccessClient enforced on backend) — read-only
   availableThreads.push({ id: 'katie_history', label: 'Katie Chat', icon: '🤖' })
@@ -4104,7 +4108,7 @@ function MessagingTab({ client, role, meId, getToken }) {
   // it as a tab — landing them on a dead thread with no visible way to send a first message. Falls
   // back to Katie Chat only when that's genuinely the only thing available (nothing writable at all).
   const writableThreads = availableThreads.filter(t => t.id !== 'katie_history')
-  const initialThread = (role === 'admin' && !isAI ? 'admin_private' : writableThreads[0]?.id) ?? 'katie_history'
+  const initialThread = (role === 'admin' && !isAI && !isAssignedCoach ? 'admin_private' : writableThreads[0]?.id) ?? 'katie_history'
   const [thread, setThread] = useState(initialThread)
   const [messages,     setMessages]     = useState([])
   const [hasMore,      setHasMore]      = useState(false)
@@ -4293,8 +4297,8 @@ function MessagingTab({ client, role, meId, getToken }) {
             </div>
           </div>
 
-          {/* Compose — read-only for admins on the coach thread */}
-          {role === 'admin' && thread === 'coach_thread' ? (
+          {/* Compose — read-only for admins on the coach thread, unless they're the assigned coach */}
+          {role === 'admin' && thread === 'coach_thread' && !isAssignedCoach ? (
             <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5">
               <p className="text-xs text-blue-700">
                 👁 Viewing coach–client thread (read-only). Switch to <strong>Admin Private</strong> to send your own message.
