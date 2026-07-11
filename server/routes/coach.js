@@ -5,6 +5,7 @@ import { pool, getOrCreateUser } from '../db.js'
 import { chatLimit } from '../middleware/rateLimits.js'
 import { trackEvent } from '../services/usageTracker.js'
 import { getAppHelpContext } from '../services/appHelpKnowledge.js'
+import { getKatieCorrections } from '../services/katieCorrections.js'
 
 const router = Router()
 const anthropic = new Anthropic()
@@ -730,7 +731,12 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     // question ("Android, Google Health") still resolves to the right section.
     const priorUserMessage = [...history].reverse().find(h => h.role === 'user')?.message ?? ''
     const appHelpContext = getAppHelpContext(message, priorUserMessage)
-    const systemPrompt = `${katiPrompt}${KATIE_MEAL_PLAN_ADDENDUM}${appHelpContext}\n\n${buildContextBlock(user, meals, logs, recentFoods, healthAssessment, phaseData, latestCheckin)}`
+    // Admin-entered corrections (katie_corrections table) — checked alongside
+    // appHelpContext in the same turn; both can fire together. Corrections are
+    // appended last and explicitly instructed to take priority if they conflict
+    // with the app-help reference above them.
+    const correctionsContext = await getKatieCorrections(message, priorUserMessage)
+    const systemPrompt = `${katiPrompt}${KATIE_MEAL_PLAN_ADDENDUM}${appHelpContext}${correctionsContext}\n\n${buildContextBlock(user, meals, logs, recentFoods, healthAssessment, phaseData, latestCheckin)}`
 
     // Stream SSE response
     res.setHeader('Content-Type', 'text/event-stream')
