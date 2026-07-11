@@ -430,6 +430,81 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
         {saved && !editing && <p className="text-xs font-medium text-emerald-600 mt-3">Saved.</p>}
       </div>
 
+      <HealthConnectionsCard clientId={client.id} getToken={getToken} />
+
+    </div>
+  )
+}
+
+// ─── Health Data Connections Card ─────────────────────────────────────────────
+
+function HealthConnectionsCard({ clientId, getToken }) {
+  const [data, setData]       = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError]     = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/health-connections`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok) throw new Error(`Server ${res.status}`)
+        const json = await res.json()
+        if (!cancelled) setData(json)
+      } catch (err) {
+        if (!cancelled) setError(err.message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [clientId, getToken])
+
+  function fmtSync(ts) {
+    if (!ts) return null
+    const days = Math.floor((Date.now() - new Date(ts).getTime()) / 86400000)
+    if (days <= 0) return 'today'
+    if (days === 1) return 'yesterday'
+    return `${days}d ago`
+  }
+
+  const sources = data ? [
+    { key: 'apple_health',  label: 'Apple Health',           ...data.apple_health },
+    { key: 'google_health', label: 'Google Health / Fitbit', ...data.google_health },
+  ] : []
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-5">
+      <h3 className="text-sm font-semibold text-gray-900 mb-4">Health Data Connections</h3>
+      {loading ? (
+        <p className="text-sm text-gray-400">Loading…</p>
+      ) : error ? (
+        <p className="text-sm text-red-500">Failed to load connection status.</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {sources.map(s => (
+            <div key={s.key} className="flex items-center justify-between border border-gray-100 rounded-lg px-3 py-2.5 gap-2">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-800 truncate">{s.label}</p>
+                {s.connected && s.last_synced_at && (
+                  <p className="text-xs text-gray-400 mt-0.5">Last synced {fmtSync(s.last_synced_at)}</p>
+                )}
+              </div>
+              <span className={`shrink-0 inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+                s.connected ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'
+              }`}>
+                {s.connected ? 'Connected' : 'Not Connected'}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

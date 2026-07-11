@@ -1050,6 +1050,57 @@ router.get('/clients/:id/engagement', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// GET /api/coach-admin/clients/:id/health-connections — Apple Health / Google
+// Health-Fitbit connection status for the coach/admin Overview tab.
+//
+// Google Health/Fitbit has a real connection record (fitbit_tokens row created
+// at OAuth time, deleted on disconnect), so `connected` reflects that directly.
+//
+// Apple Health has no equivalent — syncs are pushed from the client app with no
+// persistent "connected" flag or token to check. The best available signal is
+// whether any daily_logs row has ever been written with steps_source or
+// sleep_source = 'apple_health'; `connected` here means "has synced at least
+// once", and last_synced_at is the actual proxy coaches should read.
+router.get('/clients/:id/health-connections', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+
+    const [{ rows: fitbitRows }, { rows: appleRows }] = await Promise.all([
+      pool.query(
+        `SELECT last_synced_at, last_sync_error FROM fitbit_tokens WHERE user_id = $1`,
+        [id],
+      ),
+      pool.query(
+        `SELECT
+           MAX(steps_source_updated_at) FILTER (WHERE steps_source = 'apple_health') AS last_steps_sync,
+           MAX(sleep_source_updated_at) FILTER (WHERE sleep_source = 'apple_health') AS last_sleep_sync
+         FROM daily_logs WHERE user_id = $1`,
+        [id],
+      ),
+    ])
+
+    const fitbit = fitbitRows[0]
+    const apple  = appleRows[0]
+    const appleLastSyncedAt = [apple?.last_steps_sync, apple?.last_sleep_sync]
+      .filter(Boolean)
+      .sort((a, b) => new Date(b) - new Date(a))[0] ?? null
+
+    res.json({
+      google_health: {
+        connected:       Boolean(fitbit),
+        last_synced_at:  fitbit?.last_synced_at  ?? null,
+        last_sync_error: fitbit?.last_sync_error ?? null,
+      },
+      apple_health: {
+        connected:      appleLastSyncedAt !== null,
+        last_synced_at: appleLastSyncedAt,
+      },
+    })
+  } catch (err) { next(err) }
+})
+
 // GET /api/coach-admin/clients/:id/progress?range=daily|weekly|monthly|custom&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
 router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
   try {
