@@ -383,6 +383,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
   const [editCategory,   setEditCategory]   = useState(post.category ?? CATEGORIES[0])
   const [saving,         setSaving]         = useState(false)
   const [showLikers,     setShowLikers]     = useState(false)
+  const [showReactors,   setShowReactors]   = useState(false)
 
   const canEdit = isAdmin || post.user_id === currentUserId
 
@@ -599,16 +600,27 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
         {/* Reactions */}
         <div className="flex gap-2 mb-3">
           {REACTIONS.map(({ type, emoji, countKey, myKey }) => (
-            <button
+            <div
               key={type}
-              onClick={() => togglePostReaction(type)}
               className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded transition-colors ${
-                postReactions[myKey] ? 'text-[#E8670A] font-semibold' : 'text-gray-500 hover:text-gray-700'
+                postReactions[myKey] ? 'text-[#E8670A] font-semibold' : 'text-gray-500'
               }`}
             >
-              <span>{emoji}</span>
-              <span>{postReactions[countKey]}</span>
-            </button>
+              <button
+                onClick={() => togglePostReaction(type)}
+                aria-label={`${postReactions[myKey] ? 'Remove' : 'Add'} ${type} reaction`}
+                className="hover:text-gray-700"
+              >
+                {emoji}
+              </button>
+              <button
+                onClick={() => setShowReactors(true)}
+                disabled={!postReactions[countKey]}
+                className={postReactions[countKey] ? 'hover:text-gray-700 hover:underline cursor-pointer' : 'cursor-default'}
+              >
+                {postReactions[countKey]}
+              </button>
+            </div>
           ))}
         </div>
 
@@ -679,6 +691,83 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
       {showLikers && (
         <LikedByModal postId={post.id} getToken={getToken} onClose={() => setShowLikers(false)} />
       )}
+
+      {showReactors && (
+        <ReactedByModal postId={post.id} getToken={getToken} onClose={() => setShowReactors(false)} />
+      )}
+    </div>
+  )
+}
+
+// ── ReactedByModal ───────────────────────────────────────────────────────────
+// Names-only list of who reacted to a post, grouped by emoji — visible to any community member, no role gate.
+
+function ReactedByModal({ postId, getToken, onClose }) {
+  const [groups, setGroups] = useState(null)
+  const [error,  setError]  = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const token = await getToken()
+        const res   = await fetch(`${API_URL}/api/community/posts/${postId}/reactors`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok) throw new Error()
+        const data = await res.json()
+        if (!cancelled) setGroups(data)
+      } catch {
+        if (!cancelled) setError(true)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [postId, getToken])
+
+  const sections = groups
+    ? REACTIONS.filter(({ type }) => groups[type]?.length).map(r => ({ ...r, users: groups[r.type] }))
+    : []
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl w-full max-w-sm shadow-xl overflow-hidden max-h-[70vh] flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+          <h2 className="text-base font-bold text-gray-900">Reactions</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="overflow-y-auto px-2 py-2">
+          {groups === null && !error && (
+            <p className="text-center text-sm text-gray-400 py-6">Loading…</p>
+          )}
+          {error && (
+            <p className="text-center text-sm text-gray-400 py-6">Couldn't load reactions.</p>
+          )}
+          {groups && sections.length === 0 && (
+            <p className="text-center text-sm text-gray-400 py-6">No reactions yet.</p>
+          )}
+          {sections.map(({ type, emoji, users }) => (
+            <div key={type} className="mb-1">
+              <div className="flex items-center gap-2 px-3 pt-2 pb-1">
+                <span className="text-sm">{emoji}</span>
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{type}</span>
+              </div>
+              {users.map(u => {
+                const name = [u.first_name, u.last_name].filter(Boolean).join(' ') || 'Member'
+                return (
+                  <div key={`${type}-${u.id}`} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50">
+                    <Avatar name={u.first_name} size="sm" />
+                    <span className="text-sm text-gray-800">{name}</span>
+                  </div>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }

@@ -530,6 +530,27 @@ router.post('/posts/:id/reactions', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// GET /api/community/posts/:id/reactors — who reacted to this post, grouped by reaction_type.
+// Visible to any community member regardless of role — names only, no profile data.
+router.get('/posts/:id/reactors', requireAuth(), async (req, res, next) => {
+  try {
+    const postId = parseInt(req.params.id, 10)
+    const { rows } = await pool.query(
+      `SELECT pr.reaction_type, u.id, u.first_name, u.last_name
+       FROM post_reactions pr
+       JOIN users u ON u.id = pr.user_id
+       WHERE pr.post_id = $1
+       ORDER BY pr.created_at DESC`,
+      [postId],
+    )
+    const grouped = {}
+    for (const { reaction_type, id, first_name, last_name } of rows) {
+      (grouped[reaction_type] ??= []).push({ id, first_name, last_name })
+    }
+    res.json(grouped)
+  } catch (err) { next(err) }
+})
+
 // GET/POST /api/community/posts/:id/comments
 router.get('/posts/:id/comments', requireAuth(), async (req, res, next) => {
   try {
