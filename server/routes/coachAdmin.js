@@ -3841,4 +3841,76 @@ router.delete('/clients/:id/workout-schedules/:assignmentId', requireAuth(), asy
   } catch (err) { next(err) }
 })
 
+// ─── Katie Corrections ────────────────────────────────────────────────────────
+// Admin-only management of katie_corrections — fixes a wrong/hedged Katie answer
+// without a code deploy (see server/services/katieCorrections.js, which reads
+// this table at chat time). Quality control here stays admin-level, not coach.
+
+// GET /api/coach-admin/katie-corrections — list all, newest first
+router.get('/katie-corrections', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireAdmin(req, res); if (!ctx) return
+
+    const { rows } = await pool.query(`
+      SELECT c.id, c.trigger_keywords, c.correct_answer, c.active, c.created_at,
+             u.first_name AS created_by_name
+      FROM katie_corrections c
+      LEFT JOIN users u ON u.id = c.created_by
+      ORDER BY c.created_at DESC
+    `)
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
+// POST /api/coach-admin/katie-corrections — flag a bad answer / add a correction
+router.post('/katie-corrections', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireAdmin(req, res); if (!ctx) return
+
+    const { trigger_keywords, correct_answer } = req.body
+    const keywords = (Array.isArray(trigger_keywords) ? trigger_keywords : [])
+      .map(k => String(k ?? '').trim())
+      .filter(Boolean)
+    if (keywords.length === 0) return res.status(400).json({ error: 'At least one trigger keyword is required' })
+    if (!correct_answer?.trim()) return res.status(400).json({ error: 'correct_answer is required' })
+
+    const { rows } = await pool.query(`
+      INSERT INTO katie_corrections (trigger_keywords, correct_answer, created_by, active)
+      VALUES ($1, $2, $3, TRUE)
+      RETURNING id, trigger_keywords, correct_answer, active, created_at
+    `, [keywords, correct_answer.trim(), ctx.dbUserId])
+    res.status(201).json(rows[0])
+  } catch (err) { next(err) }
+})
+
+// PATCH /api/coach-admin/katie-corrections/:id — toggle active on/off
+router.patch('/katie-corrections/:id', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireAdmin(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    const { active } = req.body
+    if (typeof active !== 'boolean') return res.status(400).json({ error: 'active (boolean) is required' })
+
+    const { rows } = await pool.query(
+      `UPDATE katie_corrections SET active = $1 WHERE id = $2
+       RETURNING id, trigger_keywords, correct_answer, active, created_at`,
+      [active, id],
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Correction not found' })
+    res.json(rows[0])
+  } catch (err) { next(err) }
+})
+
+// DELETE /api/coach-admin/katie-corrections/:id
+router.delete('/katie-corrections/:id', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireAdmin(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+
+    const { rowCount } = await pool.query('DELETE FROM katie_corrections WHERE id = $1', [id])
+    if (!rowCount) return res.status(404).json({ error: 'Correction not found' })
+    res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
 export default router
