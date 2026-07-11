@@ -36,19 +36,39 @@ function getMainLiftName(movementPattern, rotationIndex = 0) {
  * Looks up one main_lift exercise_library row for the given movement
  * pattern. rotationIndex lets callers cycle through the pool (e.g. pass the
  * week number) instead of always getting the same lift for a pattern.
+ *
+ * If `equipment` is passed, prefers pool entries the client can actually do
+ * (equipment_required subset of `equipment`) and rotates within that subset.
+ * Several patterns (e.g. hinge, vertical_push) have no bodyweight option in
+ * the temp pool at all — when nothing matches, falls back to the full pool
+ * and sets `equipmentMismatch: true` so the caller can surface a warning
+ * instead of silently assigning an unusable lift.
  */
-async function pickMainLift(pool, movementPattern, rotationIndex = 0) {
-  const name = getMainLiftName(movementPattern, rotationIndex)
+async function pickMainLift(pool, movementPattern, { rotationIndex = 0, equipment = null } = {}) {
+  const names = MAIN_LIFT_POOL[movementPattern]
+  if (!names || names.length === 0) {
+    throw new Error(`No main lift names configured for movement pattern "${movementPattern}"`)
+  }
   const { rows } = await pool.query(
-    `SELECT * FROM exercise_library WHERE category = 'main_lift' AND name = $1 AND active = TRUE LIMIT 1`,
-    [name],
+    `SELECT * FROM exercise_library WHERE category = 'main_lift' AND name = ANY($1) AND active = TRUE`,
+    [names],
   )
   if (rows.length === 0) {
     throw new Error(
-      `Main lift "${name}" for pattern "${movementPattern}" not found in exercise_library — run seed-main-lifts.js`,
+      `No main_lift rows found for pattern "${movementPattern}" (expected ${names.join(', ')}) — run seed-main-lifts.js`,
     )
   }
-  return rows[0]
+  // Preserve MAIN_LIFT_POOL's declared order regardless of what order SQL returned rows in.
+  const ordered = names.map(n => rows.find(r => r.name === n)).filter(Boolean)
+
+  const candidates = equipment
+    ? ordered.filter(r => r.equipment_required.every(eq => equipment.includes(eq)))
+    : ordered
+  const equipmentMismatch = equipment != null && candidates.length === 0
+  const usable = candidates.length > 0 ? candidates : ordered
+
+  const exercise = usable[rotationIndex % usable.length]
+  return { exercise, equipmentMismatch }
 }
 
 export { MAIN_LIFT_POOL, getMainLiftName, pickMainLift }
