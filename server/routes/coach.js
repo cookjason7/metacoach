@@ -4,6 +4,7 @@ import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 import { chatLimit } from '../middleware/rateLimits.js'
 import { trackEvent } from '../services/usageTracker.js'
+import { getAppHelpContext } from '../services/appHelpKnowledge.js'
 
 const router = Router()
 const anthropic = new Anthropic()
@@ -722,7 +723,14 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     const katiPrompt = user.coaching_type === 'vip'
       ? `${KATIE_BASE_PROMPT}${KATIE_VIP_ADDENDUM}`
       : `${KATIE_BASE_PROMPT}${KATIE_AI_ADDENDUM}`
-    const systemPrompt = `${katiPrompt}${KATIE_MEAL_PLAN_ADDENDUM}\n\n${buildContextBlock(user, meals, logs, recentFoods, healthAssessment, phaseData, latestCheckin)}`
+    // App-usage questions ("how do I log water", "my steps aren't syncing") only —
+    // pulls in just the relevant knowledge-base section(s) for this turn, not on
+    // every message. Returns '' for nutrition/coaching messages. Prior user
+    // message is folded in so a short follow-up reply to Katie's own clarifying
+    // question ("Android, Google Health") still resolves to the right section.
+    const priorUserMessage = [...history].reverse().find(h => h.role === 'user')?.message ?? ''
+    const appHelpContext = getAppHelpContext(message, priorUserMessage)
+    const systemPrompt = `${katiPrompt}${KATIE_MEAL_PLAN_ADDENDUM}${appHelpContext}\n\n${buildContextBlock(user, meals, logs, recentFoods, healthAssessment, phaseData, latestCheckin)}`
 
     // Stream SSE response
     res.setHeader('Content-Type', 'text/event-stream')
