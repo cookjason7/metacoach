@@ -34,11 +34,17 @@ const MAIN_LIFTS = [
   lift('Barbell Back Squat', 'squat', ['barbell']),
   lift('Front Squat', 'squat', ['barbell']),
   lift('Goblet Squat', 'squat', ['dumbbell']),
+  lift('Bodyweight Squat', 'squat', ['bodyweight']),
+  lift('Split Squat', 'squat', ['bodyweight'], { unilateral: true }),
+  lift('Pistol Squat Progression', 'squat', ['bodyweight'], { unilateral: true, level_min: 'intermediate' }),
 
   // hinge
   lift('Conventional Deadlift', 'hinge', ['barbell']),
   lift('Romanian Deadlift', 'hinge', ['barbell']),
   lift('Trap Bar Deadlift', 'hinge', ['trap_bar']),
+  lift('Single-Leg RDL', 'hinge', ['bodyweight'], { unilateral: true }),
+  lift('Glute Bridge', 'hinge', ['bodyweight']),
+  lift('Nordic Curl Regression', 'hinge', ['bodyweight'], { level_min: 'intermediate' }),
 
   // horizontal_push
   lift('Barbell Bench Press', 'horizontal_push', ['barbell']),
@@ -49,6 +55,7 @@ const MAIN_LIFTS = [
   lift('Barbell Row', 'horizontal_pull', ['barbell']),
   lift('Dumbbell Row', 'horizontal_pull', ['dumbbell'], { unilateral: true }),
   lift('Seated Cable Row', 'horizontal_pull', ['cable']),
+  lift('Inverted Row', 'horizontal_pull', ['bodyweight']),
 
   // vertical_push
   lift('Overhead Press', 'vertical_push', ['barbell']),
