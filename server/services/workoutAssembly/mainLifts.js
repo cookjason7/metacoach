@@ -14,12 +14,17 @@
  */
 
 const MAIN_LIFT_POOL = {
-  squat:            ['Barbell Back Squat', 'Front Squat', 'Goblet Squat'],
-  hinge:            ['Conventional Deadlift', 'Romanian Deadlift', 'Trap Bar Deadlift'],
+  squat:            ['Barbell Back Squat', 'Front Squat', 'Goblet Squat', 'Bodyweight Squat', 'Split Squat', 'Pistol Squat Progression'],
+  hinge:            ['Conventional Deadlift', 'Romanian Deadlift', 'Trap Bar Deadlift', 'Single-Leg RDL', 'Glute Bridge', 'Nordic Curl Regression'],
   horizontal_push:  ['Barbell Bench Press', 'Dumbbell Bench Press', 'Push-up'],
-  horizontal_pull:  ['Barbell Row', 'Dumbbell Row', 'Seated Cable Row'],
+  horizontal_pull:  ['Barbell Row', 'Dumbbell Row', 'Seated Cable Row', 'Inverted Row'],
   vertical_push:    ['Overhead Press', 'Dumbbell Shoulder Press'],
   vertical_pull:    ['Pull-up', 'Lat Pulldown'],
+  // carry and lift still have no bodyweight-only option in this temp pool —
+  // Farmer's/Suitcase Carry need external load, Turkish Get-up/KB Clean and
+  // Press need a kettlebell. Known limitation for bodyweight-only clients;
+  // surfaces as an equipmentMismatch warning (see pickMainLift) rather than
+  // silently assigning an unusable lift.
   carry:            ["Farmer's Carry", 'Suitcase Carry'],
   lift:             ['Turkish Get-up', 'Kettlebell Clean and Press'],
 }
