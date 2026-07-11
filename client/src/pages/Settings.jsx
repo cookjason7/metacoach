@@ -118,6 +118,24 @@ function formatConnectedAt(iso) {
   })
 }
 
+// Maps a raw fitbit_tokens.last_sync_error string (written by the background
+// health-sync job) to a short, plain-language explanation. The raw error is
+// always shown too, in smaller/muted text, so nothing is lost for debugging —
+// this only adds a friendlier headline in front of it.
+function friendlySyncError(raw) {
+  const s = String(raw || '').toLowerCase()
+  if (/invalid_grant|invalid credentials|token has been expired or revoked|token refresh failed/.test(s)) {
+    return 'Connection needs to be reconnected.'
+  }
+  if (/missing scopes|insufficient|permission_denied|forbidden/.test(s)) {
+    return 'Missing permissions — reconnect and allow access to steps and sleep data.'
+  }
+  if (/not linked|no data source|not found/.test(s)) {
+    return 'No Fitbit or Health Connect data found for the connected account.'
+  }
+  return 'Last background sync failed.'
+}
+
 function roleLabel(role) {
   if (!role) return 'Staff'
   return role.charAt(0).toUpperCase() + role.slice(1)
@@ -447,7 +465,7 @@ export default function Settings() {
   const [editingMeasurementId, setEditingMeasurementId] = useState(null)
   const [measurementsOpen, setMeasurementsOpen] = useState(false)
   const [bloodworkOpen, setBloodworkOpen] = useState(false)
-  const [fitbitStatus, setFitbitStatus] = useState({ connected: false, last_synced_at: null, fitbit_user_id: null })
+  const [fitbitStatus, setFitbitStatus] = useState({ connected: false, last_synced_at: null, fitbit_user_id: null, last_sync_error: null, last_sync_error_at: null })
   const [fitbitLoading, setFitbitLoading] = useState(false)
   const [fitbitSyncing, setFitbitSyncing] = useState(false)
   const [fitbitMessage, setFitbitMessage] = useState('')
@@ -1827,6 +1845,20 @@ export default function Settings() {
                               ? `Connected as ${fitbitStatus.google_email}`
                               : 'Connected Google account unknown — reconnect to confirm it’s the right one'}
                           </p>
+                        )}
+                        {fitbitStatus.connected && fitbitStatus.last_sync_error && (
+                          <div className="mt-2 flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
+                            <span className="text-amber-500 shrink-0 leading-none" aria-hidden="true">⚠️</span>
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold text-amber-800">
+                                {friendlySyncError(fitbitStatus.last_sync_error)}
+                              </p>
+                              <p className="text-[10px] text-amber-700/70 mt-0.5 break-words">
+                                {fitbitStatus.last_sync_error}
+                                {formatConnectedAt(fitbitStatus.last_sync_error_at) && ` · ${formatConnectedAt(fitbitStatus.last_sync_error_at)}`}
+                              </p>
+                            </div>
+                          </div>
                         )}
                       </div>
                     </div>
