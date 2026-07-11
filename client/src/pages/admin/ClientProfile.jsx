@@ -4006,10 +4006,12 @@ function NotesTab({ clientId, role, getToken }) {
 
 // ─── Messaging Tab ────────────────────────────────────────────────────────────
 
-function KatieHistoryPanel({ client, getToken }) {
+function KatieHistoryPanel({ client, getToken, role }) {
   const [messages, setMessages] = useState([])
   const [loading, setLoading]   = useState(true)
+  const [flagged, setFlagged]   = useState(null) // the Katie message object currently being flagged, or null
   const clientName = client.display_first_name || client.first_name || 'Client'
+  const isAdmin = role === 'admin'
 
   useEffect(() => {
     let cancelled = false
@@ -4035,6 +4037,7 @@ function KatieHistoryPanel({ client, getToken }) {
       <div className="bg-purple-50 border border-purple-200 rounded-lg px-3 py-2.5">
         <p className="text-xs text-purple-700">
           🤖 <strong>Katie conversation history — read only.</strong> These are the client's private AI coaching messages. Staff cannot reply here.
+          {isAdmin && ' Flag a wrong answer below to correct it going forward.'}
         </p>
       </div>
 
@@ -4070,6 +4073,14 @@ function KatieHistoryPanel({ client, getToken }) {
                     )}
                   </p>
                   <p className="text-sm whitespace-pre-wrap"><LinkifiedText text={m.message} /></p>
+                  {isKatie && isAdmin && (
+                    <button
+                      onClick={() => setFlagged(m)}
+                      className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-gray-400 hover:text-red-500 transition-colors"
+                    >
+                      🚩 Flag this answer
+                    </button>
+                  )}
                 </div>
                 {!isKatie && (
                   <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-300 flex items-center justify-center text-gray-600 text-[10px] font-bold">
@@ -4080,6 +4091,129 @@ function KatieHistoryPanel({ client, getToken }) {
             )
           })}
         </div>
+      </div>
+
+      {flagged && (
+        <FlagCorrectionModal
+          flaggedMessage={flagged.message}
+          getToken={getToken}
+          onClose={() => setFlagged(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Flag Correction Modal ────────────────────────────────────────────────────
+// Admin-only. Lets an admin write a katie_corrections row from a real Katie
+// answer they just read — see server/routes/coachAdmin.js POST /katie-corrections
+// and server/services/katieCorrections.js (which reads this table at chat time).
+
+function FlagCorrectionModal({ flaggedMessage, getToken, onClose }) {
+  const [keywordsInput, setKeywordsInput] = useState('')
+  const [correctAnswer, setCorrectAnswer] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error,  setError]  = useState(null)
+  const [saved,  setSaved]  = useState(false)
+
+  async function submit() {
+    const trigger_keywords = keywordsInput.split(',').map(k => k.trim()).filter(Boolean)
+    if (trigger_keywords.length === 0) { setError('Enter at least one trigger keyword.'); return }
+    if (!correctAnswer.trim()) { setError('Enter the correct answer.'); return }
+
+    setSaving(true)
+    setError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/katie-corrections`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trigger_keywords, correct_answer: correctAnswer.trim() }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error ?? 'Could not save correction')
+      }
+      setSaved(true)
+      setTimeout(onClose, 1200)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[92vh] flex flex-col overflow-hidden shadow-xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
+          <p className="text-sm font-semibold text-gray-900">🚩 Flag this answer</p>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1.5 leading-none shrink-0 text-lg">&#10005;</button>
+        </div>
+
+        {saved ? (
+          <div className="px-4 py-10 text-center">
+            <p className="text-2xl mb-2">✅</p>
+            <p className="text-sm font-semibold text-gray-700">Correction saved</p>
+            <p className="text-xs text-gray-400 mt-1">Katie will use it on matching questions going forward.</p>
+          </div>
+        ) : (
+          <>
+            <div className="overflow-y-auto flex-1 p-4 space-y-4">
+              <div>
+                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Katie said</p>
+                <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-600 whitespace-pre-wrap max-h-32 overflow-y-auto">
+                  {flaggedMessage}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
+                  Trigger keywords
+                </label>
+                <input
+                  type="text"
+                  value={keywordsInput}
+                  onChange={e => setKeywordsInput(e.target.value)}
+                  placeholder="e.g. water, log water, hydration"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">Comma-separated. Katie checks a client's message against these to decide when this correction applies.</p>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
+                  Correct answer
+                </label>
+                <textarea
+                  rows={5}
+                  value={correctAnswer}
+                  onChange={e => setCorrectAnswer(e.target.value)}
+                  placeholder="What Katie should say instead, and why the answer above was wrong…"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none"
+                />
+              </div>
+
+              {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-100 shrink-0">
+              <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors">
+                Cancel
+              </button>
+              <button
+                onClick={submit}
+                disabled={saving}
+                className="bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-50 transition-colors"
+              >
+                {saving ? 'Saving…' : 'Save correction'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
@@ -4223,7 +4357,7 @@ function MessagingTab({ client, role, meId, getToken }) {
 
       {/* Katie Chat — read-only panel rendered separately */}
       {isKatieThread ? (
-        <KatieHistoryPanel client={client} getToken={getToken} />
+        <KatieHistoryPanel client={client} getToken={getToken} role={role} />
       ) : (
         <>
           {/* Message list */}

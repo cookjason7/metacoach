@@ -23,6 +23,7 @@ import Messages from './pages/Messages'
 import ClientList from './pages/admin/ClientList'
 import ClientProfile from './pages/admin/ClientProfile'
 import UsageAnalytics from './pages/admin/UsageAnalytics'
+import KatieCorrections from './pages/admin/KatieCorrections'
 import InviteAccept from './pages/InviteAccept'
 import StaffInviteAccept from './pages/StaffInviteAccept'
 import AiWelcome from './pages/AiWelcome'
@@ -208,6 +209,7 @@ export default function App() {
             <Route path="/admin/forms"         element={<FormsList />} />
             <Route path="/admin/forms/:id/edit" element={<FormBuilder />} />
             <Route path="/admin/usage"         element={<UsageAnalytics />} />
+            <Route path="/admin/katie-corrections" element={<KatieCorrections />} />
           </Route>
         </Route>
       </Routes>
