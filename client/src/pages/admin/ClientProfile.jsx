@@ -3973,9 +3973,24 @@ function KatieHistoryPanel({ client, getToken }) {
 
 function MessagingTab({ client, role, meId, getToken }) {
   const isAI = client.coaching_type === 'ai'
-  // Admin defaults to admin_private (their own thread) so they don't accidentally reply in coach_thread.
-  // AI clients with admin: default to ai_admin, with Katie Chat also available.
-  const initialThread = isAI ? 'ai_admin' : (role === 'admin' ? 'admin_private' : 'coach_thread')
+
+  const availableThreads = []
+  if (isAI) {
+    if (role === 'admin') availableThreads.push({ id: 'ai_admin', label: 'AI ↔ Admin', icon: '🤖' })
+  } else {
+    availableThreads.push({ id: 'coach_thread', label: 'Coach Thread', icon: '💬' })
+    if (role === 'admin') availableThreads.push({ id: 'admin_private', label: 'Admin Private', icon: '🔒' })
+  }
+  // Katie Chat: available for all client types, admin + coaches (canAccessClient enforced on backend) — read-only
+  availableThreads.push({ id: 'katie_history', label: 'Katie Chat', icon: '🤖' })
+
+  // Default to a writable thread this role can actually send to — never Katie Chat (read-only),
+  // and never a thread type this role has no write access to. Previously this defaulted AI-client
+  // conversations straight to 'ai_admin' even for coaches, who can't write there and don't even see
+  // it as a tab — landing them on a dead thread with no visible way to send a first message. Falls
+  // back to Katie Chat only when that's genuinely the only thing available (nothing writable at all).
+  const writableThreads = availableThreads.filter(t => t.id !== 'katie_history')
+  const initialThread = (role === 'admin' && !isAI ? 'admin_private' : writableThreads[0]?.id) ?? 'katie_history'
   const [thread, setThread] = useState(initialThread)
   const [messages,     setMessages]     = useState([])
   const [hasMore,      setHasMore]      = useState(false)
@@ -3986,16 +4001,6 @@ function MessagingTab({ client, role, meId, getToken }) {
   const [sending, setSending] = useState(false)
   const [menuMsgId, setMenuMsgId] = useState(null) // message id with delete affordance revealed (mobile long-press)
   const longPressTimer = useRef(null)
-
-  const availableThreads = []
-  if (isAI) {
-    if (role === 'admin') availableThreads.push({ id: 'ai_admin', label: 'AI ↔ Admin', icon: '🤖' })
-  } else {
-    availableThreads.push({ id: 'coach_thread', label: 'Coach Thread', icon: '💬' })
-    if (role === 'admin') availableThreads.push({ id: 'admin_private', label: 'Admin Private', icon: '🔒' })
-  }
-  // Katie Chat: available for all client types, admin + coaches (canAccessClient enforced on backend)
-  availableThreads.push({ id: 'katie_history', label: 'Katie Chat', icon: '🤖' })
 
   const isKatieThread = thread === 'katie_history'
 
@@ -4080,14 +4085,6 @@ function MessagingTab({ client, role, meId, getToken }) {
   }
   function cancelLongPress() {
     if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null }
-  }
-
-  if (availableThreads.length === 0) {
-    return (
-      <div className="bg-white border border-gray-200 rounded-xl p-8 text-center">
-        <p className="text-sm text-gray-500">This is an AI coaching client. Only admins can message AI clients unless you're assigned as their coach.</p>
-      </div>
-    )
   }
 
   return (
