@@ -382,6 +382,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
   const [editContent,    setEditContent]    = useState(post.content)
   const [editCategory,   setEditCategory]   = useState(post.category ?? CATEGORIES[0])
   const [saving,         setSaving]         = useState(false)
+  const [showLikers,     setShowLikers]     = useState(false)
 
   const canEdit = isAdmin || post.user_id === currentUserId
 
@@ -613,15 +614,28 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
 
         {/* Like + comment bar */}
         <div className="flex items-center gap-5 pt-3 border-t border-gray-100">
-          <button
-            onClick={() => onLike(post.id)}
-            className={`flex items-center gap-1.5 text-sm transition-colors ${
-              post.liked_by_me ? 'text-rose-500' : 'text-gray-400 hover:text-rose-400'
-            }`}
-          >
-            <span>{post.liked_by_me ? '♥' : '♡'}</span>
-            <span>{post.like_count}</span>
-          </button>
+          <div className="flex items-center gap-1.5 text-sm">
+            <button
+              onClick={() => onLike(post.id)}
+              aria-label={post.liked_by_me ? 'Unlike post' : 'Like post'}
+              className={`transition-colors ${
+                post.liked_by_me ? 'text-rose-500' : 'text-gray-400 hover:text-rose-400'
+              }`}
+            >
+              <span>{post.liked_by_me ? '♥' : '♡'}</span>
+            </button>
+            <button
+              onClick={() => setShowLikers(true)}
+              disabled={!post.like_count}
+              className={`min-w-[1.5rem] text-left ${
+                post.like_count
+                  ? 'text-gray-500 hover:text-gray-700 hover:underline cursor-pointer'
+                  : 'text-gray-400 cursor-default'
+              }`}
+            >
+              {post.like_count}
+            </button>
+          </div>
           <button
             onClick={toggleComments}
             className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-[#c45e09] transition-colors"
@@ -660,6 +674,71 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
             </form>
           </div>
         )}
+      </div>
+
+      {showLikers && (
+        <LikedByModal postId={post.id} getToken={getToken} onClose={() => setShowLikers(false)} />
+      )}
+    </div>
+  )
+}
+
+// ── LikedByModal ──────────────────────────────────────────────────────────────
+// Names-only list of who liked a post — visible to any community member, no role gate.
+
+function LikedByModal({ postId, getToken, onClose }) {
+  const [likers, setLikers] = useState(null)
+  const [error,  setError]  = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const token = await getToken()
+        const res   = await fetch(`${API_URL}/api/community/posts/${postId}/likers`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok) throw new Error()
+        const data = await res.json()
+        if (!cancelled) setLikers(data)
+      } catch {
+        if (!cancelled) setError(true)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [postId, getToken])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl w-full max-w-sm shadow-xl overflow-hidden max-h-[70vh] flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+          <h2 className="text-base font-bold text-gray-900">Liked by</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="overflow-y-auto px-2 py-2">
+          {likers === null && !error && (
+            <p className="text-center text-sm text-gray-400 py-6">Loading…</p>
+          )}
+          {error && (
+            <p className="text-center text-sm text-gray-400 py-6">Couldn't load likes.</p>
+          )}
+          {likers?.length === 0 && (
+            <p className="text-center text-sm text-gray-400 py-6">No likes yet.</p>
+          )}
+          {likers?.map(u => {
+            const name = [u.first_name, u.last_name].filter(Boolean).join(' ') || 'Member'
+            return (
+              <div key={u.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50">
+                <Avatar name={u.first_name} size="sm" />
+                <span className="text-sm text-gray-800">{name}</span>
+              </div>
+            )
+          })}
+        </div>
       </div>
     </div>
   )
