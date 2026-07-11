@@ -1449,6 +1449,23 @@ export async function migrate() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_dm_enabled        BOOLEAN NOT NULL DEFAULT TRUE`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_community_enabled BOOLEAN NOT NULL DEFAULT TRUE`)
 
+  // Admin-entered corrections pulled into Katie's context at answer-time so a
+  // wrong/hedged answer can be fixed without a code deploy. org_id is nullable
+  // and unused while the product is single-org — reserved so multi-tenant scoping
+  // can be added later without a migration.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS katie_corrections (
+      id               SERIAL PRIMARY KEY,
+      org_id           INTEGER,
+      trigger_keywords TEXT[]      NOT NULL,
+      correct_answer   TEXT        NOT NULL,
+      created_by       INTEGER     REFERENCES users(id) ON DELETE SET NULL,
+      active           BOOLEAN     NOT NULL DEFAULT TRUE,
+      created_at       TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_katie_corrections_active ON katie_corrections (active)`)
+
   // ── Admin allowlist bootstrap ───────────────────────────────────────────────
   // Force role=admin for the hard-coded ADMIN_EMAILS list on every startup.
   // Existing user data (meals, workouts, journal, etc.) is preserved — this
