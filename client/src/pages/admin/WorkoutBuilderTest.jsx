@@ -246,16 +246,15 @@ export default function WorkoutBuilderTest() {
             <p className="text-sm font-bold text-gray-900 mb-2">Cooldown</p>
             <div className="space-y-3">
               <WarmupBlock label="Core" items={result.cooldown.core} />
+              <WarmupBlock label="Stretch (coach-editable — not auto-picked)" items={result.cooldown.stretch} />
               <WarmupBlock label="Finisher (coach-editable — not auto-picked)" items={result.cooldown.finisher} />
             </div>
           </div>
 
           <p className="text-[11px] text-gray-400">
-            Note: Foam roll, Activation, and Finisher are intentionally always empty —
-            coach-editable placeholders, not auto-picked by the rules engine. Everything
-            else above is real rule-based selection. program_templates also defines a
-            "stretch" block, but that one isn't built here at all yet (no key, no
-            placeholder) — out of scope for now.
+            Note: Foam roll, Activation, Stretch, and Finisher are intentionally always
+            empty — coach-editable placeholders, not auto-picked by the rules engine.
+            Everything else above is real rule-based selection.
           </p>
         </div>
       )}

@@ -101,8 +101,14 @@ async function runProfile(profile, noBwPatterns) {
       console.log('  core:')
       session.cooldown.core.forEach(item => console.log(`    - ${fmtEx(item)}  [${item.exercise.core_subtype}]`))
     }
+    if (session.cooldown.stretch.length === 0) {
+      console.log('  stretch: (none picked — coach-editable placeholder, expected)')
+    } else {
+      console.log('  stretch:')
+      session.cooldown.stretch.forEach(item => console.log(`    - ${fmtEx(item)}`))
+    }
     if (session.cooldown.finisher.length === 0) {
-      console.log('  finisher: (none picked)')
+      console.log('  finisher: (none picked — coach-editable placeholder, expected)')
     } else {
       console.log('  finisher:')
       session.cooldown.finisher.forEach(item => console.log(`    - ${fmtEx(item)}`))
@@ -132,6 +138,9 @@ async function runProfile(profile, noBwPatterns) {
     }
     if (session.warmup.activation.length !== 0) {
       flag(`Day ${dayLabel}: "activation" expected to always be empty (coach-editable placeholder) but got ${session.warmup.activation.length} pick(s)`)
+    }
+    if (session.cooldown.stretch.length !== 0) {
+      flag(`Day ${dayLabel}: "stretch" expected to always be empty (coach-editable placeholder) but got ${session.cooldown.stretch.length} pick(s)`)
     }
     if (session.cooldown.finisher.length !== 0) {
       flag(`Day ${dayLabel}: "finisher" expected to always be empty (coach-editable placeholder) but got ${session.cooldown.finisher.length} pick(s)`)
