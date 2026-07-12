@@ -12,7 +12,7 @@
  */
 
 import { pickMainLift } from './mainLifts.js'
-import { pickFoamRoll, pickMobility, pickBands, pickPlyo, pickCore, pickFinisher } from './categoryFilters.js'
+import { pickFoamRoll, pickMobility, pickBands, pickPlyo, pickCore } from './categoryFilters.js'
 import { getMainLiftVolume, getWarmupSlotCounts, getRepScheme, INVENTED_SLOT_COUNTS } from './volumeRules.js'
 
 const CORE_SUBTYPES = ['anti_extension', 'anti_rotation', 'anti_lateral_flexion']
@@ -68,10 +68,12 @@ async function buildCooldown(pool, { equipment, slotCounts }) {
       excludeNames.push(picked.name)
     }
   }
-  const finisher = await pickFinisher(pool, { equipment, count: INVENTED_SLOT_COUNTS.finisher })
+  // Finisher is intentionally left empty here — it's a coach-filled slot, not
+  // auto-assigned by the rules engine. The key stays present so callers/UI
+  // have a stable shape to render as an editable, empty "Finisher" slot.
   return {
     core,
-    finisher: finisher.map(e => ({ exercise: e, prescription: getRepScheme('finisher') })),
+    finisher: [],
   }
 }
 
