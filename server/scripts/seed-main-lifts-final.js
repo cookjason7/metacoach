@@ -21,7 +21,19 @@
  * anti_rotation / anti_lateral_flexion, and guessing one isn't warranted.
  *
  * 'cut'-tagged exercises are excluded entirely — no exercise_library row is
- * written or touched for them.
+ * written or touched for them. There is no schema value for "cut"
+ * (category's CHECK constraint has no such option, and no active=false
+ * convention is used anywhere in this table today) — a cut exercise's
+ * status is represented purely by the absence of a main_lift/core row for
+ * it under this review's source_programs. CUT_NAMES below exists only so
+ * the count is auditable against the finalized list, not because anything
+ * is written for it.
+ *
+ * 13 names originally landed in the unmatched/ambiguous flags below and
+ * were resolved by Jason as cut (not in the finalized movement-pattern
+ * list, i.e. cut/renamed-away) — see the follow-up to commit 1fa03a5.
+ * They're folded into CUT_NAMES accordingly; run() verifies each still
+ * exists in workout_exercises (untouched) and has no main_lift/core row.
  *
  * Usage:
  *   node server/scripts/seed-main-lifts-final.js
@@ -99,7 +111,7 @@ const CORE_ROWS = [
   core('Suspended Fallout'),
 ]
 
-// ── cut-tagged names (45) — listed only so the "cut" count in the summary is
+// ── cut-tagged names (58) — listed only so the "cut" count in the summary is
 // verifiable against the finalized list; never written to exercise_library. ──
 const CUT_NAMES = [
   'Bird Dog (Hands and Knees)', 'Cat-Cow + Neck Rolls Warm-Up', 'Cat-Cow Stretch',
@@ -125,23 +137,26 @@ const CUT_NAMES = [
   'Warm-Up: Gentle March in Place + Arm Circles',
   'Warm-Up: Step Touch Side to Side + Shoulder Rolls', 'Weighted Sit-Ups - With Bands',
   'Wide-Legged Seated Straddle Stretch',
-]
-
-// ── workout_exercises rows with no reasonable match in the finalized list —
-// per instructions, these are NOT guessed at. Reported, not seeded. ────────
-const UNMATCHED_HARD = [
+  // Resolved cut, follow-up to commit 1fa03a5 (previously UNMATCHED_HARD —
+  // no reasonable match in the finalized list at all):
   'Ab Crunch Machine', 'Clock Push-Up', 'Olympic Squat', 'Plate Pinch', 'Ring Dips',
   'Rope Climb', 'Russian Twist', 'Seated Head Harness Neck Resistance',
+  // Resolved cut, follow-up to commit 1fa03a5 (previously UNMATCHED_AMBIGUOUS —
+  // near-duplicates of a finalized name; Jason confirmed these are cut, not
+  // consolidations into that name):
+  'Barbell Rollout from Bench', 'Clean from Blocks',
+  'Double Kettlebell Alternating Hang Clean', 'Gentle Spinal Twist Cool-Down',
+  'Warm-Up',
 ]
-// Plausible near-duplicates of a finalized-list name, but not an exact or
-// clearly-instructed rename (unlike the Board Press / Car Deadlift / Gironda
-// examples given in the task) — flagged rather than silently merged.
-const UNMATCHED_AMBIGUOUS = [
-  { workoutExercisesName: 'Barbell Rollout from Bench', possibleTarget: 'Barbell Ab Rollout (core)' },
-  { workoutExercisesName: 'Clean from Blocks', possibleTarget: 'Power Clean from Blocks (lift)' },
-  { workoutExercisesName: 'Double Kettlebell Alternating Hang Clean', possibleTarget: 'Alternating Hang Clean (hinge)' },
-  { workoutExercisesName: 'Gentle Spinal Twist Cool-Down', possibleTarget: 'Supine Spinal Twist Cool-Down (cut) — no seeding impact either way' },
-  { workoutExercisesName: 'Warm-Up', possibleTarget: 'no exact counterpart; only "Warm-Up: ..." prefixed variants exist (both cut) — no seeding impact' },
+
+// The 13 names resolved as cut in this follow-up — used below only to print
+// a focused confirmation (still in workout_exercises, no main_lift/core row).
+const RESOLVED_CUT_NAMES = [
+  'Ab Crunch Machine', 'Clock Push-Up', 'Olympic Squat', 'Plate Pinch', 'Ring Dips',
+  'Rope Climb', 'Russian Twist', 'Seated Head Harness Neck Resistance',
+  'Barbell Rollout from Bench', 'Clean from Blocks',
+  'Double Kettlebell Alternating Hang Clean', 'Gentle Spinal Twist Cool-Down',
+  'Warm-Up',
 ]
 
 async function run() {
@@ -154,13 +169,7 @@ async function run() {
   console.log(`\nMain lift rows to seed: ${MAIN_LIFTS.length}`)
   console.log(`Core rows to seed: ${CORE_ROWS.length}`)
   console.log(`Cut (excluded) names accounted for: ${CUT_NAMES.length}`)
-  console.log(`Hard-unmatched (flagged, not seeded): ${UNMATCHED_HARD.length}`)
-  console.log(`Ambiguous near-duplicates (flagged, not seeded): ${UNMATCHED_AMBIGUOUS.length}`)
-
-  const missingFromWE = UNMATCHED_HARD.filter(n => !weNames.has(n))
-  if (missingFromWE.length) {
-    console.log('\nWARNING — these UNMATCHED_HARD names are not even present in current workout_exercises (list may be stale):', missingFromWE)
-  }
+  console.log(`Unmatched/ambiguous still open for review: 0 (all resolved as cut)`)
 
   const all = [...MAIN_LIFTS, ...CORE_ROWS]
   let inserted = 0
@@ -190,9 +199,26 @@ async function run() {
   const totalMainLift = await pool.query(`SELECT COUNT(*) FROM exercise_library WHERE category = 'main_lift'`)
   console.log(`Total main_lift rows in exercise_library now (old temp + new finalized): ${totalMainLift.rows[0].count}`)
 
-  console.log('\n--- Flagged for manual review (not written) ---')
-  console.log('Hard unmatched:', UNMATCHED_HARD)
-  console.log('Ambiguous near-duplicates:', UNMATCHED_AMBIGUOUS)
+  // ── Confirm the 13 resolved-cut names: still present in workout_exercises
+  // (nothing deleted), and no main_lift/core row exists for them under this
+  // review's source_programs (i.e. they're excluded, matching cut convention).
+  console.log(`\n--- Confirming ${RESOLVED_CUT_NAMES.length} resolved-cut names ---`)
+  const { rows: stillHasRow } = await pool.query(
+    `SELECT name, category, source_program FROM exercise_library
+     WHERE name = ANY($1) AND source_program = ANY($2)`,
+    [RESOLVED_CUT_NAMES, [MAIN_LIFT_SOURCE, CORE_SOURCE]],
+  )
+  let allGood = true
+  for (const name of RESOLVED_CUT_NAMES) {
+    const inWE = weNames.has(name)
+    const hasRow = stillHasRow.some(r => r.name === name)
+    const ok = inWE && !hasRow
+    if (!ok) allGood = false
+    console.log(`  ${ok ? 'OK ' : 'FAIL'} — "${name}": in workout_exercises=${inWE}, has main_lift/core row=${hasRow}`)
+  }
+  console.log(allGood
+    ? '\nAll 13 confirmed: still in workout_exercises, no main_lift/core row (cut).'
+    : '\nWARNING — one or more of the 13 failed confirmation, see FAIL lines above.')
 
   await pool.end()
 }
