@@ -1,79 +1,52 @@
 /**
  * mainLifts.js — main-lift slot selection for the A/B session assembler.
  *
- * // TODO: replace with main_lift tag filter once labeling is complete.
- * exercise_library.category = 'main_lift' currently only has the 20 rows
- * seeded by server/scripts/seed-main-lifts.js (a temp hand-picked list, not
- * a full transcription of the guide's main-lift section). Once a real
- * main_lift catalog is tagged, swap MAIN_LIFT_POOL + getMainLiftName() below
- * for a plain query — e.g.
- *   SELECT * FROM exercise_library
- *   WHERE category = 'main_lift' AND movement_pattern = $1 AND level_min <= $2
- * — and delete this hardcoded pool. Every other function in this module
- * (pickMainLift, its callers) stays the same; only the name lookup changes.
+ * Queries exercise_library directly by movement_pattern (category='main_lift')
+ * instead of a hardcoded name allowlist. This naturally merges every
+ * main_lift source_program into one pool per pattern — both the original 27
+ * 'Main Lifts (temp)' rows (seed-main-lifts.js) and the 42
+ * 'Main Lifts (Movement Pattern Review)' rows (seed-main-lifts-final.js) are
+ * eligible candidates; nothing in exercise_library was deleted or renamed to
+ * make this work.
+ *
+ * Ordered by id (insertion order) for deterministic, stable rotation via
+ * rotationIndex — replaces the previous fixed declaration order of
+ * MAIN_LIFT_POOL.
  */
-
-const MAIN_LIFT_POOL = {
-  squat:            ['Barbell Back Squat', 'Front Squat', 'Goblet Squat', 'Bodyweight Squat', 'Split Squat', 'Pistol Squat Progression'],
-  hinge:            ['Conventional Deadlift', 'Romanian Deadlift', 'Trap Bar Deadlift', 'Single-Leg RDL', 'Glute Bridge', 'Nordic Curl Regression'],
-  horizontal_push:  ['Barbell Bench Press', 'Dumbbell Bench Press', 'Push-up'],
-  horizontal_pull:  ['Barbell Row', 'Dumbbell Row', 'Seated Cable Row', 'Inverted Row'],
-  vertical_push:    ['Overhead Press', 'Dumbbell Shoulder Press'],
-  vertical_pull:    ['Pull-up', 'Lat Pulldown'],
-  // carry and lift still have no bodyweight-only option in this temp pool —
-  // Farmer's/Suitcase Carry need external load, Turkish Get-up/KB Clean and
-  // Press need a kettlebell. Known limitation for bodyweight-only clients;
-  // surfaces as an equipmentMismatch warning (see pickMainLift) rather than
-  // silently assigning an unusable lift.
-  carry:            ["Farmer's Carry", 'Suitcase Carry'],
-  lift:             ['Turkish Get-up', 'Kettlebell Clean and Press'],
-}
-
-function getMainLiftName(movementPattern, rotationIndex = 0) {
-  const pool = MAIN_LIFT_POOL[movementPattern]
-  if (!pool || pool.length === 0) {
-    throw new Error(`No main lift names configured for movement pattern "${movementPattern}"`)
-  }
-  return pool[rotationIndex % pool.length]
-}
 
 /**
  * Looks up one main_lift exercise_library row for the given movement
  * pattern. rotationIndex lets callers cycle through the pool (e.g. pass the
  * week number) instead of always getting the same lift for a pattern.
  *
- * If `equipment` is passed, prefers pool entries the client can actually do
+ * If `equipment` is passed, prefers rows the client can actually do
  * (equipment_required subset of `equipment`) and rotates within that subset.
- * Several patterns (e.g. hinge, vertical_push) have no bodyweight option in
- * the temp pool at all — when nothing matches, falls back to the full pool
- * and sets `equipmentMismatch: true` so the caller can surface a warning
- * instead of silently assigning an unusable lift.
+ * Some patterns may have no bodyweight-only option at all — when nothing
+ * matches, falls back to the full pattern pool and sets
+ * `equipmentMismatch: true` so the caller can surface a warning instead of
+ * silently assigning an unusable lift.
  */
 async function pickMainLift(pool, movementPattern, { rotationIndex = 0, equipment = null } = {}) {
-  const names = MAIN_LIFT_POOL[movementPattern]
-  if (!names || names.length === 0) {
-    throw new Error(`No main lift names configured for movement pattern "${movementPattern}"`)
-  }
   const { rows } = await pool.query(
-    `SELECT * FROM exercise_library WHERE category = 'main_lift' AND name = ANY($1) AND active = TRUE`,
-    [names],
+    `SELECT * FROM exercise_library
+     WHERE category = 'main_lift' AND movement_pattern = $1 AND active = TRUE
+     ORDER BY id`,
+    [movementPattern],
   )
   if (rows.length === 0) {
     throw new Error(
-      `No main_lift rows found for pattern "${movementPattern}" (expected ${names.join(', ')}) — run seed-main-lifts.js`,
+      `No main_lift rows found for pattern "${movementPattern}" — run seed-main-lifts.js and seed-main-lifts-final.js`,
     )
   }
-  // Preserve MAIN_LIFT_POOL's declared order regardless of what order SQL returned rows in.
-  const ordered = names.map(n => rows.find(r => r.name === n)).filter(Boolean)
 
   const candidates = equipment
-    ? ordered.filter(r => r.equipment_required.every(eq => equipment.includes(eq)))
-    : ordered
+    ? rows.filter(r => r.equipment_required.every(eq => equipment.includes(eq)))
+    : rows
   const equipmentMismatch = equipment != null && candidates.length === 0
-  const usable = candidates.length > 0 ? candidates : ordered
+  const usable = candidates.length > 0 ? candidates : rows
 
   const exercise = usable[rotationIndex % usable.length]
   return { exercise, equipmentMismatch }
 }
 
-export { MAIN_LIFT_POOL, getMainLiftName, pickMainLift }
+export { pickMainLift }

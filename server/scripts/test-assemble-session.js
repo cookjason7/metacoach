@@ -9,19 +9,18 @@
 import 'dotenv/config'
 import { pool } from '../db.js'
 import { assembleSession } from '../services/workoutAssembly/assembleSession.js'
-import { MAIN_LIFT_POOL } from '../services/workoutAssembly/mainLifts.js'
 
 const flags = []
 const flag = msg => { flags.push(msg); console.log(`  [FLAG] ${msg}`) }
 
-// Patterns with zero bodyweight-only entries anywhere in MAIN_LIFT_POOL — computed
-// from the pool itself (not hand-typed) so this stays correct if the pool changes.
+// Patterns with zero bodyweight-only entries anywhere in exercise_library's
+// main_lift pool — queried live (mainLifts.js has no hardcoded name list to
+// read anymore; pickMainLift() queries by movement_pattern directly), so
+// this covers every main_lift source_program, not just one seed's rows.
 async function patternsWithNoBodyweightOption() {
-  const allNames = Object.values(MAIN_LIFT_POOL).flat()
   const { rows } = await pool.query(
     `SELECT name, movement_pattern, equipment_required FROM exercise_library
-     WHERE category = 'main_lift' AND name = ANY($1)`,
-    [allNames],
+     WHERE category = 'main_lift' AND active = TRUE`,
   )
   const byPattern = rows.reduce((acc, r) => {
     (acc[r.movement_pattern] ??= []).push(r)
@@ -129,8 +128,7 @@ async function runProfile(profile, noBwPatterns) {
 
 async function run() {
   const noBwPatterns = await patternsWithNoBodyweightOption()
-  console.log(`Patterns with NO bodyweight-only option in MAIN_LIFT_POOL: [${noBwPatterns.join(', ')}]`)
-  console.log('(Expect this to include hinge, vertical_push, carry, lift — and confirm whether squat/horizontal_pull also lack one.)')
+  console.log(`Patterns with NO bodyweight-only option in exercise_library main_lift pool: [${noBwPatterns.join(', ')}]`)
 
   for (const profile of PROFILES) {
     await runProfile(profile, noBwPatterns)
