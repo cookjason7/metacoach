@@ -711,10 +711,10 @@ export default function Layout() {
     ? baseClientNav.map(item => item.label === 'Messages' ? { ...item, label: 'Support' } : item)
     : baseClientNav
 
-  // Super-admin gets extra "Usage Analytics" and "Katie Corrections" nav entries.
+  // Super-admin gets extra "Usage Analytics", "Katie Corrections", and "Workout Builder Test" nav entries.
   const navItems = isStaff
     ? isAdmin
-      ? [...STAFF_NAV_ITEMS, { to: '/admin/usage', label: 'Usage Analytics' }, { to: '/admin/katie-corrections', label: 'Katie Corrections' }]
+      ? [...STAFF_NAV_ITEMS, { to: '/admin/usage', label: 'Usage Analytics' }, { to: '/admin/katie-corrections', label: 'Katie Corrections' }, { to: '/admin/workout-builder-test', label: 'Workout Builder Test' }]
       : STAFF_NAV_ITEMS
     : clientNavWithLabels
 
