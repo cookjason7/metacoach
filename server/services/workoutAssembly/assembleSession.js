@@ -2,23 +2,20 @@
  * assembleSession.js — orchestrates a single A or B day session:
  *   warm-up (foam_roll, mobility, activation, bands, plyo)
  *     -> main lift + accessory/movement-pattern work (program_day_patterns)
- *     -> cooldown (core, finisher)
+ *     -> cooldown (core, stretch, finisher)
  *
- * foam_roll, activation, and finisher are intentionally coach-editable
- * placeholders — they appear in the output shape (always `[]`) but are NOT
- * auto-picked by this module. This is deliberate, not a bug: a coach fills
- * these in manually later. Everything else (mobility, bands, plyo, main/
- * circuit work, core) is real rule-based selection. See git history for
- * why: foam_roll had real picking logic that intermittently returned zero
- * picks on certain equipment profiles (a pre-existing data-tagging gap, not
- * fixed here — simplified to a placeholder instead of chasing it); activation
- * never had a picker at all (no program_templates.block_type mapping was
- * ever wired up); finisher was auto-picked but was never meant to be
- * (should always be coach-assigned).
- *
- * `stretch` (also named in program_templates.block_type) has never been
- * implemented here at all — no key, no picker, not a placeholder. Flagging
- * so it isn't mistaken for a regression; out of scope for this change.
+ * foam_roll, activation, stretch, and finisher are intentionally
+ * coach-editable placeholders — they appear in the output shape (always
+ * `[]`) but are NOT auto-picked by this module. This is deliberate, not a
+ * bug: a coach fills these in manually later. Everything else (mobility,
+ * bands, plyo, main/circuit work, core) is real rule-based selection. See
+ * git history for why: foam_roll had real picking logic that intermittently
+ * returned zero picks on certain equipment profiles (a pre-existing
+ * data-tagging gap, not fixed here — simplified to a placeholder instead of
+ * chasing it); activation and stretch never had a picker at all (named in
+ * program_templates.block_type, but no mapping was ever wired up for
+ * either); finisher was auto-picked but was never meant to be (should
+ * always be coach-assigned).
  *
  * Purely rule-based selection against exercise_library/program_day_patterns/
  * volume_rules/program_templates — Katie (the AI coach) is not called here
@@ -87,11 +84,13 @@ async function buildCooldown(pool, { equipment, slotCounts }) {
       excludeNames.push(picked.name)
     }
   }
-  // Finisher is intentionally left empty here — it's a coach-filled slot, not
-  // auto-assigned by the rules engine. The key stays present so callers/UI
-  // have a stable shape to render as an editable, empty "Finisher" slot.
+  // stretch and finisher are intentionally left empty — coach-filled slots,
+  // not auto-assigned by the rules engine (see module header). Keys stay
+  // present so callers/UI have a stable shape to render as editable, empty
+  // slots.
   return {
     core,
+    stretch: [],
     finisher: [],
   }
 }
