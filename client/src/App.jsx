@@ -24,6 +24,7 @@ import ClientList from './pages/admin/ClientList'
 import ClientProfile from './pages/admin/ClientProfile'
 import UsageAnalytics from './pages/admin/UsageAnalytics'
 import KatieCorrections from './pages/admin/KatieCorrections'
+import WorkoutBuilderTest from './pages/admin/WorkoutBuilderTest'
 import InviteAccept from './pages/InviteAccept'
 import StaffInviteAccept from './pages/StaffInviteAccept'
 import AiWelcome from './pages/AiWelcome'
@@ -210,6 +211,7 @@ export default function App() {
             <Route path="/admin/forms/:id/edit" element={<FormBuilder />} />
             <Route path="/admin/usage"         element={<UsageAnalytics />} />
             <Route path="/admin/katie-corrections" element={<KatieCorrections />} />
+            <Route path="/admin/workout-builder-test" element={<WorkoutBuilderTest />} />
           </Route>
         </Route>
       </Routes>
