@@ -1,8 +1,24 @@
 /**
  * assembleSession.js — orchestrates a single A or B day session:
- *   warm-up (foam_roll, mobility, bands, plyo)
+ *   warm-up (foam_roll, mobility, activation, bands, plyo)
  *     -> main lift + accessory/movement-pattern work (program_day_patterns)
  *     -> cooldown (core, finisher)
+ *
+ * foam_roll, activation, and finisher are intentionally coach-editable
+ * placeholders — they appear in the output shape (always `[]`) but are NOT
+ * auto-picked by this module. This is deliberate, not a bug: a coach fills
+ * these in manually later. Everything else (mobility, bands, plyo, main/
+ * circuit work, core) is real rule-based selection. See git history for
+ * why: foam_roll had real picking logic that intermittently returned zero
+ * picks on certain equipment profiles (a pre-existing data-tagging gap, not
+ * fixed here — simplified to a placeholder instead of chasing it); activation
+ * never had a picker at all (no program_templates.block_type mapping was
+ * ever wired up); finisher was auto-picked but was never meant to be
+ * (should always be coach-assigned).
+ *
+ * `stretch` (also named in program_templates.block_type) has never been
+ * implemented here at all — no key, no picker, not a placeholder. Flagging
+ * so it isn't mistaken for a regression; out of scope for this change.
  *
  * Purely rule-based selection against exercise_library/program_day_patterns/
  * volume_rules/program_templates — Katie (the AI coach) is not called here
@@ -12,7 +28,7 @@
  */
 
 import { pickMainLift } from './mainLifts.js'
-import { pickFoamRoll, pickMobility, pickBands, pickPlyo, pickCore } from './categoryFilters.js'
+import { pickMobility, pickBands, pickPlyo, pickCore } from './categoryFilters.js'
 import { getMainLiftVolume, getWarmupSlotCounts, getRepScheme, INVENTED_SLOT_COUNTS } from './volumeRules.js'
 
 const CORE_SUBTYPES = ['anti_extension', 'anti_rotation', 'anti_lateral_flexion']
@@ -29,15 +45,18 @@ async function getDayPattern(pool, dayLabel) {
 }
 
 async function buildWarmup(pool, { equipment, level, slotCounts }) {
-  const [foamRoll, mobility, bands, plyo] = await Promise.all([
-    pickFoamRoll(pool, { equipment, count: slotCounts.foam_roll }),
+  const [mobility, bands, plyo] = await Promise.all([
     pickMobility(pool, { equipment, level, count: slotCounts.mobility }),
     pickBands(pool, { equipment, count: INVENTED_SLOT_COUNTS.bands }),
     pickPlyo(pool, { equipment, level, count: slotCounts.plyo }),
   ])
+  // foam_roll and activation are intentionally left empty — coach-filled
+  // slots, not auto-assigned (see module header). Keys stay present so
+  // callers/UI have a stable shape to render as editable, empty slots.
   return {
-    foam_roll: foamRoll.map(e => ({ exercise: e, prescription: getRepScheme('foam_roll') })),
+    foam_roll: [],
     mobility: mobility.map(e => ({ exercise: e, prescription: getRepScheme('mobility') })),
+    activation: [],
     bands: bands.map(e => ({ exercise: e, prescription: getRepScheme('bands') })),
     plyo: plyo.map(e => ({ exercise: e, prescription: getRepScheme('plyo', e.plyo_level) })),
   }

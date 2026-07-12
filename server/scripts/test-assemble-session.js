@@ -68,10 +68,11 @@ async function runProfile(profile, noBwPatterns) {
     console.log(`\n--- DAY ${dayLabel} ---`)
 
     console.log('\n[Warm-up]')
-    for (const cat of ['foam_roll', 'mobility', 'bands', 'plyo']) {
+    for (const cat of ['foam_roll', 'mobility', 'activation', 'bands', 'plyo']) {
       const items = session.warmup[cat]
+      const placeholder = cat === 'foam_roll' || cat === 'activation'
       if (items.length === 0) {
-        console.log(`  ${cat}: (none picked)`)
+        console.log(`  ${cat}: (none picked${placeholder ? ' — coach-editable placeholder, expected' : ''})`)
       } else {
         console.log(`  ${cat}:`)
         items.forEach(item => console.log(`    - ${fmtEx(item)}`))
@@ -118,10 +119,22 @@ async function runProfile(profile, noBwPatterns) {
     if (session.main.length !== 4) {
       flag(`Day ${dayLabel}: expected 4 main-work slots, got ${session.main.length}`)
     }
-    for (const cat of ['foam_roll', 'mobility', 'plyo']) {
+    // foam_roll and activation are intentionally always empty (coach-editable
+    // placeholders — see assembleSession.js) and deliberately excluded here;
+    // only mobility/plyo should still be flagged if a real gap shows up.
+    for (const cat of ['mobility', 'plyo']) {
       if (session.warmup[cat].length === 0 && profile.equipment.length > 1) {
         flag(`Day ${dayLabel}: "${cat}" returned zero picks even though profile has non-bodyweight equipment — check equipment tagging for that category`)
       }
+    }
+    if (session.warmup.foam_roll.length !== 0) {
+      flag(`Day ${dayLabel}: "foam_roll" expected to always be empty (coach-editable placeholder) but got ${session.warmup.foam_roll.length} pick(s)`)
+    }
+    if (session.warmup.activation.length !== 0) {
+      flag(`Day ${dayLabel}: "activation" expected to always be empty (coach-editable placeholder) but got ${session.warmup.activation.length} pick(s)`)
+    }
+    if (session.cooldown.finisher.length !== 0) {
+      flag(`Day ${dayLabel}: "finisher" expected to always be empty (coach-editable placeholder) but got ${session.cooldown.finisher.length} pick(s)`)
     }
   }
 }

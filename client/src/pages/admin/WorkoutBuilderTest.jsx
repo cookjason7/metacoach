@@ -224,8 +224,9 @@ export default function WorkoutBuilderTest() {
           <div className="bg-white rounded-2xl border border-gray-200 p-4">
             <p className="text-sm font-bold text-gray-900 mb-2">Warm-up</p>
             <div className="space-y-3">
-              <WarmupBlock label="Foam roll" items={result.warmup.foam_roll} />
+              <WarmupBlock label="Foam roll (coach-editable — not auto-picked)" items={result.warmup.foam_roll} />
               <WarmupBlock label="Mobility" items={result.warmup.mobility} />
+              <WarmupBlock label="Activation (coach-editable — not auto-picked)" items={result.warmup.activation} />
               <WarmupBlock label="Bands" items={result.warmup.bands} />
               <WarmupBlock label="Plyo" items={result.warmup.plyo} />
             </div>
@@ -245,14 +246,16 @@ export default function WorkoutBuilderTest() {
             <p className="text-sm font-bold text-gray-900 mb-2">Cooldown</p>
             <div className="space-y-3">
               <WarmupBlock label="Core" items={result.cooldown.core} />
-              <WarmupBlock label="Finisher" items={result.cooldown.finisher} />
+              <WarmupBlock label="Finisher (coach-editable — not auto-picked)" items={result.cooldown.finisher} />
             </div>
           </div>
 
           <p className="text-[11px] text-gray-400">
-            Note: program_templates also defines "activation" and "stretch" blocks, but
-            assembleSession() doesn't build those yet — only what's shown above is actually
-            produced today.
+            Note: Foam roll, Activation, and Finisher are intentionally always empty —
+            coach-editable placeholders, not auto-picked by the rules engine. Everything
+            else above is real rule-based selection. program_templates also defines a
+            "stretch" block, but that one isn't built here at all yet (no key, no
+            placeholder) — out of scope for now.
           </p>
         </div>
       )}
