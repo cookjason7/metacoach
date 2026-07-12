@@ -17,6 +17,7 @@ import adminRouter from './routes/admin.js'
 import recipesRouter from './routes/recipes.js'
 import customFoodsRouter from './routes/customFoods.js'
 import workoutsRouter from './routes/workouts.js'
+import workoutBuilderRouter from './routes/workoutBuilder.js'
 import gamificationRouter from './routes/gamification.js'
 import healthAssessmentRouter from './routes/healthAssessment.js'
 import coachAdminRouter from './routes/coachAdmin.js'
@@ -95,6 +96,7 @@ app.use('/api/admin',           clerkMiddleware(), blockDeactivatedClients, admi
 app.use('/api/recipes',         clerkMiddleware(), blockDeactivatedClients, recipesRouter)
 app.use('/api/custom-foods',    clerkMiddleware(), blockDeactivatedClients, customFoodsRouter)
 app.use('/api/workouts',        clerkMiddleware(), blockDeactivatedClients, workoutsRouter)
+app.use('/api/workout-builder',   clerkMiddleware(), blockDeactivatedClients, workoutBuilderRouter)
 app.use('/api/gamification',      clerkMiddleware(), blockDeactivatedClients, gamificationRouter)
 app.use('/api/health-assessment', clerkMiddleware(), blockDeactivatedClients, healthAssessmentRouter)
 app.use('/api/coach-admin',       clerkMiddleware(), blockDeactivatedClients, coachAdminRouter)

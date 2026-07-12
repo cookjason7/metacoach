@@ -39,7 +39,11 @@ async function filterExercises(pool, {
     params.push(unilateral)
   }
   if (coreSubtype) {
-    clauses.push(`core_subtype = $${params.length + 1}`)
+    // core_subtype IS NULL rows are general-purpose — eligible for any of the
+    // three subtype slots, in addition to exercises tagged with this exact
+    // subtype (e.g. the 5 Movement Pattern Review core rows, which don't
+    // specify one).
+    clauses.push(`(core_subtype = $${params.length + 1} OR core_subtype IS NULL)`)
     params.push(coreSubtype)
   }
   if (maxPlyoLevel !== null) {
