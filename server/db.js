@@ -1488,6 +1488,16 @@ export async function migrate() {
   // Stick mobility drills and the medicine ball power list) as distinct rows.
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS exercise_library_name_source_uq ON exercise_library (name, source_program)`)
   await pool.query(`CREATE INDEX IF NOT EXISTS exercise_library_category_idx ON exercise_library (category)`)
+  // Optional link to the legacy free-exercise-db `exercises` table (873 rows,
+  // seeded from the original import) purely for media reuse — exercise_library
+  // was never seeded with its own image/video. Nullable: only ~20% of
+  // exercise_library rows have a name-matching legacy row (see
+  // server/scripts/match-legacy-exercise-media.js); the rest are
+  // Programming-Guide-specific drills that never existed in that import and
+  // have no media to link. ON DELETE SET NULL so a legacy row disappearing
+  // never blocks deleting it.
+  await pool.query(`ALTER TABLE exercise_library ADD COLUMN IF NOT EXISTS legacy_exercise_id INTEGER REFERENCES exercises(id) ON DELETE SET NULL`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS exercise_library_legacy_exercise_idx ON exercise_library (legacy_exercise_id)`)
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS program_templates (

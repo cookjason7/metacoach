@@ -119,6 +119,8 @@ function pushPlaceholder(flat, slotId, label) {
     reps: null,
     rest_seconds: null,
     notes: 'Coach-editable placeholder — not auto-picked.',
+    legacy_exercise_id: null, // placeholders are never real exercise_library rows — no media possible
+    image_url: null,
   })
 }
 
@@ -140,6 +142,10 @@ function flattenAssembledSession(session) {
         reps: formatPrescription(item.prescription),
         rest_seconds: null,
         notes: null,
+        // legacy_exercise_id -> image_url is resolved in one batched lookup
+        // after flattening (see attachLegacyMedia) rather than per-item here.
+        legacy_exercise_id: item.exercise.legacy_exercise_id ?? null,
+        image_url: null,
       })
     })
   }
@@ -160,6 +166,8 @@ function flattenAssembledSession(session) {
       reps: slot.prescription.repRange,
       rest_seconds: null,
       notes: null,
+      legacy_exercise_id: slot.exercise.legacy_exercise_id ?? null,
+      image_url: null,
     })
   })
 
@@ -168,6 +176,23 @@ function flattenAssembledSession(session) {
   pushPlaceholder(flat, 'finisher-0', 'Finisher')
 
   return flat
+}
+
+// ── Media (image_url) ────────────────────────────────────────────────────────
+// exercise_library has no media of its own — server/scripts/match-legacy-
+// exercise-media.js links matching rows to the legacy `exercises` table
+// (free-exercise-db import) by exact normalized name (~20% coverage; the
+// rest are Programming-Guide-specific drills with no legacy counterpart).
+// One batched lookup per generated session, not a query per exercise.
+async function attachLegacyMedia(pool, exercises) {
+  const ids = [...new Set(exercises.map(e => e.legacy_exercise_id).filter(Boolean))]
+  if (!ids.length) return
+  const { rows } = await pool.query(`SELECT id, image_url FROM exercises WHERE id = ANY($1)`, [ids])
+  const imageMap = new Map(rows.map(r => [r.id, r.image_url]))
+  for (const ex of exercises) {
+    if (ex.legacy_exercise_id) ex.image_url = imageMap.get(ex.legacy_exercise_id) ?? null
+    delete ex.legacy_exercise_id // internal-only — not part of the shape the UI/save endpoint expect
+  }
 }
 
 function buildFocus(session) {
@@ -252,6 +277,7 @@ export async function generateWorkoutPlanFromAssembly(pool, firstName, answers) 
   }
 
   const exercises = flattenAssembledSession(session)
+  await attachLegacyMedia(pool, exercises)
   const notes = await requestExerciseNotes(answers.injuries, exercises)
   for (const ex of exercises) {
     if (notes.has(ex.slot_id)) ex.notes = notes.get(ex.slot_id)

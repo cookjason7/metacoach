@@ -5999,7 +5999,10 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
                       return (
                         <tr key={exIdx} className="hover:bg-gray-50/40">
                           <td className="px-3 py-2.5 font-medium text-gray-900">
-                            {rCell(dayIdx, exIdx, 'name', ex.name, 'text', 'Exercise name')}
+                            <div className="flex items-center gap-2">
+                              <ExerciseThumb src={ex.image_url} alt={ex.name} />
+                              {rCell(dayIdx, exIdx, 'name', ex.name, 'text', 'Exercise name')}
+                            </div>
                           </td>
                           <td className="px-2 py-2.5 text-center text-gray-600">
                             {rCell(dayIdx, exIdx, 'sets', ex.sets, 'number', '3')}
