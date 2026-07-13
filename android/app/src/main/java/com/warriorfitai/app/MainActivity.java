@@ -1,11 +1,27 @@
 package com.warriorfitai.app;
 
+import android.os.Bundle;
 import android.webkit.PermissionRequest;
 
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebChromeClient;
+import com.tchvu3.capacitorvoicerecorder.VoiceRecorder;
 
 public class MainActivity extends BridgeActivity {
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        // Explicitly register the native voice recorder plugin. Capacitor normally
+        // auto-registers plugins from the generated capacitor.plugins.json in assets,
+        // but that file is gitignored (android/.gitignore) and is only produced by
+        // `npx cap sync`. On a build machine that compiles the AAB from a fresh checkout
+        // without running sync, the file is absent, the plugin class is compiled in but
+        // never registered, and the web layer sees "VoiceRecorder plugin is not
+        // implemented on android". Registering here guarantees availability regardless
+        // of whether the generated asset is present. Must run before super.onCreate().
+        registerPlugin(VoiceRecorder.class);
+        super.onCreate(savedInstanceState);
+    }
 
     @Override
     public void onStart() {
