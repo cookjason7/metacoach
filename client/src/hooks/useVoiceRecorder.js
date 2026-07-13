@@ -20,10 +20,11 @@ export function useVoiceRecorder() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       streamRef.current = stream
+      // Android System WebView supports audio/mp4 more reliably than webm, so try it first.
       const mimeType =
+        MediaRecorder.isTypeSupported('audio/mp4')              ? 'audio/mp4' :
         MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' :
-        MediaRecorder.isTypeSupported('audio/webm')             ? 'audio/webm' :
-        MediaRecorder.isTypeSupported('audio/mp4')              ? 'audio/mp4'  : ''
+        MediaRecorder.isTypeSupported('audio/webm')             ? 'audio/webm' : ''
       const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {})
       chunksRef.current = []
       mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
