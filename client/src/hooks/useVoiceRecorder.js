@@ -17,6 +17,7 @@ export function useVoiceRecorder() {
   const startRecording = useCallback(async () => {
     setRecordError(null)
     if (!canRecord) { setRecordError('not_supported'); return }
+    console.log('canRecord:', canRecord, 'MediaRecorder:', typeof MediaRecorder, 'getUserMedia:', !!navigator.mediaDevices?.getUserMedia)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       streamRef.current = stream
@@ -39,6 +40,7 @@ export function useVoiceRecorder() {
       mrRef.current = mr
       setRecording(true)
     } catch (err) {
+      console.error('VoiceRecorder error:', err.name, err.message, err)
       setRecordError(err.name === 'NotAllowedError' ? 'permission_denied' : 'unknown')
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop())
