@@ -6,6 +6,7 @@ import { sendInviteEmail } from '../services/email.js'
 import { getAppBaseUrl } from '../services/appUrl.js'
 import { notifyNewDirectMessage, notifyNewFormDelivery } from '../services/pushService.js'
 import { generateWorkoutPlan } from '../services/workoutGenerator.js'
+import { generateWorkoutPlanFromAssembly } from '../services/assemblyWorkoutGenerator.js'
 
 const router = Router()
 
@@ -3475,10 +3476,13 @@ router.post('/clients/:id/workouts/generate', requireAuth(), async (req, res, ne
       'SELECT injuries_limitations FROM health_assessments WHERE user_id = $1', [clientId],
     )
 
-    const plan = await generateWorkoutPlan(pool, firstName, answers, {
-      healthAssessmentInjuries: assessment?.injuries_limitations ?? null,
-      forceBilateral: answers.force_bilateral === true,
-    })
+    // Exercise selection now comes from assembleSession() (exercise_library,
+    // rule-based) instead of Claude picking from the old `exercises` table —
+    // Katie's role is now notes-only (see assemblyWorkoutGenerator.js header).
+    // health_assessments.injuries_limitations isn't read here (unlike the old
+    // generateWorkoutPlan path) — Katie's notes call only sees the
+    // questionnaire's own `injuries` free-text field for now.
+    const plan = await generateWorkoutPlanFromAssembly(pool, firstName, answers)
     res.json(plan)
   } catch (err) { next(err) }
 })

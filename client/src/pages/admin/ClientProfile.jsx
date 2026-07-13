@@ -5197,12 +5197,14 @@ function BloodworkTab({ clientId, getToken, bloodworkEnabled = false, onClientUp
 // ─── Coach Workouts Tab ───────────────────────────────────────────────────────
 
 // ── Constants for the Katie questionnaire (mirror of Workouts.jsx) ────────────
+// 'flexibility' and 'general_fitness' are hidden here only — the new
+// assembleSession()-backed generator (server/services/assemblyWorkoutGenerator.js)
+// has no engine support for either yet. Workouts.jsx's own GOALS list is
+// untouched.
 const WO_GOALS = [
   { id: 'weight_loss',     label: 'Weight Loss'    },
   { id: 'muscle_gain',     label: 'Muscle Gain'    },
   { id: 'endurance',       label: 'Endurance'      },
-  { id: 'flexibility',     label: 'Flexibility'    },
-  { id: 'general_fitness', label: 'General Fitness'},
 ]
 const WO_SESSION_LENGTHS   = ['30 minutes', '45 minutes', '60 minutes', '90 minutes']
 const WO_EQUIPMENT_OPTIONS = ['Kettlebell', 'Dumbbells', 'Body Weight', 'Barbell', 'Benches', 'Cable Machine', 'Full Gym', 'Resistance Bands']
