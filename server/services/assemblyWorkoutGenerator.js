@@ -90,13 +90,36 @@ function resolveEngineLevel(fitnessLevelAnswer) {
 }
 
 // ── Flatten assembleSession()'s grouped shape into the flat exercises array ──
-// the client-facing UI (Workouts.jsx PlanReview) and workout_exercises table
-// already expect. foam_roll/activation/stretch/finisher are always empty
-// (coach-editable placeholders — see assembleSession.js) so they're skipped
-// entirely here rather than rendered as blank rows.
+// the client-facing UI (WorkoutsTab review table / Workouts.jsx PlanReview)
+// and workout_exercises table already expect.
+//
+// foam_roll/activation/stretch/finisher are ALWAYS empty (coach-editable
+// placeholders — see assembleSession.js's module header) — they still get
+// one clearly-labeled placeholder row each here, in the correct block order,
+// so the review UI shows every block instead of silently omitting four of
+// them. The row's `name` is directly editable/deletable in that UI already
+// (click to edit, ✕ to remove), so a coach can fill it in or delete it.
+//
+// Order matches program_templates.block_order plus the two invented blocks
+// (bands, finisher) slotted in at their natural position in the session:
+// foam_roll -> mobility -> activation -> bands -> plyo -> [main circuit] ->
+// core -> stretch -> finisher.
 function formatPrescription(p) {
   if (p == null) return null
   return typeof p === 'string' ? p : `${p.sets}x${p.repRange}`
+}
+
+function pushPlaceholder(flat, slotId, label) {
+  flat.push({
+    slot_id: slotId,
+    name: `— Add ${label} exercise —`,
+    exercise_id: null,
+    movement_pattern: null,
+    sets: null,
+    reps: null,
+    rest_seconds: null,
+    notes: 'Coach-editable placeholder — not auto-picked.',
+  })
 }
 
 function flattenAssembledSession(session) {
@@ -121,7 +144,9 @@ function flattenAssembledSession(session) {
     })
   }
 
+  pushPlaceholder(flat, 'foam_roll-0', 'Foam Roll')
   pushGroup(session.warmup.mobility, 'mobility')
+  pushPlaceholder(flat, 'activation-0', 'Activation')
   pushGroup(session.warmup.bands, 'bands')
   pushGroup(session.warmup.plyo, 'plyo')
 
@@ -139,6 +164,8 @@ function flattenAssembledSession(session) {
   })
 
   pushGroup(session.cooldown.core, 'core')
+  pushPlaceholder(flat, 'stretch-0', 'Stretch')
+  pushPlaceholder(flat, 'finisher-0', 'Finisher')
 
   return flat
 }
