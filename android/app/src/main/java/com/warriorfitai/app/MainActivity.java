@@ -3,6 +3,7 @@ package com.warriorfitai.app;
 import android.os.Bundle;
 import android.webkit.PermissionRequest;
 
+import com.capacitorjs.plugins.camera.CameraPlugin;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebChromeClient;
 import com.tchvu3.capacitorvoicerecorder.VoiceRecorder;
@@ -20,6 +21,7 @@ public class MainActivity extends BridgeActivity {
         // implemented on android". Registering here guarantees availability regardless
         // of whether the generated asset is present. Must run before super.onCreate().
         registerPlugin(VoiceRecorder.class);
+        registerPlugin(CameraPlugin.class);
         super.onCreate(savedInstanceState);
     }
 

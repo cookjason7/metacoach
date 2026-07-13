@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
+import { Capacitor } from '@capacitor/core'
 import { API_URL } from '../config.js'
 import LinkifiedText from './LinkifiedText.jsx'
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder.js'
@@ -229,19 +231,51 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
 
   const ALLOWED = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
 
-  function handleFileSelect(e) {
-    const file = e.target.files?.[0]
-    if (!file) return
+  // Validate + stage an image File (shared by the file input and native camera capture).
+  function applyImageFile(file) {
+    if (!file) return false
     if (!ALLOWED.includes(file.type)) {
-      showToast('Unsupported file type. Please use JPG, PNG, or WebP.')
-      e.target.value = ''; return
+      alert('Unsupported file type. Please use JPG, PNG, or WebP.')
+      return false
     }
     if (file.size > 10 * 1024 * 1024) {
-      showToast('File is too large. Maximum size is 10 MB.')
-      e.target.value = ''; return
+      alert('File is too large. Maximum size is 10 MB.')
+      return false
     }
     setImgFile(file)
     setImgPreview(URL.createObjectURL(file))
+    return true
+  }
+
+  function handleFileSelect(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!applyImageFile(file)) e.target.value = ''
+  }
+
+  // The Android WebView ignores <input type="file" capture="environment"> and opens the
+  // gallery instead of the camera. On native, use @capacitor/camera to capture directly;
+  // on web, fall back to the hidden file input (which honours capture in real browsers).
+  async function capturePhoto() {
+    if (!Capacitor.isNativePlatform()) { fileInputRef.current?.click(); return }
+    try {
+      const photo = await Camera.getPhoto({
+        resultType: CameraResultType.Uri,
+        source:     CameraSource.Camera,
+        quality:    90,
+      })
+      if (!photo?.webPath) return
+      const blob = await (await fetch(photo.webPath)).blob()
+      const type = blob.type || 'image/jpeg'
+      const ext  = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : 'jpg'
+      applyImageFile(new File([blob], `camera-photo.${ext}`, { type }))
+    } catch (err) {
+      // getPhoto rejects when the user cancels — ignore that, surface real failures.
+      if (!/cancel/i.test(err?.message || '')) {
+        console.error('Camera capture error:', err)
+        alert('Could not capture photo. Please try again.')
+      }
+    }
   }
 
   function clearImage() {
@@ -1005,7 +1039,7 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
                   </button>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => fileInputRef.current?.click()} disabled={!!audioBlob || recording} title="Take photo" className="shrink-0 min-w-[44px] h-[44px] px-2.5 flex items-center justify-center rounded-lg border border-gray-300 text-gray-500 hover:border-[#E8670A] hover:text-[#E8670A] disabled:opacity-30 transition-colors">
+                  <button onClick={capturePhoto} disabled={!!audioBlob || recording} title="Take photo" className="shrink-0 min-w-[44px] h-[44px] px-2.5 flex items-center justify-center rounded-lg border border-gray-300 text-gray-500 hover:border-[#E8670A] hover:text-[#E8670A] disabled:opacity-30 transition-colors">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                   </button>
                   <button onClick={() => galleryInputRef.current?.click()} disabled={!!audioBlob || recording} title="Choose from gallery" className="shrink-0 min-w-[44px] h-[44px] px-2.5 flex items-center justify-center rounded-lg border border-gray-300 text-gray-500 hover:border-[#E8670A] hover:text-[#E8670A] disabled:opacity-30 transition-colors">

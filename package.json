@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.93.0",
+    "@capacitor/camera": "^8.2.1",
     "@clerk/express": "^2.1.12",
     "@google-cloud/storage": "^7.19.0",
     "capacitor-voice-recorder": "^7.0.6",
