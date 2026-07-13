@@ -15,6 +15,7 @@ import Settings from './pages/Settings'
 import FoodList from './pages/FoodList'
 import Admin from './pages/Admin'
 import Workouts from './pages/Workouts'
+import WorkoutBuilderPreview from './pages/WorkoutBuilderPreview'
 import Journal from './pages/Journal'
 import Calendar from './pages/Calendar'
 import Badges from './pages/Badges'
@@ -196,6 +197,7 @@ export default function App() {
           <Route path="/journal"      element={<Journal />} />
           <Route path="/food-list"    element={<FoodList />} />
           <Route path="/workouts"     element={<Workouts />} />
+          <Route path="/workout-builder-preview" element={<WorkoutBuilderPreview />} />
           <Route path="/badges"       element={<Badges />} />
           <Route path="/settings"     element={<Settings />} />
           <Route path="/progress"     element={<Progress />} />
