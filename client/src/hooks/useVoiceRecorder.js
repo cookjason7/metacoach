@@ -4,7 +4,7 @@ export function useVoiceRecorder() {
   const [recording,    setRecording]    = useState(false)
   const [audioBlob,    setAudioBlob]    = useState(null)
   const [audioPreview, setAudioPreview] = useState(null)
-  const [recordError,  setRecordError]  = useState(null) // 'not_supported' | 'permission_denied' | 'unknown'
+  const [recordError,  setRecordError]  = useState(null) // 'not_supported' | 'permission_denied' | error details (name: message)
   const mrRef     = useRef(null)
   const chunksRef = useRef([])
   const streamRef = useRef(null)
@@ -41,7 +41,7 @@ export function useVoiceRecorder() {
       setRecording(true)
     } catch (err) {
       console.error('VoiceRecorder error:', err.name, err.message, err)
-      setRecordError(err.name === 'NotAllowedError' ? 'permission_denied' : 'unknown')
+      setRecordError(err.name === 'NotAllowedError' ? 'permission_denied' : `${err.name}: ${err.message}`)
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop())
         streamRef.current = null
