@@ -17,9 +17,10 @@
  * client/src/pages/Workouts.jsx) or the original workoutGenerator.js it
  * uses — that flow is left exactly as it was.
  *
- * Explicitly out of scope for this first pass (per task): training days per
- * week (always generates one session), supersets/circuits toggles (ignored
- * entirely).
+ * days_per_week now drives a real week of sessions (see the Weekly split
+ * section lower down) — A/B alternation over program_day_patterns' two
+ * day-types, one assembleSession() call per training day. supersets/circuits
+ * toggles are still accepted but ignored entirely.
  */
 
 import Anthropic from '@anthropic-ai/sdk'
@@ -258,48 +259,101 @@ Return ONLY a valid JSON array (no markdown, no extra text). Each item: {"slot_i
   }
 }
 
+// ── Weekly split ─────────────────────────────────────────────────────────────
+// program_day_patterns only defines TWO day types — A and B (confirmed against
+// staging: 8 rows, day_label ∈ {A, B}, no goal column):
+//   Day A: squat -> horizontal_pull -> horizontal_push -> carry
+//   Day B: hinge -> vertical_pull  -> vertical_push  -> lift
+// A and B share no main-lift movement pattern, so alternating them avoids
+// stacking the same pattern on consecutive days. There is NO third+ day-type
+// in the data and no day-count-aware logic anywhere (program_templates is
+// session_length-only, volume_rules is goal-only), so a week longer than 2
+// days repeats the A/B cycle: getDayLabelForSession(i) = A,B,A,B,A,...
+//
+// *** FIRST-PASS SPLIT ASSIGNMENT — needs a coach's review before it's treated
+// as real programming. *** With only two day-patterns in the data, Days 1/3/5
+// share the same A skeleton (and 2/4 share B). To keep same-label days from
+// being literal duplicates, each day is assembled with rotationIndex = its day
+// index, so pickMainLift() cycles a different exercise from each pattern's pool
+// per day — Day 1 (A, rot 0) and Day 3 (A, rot 2) get the same movement-pattern
+// structure but different actual lifts. This is a mechanical A/B rotation over
+// the existing patterns, not a periodized upper/lower or push/pull/legs plan.
+const MIN_DAYS = 1
+const MAX_DAYS = 6
+
+function resolveDaysPerWeek(daysAnswer) {
+  const n = parseInt(daysAnswer, 10)
+  if (!Number.isFinite(n)) return 1
+  return Math.min(MAX_DAYS, Math.max(MIN_DAYS, n))
+}
+
+/**
+ * Builds ONE day of the week: real exercise selection via assembleSession(),
+ * then media + Katie's notes-only pass. All per-session logic (block
+ * structure, exercise selection, placeholder blocks, image/instructions,
+ * injury notes) is identical to the single-session behaviour — this is just
+ * the extracted body of the old single-day generator so the week can call it
+ * once per day.
+ */
+async function buildOneDay(pool, { dayIndex, sessionLength, goal, level, equipment, injuries }) {
+  const dayLabel = getDayLabelForSession(dayIndex) // A/B alternation (existing helper)
+  const session = await assembleSession(pool, {
+    dayLabel, sessionLength, goal, level, equipment, rotationIndex: dayIndex,
+  })
+  if (session.warnings.length) {
+    console.log(`[assemblyWorkoutGenerator] day ${dayIndex + 1} (${dayLabel}) assembleSession warnings:`, session.warnings)
+  }
+
+  const exercises = flattenAssembledSession(session)
+  await attachLegacyMedia(pool, exercises)
+  const notes = await requestExerciseNotes(injuries, exercises)
+  for (const ex of exercises) {
+    if (notes.has(ex.slot_id)) ex.notes = notes.get(ex.slot_id)
+  }
+
+  return {
+    day_name: `Day ${dayIndex + 1}`,
+    focus: buildFocus(session),
+    exercises,
+  }
+}
+
 // ── Public entry point ───────────────────────────────────────────────────────
 
 /**
- * Generates a single-session workout by calling assembleSession() for real
- * exercise selection, then Katie once for optional per-exercise notes.
- * Returns the same { program_name, description, days: [...] } shape the
- * existing client UI (PlanReview) and POST /workouts save endpoint expect.
+ * Generates a full week of sessions (one per training day) by calling
+ * assembleSession() per day for real exercise selection, then Katie per day
+ * for optional per-exercise notes. Returns the same
+ * { program_name, description, days: [...] } shape the existing coach UI
+ * (WorkoutsTab review table) and POST /clients/:id/workouts save endpoint
+ * already expect — both already loop over `days`, so no UI/save changes were
+ * needed to go from one day to many.
  *
  * @param {import('pg').Pool} pool
  * @param {string} firstName
- * @param {object} answers - goals, session_length, equipment, injuries, fitness_level
- *   (days_per_week, supersets, circuits are accepted but ignored — see module header)
+ * @param {object} answers - goals, days_per_week, session_length, equipment, injuries, fitness_level
+ *   (supersets, circuits are accepted but ignored — see module header)
  */
 export async function generateWorkoutPlanFromAssembly(pool, firstName, answers) {
   const goal = resolveEngineGoal(answers.goals)
   const equipment = resolveEngineEquipment(answers.equipment)
   const sessionLength = resolveEngineSessionLength(answers.session_length)
   const level = resolveEngineLevel(answers.fitness_level)
-  const dayLabel = getDayLabelForSession(0) // single session per request, always Day A for now
+  const daysPerWeek = resolveDaysPerWeek(answers.days_per_week)
 
-  const session = await assembleSession(pool, { dayLabel, sessionLength, goal, level, equipment, rotationIndex: 0 })
-  if (session.warnings.length) {
-    console.log('[assemblyWorkoutGenerator] assembleSession warnings:', session.warnings)
-  }
-
-  const exercises = flattenAssembledSession(session)
-  await attachLegacyMedia(pool, exercises)
-  const notes = await requestExerciseNotes(answers.injuries, exercises)
-  for (const ex of exercises) {
-    if (notes.has(ex.slot_id)) ex.notes = notes.get(ex.slot_id)
+  const days = []
+  for (let i = 0; i < daysPerWeek; i++) {
+    days.push(await buildOneDay(pool, {
+      dayIndex: i, sessionLength, goal, level, equipment, injuries: answers.injuries,
+    }))
   }
 
   const goalLabel = Object.entries(GOAL_ENGINE_MAP).find(([, v]) => v === goal)?.[0]?.replace('_', ' ') ?? 'fitness'
+  const dayWord = daysPerWeek === 1 ? 'day' : 'days'
   return {
-    program_name: `${firstName}'s ${sessionLength}-Minute Program`,
-    description: `A ${level}-level session focused on ${goalLabel}, built from your available equipment.`,
-    days: [
-      {
-        day_name: 'Day 1',
-        focus: buildFocus(session),
-        exercises,
-      },
-    ],
+    program_name: `${firstName}'s ${daysPerWeek}-Day Program`,
+    description: `A ${level}-level ${daysPerWeek}-${dayWord}/week plan focused on ${goalLabel}, `
+      + `built from your available equipment (${sessionLength}-minute sessions).`,
+    days,
   }
 }
