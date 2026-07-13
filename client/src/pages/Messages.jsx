@@ -700,7 +700,7 @@ export default function Messages() {
                       <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                         {recordError === 'not_supported' && 'Voice recording is not supported in this browser.'}
                         {recordError === 'permission_denied' && 'Microphone access was denied. Please allow microphone access and try again.'}
-                        {recordError === 'unknown' && 'Could not start recording. Please try again.'}
+                        {recordError && recordError !== 'permission_denied' && `Recording error: ${recordError}. Please try again.`}
                       </p>
                     )}
                     <div className="space-y-2 pb-[env(safe-area-inset-bottom)]">

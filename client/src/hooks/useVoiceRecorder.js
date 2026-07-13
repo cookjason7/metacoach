@@ -41,7 +41,7 @@ export function useVoiceRecorder() {
       setRecording(true)
     } catch (err) {
       console.error('VoiceRecorder error:', err.name, err.message, err)
-      setRecordError(err.name === 'NotAllowedError' ? 'permission_denied' : `${err.name}: ${err.message}`)
+      setRecordError(err.name === 'NotAllowedError' ? 'permission_denied' : (err.name || 'unknown'))
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop())
         streamRef.current = null
