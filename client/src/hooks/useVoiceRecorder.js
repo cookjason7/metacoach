@@ -1,4 +1,30 @@
 import { useState, useRef, useCallback } from 'react'
+import { VoiceRecorder } from 'capacitor-voice-recorder'
+
+// In the Capacitor Android WebView, getUserMedia() fails with NotReadableError for the
+// microphone. The capacitor-voice-recorder plugin records through native Android/iOS APIs
+// instead of the WebView, so on native platforms we route recording through it and keep the
+// browser getUserMedia/MediaRecorder path for the web build. The hook interface is identical
+// in both modes, so StaffInbox.jsx / Messages.jsx need no changes.
+const isNative =
+  typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.() === true
+
+// Native recordings come back as base64 (Android encodes with Base64.DEFAULT, which inserts
+// newlines, and some platforms prepend a data: URI header). Strip both, then decode to a Blob.
+function base64ToBlob(base64, type) {
+  const clean = String(base64).replace(/^data:[^;]*;base64,/, '').replace(/\s/g, '')
+  const binary = atob(clean)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return new Blob([bytes], { type: type || 'audio/aac' })
+}
+
+// Map a native plugin rejection to the same recordError vocabulary the web path uses.
+function nativeErrorToState(err) {
+  const msg = (err?.message ?? err?.code ?? err ?? '').toString()
+  if (/permission/i.test(msg)) return 'permission_denied'
+  return msg || 'unknown'
+}
 
 export function useVoiceRecorder() {
   const [recording,    setRecording]    = useState(false)
@@ -9,13 +35,36 @@ export function useVoiceRecorder() {
   const chunksRef = useRef([])
   const streamRef = useRef(null)
 
+  // Native devices can always record via the plugin; on web we require MediaRecorder + getUserMedia.
   const canRecord =
-    typeof window !== 'undefined' &&
-    typeof window.MediaRecorder !== 'undefined' &&
-    !!(navigator.mediaDevices?.getUserMedia)
+    isNative ||
+    (typeof window !== 'undefined' &&
+      typeof window.MediaRecorder !== 'undefined' &&
+      !!(navigator.mediaDevices?.getUserMedia))
 
   const startRecording = useCallback(async () => {
     setRecordError(null)
+
+    // ── Native path: capacitor-voice-recorder ────────────────────────────────
+    if (isNative) {
+      try {
+        const supported = await VoiceRecorder.canDeviceVoiceRecord()
+        if (!supported?.value) { setRecordError('not_supported'); return }
+        const has = await VoiceRecorder.hasAudioRecordingPermission().catch(() => ({ value: false }))
+        if (!has?.value) {
+          const req = await VoiceRecorder.requestAudioRecordingPermission()
+          if (!req?.value) { setRecordError('permission_denied'); return }
+        }
+        await VoiceRecorder.startRecording()
+        setRecording(true)
+      } catch (err) {
+        console.error('VoiceRecorder(native) start error:', err)
+        setRecordError(nativeErrorToState(err))
+      }
+      return
+    }
+
+    // ── Web path: getUserMedia + MediaRecorder ───────────────────────────────
     if (!canRecord) { setRecordError('not_supported'); return }
     console.log('canRecord:', canRecord, 'MediaRecorder:', typeof MediaRecorder, 'getUserMedia:', !!navigator.mediaDevices?.getUserMedia)
     try {
@@ -49,7 +98,25 @@ export function useVoiceRecorder() {
     }
   }, [canRecord])
 
-  const stopRecording = useCallback(() => {
+  const stopRecording = useCallback(async () => {
+    // ── Native path: fetch the recorded audio and build a Blob ────────────────
+    if (isNative) {
+      try {
+        const { value } = await VoiceRecorder.stopRecording()
+        setRecording(false)
+        if (!value?.recordDataBase64) { setRecordError('unknown'); return }
+        const blob = base64ToBlob(value.recordDataBase64, value.mimeType)
+        setAudioBlob(blob)
+        setAudioPreview(URL.createObjectURL(blob))
+      } catch (err) {
+        console.error('VoiceRecorder(native) stop error:', err)
+        setRecording(false)
+        setRecordError(nativeErrorToState(err))
+      }
+      return
+    }
+
+    // ── Web path: MediaRecorder.onstop builds the Blob ───────────────────────
     mrRef.current?.stop()
     setRecording(false)
   }, [])
