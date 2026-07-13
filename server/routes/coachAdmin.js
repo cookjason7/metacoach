@@ -3508,12 +3508,17 @@ router.post('/clients/:id/workouts', requireAuth(), async (req, res, next) => {
       for (const day of days) {
         let dayOrder = 0
         for (const ex of (day.exercises || [])) {
+          // image_url / instructions carried through as-is from the request
+          // body — this is exactly what the coach already reviewed on screen
+          // (assemblyWorkoutGenerator.js's flattenAssembledSession() +
+          // attachLegacyMedia()); no re-querying or re-matching here.
           await pool.query(
             `INSERT INTO workout_exercises
-               (workout_id, day, exercise_name, exercise_id, day_focus, sets, reps, rest_seconds, notes, sort_order)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+               (workout_id, day, exercise_name, exercise_id, day_focus, sets, reps, rest_seconds, notes, sort_order, image_url, instructions)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
             [workout.id, day.day_name, ex.name, ex.exercise_id ?? null, day.focus ?? null,
-             ex.sets ?? null, ex.reps ?? null, ex.rest_seconds ?? null, ex.notes ?? null, dayOrder++],
+             ex.sets ?? null, ex.reps ?? null, ex.rest_seconds ?? null, ex.notes ?? null, dayOrder++,
+             ex.image_url ?? null, ex.instructions ?? null],
           )
         }
       }

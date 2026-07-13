@@ -453,6 +453,15 @@ export async function migrate() {
   // Previously this existed only as day.focus in the AI response and was
   // dropped on save; now persisted per exercise row alongside its day.
   await pool.query(`ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS day_focus TEXT`)
+  // image_url / instructions: carried through at save time from what the
+  // assembleSession()-backed "Generate with Katie" review screen already
+  // shows (exercise_library.instructions, and image_url resolved via
+  // exercise_library.legacy_exercise_id) — see
+  // server/services/assemblyWorkoutGenerator.js. Nullable: most exercises
+  // have neither (only ~20% of exercise_library rows link to legacy media,
+  // ~26% have an instructions cue). Plain TEXT, no re-querying at save time.
+  await pool.query(`ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS image_url TEXT`)
+  await pool.query(`ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS instructions TEXT`)
 
   // ── Workout scheduling ───────────────────────────────────────────────────────
   // Mirrors the coach_assigned_habits / habit_completions pattern, but assigns a
