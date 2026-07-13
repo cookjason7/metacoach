@@ -60,6 +60,14 @@ async function buildWarmup(pool, { equipment, level, slotCounts }) {
 }
 
 async function buildMainWork(pool, { dayLabel, rotationIndex, volume, equipment }) {
+  // volume.sets === 0 (currently only the 'mobility' goal — see volume_rules
+  // seed in server/db.js) means this goal carries no main-lift work at all.
+  // Skip program_day_patterns entirely rather than force a squat/hinge pick
+  // into a session that isn't about strength work — driven by the same
+  // volume_rules data every goal already reads, no goal-name special-casing.
+  if (volume.sets === 0) {
+    return { slots: [], warnings: [] }
+  }
   const patterns = await getDayPattern(pool, dayLabel)
   const slots = []
   const warnings = []
@@ -98,7 +106,8 @@ async function buildCooldown(pool, { equipment, slotCounts }) {
 /**
  * @param {string} dayLabel - 'A' | 'B'
  * @param {number} [sessionLength] - 20|30|45|60|90, matches program_templates.session_length
- * @param {string} [goal] - strength|power|hypertrophy|endurance, matches volume_rules.goal
+ * @param {string} [goal] - strength|power|hypertrophy|endurance|mobility, matches volume_rules.goal
+ *   ('mobility' skips main-lift work entirely — see buildMainWork below)
  * @param {string} [level] - beginner|intermediate|advanced, filters level_min + plyo_level
  * @param {string[]} [equipment] - available equipment; 'bodyweight' is assumed always available
  * @param {number} [rotationIndex] - cycles main-lift pool selection (e.g. pass week number)
@@ -117,7 +126,7 @@ async function assembleSession(pool, {
   const equipmentWithBodyweight = equipment.includes('bodyweight') ? equipment : [...equipment, 'bodyweight']
 
   const [slotCounts, volume] = await Promise.all([
-    getWarmupSlotCounts(pool, sessionLength),
+    getWarmupSlotCounts(pool, sessionLength, goal),
     getMainLiftVolume(pool, goal),
   ])
 

@@ -14,6 +14,11 @@
  *     gives a rep scheme for bodyweight/band/plyo/core work, so
  *     INVENTED_REP_SCHEMES below are reasonable placeholders, not sourced
  *     data. Replace with real programming-guide numbers when available.
+ *   - For the 'mobility' goal (Flexibility/Mobility), extra mobility/core
+ *     slots on top of the normal session-length baseline — program_templates
+ *     has no goal column, so it can't express "give this goal more warm-up
+ *     volume than usual." INVENTED_MOBILITY_SLOT_BOOST below is a first-pass
+ *     guess at how much to add, not sourced data.
  */
 
 const DEFAULT_GOAL = 'hypertrophy'
@@ -22,6 +27,18 @@ const DEFAULT_GOAL = 'hypertrophy'
 const INVENTED_SLOT_COUNTS = {
   bands: 1,
   finisher: 1,
+}
+
+// INVENTED — additional mobility/core slots layered on top of the normal
+// session-length baseline when goal === 'mobility'. Main-lift work is
+// skipped entirely for this goal (see assembleSession.js's buildMainWork),
+// so leaning harder into warm-up/cooldown categories that already exist
+// (mobility, core) is how a mobility-focused session gets real substance
+// without inventing a new block_type or touching the locked-empty
+// foam_roll/activation/stretch placeholders.
+const INVENTED_MOBILITY_SLOT_BOOST = {
+  mobility: 2,
+  core: 1,
 }
 
 // INVENTED — placeholder rep/duration schemes, not sourced from seeded data.
@@ -49,8 +66,12 @@ async function getMainLiftVolume(pool, goal = DEFAULT_GOAL) {
   return { goal, rep_range, sets_min, sets_max, sets: sets_max }
 }
 
-/** Real — reads program_templates.slot_count for a given session length. */
-async function getWarmupSlotCounts(pool, sessionLength = 60) {
+/**
+ * Real — reads program_templates.slot_count for a given session length.
+ * goal is optional; when 'mobility', INVENTED_MOBILITY_SLOT_BOOST is layered
+ * on top (see comment above the constant).
+ */
+async function getWarmupSlotCounts(pool, sessionLength = 60, goal = null) {
   const { rows } = await pool.query(
     'SELECT block_type, slot_count FROM program_templates WHERE session_length = $1',
     [sessionLength],
@@ -58,10 +79,16 @@ async function getWarmupSlotCounts(pool, sessionLength = 60) {
   if (rows.length === 0) {
     throw new Error(`No program_templates rows for session_length=${sessionLength} — check server/db.js seed`)
   }
-  return rows.reduce((acc, r) => {
+  const counts = rows.reduce((acc, r) => {
     acc[r.block_type] = r.slot_count
     return acc
   }, {})
+  if (goal === 'mobility') {
+    for (const [blockType, boost] of Object.entries(INVENTED_MOBILITY_SLOT_BOOST)) {
+      counts[blockType] = (counts[blockType] ?? 0) + boost
+    }
+  }
+  return counts
 }
 
 function getRepScheme(category, plyoLevel = null) {
@@ -70,4 +97,4 @@ function getRepScheme(category, plyoLevel = null) {
   return scheme
 }
 
-export { getMainLiftVolume, getWarmupSlotCounts, getRepScheme, INVENTED_SLOT_COUNTS, INVENTED_REP_SCHEMES, DEFAULT_GOAL }
+export { getMainLiftVolume, getWarmupSlotCounts, getRepScheme, INVENTED_SLOT_COUNTS, INVENTED_REP_SCHEMES, INVENTED_MOBILITY_SLOT_BOOST, DEFAULT_GOAL }

@@ -1549,6 +1549,17 @@ export async function migrate() {
     )
   `)
 
+  // 'mobility' added for the Flexibility/Mobility goal (coach-facing generator) —
+  // sets_min/sets_max = 0 signals "skip main-lift work entirely" to
+  // buildMainWork() (see workoutAssembly/assembleSession.js). Table predates
+  // this goal so the original inline CHECK must be dropped and re-added rather
+  // than edited in place.
+  await pool.query(`ALTER TABLE volume_rules DROP CONSTRAINT IF EXISTS volume_rules_goal_check`)
+  await pool.query(`
+    ALTER TABLE volume_rules ADD CONSTRAINT volume_rules_goal_check
+      CHECK (goal IN ('strength', 'power', 'hypertrophy', 'endurance', 'mobility'))
+  `)
+
   // Seed program_templates — 60-min layout is the guide's baseline; 20/45/90 scale
   // time + slot_count proportionally (0.33x / 0.75x / 1.5x); 30-min uses the guide's
   // own explicit ranges directly (Workout Prep + Stretch are "on own" => slot_count 0
@@ -1622,6 +1633,20 @@ export async function migrate() {
       ('power',       '3-5',  3, 5),
       ('hypertrophy', '6-12', 3, 5),
       ('endurance',   '>12',  2, 3)
+    ON CONFLICT (goal) DO NOTHING
+  `)
+
+  // INVENTED — 'mobility' has no source in the guide's volume/intensity table
+  // (that table only covers strength/power/hypertrophy/endurance main-lift
+  // work). sets_min/sets_max = 0 is a deliberate signal, not a placeholder
+  // gap: getMainLiftVolume() returns sets: 0 for this goal with no code
+  // change, and buildMainWork() (workoutAssembly/assembleSession.js) treats
+  // sets === 0 as "skip main-lift work for this session" so a mobility
+  // session never forces a squat/hinge pick. rep_range is unused when
+  // sets = 0 but kept non-null to satisfy the NOT NULL constraint.
+  await pool.query(`
+    INSERT INTO volume_rules (goal, rep_range, sets_min, sets_max) VALUES
+      ('mobility', 'n/a', 0, 0)
     ON CONFLICT (goal) DO NOTHING
   `)
 

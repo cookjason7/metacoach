@@ -30,13 +30,17 @@ import { sanitizeJsonText } from './workoutGenerator.js'
 const anthropic = new Anthropic()
 
 // ── Goal mapping ─────────────────────────────────────────────────────────────
-// WO_GOALS (ClientProfile.jsx) ids -> volume_rules.goal. 'flexibility' and
-// 'general_fitness' are intentionally absent — hidden from this flow's form
-// (see WorkoutsTab) since the engine has no support for either yet.
+// WO_GOALS (ClientProfile.jsx) ids -> volume_rules.goal. 'general_fitness' is
+// intentionally absent — still hidden from this flow's form (see WorkoutsTab)
+// since the engine has no support for it yet. 'flexibility' maps to the
+// 'mobility' volume_rules goal, which carries zero main-lift work by design
+// (see assembleSession.js's buildMainWork and the volume_rules seed in
+// server/db.js).
 const GOAL_ENGINE_MAP = {
   muscle_gain: 'hypertrophy',
   endurance: 'endurance',
   weight_loss: 'endurance',
+  flexibility: 'mobility',
 }
 
 function resolveEngineGoal(goalsAnswer) {
@@ -204,6 +208,12 @@ async function attachLegacyMedia(pool, exercises) {
 }
 
 function buildFocus(session) {
+  if (session.main.length === 0) {
+    // Mobility-goal sessions carry no main-lift slots (see buildMainWork) —
+    // fall back to naming the warm-up/cooldown categories that actually
+    // exist so the UI's focus line isn't blank.
+    return 'Mobility & Recovery'
+  }
   const labels = session.main.map(s => s.movementPattern.replace(/_/g, ' ')
     .replace(/\b\w/g, c => c.toUpperCase()))
   return [...new Set(labels)].join(' • ')
