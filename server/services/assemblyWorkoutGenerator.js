@@ -121,6 +121,7 @@ function pushPlaceholder(flat, slotId, label) {
     notes: 'Coach-editable placeholder — not auto-picked.',
     legacy_exercise_id: null, // placeholders are never real exercise_library rows — no media possible
     image_url: null,
+    instructions: null, // placeholders have no exercise_library row to source instructions from
   })
 }
 
@@ -146,6 +147,11 @@ function flattenAssembledSession(session) {
         // after flattening (see attachLegacyMedia) rather than per-item here.
         legacy_exercise_id: item.exercise.legacy_exercise_id ?? null,
         image_url: null,
+        // exercise_library's own how-to-perform cue — distinct from `notes`
+        // (Katie's injury-specific caution, filled in later). Only ~24% of
+        // exercise_library rows have one (see match-legacy-exercise-media.js
+        // era investigation); null here just means none was ever written.
+        instructions: item.exercise.instructions ?? null,
       })
     })
   }
@@ -168,6 +174,7 @@ function flattenAssembledSession(session) {
       notes: null,
       legacy_exercise_id: slot.exercise.legacy_exercise_id ?? null,
       image_url: null,
+      instructions: slot.exercise.instructions ?? null,
     })
   })
 

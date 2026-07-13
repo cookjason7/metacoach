@@ -5988,6 +5988,7 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
                       <th className="text-center px-2 py-2 text-gray-500 font-semibold w-20">Reps</th>
                       <th className="text-center px-2 py-2 text-gray-500 font-semibold w-16">Rest</th>
                       <th className="text-left px-3 py-2 text-gray-500 font-semibold">Notes</th>
+                      <th className="text-left px-3 py-2 text-gray-500 font-semibold">How to Perform</th>
                       <th className="w-12 text-center px-1 py-2 text-gray-400 font-semibold text-[10px]">Order</th>
                       <th className="w-8" />
                     </tr>
@@ -6014,7 +6015,16 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
                             {rCell(dayIdx, exIdx, 'rest_seconds', ex.rest_seconds, 'number', '90')}
                           </td>
                           <td className="px-3 py-2.5 text-gray-500 max-w-[200px]">
-                            {rCell(dayIdx, exIdx, 'notes', ex.notes, 'text', 'Instructions…')}
+                            {rCell(dayIdx, exIdx, 'notes', ex.notes, 'text', 'Coaching note…')}
+                          </td>
+                          {/* Read-only: exercise_library.instructions, distinct from the
+                              editable "Notes" column above (Katie's injury-specific
+                              caution). No persistence layer for edits here, so it's
+                              display-only — clean "—" when the exercise has none. */}
+                          <td className="px-3 py-2.5 text-gray-400 max-w-[200px]">
+                            {ex.instructions
+                              ? <span className="text-xs">{ex.instructions}</span>
+                              : <span className="text-gray-300">—</span>}
                           </td>
                           {/* ▲ / ▼ reorder */}
                           <td className="px-1 py-2.5 text-center w-12">
