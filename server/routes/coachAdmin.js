@@ -2442,6 +2442,66 @@ router.post('/clients/:id/messages', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// POST /api/coach-admin/messages/bulk — broadcast a message to many clients at once
+// Body: { client_ids: number[], message_body: string, thread_type?: string (default 'coach_client') }
+router.post('/messages/bulk', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const { client_ids, message_body, thread_type = 'coach_client' } = req.body
+
+    if (!Array.isArray(client_ids) || client_ids.length === 0) {
+      return res.status(400).json({ error: 'client_ids must be a non-empty array' })
+    }
+    if (!message_body?.trim()) {
+      return res.status(400).json({ error: 'message_body is required' })
+    }
+
+    // Coaches can only broadcast to their own coach_thread conversations
+    const requestedThreadType = ['coach_thread', 'admin_private', 'coach_client'].includes(thread_type)
+      ? thread_type
+      : 'coach_thread'
+    const effectiveThreadType = requestedThreadType === 'coach_client' ? 'coach_thread' : requestedThreadType
+    if (ctx.role === 'coach' && effectiveThreadType !== 'coach_thread') {
+      return res.status(403).json({ error: 'Coaches can only send to coach thread' })
+    }
+
+    const visibility = effectiveThreadType === 'admin_private' ? 'client_and_admin_only' : 'client_and_staff'
+    const trimmedBody = message_body.trim()
+
+    let sent = 0
+    const failed = []
+    for (const rawId of client_ids) {
+      const clientId = parseInt(rawId, 10)
+      if (!Number.isInteger(clientId)) { failed.push({ client_id: rawId, error: 'Invalid client id' }); continue }
+      try {
+        if (!await canAccessClient(ctx, clientId)) {
+          failed.push({ client_id: clientId, error: 'Forbidden' })
+          continue
+        }
+        // Canonicalize to coach_thread when this admin is the client's assigned coach, so
+        // sends never re-fragment across the two thread_types (see isAdminAssignedCoach).
+        const canonicalThreadType = (effectiveThreadType === 'coach_thread' || effectiveThreadType === 'admin_private')
+          && await isAdminAssignedCoach(ctx, clientId)
+          ? 'coach_thread'
+          : effectiveThreadType
+
+        await pool.query(`
+          INSERT INTO client_messages
+            (client_id, sender_id, sender_role, message_body, thread_type, visibility)
+          VALUES ($1, $2, $3, $4, $5, $6)
+        `, [clientId, ctx.dbUserId, ctx.role, trimmedBody, canonicalThreadType, visibility])
+
+        notifyNewDirectMessage(clientId).catch(() => {})
+        sent++
+      } catch (err) {
+        failed.push({ client_id: clientId, error: err.message })
+      }
+    }
+
+    res.json({ sent, failed })
+  } catch (err) { next(err) }
+})
+
 // DELETE /api/coach-admin/clients/:id/messages/:messageId
 // Soft-delete: only the original sender (this staff member) may delete their own message.
 // The row is retained with deleted_at set so history/threads stay consistent.

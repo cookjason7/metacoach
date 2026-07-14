@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useAuth } from '@clerk/clerk-react'
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
 import { Capacitor } from '@capacitor/core'
@@ -191,6 +192,8 @@ function VoiceMessagePlayer({ audioUrl, isMine }) {
 
 export default function Messages() {
   const { getToken } = useAuth()
+  const location = useLocation()
+  const [deepLinkClientId, setDeepLinkClientId] = useState(null)
   const [isStaff,     setIsStaff]     = useState(null) // null = loading
   const [staffRole,   setStaffRole]   = useState(null) // 'admin' | 'coach' | null
   const [coachingType, setCoachingType] = useState(null) // 'vip' | 'ai' | null
@@ -303,6 +306,21 @@ export default function Messages() {
     clearAudio()
     startRecording()
   }
+
+  // Deep link from a message push notification: /messages?client_id=USER_ID
+  // (see notifyNewDirectMessage in server/services/pushService.js and the
+  // pushNotificationActionPerformed listener in Layout.jsx). Runs on every
+  // navigation, not just first mount, so tapping a second notification while
+  // already on this page still jumps to the new sender's thread.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const clientId = params.get('client_id')
+    if (clientId) {
+      setDeepLinkClientId(Number(clientId))
+      // replace (not push) so the back button doesn't retrace through the param
+      window.history.replaceState({}, '', '/messages')
+    }
+  }, [location])
 
   // Detect role once on mount
   useEffect(() => {
@@ -502,7 +520,7 @@ export default function Messages() {
           <h1 className="text-2xl font-bold text-gray-900">Messages</h1>
           <p className="text-sm text-gray-500">Client inbox — reply to any conversation below.</p>
         </div>
-        <StaffInbox getToken={getToken} role={staffRole} />
+        <StaffInbox getToken={getToken} role={staffRole} focusClientId={deepLinkClientId} />
       </div>
     )
   }
