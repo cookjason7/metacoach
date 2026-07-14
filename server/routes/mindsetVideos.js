@@ -48,7 +48,7 @@ router.get('/', requireAuth(), async (req, res) => {
     const { rows } = await pool.query(
       `SELECT * FROM mindset_videos
        WHERE ($1 OR published = TRUE)
-       ORDER BY display_order ASC, created_at ASC`,
+       ORDER BY created_at DESC`,
       [isStaff],
     )
     res.json(rows)
@@ -62,16 +62,15 @@ router.get('/', requireAuth(), async (req, res) => {
 router.post('/', requireAuth(), async (req, res) => {
   try {
     if (!await requireStaff(req, res)) return
-    const { title, description, youtube_url, module_name, display_order, published } = req.body
+    const { title, description, youtube_url, published } = req.body
     if (!title?.trim() || !youtube_url?.trim()) {
       return res.status(400).json({ error: 'title and youtube_url are required' })
     }
     const { rows } = await pool.query(
-      `INSERT INTO mindset_videos (title, description, youtube_url, module_name, display_order, published)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO mindset_videos (title, description, youtube_url, published)
+       VALUES ($1, $2, $3, $4)
        RETURNING *`,
-      [title.trim(), description?.trim() ?? null, youtube_url.trim(),
-       module_name?.trim() ?? null, display_order ?? 0, published ?? false],
+      [title.trim(), description?.trim() ?? null, youtube_url.trim(), published ?? false],
     )
     res.status(201).json(rows[0])
   } catch (e) {
@@ -85,18 +84,16 @@ router.put('/:id', requireAuth(), async (req, res) => {
   try {
     if (!await requireStaff(req, res)) return
     const { id } = req.params
-    const { title, description, youtube_url, module_name, display_order, published } = req.body
+    const { title, description, youtube_url, published } = req.body
     if (!title?.trim() || !youtube_url?.trim()) {
       return res.status(400).json({ error: 'title and youtube_url are required' })
     }
     const { rows } = await pool.query(
       `UPDATE mindset_videos
-       SET title=$1, description=$2, youtube_url=$3, module_name=$4,
-           display_order=$5, published=$6, updated_at=NOW()
-       WHERE id=$7
+       SET title=$1, description=$2, youtube_url=$3, published=$4, updated_at=NOW()
+       WHERE id=$5
        RETURNING *`,
-      [title.trim(), description?.trim() ?? null, youtube_url.trim(),
-       module_name?.trim() ?? null, display_order ?? 0, published ?? false, id],
+      [title.trim(), description?.trim() ?? null, youtube_url.trim(), published ?? false, id],
     )
     if (!rows.length) return res.status(404).json({ error: 'Not found' })
     res.json(rows[0])

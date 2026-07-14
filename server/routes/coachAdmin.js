@@ -1712,7 +1712,7 @@ router.get('/clients/:id/mindset-progress', requireAuth(), async (req, res, next
     // 3 most recent published in-app videos with progress if it exists
     const { rows: videoRows } = await pool.query(`
       SELECT
-        mv.id, mv.title, mv.module_name,
+        mv.id, mv.title,
         COALESCE(vwp.highest_pct, 0)    AS highest_pct,
         COALESCE(vwp.completed, FALSE)  AS completed,
         COALESCE(vwp.started, FALSE)    AS started,
@@ -1721,7 +1721,7 @@ router.get('/clients/:id/mindset-progress', requireAuth(), async (req, res, next
       LEFT JOIN video_watch_progress vwp
         ON vwp.video_id = mv.id AND vwp.user_id = $1
       WHERE mv.published = TRUE
-      ORDER BY mv.display_order ASC, mv.created_at DESC
+      ORDER BY mv.created_at DESC
       LIMIT 3
     `, [clientId])
 
@@ -1742,7 +1742,6 @@ router.get('/clients/:id/mindset-progress', requireAuth(), async (req, res, next
       recentVideos: videoRows.map(r => ({
         id:             r.id,
         title:          r.title,
-        module_name:    r.module_name,
         highest_pct:    parseFloat(r.highest_pct),
         completed:      r.completed,
         started:        r.started,

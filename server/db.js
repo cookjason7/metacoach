@@ -1276,13 +1276,15 @@ export async function migrate() {
       title         TEXT    NOT NULL,
       description   TEXT,
       youtube_url   TEXT    NOT NULL,
-      module_name   TEXT,
-      display_order INTEGER NOT NULL DEFAULT 0,
       published     BOOLEAN NOT NULL DEFAULT FALSE,
       created_at    TIMESTAMPTZ DEFAULT NOW(),
       updated_at    TIMESTAMPTZ DEFAULT NOW()
     )
   `)
+  // Newest-first ordering replaced manual module/order fields — drop them from
+  // tables created before this migration.
+  await pool.query(`ALTER TABLE mindset_videos DROP COLUMN IF EXISTS module_name`)
+  await pool.query(`ALTER TABLE mindset_videos DROP COLUMN IF EXISTS display_order`)
 
   // ── Video watch progress ─────────────────────────────────────────────────────
   await pool.query(`
