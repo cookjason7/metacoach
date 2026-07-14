@@ -1304,7 +1304,7 @@ function ytVideoId(url) {
   return null
 }
 
-const EMPTY_VIDEO = { title: '', description: '', youtube_url: '', module_name: '', display_order: 0, published: false }
+const EMPTY_VIDEO = { title: '', description: '', youtube_url: '', published: false }
 
 function VideoModal({ initial, onSave, onClose, saving }) {
   const [form, setForm] = useState(initial ?? EMPTY_VIDEO)
@@ -1357,26 +1357,6 @@ function VideoModal({ initial, onSave, onClose, saving }) {
               placeholder="Short description (optional)"
               className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#E8670A] resize-none"
             />
-          </div>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="flex-1">
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Module / Category</label>
-              <input
-                value={form.module_name}
-                onChange={e => set('module_name', e.target.value)}
-                placeholder="e.g. Brain Mapping"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#E8670A]"
-              />
-            </div>
-            <div className="w-full sm:w-24">
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Order</label>
-              <input
-                type="number"
-                value={form.display_order}
-                onChange={e => set('display_order', Number(e.target.value))}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#E8670A]"
-              />
-            </div>
           </div>
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input
@@ -1611,11 +1591,6 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
         <div className="flex items-start justify-between gap-2 mb-1">
           <div className="flex-1 min-w-0">
             <div className="flex flex-wrap items-center gap-2 mb-1">
-              {video.module_name && (
-                <span className="text-xs font-semibold bg-[#fde8c8] text-[#c45e09] px-2 py-0.5 rounded-full">
-                  {video.module_name}
-                </span>
-              )}
               {isStaff && (
                 <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                   video.published ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
@@ -1735,9 +1710,6 @@ function FeaturedVideoCard({ video, progress, label, onWatch }) {
         {/* Info */}
         <div className="flex-1 min-w-0">
           <p className="text-[10px] font-bold text-[#E8670A] uppercase tracking-widest mb-0.5">{label}</p>
-          {video.module_name && (
-            <p className="text-[11px] text-gray-400 mb-0.5">{video.module_name}</p>
-          )}
           <p className="text-sm font-bold text-gray-900 leading-snug line-clamp-2">{video.title}</p>
 
           {pct > 0 && (
@@ -1876,10 +1848,11 @@ function MindsetTab({ getToken, isStaff }) {
     finally { setDeleting(false) }
   }
 
-  // Published videos sorted by display_order (client view)
+  // Published videos, newest first (client view) — API already returns
+  // videos sorted by created_at DESC, but sort defensively here too.
   const publishedVideos = videos
     .filter(v => v.published)
-    .sort((a, b) => (a.display_order ?? 999) - (b.display_order ?? 999))
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
 
   // Progress summary
   const completedCount = publishedVideos.filter(v => myProgress[v.id]?.completed).length
@@ -1899,14 +1872,6 @@ function MindsetTab({ getToken, isStaff }) {
     : null
 
   const featuredVideo = continueVideo ?? startHereVideo
-
-  // Group published videos by module_name, order preserved from sort above
-  const grouped = publishedVideos.reduce((acc, v) => {
-    const key = v.module_name || 'General'
-    if (!acc[key]) acc[key] = []
-    acc[key].push(v)
-    return acc
-  }, {})
 
   function watchFeatured(videoId) {
     setExpandedId(videoId)
@@ -2019,29 +1984,22 @@ function MindsetTab({ getToken, isStaff }) {
                 />
               )}
 
-              {/* Grouped video list */}
-              <div className="space-y-8">
-                {Object.entries(grouped).map(([module, mvids]) => (
-                  <div key={module}>
-                    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">{module}</h3>
-                    <div className="space-y-4">
-                      {mvids.map(v => (
-                        <div key={v.id} ref={el => { videoRefs.current[v.id] = el }}>
-                          <VideoCard
-                            video={v}
-                            isStaff={false}
-                            onEdit={() => {}}
-                            onDelete={() => {}}
-                            onTogglePublish={() => {}}
-                            expanded={expandedId === v.id}
-                            onToggleExpand={() => setExpandedId(expandedId === v.id ? null : v.id)}
-                            getToken={getToken}
-                            progress={myProgress[v.id] ?? null}
-                            onProgressSaved={handleProgressSaved}
-                          />
-                        </div>
-                      ))}
-                    </div>
+              {/* Video list, newest first */}
+              <div className="space-y-4">
+                {publishedVideos.map(v => (
+                  <div key={v.id} ref={el => { videoRefs.current[v.id] = el }}>
+                    <VideoCard
+                      video={v}
+                      isStaff={false}
+                      onEdit={() => {}}
+                      onDelete={() => {}}
+                      onTogglePublish={() => {}}
+                      expanded={expandedId === v.id}
+                      onToggleExpand={() => setExpandedId(expandedId === v.id ? null : v.id)}
+                      getToken={getToken}
+                      progress={myProgress[v.id] ?? null}
+                      onProgressSaved={handleProgressSaved}
+                    />
                   </div>
                 ))}
               </div>

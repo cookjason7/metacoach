@@ -4647,7 +4647,6 @@ function MindsetWatchSection({ clientId, getToken }) {
                     <div key={v.id} className="flex items-center justify-between gap-3 bg-gray-50 rounded-lg px-3 py-2.5">
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">{v.title}</p>
-                        {v.module_name && <p className="text-[11px] text-gray-400">{v.module_name}</p>}
                       </div>
                       <div className="shrink-0 text-right space-y-1">
                         <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${status.cls}`}>
