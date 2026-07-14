@@ -198,6 +198,7 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
   const [sending,     setSending]     = useState(false)
   const scrollRef      = useRef(null)
   const threadListRef  = useRef(null) // scrollable thread-list container — scrolled to top on "back"
+  const backToListPendingRef = useRef(false) // set by backToList(), consumed once selected actually clears
   const selectedRef    = useRef(null)
   const msgCountRef    = useRef(0)
   const fileInputRef     = useRef(null)  // camera
@@ -370,6 +371,48 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
   }
 
   useEffect(() => { selectedRef.current = selected }, [selected])
+
+  // Runs once `selected` has actually cleared and the DOM has committed that
+  // change — see backToList() below for why a plain scrollTo/scrollIntoView
+  // called directly from the click handler (or even deferred a frame or two
+  // via requestAnimationFrame) isn't reliable enough here.
+  useEffect(() => {
+    if (selected || !backToListPendingRef.current) return
+    backToListPendingRef.current = false
+    const el = threadListRef.current
+    if (!el) return
+
+    // scrollIntoView walks up and scrolls whichever ancestor actually has the
+    // overflow — on the standalone Messages page that's the page's own <main>
+    // (in Layout.jsx, outside this component's reach), not this div. scrollTo
+    // covers the case where this div itself is the scroll container instead
+    // (e.g. the dashboard's quick-message modal).
+    const jumpToTop = () => {
+      if (typeof el.scrollIntoView === 'function') {
+        try { el.scrollIntoView(true) } catch { /* ignore */ }
+      }
+      if (typeof el.scrollTo === 'function') {
+        try { el.scrollTo({ top: 0, behavior: 'auto' }) } catch { el.scrollTop = 0 }
+      } else {
+        el.scrollTop = 0
+      }
+    }
+
+    // Best-effort smooth scroll first, for a nicer feel on browsers/devices
+    // where the animation actually plays...
+    if (typeof el.scrollIntoView === 'function') {
+      try { el.scrollIntoView({ block: 'start', behavior: 'smooth' }) } catch { /* ignore */ }
+    }
+    if (typeof el.scrollTo === 'function') {
+      try { el.scrollTo({ top: 0, behavior: 'smooth' }) } catch { /* ignore */ }
+    }
+    // ...followed by a guaranteed instant correction shortly after, since some
+    // mobile/WebView browsers silently no-op the smooth option entirely. This
+    // is what actually fixes it landing in the middle of the list instead of
+    // the top on those devices.
+    const t = setTimeout(jumpToTop, 400)
+    return () => clearTimeout(t)
+  }, [selected])
 
   // Holds a pending focusClientId (dashboard "Message" quick action, or a message
   // push notification deep link via Messages.jsx) until the inbox has loaded.
@@ -713,10 +756,12 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
   }
 
   // Deselect the current thread and land back at the top of the thread list,
-  // instead of wherever it happened to be scrolled to.
+  // instead of wherever it happened to be scrolled to. The actual scroll
+  // happens in the useEffect above, once `selected` has cleared and the DOM
+  // has genuinely committed — see that effect's comment for why.
   function backToList() {
+    backToListPendingRef.current = true
     setSelected(null)
-    threadListRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   if (loading) return <p className="text-sm text-gray-400 py-8 text-center">Loading inbox…</p>
