@@ -197,9 +197,10 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
   const [body,        setBody]        = useState('')
   const [sending,     setSending]     = useState(false)
   const [toast,       setToast]       = useState(null) // { msg: string, type: 'error'|'info' }
-  const scrollRef    = useRef(null)
-  const selectedRef  = useRef(null)
-  const msgCountRef  = useRef(0)
+  const scrollRef      = useRef(null)
+  const threadListRef  = useRef(null) // scrollable thread-list container — scrolled to top on "back"
+  const selectedRef    = useRef(null)
+  const msgCountRef    = useRef(0)
   const fileInputRef     = useRef(null)  // camera
   const galleryInputRef  = useRef(null)  // gallery/files
   const [imgPreview,  setImgPreview]  = useState(null)
@@ -222,20 +223,6 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
   const [searchResults, setSearchResults] = useState([])
   const [searchLoading, setSearchLoading] = useState(false)
   const searchRef = useRef(null) // input ref for focus management
-
-  // ── Bulk broadcast (New Broadcast modal) ──────────────────────────────────
-  const [showBroadcast,          setShowBroadcast]          = useState(false)
-  const [broadcastClients,       setBroadcastClients]       = useState([])
-  const [broadcastClientsLoaded, setBroadcastClientsLoaded] = useState(false)
-  const [broadcastLoading,       setBroadcastLoading]       = useState(false)
-  const [broadcastSearch,        setBroadcastSearch]        = useState('')
-  const [broadcastSelected,      setBroadcastSelected]       = useState(() => new Set())
-  const [broadcastBody,          setBroadcastBody]          = useState('')
-  const [broadcastSending,       setBroadcastSending]       = useState(false)
-  const [broadcastError,         setBroadcastError]         = useState(null)
-  const [broadcastToast,         setBroadcastToast]         = useState(null)
-
-  const canBroadcast = role === 'admin' || role === 'account_owner' || role === 'coach'
 
   const { canRecord, recording, audioBlob, audioPreview, recordError, startRecording, stopRecording, clearAudio } = useVoiceRecorder()
 
@@ -380,19 +367,16 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
 
   useEffect(() => { selectedRef.current = selected }, [selected])
 
-  // Jump to a client's thread when focusClientId is set (dashboard "Message" quick
-  // action, or a message push notification deep link via Messages.jsx). Depends on
-  // focusClientId itself (not just running once on mount) so a second deep link
-  // while this component is already mounted still re-selects.
+  // Holds a pending focusClientId (dashboard "Message" quick action, or a message
+  // push notification deep link via Messages.jsx) until the inbox has loaded.
+  // Selecting immediately — before groupedInbox is populated — meant we could
+  // only guess the thread type instead of using the client's real thread, and
+  // sometimes lost the race with the initial fetch so nothing got selected.
+  // Consumed by the effect below, after groupedInbox is declared.
+  const pendingClientIdRef = useRef(null)
   useEffect(() => {
-    if (focusClientId == null) return
-    const threadType = (role === 'admin' || role === 'account_owner') ? 'admin_private' : 'coach_thread'
-    setSelected(prev =>
-      prev?.clientId === focusClientId
-        ? prev
-        : { clientId: focusClientId, clientName: focusClientName, threadType, isAssignedCoach: false },
-    )
-  }, [focusClientId, focusClientName, role])
+    if (focusClientId != null) pendingClientIdRef.current = focusClientId
+  }, [focusClientId])
 
   // ── Group inbox rows by client ────────────────────────────────────────────
   const groupedInbox = useMemo(() => {
@@ -447,13 +431,35 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
     return list
   }, [inbox])
 
-  // Fill in the client's display name once the inbox loads, for deep links that
-  // arrive with only a client id (push notifications don't carry a name).
+  // Consume a pending focusClientId once inbox data is available: prefer a real
+  // match from groupedInbox (correct thread type, name, and coach-assignment),
+  // falling back to a best-guess only once the initial load finishes with no
+  // match at all (e.g. a brand-new client with no messages yet — the
+  // dashboard's per-row "Message" quick action).
   useEffect(() => {
-    if (!selected || selected.clientName) return
-    const match = groupedInbox.find(g => g.client_id === selected.clientId)
-    if (match) setSelected(s => (s ? { ...s, clientName: match.full_name } : s))
-  }, [selected, groupedInbox])
+    const pendingId = pendingClientIdRef.current
+    if (pendingId == null) return
+
+    const match = groupedInbox.find(g => g.client_id === pendingId)
+    if (match) {
+      setSelected({
+        clientId:        match.client_id,
+        clientName:      match.full_name,
+        threadType:      match.latestThreadType,
+        isAssignedCoach: match.isAssignedCoach,
+      })
+      pendingClientIdRef.current = null
+      window.history.replaceState({}, '', window.location.pathname)
+      return
+    }
+
+    if (!loading) {
+      const threadType = (role === 'admin' || role === 'account_owner') ? 'admin_private' : 'coach_thread'
+      setSelected({ clientId: pendingId, clientName: focusClientName, threadType, isAssignedCoach: false })
+      pendingClientIdRef.current = null
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [focusClientId, groupedInbox, loading, role, focusClientName])
 
   const selectedClientThreads = useMemo(
     () => inbox.filter(r => r.client_id === selected?.clientId),
@@ -494,95 +500,6 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
     })
     setSearchQuery('')
     setSearchResults([])
-  }
-
-  // ── Bulk broadcast ────────────────────────────────────────────────────────
-  async function loadBroadcastClients() {
-    setBroadcastLoading(true)
-    try {
-      const token = await getToken()
-      const res = await fetch(`${API_URL}/api/coach-admin/clients?status=active`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (res.ok) setBroadcastClients(await res.json())
-    } catch {}
-    finally { setBroadcastLoading(false); setBroadcastClientsLoaded(true) }
-  }
-
-  function openBroadcast() {
-    setShowBroadcast(true)
-    setBroadcastError(null)
-    if (!broadcastClientsLoaded) loadBroadcastClients()
-  }
-
-  function closeBroadcast() {
-    setShowBroadcast(false)
-    setBroadcastSearch('')
-    setBroadcastSelected(new Set())
-    setBroadcastBody('')
-    setBroadcastError(null)
-  }
-
-  const filteredBroadcastClients = useMemo(() => {
-    const q = broadcastSearch.trim().toLowerCase()
-    if (!q) return broadcastClients
-    return broadcastClients.filter(c => {
-      const name = `${c.first_name ?? ''} ${c.display_last_name ?? ''}`.toLowerCase()
-      return name.includes(q) || (c.email ?? '').toLowerCase().includes(q)
-    })
-  }, [broadcastClients, broadcastSearch])
-
-  const allFilteredSelected = filteredBroadcastClients.length > 0
-    && filteredBroadcastClients.every(c => broadcastSelected.has(c.id))
-
-  function toggleBroadcastClient(id) {
-    setBroadcastSelected(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id); else next.add(id)
-      return next
-    })
-  }
-
-  function toggleSelectAllBroadcast() {
-    setBroadcastSelected(prev => {
-      const next = new Set(prev)
-      if (allFilteredSelected) filteredBroadcastClients.forEach(c => next.delete(c.id))
-      else filteredBroadcastClients.forEach(c => next.add(c.id))
-      return next
-    })
-  }
-
-  async function sendBroadcast() {
-    if (broadcastSelected.size === 0 || !broadcastBody.trim() || broadcastSending) return
-    setBroadcastSending(true)
-    setBroadcastError(null)
-    try {
-      const token = await getToken()
-      const threadType = (role === 'admin' || role === 'account_owner') ? 'admin_private' : 'coach_thread'
-      const res = await fetch(`${API_URL}/api/coach-admin/messages/bulk`, {
-        method:  'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          client_ids:   [...broadcastSelected],
-          message_body: broadcastBody,
-          thread_type:  threadType,
-        }),
-      })
-      if (res.ok) {
-        const data = await res.json()
-        closeBroadcast()
-        setBroadcastToast(`Sent to ${data.sent} client${data.sent === 1 ? '' : 's'}${data.failed?.length ? ` (${data.failed.length} failed)` : ''}`)
-        setTimeout(() => setBroadcastToast(null), 4000)
-        fetchInbox()
-      } else {
-        const err = await res.json().catch(() => ({}))
-        setBroadcastError(err.error ?? 'Could not send broadcast')
-      }
-    } catch {
-      setBroadcastError('Could not send broadcast')
-    } finally {
-      setBroadcastSending(false)
-    }
   }
 
   // ── Fetch inbox ───────────────────────────────────────────────────────────
@@ -791,6 +708,13 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
     if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null }
   }
 
+  // Deselect the current thread and land back at the top of the thread list,
+  // instead of wherever it happened to be scrolled to.
+  function backToList() {
+    setSelected(null)
+    threadListRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   if (loading) return <p className="text-sm text-gray-400 py-8 text-center">Loading inbox…</p>
 
   const totalUnread = groupedInbox.reduce((sum, g) => sum + g.totalUnread + g.totalMarkedUnread, 0)
@@ -803,7 +727,7 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
         </div>
       )}
       {/* Inbox list */}
-      <div className={`lg:w-72 shrink-0 flex flex-col overflow-y-auto ${selected ? 'hidden lg:flex' : ''}`}>
+      <div ref={threadListRef} className={`lg:w-72 shrink-0 flex flex-col overflow-y-auto ${selected ? 'hidden lg:flex' : ''}`}>
 
         {/* ── Client search / new conversation ─────────────────────────── */}
         <div className="relative mb-2">
@@ -854,26 +778,6 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
             </div>
           )}
         </div>
-
-        {/* New Broadcast — bulk message to many clients at once */}
-        {canBroadcast && (
-          <button
-            onClick={openBroadcast}
-            className="w-full mb-2 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-[#E8670A] bg-orange-50 border border-orange-200 hover:bg-orange-100 transition-colors min-h-[40px]"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-            </svg>
-            New Broadcast
-          </button>
-        )}
-
-        {/* Toast — bulk send confirmation */}
-        {broadcastToast && (
-          <div className="mb-2 px-3 py-2 rounded-lg text-xs font-semibold text-white bg-[#1e2a3a] text-center">
-            {broadcastToast}
-          </div>
-        )}
 
         {/* Active / Archived tabs */}
         <div className="flex gap-1 mb-2">
@@ -962,7 +866,7 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
             <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setSelected(null)}
+                  onClick={backToList}
                   className="lg:hidden -ml-1 min-w-10 h-10 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-200 transition-colors shrink-0"
                   aria-label="Back to inbox"
                 >
@@ -1211,7 +1115,7 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
                 the last thing on screen when scrolled to the bottom of the thread.
                 Desktop always shows the thread list alongside, so no back button there. */}
             <button
-              onClick={() => setSelected(null)}
+              onClick={backToList}
               className="md:hidden shrink-0 w-full py-3 text-xs font-medium text-gray-400 hover:text-gray-600 border-t border-gray-100 bg-white transition-colors min-h-[44px]"
             >
               ← Back to Messages
@@ -1219,107 +1123,6 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
           </>
         )}
       </div>
-
-      {/* ── New Broadcast modal ─────────────────────────────────────────── */}
-      {showBroadcast && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
-          <div className="w-full sm:max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-xl flex flex-col max-h-[92vh] sm:max-h-[85vh]">
-            {/* Header */}
-            <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-gray-100">
-              <h2 className="text-sm font-bold text-gray-900">New Broadcast</h2>
-              <button
-                onClick={closeBroadcast}
-                aria-label="Close"
-                className="shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors text-lg leading-none"
-              >
-                ×
-              </button>
-            </div>
-
-            {/* Body */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {broadcastError && (
-                <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                  {broadcastError}
-                </p>
-              )}
-
-              {/* Client search */}
-              <input
-                type="text"
-                value={broadcastSearch}
-                onChange={e => setBroadcastSearch(e.target.value)}
-                placeholder="Search clients…"
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E8670A] focus:border-transparent"
-              />
-
-              {/* Select all */}
-              <label className="flex items-center gap-2 px-1 py-1 text-xs font-semibold text-gray-600 select-none">
-                <input
-                  type="checkbox"
-                  checked={allFilteredSelected}
-                  onChange={toggleSelectAllBroadcast}
-                  className="w-4 h-4 accent-[#E8670A]"
-                />
-                Select all{broadcastSearch.trim() ? ' (matching)' : ''}
-              </label>
-
-              {/* Checkbox client list */}
-              <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-64 overflow-y-auto">
-                {broadcastLoading && (
-                  <p className="text-xs text-gray-400 text-center py-6">Loading clients…</p>
-                )}
-                {!broadcastLoading && filteredBroadcastClients.length === 0 && (
-                  <p className="text-xs text-gray-400 text-center py-6">No clients found.</p>
-                )}
-                {!broadcastLoading && filteredBroadcastClients.map(client => {
-                  const name = `${client.first_name ?? ''} ${client.display_last_name ?? ''}`.trim() || client.email || 'Client'
-                  return (
-                    <label
-                      key={client.id}
-                      className="flex items-center gap-2 px-3 py-2.5 min-h-[44px] hover:bg-gray-50 cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={broadcastSelected.has(client.id)}
-                        onChange={() => toggleBroadcastClient(client.id)}
-                        className="w-4 h-4 accent-[#E8670A] shrink-0"
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-xs font-semibold text-gray-800 truncate">{name}</span>
-                        <span className="block text-[10px] text-gray-400 truncate">{client.email}</span>
-                      </span>
-                    </label>
-                  )
-                })}
-              </div>
-
-              {/* Message body */}
-              <textarea
-                value={broadcastBody}
-                onChange={e => setBroadcastBody(e.target.value)}
-                placeholder="Type a message to send to everyone selected…"
-                rows={4}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm leading-5 focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none"
-              />
-            </div>
-
-            {/* Footer */}
-            <div className="border-t border-gray-100 px-4 py-3 flex items-center justify-between gap-3">
-              <p className="text-xs text-gray-500">
-                Sending to {broadcastSelected.size} client{broadcastSelected.size === 1 ? '' : 's'}
-              </p>
-              <button
-                onClick={sendBroadcast}
-                disabled={broadcastSending || broadcastSelected.size === 0 || !broadcastBody.trim()}
-                className="min-h-[44px] px-4 rounded-lg bg-[#E8670A] text-white text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 transition-colors"
-              >
-                {broadcastSending ? 'Sending…' : 'Send'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
