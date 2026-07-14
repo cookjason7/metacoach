@@ -173,7 +173,10 @@ export async function notifyLateCheckInSubmitted(clientUserId) {
 // Staff/admin are always notified of any new post (staff or client authored).
 // Clients are only notified when the post is staff-authored (authorIsStaff=true) —
 // posts from other clients don't push to the whole client base, to limit spam.
-export async function notifyNewCommunityPost(authorUserId, authorIsStaff = false) {
+// postId (optional): the new post's id. When provided, the notification carries
+// a deep-link url so tapping it opens the Community page scrolled to and
+// highlighting that specific post instead of just landing on the Dashboard.
+export async function notifyNewCommunityPost(authorUserId, authorIsStaff = false, postId = null) {
   try {
     const roleFilter = authorIsStaff
       ? `(role IN ('admin', 'coach') OR (role = 'client' AND COALESCE(coaching_type, '') != 'basic'))`
@@ -191,6 +194,7 @@ export async function notifyNewCommunityPost(authorUserId, authorIsStaff = false
       await sendToUser(user.id, {
         title: 'New Post',
         body:  "There's a new group post.",
+        data:  postId != null ? { url: `/community?post_id=${String(postId)}` } : undefined,
       }).catch(() => {})
     }
   } catch (err) {

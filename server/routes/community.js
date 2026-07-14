@@ -354,7 +354,9 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
 
     // Push: notify community — fire-and-forget. Clients only pushed when a staff
     // member authored this post (see notifyNewCommunityPost for the role filter).
-    notifyNewCommunityPost(dbUserId, isStaff).catch(() => {})
+    // postId is passed through so tapping the notification deep-links to this
+    // specific post instead of just landing on the Dashboard.
+    notifyNewCommunityPost(dbUserId, isStaff, post.id).catch(() => {})
 
     const { rows: userRows } = await pool.query(
       'SELECT first_name FROM users WHERE id = $1', [dbUserId],
