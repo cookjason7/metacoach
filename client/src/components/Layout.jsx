@@ -473,6 +473,7 @@ export default function Layout() {
     let cancelled = false
     let regListener = null
     let errListener = null
+    let actionListener = null
     let platform = null // set once the plugin is confirmed available, below
 
     // Poll the live Capacitor bridge state rather than trusting a one-shot
@@ -606,6 +607,15 @@ export default function Layout() {
           sendDebug('registration-error', msg.slice(0, 128))
         })
 
+        // Fires when the user taps a notification (from tray or in-app banner).
+        // The server attaches a deep-link url (see notifyNewDirectMessage in
+        // pushService.js) so tapping opens the specific sender's thread instead
+        // of just landing on the Messages page.
+        actionListener = await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+          const url = action?.notification?.data?.url
+          if (url) navigate(url)
+        })
+
         sendDebug('listeners-added')
 
         const { receive } = await PushNotifications.requestPermissions()
@@ -639,8 +649,9 @@ export default function Layout() {
       cancelled = true
       regListener?.remove()
       errListener?.remove()
+      actionListener?.remove()
     }
-  }, [isLoaded, user, getToken])
+  }, [isLoaded, user, getToken, navigate])
 
   // ── Apple Health auto-sync on foreground ──────────────────────────────────
   // Fires silently when the iOS app returns from background (visibilitychange

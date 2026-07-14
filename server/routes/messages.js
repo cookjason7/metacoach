@@ -331,12 +331,12 @@ router.post('/thread/:threadType', requireAuth(), async (req, res, next) => {
       [ctx.dbUserId],
     ).then(async ({ rows: [u] }) => {
       if (u?.coach_id) {
-        await notifyNewDirectMessage(u.coach_id).catch(() => {})
+        await notifyNewDirectMessage(u.coach_id, ctx.dbUserId).catch(() => {})
       } else {
         const { rows: admins } = await pool.query(
           `SELECT id FROM users WHERE role = 'admin'`,
         )
-        for (const a of admins) await notifyNewDirectMessage(a.id).catch(() => {})
+        for (const a of admins) await notifyNewDirectMessage(a.id, ctx.dbUserId).catch(() => {})
       }
     }).catch(() => {})
 

@@ -59,8 +59,11 @@ export async function revokeDevice(userId, token) {
 }
 
 // Send a push notification to all registered devices for a user.
+// `data` (optional) is delivered alongside the notification and read by the
+// pushNotificationActionPerformed listener on tap to deep-link within the app.
+// FCM requires all data values to be strings.
 // Returns true if at least one message was sent; false if no-op.
-export async function sendToUser(userId, { title, body }) {
+export async function sendToUser(userId, { title, body, data }) {
   if (!messaging) return false
 
   const { rows } = await pool.query(
@@ -74,6 +77,7 @@ export async function sendToUser(userId, { title, body }) {
     const result = await messaging.sendEachForMulticast({
       tokens,
       notification: { title, body },
+      ...(data ? { data: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])) } : {}),
       android: { priority: 'high' },
       apns: { payload: { aps: { sound: 'default' } } },
     })
@@ -105,7 +109,11 @@ function isInvalidTokenError(err) {
 
 // Notify a user about a new direct message they received.
 // Generic copy only — no message content, no health data.
-export async function notifyNewDirectMessage(recipientUserId) {
+// senderUserId (optional): the user who sent the message. When provided, the
+// notification carries a deep-link url so tapping it opens that sender's
+// thread directly instead of just landing on the Messages page — used mainly
+// for staff (coach/admin) who juggle many client conversations.
+export async function notifyNewDirectMessage(recipientUserId, senderUserId = null) {
   try {
     const { rows } = await pool.query(
       `SELECT notif_master_enabled, notif_dm_enabled FROM users WHERE id = $1`,
@@ -116,6 +124,7 @@ export async function notifyNewDirectMessage(recipientUserId) {
     await sendToUser(recipientUserId, {
       title: 'New Message',
       body:  'You have a new message.',
+      data:  senderUserId != null ? { url: `/messages?client_id=${senderUserId}` } : undefined,
     })
   } catch (err) {
     console.warn('[push] notifyNewDirectMessage error:', err.message)
