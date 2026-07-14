@@ -589,9 +589,10 @@ export default function Layout() {
         })
 
         // Fires when the user taps a notification (from tray or in-app banner).
-        // The server attaches a deep-link url (see notifyNewDirectMessage in
-        // pushService.js) so tapping opens the specific sender's thread instead
-        // of just landing on the Messages page.
+        // The server attaches a deep-link url on whichever notification type sent
+        // it (see notifyNewDirectMessage / notifyNewCommunityPost in
+        // pushService.js) so tapping opens the specific thread or post instead of
+        // just landing on the Dashboard. Routed generically — no per-type cases.
         actionListener = await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
           const url = action?.notification?.data?.url
           if (url) navigate(url)

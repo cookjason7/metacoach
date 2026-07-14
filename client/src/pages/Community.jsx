@@ -367,7 +367,7 @@ function CommentItem({ comment, getToken, isAdmin, onDelete, members }) {
 
 // ── PostCard ──────────────────────────────────────────────────────────────────
 
-function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate, getToken, isAdmin, isStaff, currentUserId, members }) {
+function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate, getToken, isAdmin, isStaff, currentUserId, members, highlighted = false }) {
   const [expanded,       setExpanded]       = useState(false)
   const [comments,       setComments]       = useState(null)
   const [loadingComments,setLoadingComments]= useState(false)
@@ -506,7 +506,12 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
     : null
 
   return (
-    <div className={`bg-white rounded-xl border overflow-hidden ${post.pinned ? 'border-amber-300' : 'border-gray-200'}`}>
+    <div
+      id={`post-${post.id}`}
+      className={`bg-white rounded-xl border overflow-hidden transition-shadow duration-500 ${
+        highlighted ? 'ring-2 ring-[#E8670A] ring-offset-2' : post.pinned ? 'border-amber-300' : 'border-gray-200'
+      }`}
+    >
       {post.pinned && (
         <div className="flex items-center gap-1.5 px-5 py-2 bg-amber-50 border-b border-amber-200">
           <span className="text-xs">📌</span>
@@ -896,6 +901,8 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
   const [posting,        setPosting]       = useState(false)
   const [search,         setSearch]        = useState('')
   const [activeCategory, setActiveCategory]= useState(initialCategory)
+  const [searchParams]                     = useSearchParams()
+  const [highlightPostId, setHighlightPostId] = useState(null) // post_id deep link target, briefly highlighted
 
   useEffect(() => {
     setLoading(true)
@@ -914,6 +921,25 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
     }
     load()
   }, [getToken, channel, retryKey])
+
+  // Deep link from a community post push notification: /community?post_id=POST_ID
+  // (see notifyNewCommunityPost in server/services/pushService.js and the
+  // pushNotificationActionPerformed listener in Layout.jsx). Waits for posts to
+  // load, scrolls the matching post into view, briefly highlights it, then
+  // cleans the URL so the back button and refresh don't retrigger it.
+  useEffect(() => {
+    const postId = searchParams.get('post_id')
+    if (!postId || posts.length === 0) return
+    const numericId = Number(postId)
+    if (!posts.some(p => p.id === numericId)) return
+
+    setHighlightPostId(numericId)
+    document.getElementById(`post-${numericId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    window.history.replaceState({}, '', '/community')
+
+    const t = setTimeout(() => setHighlightPostId(null), 2000)
+    return () => clearTimeout(t)
+  }, [searchParams, posts])
 
   const visiblePosts = posts.filter(p => {
     const matchSearch = !search.trim() || p.content.toLowerCase().includes(search.toLowerCase())
@@ -1190,6 +1216,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
               isStaff={isStaff}
               currentUserId={currentUserId}
               members={members}
+              highlighted={post.id === highlightPostId}
             />
           ))}
         </div>

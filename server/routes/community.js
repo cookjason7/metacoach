@@ -110,7 +110,7 @@ async function createNewPostNotifications(postId, fromUserId) {
     }
   } catch {}
 }
-async function notifyTopLevelCommunityPost({ authorUserId, authorIsStaff, postChannel }) {
+async function notifyTopLevelCommunityPost({ authorUserId, authorIsStaff, postChannel, postId }) {
   try {
     if (authorIsStaff) {
       if (postChannel !== 'vip') {
@@ -125,7 +125,7 @@ async function notifyTopLevelCommunityPost({ authorUserId, authorIsStaff, postCh
            AND id != $1`,
         [authorUserId],
       )
-      for (const client of clients) await notifyNewCommunityPost(client.id).catch(() => {})
+      for (const client of clients) await notifyNewCommunityPost(client.id, postId).catch(() => {})
       return
     }
 
@@ -134,7 +134,7 @@ async function notifyTopLevelCommunityPost({ authorUserId, authorIsStaff, postCh
       [authorUserId],
     )
     if (author?.coach_id) {
-      await notifyNewCommunityPost(author.coach_id).catch(() => {})
+      await notifyNewCommunityPost(author.coach_id, postId).catch(() => {})
       return
     }
 
@@ -142,7 +142,7 @@ async function notifyTopLevelCommunityPost({ authorUserId, authorIsStaff, postCh
       `SELECT id FROM users WHERE role = 'admin' AND id != $1`,
       [authorUserId],
     )
-    for (const admin of admins) await notifyNewCommunityPost(admin.id).catch(() => {})
+    for (const admin of admins) await notifyNewCommunityPost(admin.id, postId).catch(() => {})
   } catch (err) {
     console.warn('[push] notifyTopLevelCommunityPost error:', err.message)
   }
@@ -392,6 +392,7 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
       authorUserId: dbUserId,
       authorIsStaff: isStaff,
       postChannel,
+      postId: post.id,
     }).catch(() => {})
     const { rows: userRows } = await pool.query(
       'SELECT first_name FROM users WHERE id = $1', [dbUserId],

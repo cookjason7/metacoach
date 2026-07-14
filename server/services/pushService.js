@@ -185,7 +185,10 @@ export async function notifyNewFormDelivery(clientUserId) {
 
 // Notify a user about a new top-level community post.
 // Generic copy only - no post content, no health data.
-export async function notifyNewCommunityPost(recipientUserId) {
+// postId (optional): the new post's id. When provided, the notification carries
+// a deep-link url so tapping it opens the Community page scrolled to and
+// highlighting that specific post instead of just landing on the Dashboard.
+export async function notifyNewCommunityPost(recipientUserId, postId = null) {
   try {
     const { rows } = await pool.query(
       `SELECT notif_master_enabled, notif_community_enabled FROM users WHERE id = $1`,
@@ -205,6 +208,7 @@ export async function notifyNewCommunityPost(recipientUserId) {
     await sendToUser(recipientUserId, {
       title: 'New Post',
       body:  "There's a new group post.",
+      data:  postId != null ? { url: `/community?post_id=${String(postId)}` } : undefined,
     })
   } catch (err) {
     console.warn('[push] notifyNewCommunityPost error userId=%s: %s', recipientUserId, err.message)
