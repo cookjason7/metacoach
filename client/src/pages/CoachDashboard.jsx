@@ -1551,6 +1551,84 @@ function MessageClientModal({ client, getToken, role, onClose }) {
   )
 }
 
+// ── Bulk message modal ────────────────────────────────────────────────────────
+// Sends one message to every selected client via POST /api/coach-admin/messages/bulk.
+
+function BulkMessageModal({ clients, getToken, onClose, onSent }) {
+  const [body,    setBody]    = useState('')
+  const [sending, setSending] = useState(false)
+  const [error,   setError]   = useState(null)
+
+  async function handleSend() {
+    if (!body.trim() || sending) return
+    setSending(true)
+    setError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/messages/bulk`, {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ client_ids: clients.map(c => c.id), message_body: body }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        onSent(data)
+      } else {
+        const err = await res.json().catch(() => ({}))
+        setError(err.error ?? 'Could not send message')
+      }
+    } catch {
+      setError('Could not send message')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4 py-0 sm:py-6">
+      <div className="w-full sm:max-w-md bg-white sm:rounded-xl shadow-xl overflow-hidden flex flex-col max-h-[92vh] sm:max-h-[80vh]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
+          <p className="text-sm font-semibold text-gray-900 truncate">
+            Send message to {clients.length} client{clients.length === 1 ? '' : 's'}
+          </p>
+          <button onClick={onClose} aria-label="Close"
+            className="shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-gray-600">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {error && (
+            <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
+          )}
+          <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-40 overflow-y-auto">
+            {clients.map(c => (
+              <p key={c.id} className="px-3 py-2 text-xs font-medium text-gray-700 truncate">{clientName(c)}</p>
+            ))}
+          </div>
+          <textarea
+            value={body}
+            onChange={e => setBody(e.target.value)}
+            placeholder="Write your message..."
+            rows={5}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm leading-5 focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none"
+          />
+        </div>
+        <div className="border-t border-gray-100 px-4 py-3 flex justify-end shrink-0">
+          <button
+            onClick={handleSend}
+            disabled={sending || !body.trim()}
+            className="min-h-[44px] px-4 rounded-lg bg-[#E8670A] text-white text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 transition-colors"
+          >
+            {sending ? 'Sending…' : 'Send'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main CoachDashboard ───────────────────────────────────────────────────────
 
 export default function CoachDashboard({ getToken, userRole }) {
@@ -1570,7 +1648,13 @@ export default function CoachDashboard({ getToken, userRole }) {
   const [pendingLoading, setPendingLoading] = useState(true)
   const [inviteOpen,     setInviteOpen]     = useState(false)
   const [isAdmin,        setIsAdmin]        = useState(userRole === 'admin' || userRole === 'account_owner')
+  const [myUserId,       setMyUserId]       = useState(null) // this staff member's own db id
   const [messageClient,  setMessageClient]  = useState(null) // { id, name } — quick-message modal target
+
+  // ── Bulk messaging ───────────────────────────────────────────────────────────
+  const [selectedClientIds, setSelectedClientIds] = useState(() => new Set())
+  const [bulkMessageOpen,   setBulkMessageOpen]    = useState(false)
+  const [bulkToast,         setBulkToast]          = useState(null)
 
   // ── Filters ─────────────────────────────────────────────────────────────────
   const [clientSearch,   setClientSearch]   = useState('')
@@ -1633,6 +1717,7 @@ export default function CoachDashboard({ getToken, userRole }) {
             const d = await r4.json()
             const admin = d.role === 'admin' || d.role === 'account_owner'
             setIsAdmin(admin)
+            setMyUserId(d.id ?? null)
             // Non-admin coaches default to seeing only their own clients
             if (!admin) setCoachFilter(String(d.id))
           }
@@ -1815,6 +1900,48 @@ export default function CoachDashboard({ getToken, userRole }) {
       })
   }, [clients, clientSearch, coachFilter, typeFilter, statusFilter, checkinFilter, weekFilter, sortCol, sortDir, isAdmin])
 
+  // ── Bulk messaging selection ─────────────────────────────────────────────────
+  // Coaches may only select/message their own assigned clients — in practice the
+  // server already scopes /coach-admin/clients to a coach's own roster, but this
+  // is a defensive client-side check as well.
+  function isClientSelectable(c) {
+    if (isAdmin) return true
+    return myUserId != null && c.assigned_coach_id === myUserId
+  }
+
+  function toggleClientSelected(c) {
+    if (!isClientSelectable(c)) return
+    setSelectedClientIds(prev => {
+      const next = new Set(prev)
+      if (next.has(c.id)) next.delete(c.id); else next.add(c.id)
+      return next
+    })
+  }
+
+  const selectableFilteredClients = useMemo(
+    () => filteredClients.filter(isClientSelectable),
+    [filteredClients, isAdmin, myUserId],
+  )
+
+  const allSelected = selectableFilteredClients.length > 0
+    && selectableFilteredClients.every(c => selectedClientIds.has(c.id))
+
+  function toggleSelectAll() {
+    setSelectedClientIds(prev => {
+      const next = new Set(prev)
+      if (allSelected) selectableFilteredClients.forEach(c => next.delete(c.id))
+      else selectableFilteredClients.forEach(c => next.add(c.id))
+      return next
+    })
+  }
+
+  function clearSelection() { setSelectedClientIds(new Set()) }
+
+  const selectedClients = useMemo(
+    () => clients.filter(c => selectedClientIds.has(c.id)),
+    [clients, selectedClientIds],
+  )
+
   const tabs = [
     { id: 'clients',     label: 'Clients' },
     { id: 'coach-foods', label: 'Coach Foods' },
@@ -1859,6 +1986,28 @@ export default function CoachDashboard({ getToken, userRole }) {
           role={userRole}
           onClose={() => setMessageClient(null)}
         />
+      )}
+
+      {/* Bulk message modal */}
+      {bulkMessageOpen && (
+        <BulkMessageModal
+          clients={selectedClients}
+          getToken={getToken}
+          onClose={() => setBulkMessageOpen(false)}
+          onSent={data => {
+            setBulkMessageOpen(false)
+            clearSelection()
+            setBulkToast(`Message sent to ${data.sent} client${data.sent === 1 ? '' : 's'}`)
+            setTimeout(() => setBulkToast(null), 4000)
+          }}
+        />
+      )}
+
+      {/* Bulk send toast */}
+      {bulkToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-[#1e2a3a] text-white text-sm font-semibold px-4 py-2 rounded-lg shadow-lg">
+          {bulkToast}
+        </div>
       )}
 
       {/* ── Two-column body: main content + right rail ── */}
@@ -2001,6 +2150,29 @@ export default function CoachDashboard({ getToken, userRole }) {
             </div>
           </div>
 
+          {/* Bulk action bar — appears once one or more clients are checked */}
+          <div className={`overflow-hidden transition-all duration-200 ease-out ${
+            selectedClientIds.size > 0 ? 'max-h-16 opacity-100' : 'max-h-0 opacity-0'
+          }`}>
+            <div className="flex items-center justify-between gap-3 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+              <p className="text-sm font-semibold text-[#E8670A]">
+                {selectedClientIds.size} client{selectedClientIds.size === 1 ? '' : 's'} selected
+              </p>
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={clearSelection} className="text-xs font-medium text-gray-500 hover:text-gray-700">
+                  Clear selection
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBulkMessageOpen(true)}
+                  className="bg-[#E8670A] text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-[#c45e09] transition-colors min-h-[36px]"
+                >
+                  Send Message
+                </button>
+              </div>
+            </div>
+          </div>
+
           {/* Check-ins */}
           <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
             <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2">
@@ -2070,6 +2242,15 @@ export default function CoachDashboard({ getToken, userRole }) {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase tracking-wider">
                     <tr>
+                      <th className="px-3 py-2 w-8">
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          onChange={toggleSelectAll}
+                          className="w-4 h-4 accent-[#E8670A]"
+                          aria-label="Select all clients"
+                        />
+                      </th>
                       <SortHeader col="client"   sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Client</SortHeader>
                       <SortHeader col="type"     sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Type</SortHeader>
                       <SortHeader col="coach"    sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Coach</SortHeader>
@@ -2088,7 +2269,17 @@ export default function CoachDashboard({ getToken, userRole }) {
                     {filteredClients.map(c => (
                       <tr key={c.id}
                         onClick={() => navigate(`/admin/clients/${c.id}`)}
-                        className="hover:bg-orange-50/50 cursor-pointer transition-colors">
+                        className={`hover:bg-orange-50/50 cursor-pointer transition-colors ${selectedClientIds.has(c.id) ? 'bg-orange-50' : ''}`}>
+                        <td className="px-3 py-2" onClick={e => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedClientIds.has(c.id)}
+                            onChange={() => toggleClientSelected(c)}
+                            disabled={!isClientSelectable(c)}
+                            className="w-4 h-4 accent-[#E8670A] disabled:opacity-30"
+                            aria-label={`Select ${clientName(c)}`}
+                          />
+                        </td>
                         <td className="px-3 py-2">
                           <p className="font-semibold text-gray-900">{clientName(c)}</p>
                           <p className="text-xs text-gray-400 truncate max-w-[180px]">{c.email}</p>
@@ -2161,15 +2352,34 @@ export default function CoachDashboard({ getToken, userRole }) {
 
               {/* Mobile cards */}
               <div className="lg:hidden space-y-3">
+                <div className="flex items-center justify-between px-1">
+                  <button type="button" onClick={toggleSelectAll} className="text-xs font-semibold text-[#E8670A]">
+                    {allSelected ? 'Deselect all' : 'Select all'}
+                  </button>
+                  {selectedClientIds.size > 0 && (
+                    <span className="text-xs text-gray-400">{selectedClientIds.size} selected</span>
+                  )}
+                </div>
                 {filteredClients.map(c => (
                   <button key={c.id} onClick={() => navigate(`/admin/clients/${c.id}`)}
-                    className="w-full text-left bg-white border border-gray-200 rounded-lg p-3 hover:border-[#E8670A] active:scale-[0.99] transition-all">
+                    className={`w-full text-left bg-white border border-gray-200 rounded-lg p-3 hover:border-[#E8670A] active:scale-[0.99] transition-all ${selectedClientIds.has(c.id) ? 'bg-orange-50 border-orange-300' : ''}`}>
                     <div className="flex items-start justify-between gap-2 mb-1.5">
                       <div className="min-w-0">
                         <p className="font-semibold text-gray-900">{clientName(c)}</p>
                         <p className="text-xs text-gray-400 truncate">{c.email}</p>
                       </div>
-                      <StatusBadge status={c.status_tag} />
+                      <div className="flex items-center gap-2 shrink-0">
+                        <StatusBadge status={c.status_tag} />
+                        <input
+                          type="checkbox"
+                          checked={selectedClientIds.has(c.id)}
+                          onChange={() => toggleClientSelected(c)}
+                          onClick={e => e.stopPropagation()}
+                          disabled={!isClientSelectable(c)}
+                          className="w-4 h-4 accent-[#E8670A] disabled:opacity-30"
+                          aria-label={`Select ${clientName(c)}`}
+                        />
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 text-[10px] mb-2 flex-wrap">
                       <span className={`rounded-full px-2 py-0.5 font-bold border ${coachingBadge(c.coaching_type)}`}>
