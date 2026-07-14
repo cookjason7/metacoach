@@ -398,14 +398,6 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
     )
   }, [focusClientId, focusClientName, role])
 
-  // Fill in the client's display name once the inbox loads, for deep links that
-  // arrive with only a client id (push notifications don't carry a name).
-  useEffect(() => {
-    if (!selected || selected.clientName) return
-    const match = groupedInbox.find(g => g.client_id === selected.clientId)
-    if (match) setSelected(s => (s ? { ...s, clientName: match.full_name } : s))
-  }, [selected, groupedInbox])
-
   // ── Group inbox rows by client ────────────────────────────────────────────
   const groupedInbox = useMemo(() => {
     const map = new Map()
@@ -458,6 +450,14 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
     })
     return list
   }, [inbox])
+
+  // Fill in the client's display name once the inbox loads, for deep links that
+  // arrive with only a client id (push notifications don't carry a name).
+  useEffect(() => {
+    if (!selected || selected.clientName) return
+    const match = groupedInbox.find(g => g.client_id === selected.clientId)
+    if (match) setSelected(s => (s ? { ...s, clientName: match.full_name } : s))
+  }, [selected, groupedInbox])
 
   const selectedClientThreads = useMemo(
     () => inbox.filter(r => r.client_id === selected?.clientId),
