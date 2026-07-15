@@ -5,6 +5,7 @@ import { API_URL } from '../config.js'
 import BarcodeScannerWidget from '../components/BarcodeScanner.jsx'
 import FoodSourceBadge from '../components/FoodSourceBadge.jsx'
 import MicronutrientGrid from '../components/MicronutrientGrid.jsx'
+import { getLocalDateString } from '../utils/date.js'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -1960,7 +1961,7 @@ const SLOT_TABS = ['photo', 'barcode', 'manual', 'search', 'recipes']
 export default function LogMeal() {
   const [tab,     setTab]     = useState('photo')
   const [slot,    setSlot]    = useState(getDefaultSlot)
-  const [logDate, setLogDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [logDate, setLogDate] = useState(() => getLocalDateString())
 
   return (
     <div className="pb-24">
@@ -1969,7 +1970,7 @@ export default function LogMeal() {
 
       {/* Date picker — shown for all logging tabs */}
       {SLOT_TABS.includes(tab) && (() => {
-        const maxDate = (() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10) })()
+        const maxDate = (() => { const d = new Date(); d.setDate(d.getDate() + 7); return getLocalDateString(d) })()
         return (
           <div className="mb-4">
             <label className="block text-xs font-medium text-gray-500 mb-1 uppercase tracking-wide">Log Date</label>

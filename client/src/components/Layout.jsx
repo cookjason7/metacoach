@@ -4,6 +4,7 @@ import { UserButton, useUser, useAuth, useClerk } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 import { Capacitor } from '@capacitor/core'
 import { syncAppleHealthToday } from '../hooks/useAppleHealth.js'
+import { getLocalDateString } from '../utils/date.js'
 
 // Client-facing sidebar nav
 const CLIENT_NAV_ITEMS = [
@@ -86,9 +87,9 @@ export default function Layout() {
   const [quickFoodMode, setQuickFoodMode] = useState(null) // 'search'|'barcode'|'photo'|'manual'
   const [quickError,    setQuickError]    = useState(null) // visible error message for failed saves
   // Date chosen in the meal-slot picker (food); defaults to today each time the menu opens
-  const [quickLogDate, setQuickLogDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [quickLogDate, setQuickLogDate] = useState(() => getLocalDateString())
   // Date chosen in quick-log forms (weight/water/steps/sleep/activity/photo)
-  const [quickActionDate, setQuickActionDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [quickActionDate, setQuickActionDate] = useState(() => getLocalDateString())
 
   function resetQuickExtras() {
     setQuickActivityType(''); setQuickActivityDur(''); setQuickActivityNotes('')
@@ -96,8 +97,8 @@ export default function Layout() {
     setQuickPhotoPreview(p => { if (p) URL.revokeObjectURL(p); return null })
     setQuickPhotoSaved(null)
     setQuickFoodMode(null)
-    setQuickLogDate(new Date().toISOString().slice(0, 10))
-    setQuickActionDate(new Date().toISOString().slice(0, 10))
+    setQuickLogDate(getLocalDateString())
+    setQuickActionDate(getLocalDateString())
   }
 
   function openQuickMenu() {
@@ -144,7 +145,7 @@ export default function Layout() {
     setQuickError(null)
     try {
       const token = await getToken()
-      const todayStr = new Date().toISOString().slice(0, 10)
+      const todayStr = getLocalDateString()
       const isToday  = quickActionDate === todayStr
       let body = { log_date: quickActionDate }
 
@@ -1058,14 +1059,14 @@ export default function Layout() {
                     <input
                       type="date"
                       value={quickLogDate}
-                      max={new Date().toISOString().slice(0, 10)}
-                      min={new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}
-                      onChange={e => setQuickLogDate(e.target.value || new Date().toISOString().slice(0, 10))}
+                      max={getLocalDateString()}
+                      min={getLocalDateString(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000))}
+                      onChange={e => setQuickLogDate(e.target.value || getLocalDateString())}
                       className="flex-1 border border-gray-300 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
                     />
-                    {quickLogDate !== new Date().toISOString().slice(0, 10) && (
+                    {quickLogDate !== getLocalDateString() && (
                       <button
-                        onClick={() => setQuickLogDate(new Date().toISOString().slice(0, 10))}
+                        onClick={() => setQuickLogDate(getLocalDateString())}
                         className="shrink-0 text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] transition-colors px-2"
                       >
                         Today
@@ -1113,8 +1114,8 @@ export default function Layout() {
               <div className="px-5 pb-10 pt-2">
                 {/* ── Shared date picker — shown for all quick-log actions ── */}
                 {(() => {
-                  const todayStr = new Date().toISOString().slice(0, 10)
-                  const minStr   = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+                  const todayStr = getLocalDateString()
+                  const minStr   = getLocalDateString(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000))
                   return (
                     <div className="flex items-center gap-2 mb-4">
                       <span className="text-xs font-medium text-gray-500 shrink-0">Date</span>
@@ -1141,9 +1142,9 @@ export default function Layout() {
                 {quickAction === 'water' && (
                   <>
                     <p className="text-sm text-gray-500 mb-3">
-                      {quickActionDate === new Date().toISOString().slice(0, 10) ? "Update today's water" : 'Set water total (oz)'}
+                      {quickActionDate === getLocalDateString() ? "Update today's water" : 'Set water total (oz)'}
                     </p>
-                    {quickActionDate === new Date().toISOString().slice(0, 10) && (
+                    {quickActionDate === getLocalDateString() && (
                       <div className="grid grid-cols-3 gap-2 mb-3">
                         {['8', '16', '24'].map(oz => (
                           <button
@@ -1166,7 +1167,7 @@ export default function Layout() {
                       step="0.1"
                       value={quickValue}
                       onChange={e => setQuickValue(e.target.value)}
-                      placeholder={quickActionDate === new Date().toISOString().slice(0, 10) ? 'Custom amount (oz)' : 'Total oz for this day'}
+                      placeholder={quickActionDate === getLocalDateString() ? 'Custom amount (oz)' : 'Total oz for this day'}
                       className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-3"
                     />
                     <input
@@ -1176,7 +1177,7 @@ export default function Layout() {
                       placeholder="Note (optional)"
                       className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-3"
                     />
-                    {quickActionDate === new Date().toISOString().slice(0, 10) ? (
+                    {quickActionDate === getLocalDateString() ? (
                       <div className="grid grid-cols-2 gap-2">
                         <button
                           onClick={() => { setQuickWaterMode('add'); submitQuickLog('add') }}
