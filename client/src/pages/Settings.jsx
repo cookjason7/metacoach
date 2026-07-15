@@ -7,6 +7,7 @@ import BloodworkIntakeForm from '../components/BloodworkIntakeForm.jsx'
 import { Capacitor } from '@capacitor/core'
 import { Browser } from '@capacitor/browser'
 import { requestAppleHealthPermissions, syncAppleHealthToday } from '../hooks/useAppleHealth.js'
+import { getLocalDateString } from '../utils/date.js'
 
 const ACTIVITY_OPTIONS = [
   { value: 'sedentary',         label: 'Sedentary (little or no exercise)' },
@@ -456,7 +457,7 @@ export default function Settings() {
   // Measurements
   const [measurements,   setMeasurements]   = useState([])
   const [mForm,          setMForm]          = useState({
-    measurement_date: new Date().toISOString().slice(0, 10),
+    measurement_date: getLocalDateString(),
     chest: '', waist: '', hips: '',
   })
   const [mSaving, setMSaving] = useState(false)
@@ -831,7 +832,7 @@ export default function Settings() {
 
   function resetMeasurementForm() {
     setEditingMeasurementId(null)
-    setMForm({ measurement_date: new Date().toISOString().slice(0, 10), chest: '', waist: '', hips: '' })
+    setMForm({ measurement_date: getLocalDateString(), chest: '', waist: '', hips: '' })
   }
 
   async function saveMeasurement(e) {
