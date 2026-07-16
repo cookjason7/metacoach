@@ -5220,7 +5220,34 @@ const WO_CIRCUIT_OPTIONS = [
   { id: 'some', icon: '🔄', title: 'Some Circuits', subtitle: '1 per workout' },
   { id: 'full', icon: '🔥', title: 'Full Circuits', subtitle: 'Multiple circuits' },
 ]
-const WO_EMPTY_FORM        = { goals: [], days_per_week: '4', session_length: '45 minutes', equipment: ['Full Gym'], injuries: '', fitness_level: 'Intermediate', supersets: '', circuits: '' }
+const WO_STRENGTH_HISTORY_OPTIONS = [
+  { id: 'never',        label: 'Never strength trained' },
+  { id: 'cardio_only',  label: 'Cardio only' },
+  { id: 'lt_6mo',       label: 'Less than 6 months' },
+  { id: '6_12mo',       label: '6–12 months' },
+  { id: '1yr_plus',     label: '1+ year' },
+  { id: 'returning',    label: 'Returning after 1+ year off' },
+]
+const WO_FLOOR_TRANSFER_OPTIONS = [
+  { id: 'independent',   label: 'Independent — no assistance needed' },
+  { id: 'needs_support', label: 'Needs support to get up/down' },
+  { id: 'unable',        label: 'Unable to get on the floor' },
+  { id: 'restricted',    label: 'Medically restricted from floor work' },
+]
+const WO_EMPTY_FORM = {
+  goals: [],
+  days_per_week: '4',
+  session_length: '45 minutes',
+  equipment: ['Full Gym'],
+  injuries: '',
+  fitness_level: 'Intermediate',
+  supersets: '',
+  circuits: '',
+  strength_history: '',
+  floor_transfer: '',
+  secondary_goal: '',
+  program_direction: '',
+}
 
 // Movement patterns for the exercise-library search filter (mirrors the DB CHECK constraint)
 const MOVEMENT_PATTERNS = [
@@ -5685,6 +5712,8 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
   async function generatePlan(e) {
     e.preventDefault()
     if (!genForm.goals.length) { setGenError('Select at least one goal.'); return }
+    if (!genForm.strength_history) { setGenError('Select the client\'s strength training history.'); return }
+    if (!genForm.floor_transfer) { setGenError('Select the client\'s floor transfer ability.'); return }
     if (!genForm.supersets) { setGenError('Select a superset preference.'); return }
     if (!genForm.circuits) { setGenError('Select a circuit preference.'); return }
     setGenerating(true); setGenError(null)
@@ -6136,6 +6165,39 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
             </div>
           </div>
           <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1">Secondary goal <span className="text-gray-400 font-normal">(optional)</span></label>
+            <p className="text-[11px] text-gray-400 mb-2">Select one additional goal if applicable</p>
+            <div className="flex flex-wrap gap-2">
+              {WO_GOALS.map(g => (
+                <button key={g.id} type="button"
+                  onClick={() => setGenForm(f => ({ ...f, secondary_goal: f.secondary_goal === g.id ? '' : g.id }))}
+                  className={pillCls(genForm.secondary_goal === g.id)}>{g.label}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Strength training history <span className="text-red-400">*</span>
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {WO_STRENGTH_HISTORY_OPTIONS.map(opt => (
+                <button key={opt.id} type="button" onClick={() => setGenForm(f => ({ ...f, strength_history: opt.id }))}
+                  className={pillCls(genForm.strength_history === opt.id)}>{opt.label}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Can the client get up and down from the floor? <span className="text-red-400">*</span>
+            </label>
+            <div className="flex flex-col gap-2">
+              {WO_FLOOR_TRANSFER_OPTIONS.map(opt => (
+                <button key={opt.id} type="button" onClick={() => setGenForm(f => ({ ...f, floor_transfer: opt.id }))}
+                  className={`${pillCls(genForm.floor_transfer === opt.id)} text-left w-full rounded-lg`}>{opt.label}</button>
+              ))}
+            </div>
+          </div>
+          <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">
               Would {clientFirstName || 'your client'} like to include supersets for added intensity? <span className="text-red-400">*</span>
             </label>
@@ -6188,7 +6250,7 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
               className={`${inputCls} resize-none`} />
           </div>
           {genError && <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">{genError}</div>}
-          <button type="submit" disabled={generating || !genForm.goals.length || !genForm.supersets || !genForm.circuits}
+          <button type="submit" disabled={generating || !genForm.goals.length || !genForm.strength_history || !genForm.floor_transfer || !genForm.supersets || !genForm.circuits}
             className="w-full bg-[#E8670A] text-white py-3 rounded-xl text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
             {generating
               ? <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />Katie is building the program…</>
