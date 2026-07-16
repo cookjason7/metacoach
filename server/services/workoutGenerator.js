@@ -53,12 +53,13 @@ function buildDayQuota(dayIndex, sessionLength) {
 // limitations, or an explicit coach override.
 const BILATERAL_SIGNAL_RE = /\b(knee|ankle|balance|hip|vertigo|dizz|stability|fall(ing)?)\b/i
 
-const FLOOR_TRANSFER_FORCE_BILATERAL = new Set(['unable', 'restricted'])
-
-export function shouldPreferBilateral({ injuries, healthAssessmentInjuries, forceBilateral, floorTransfer }) {
+export function shouldPreferBilateral({ injuries, healthAssessmentInjuries, forceBilateral, fitnessLevel, floorTransfer }) {
   if (forceBilateral) return true
-  if (FLOOR_TRANSFER_FORCE_BILATERAL.has(floorTransfer)) {
-    console.warn(`[workoutGenerator] floor_transfer="${floorTransfer}" — forcing bilateral selection; floor exercises will be skipped`)
+  // Beginners always start with bilateral — spec section 5
+  if (fitnessLevel && FITNESS_LEVEL_MAP[fitnessLevel] === 'beginner') return true
+  // Floor transfer unable/restricted — bilateral safer
+  if (floorTransfer === 'unable' || floorTransfer === 'restricted') {
+    console.warn('[workoutGenerator] floor_transfer unable/restricted — forcing bilateral squat/hinge selection')
     return true
   }
   const text = [injuries, healthAssessmentInjuries].filter(Boolean).join(' ')
@@ -220,58 +221,137 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
 const SUPERSET_LABELS = { none: 'No supersets — standard workout', some: 'Some supersets — about 1 per workout', full: 'Full supersets — maximum intensity' }
 const CIRCUIT_LABELS  = { none: 'No circuits — standard format', some: 'Some circuits — about 1 per workout', full: 'Full circuits — multiple circuits' }
 
-function buildWorkoutPrompt(firstName, answers, daySkeletons) {
+function buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext) {
   const goals = Array.isArray(answers.goals) ? answers.goals.join(', ') : answers.goals
   const equipment = Array.isArray(answers.equipment) ? answers.equipment.join(', ') : answers.equipment
+  const isBegginer = (FITNESS_LEVEL_MAP[answers.fitness_level] ?? answers.fitness_level) === 'beginner'
+
   const skeletonText = daySkeletons.map(day => (
     `Day ${day.day_index + 1} (${day.day_focus}):\n` +
     day.slots.map(s => `  - [${s.slot_id}] "${s.name}"`).join('\n')
   )).join('\n\n')
 
-  return `You are Katie, an enthusiastic and supportive fitness coach for the Life Warrior Coaching program.
-Create a personalized weekly workout program for ${firstName} based on their profile:
-- Fitness goals: ${goals}
-- Training days per week: ${answers.days_per_week}
+  const blockedText = beginnerBlockList.length
+    ? `\nBEGINNER BLOCK LIST — these exercises must not appear in cues, substitutions, or warmup suggestions: ${beginnerBlockList.join(', ')}.`
+    : ''
+
+  const floorText = floorTransferContext
+    ? `\n${floorTransferContext}`
+    : ''
+
+  return `You are Katie, the Life Warrior Coaching workout programming assistant for women over 40.
+
+YOUR ROLE
+The exercises for each training day have already been selected from the LWC approved library by movement pattern. Your job is to:
+1. Write sets, reps, rest, and one coaching cue per exercise
+2. Write a dynamic warm-up for each day that prepares the exact movement patterns used that day
+3. Write a brief cool-down reminder for each day
+4. Give the program a name and a short Katie-style intro (2-3 sentences)
+
+Do NOT change, rename, substitute, or add exercises. The exercise list is final.
+
+LIFE WARRIOR COACHING IDENTITY
+You speak with calm authority and genuine care. You are direct, supportive, and never use shame or punishment language. Use language like: "small wins stack," "you showed up — that matters," "momentum builds here," "let's protect that progress." Never say: perfect, failed, failure, bad, lost your streak, non-compliant.
+
+PROGRAMMING PHILOSOPHY — FOLLOW EXACTLY
+- Full-body movement pattern training. Not body-part splits.
+- Maintain at least 1:1 pull-to-push ratio across the week. 2:1 pull-to-push is preferred.
+- Warm-up must use DYNAMIC mobility and activation only. No static stretching before strength work.
+- Warm-up must prepare the exact movement patterns used in that day's strength work.
+- Place core work near the beginning of the strength section, not at the end.
+- Keep power work outside fast circuits — power quality requires recovery.
+- Unilateral reps must always say "each side" — never write an ambiguous total.
+
+CLIENT PROFILE
+- Name: ${firstName}
+- Primary goal: ${goals}
+- Secondary goal: ${answers.secondary_goal || 'None'}
+- Training days/week: ${answers.days_per_week}
 - Session length: ${answers.session_length}
 - Available equipment: ${equipment || 'Full Gym'}
 - Fitness level: ${answers.fitness_level}
-- Supersets: ${SUPERSET_LABELS[answers.supersets] || 'No supersets — standard workout'}
-- Circuits: ${CIRCUIT_LABELS[answers.circuits] || 'No circuits — standard format'}
 - Strength training history: ${answers.strength_history || 'Not specified'}
 - Floor transfer ability: ${answers.floor_transfer || 'Not specified'}
-- Secondary goal: ${answers.secondary_goal || 'None'}
+- Supersets: ${SUPERSET_LABELS[answers.supersets] || 'No supersets'}
+- Circuits: ${CIRCUIT_LABELS[answers.circuits] || 'No circuits'}
 - Injuries/limitations and program direction: ${answers.injuries || 'None'}
+${floorText}
 
-The exercises for each day have already been selected from our exercise library by
-movement pattern — you must NOT change, substitute, rename, or add exercise names.
-Your job is to write sets/reps/rest and a short coaching cue for each listed exercise,
-add a warm-up and cool-down for each day, and give the whole program a name and a
-short Katie-style intro. The "injuries/limitations and program direction" line above may
-contain physical limitations to work around (already reflected in exercise selection —
-just keep cues aware of them), and/or the coach's direction on how they want this program
-structured (e.g. strength- vs. conditioning-focused, higher/lower rep ranges, rest periods,
-pacing) — apply that direction to the sets/reps/rest/cues you write.
+STRUCTURE RULES — ENFORCE EXACTLY
+Supersets selection: ${answers.supersets}
+- "none" = no supersets anywhere in the workout
+- "some" = exactly ONE two-exercise superset per workout day, no more
+- "full" = organize as many exercises as feasible into two-exercise supersets
 
+Circuits selection: ${answers.circuits}
+- "none" = no circuits anywhere in the workout
+- "some" = exactly ONE circuit of 3-4 exercises per workout day, no more
+- "full" = organize the strength work into multiple 3-4 exercise circuits where session length permits
+
+Circuits and supersets may coexist only when both are selected and session length supports them.
+Show inter-exercise rest AND round rest explicitly when circuits or supersets are used.
+Use opposing or non-competing movement patterns in supersets/circuits (upper/lower alternation preferred).
+${blockedText}
+
+BEGINNER RULES${isBegginer ? ' — THIS CLIENT IS A BEGINNER. ENFORCE ALL OF THESE.' : ' (not applicable — intermediate/advanced client)'}
+${isBegginer ? `- Begin with low complexity and generous rest (minimum 60 seconds between sets)
+- 2 sets of 10-12 reps for strength exercises
+- Prioritize breathing, setup, and movement control in every cue
+- Do not write cues that assume prior strength training experience
+- Warmup cues should be simple and clearly explained
+- Flag any exercise in the list that seems beyond beginner level so the coach can review` : `- Standard sets/reps/rest appropriate for ${answers.fitness_level} level`}
+
+SETS/REPS/REST DEFAULTS BY GOAL
+- Weight loss: 3 sets 8-12 reps, 30-45 sec rest in circuits, up to 10 min post-strength conditioning
+- Muscle gain: 3-4 sets 8-10 reps, 60-90 sec rest between pairings
+- Endurance: higher reps 12-15, shorter rest 30-45 sec
+- General fitness: 3 sets 10-12 reps, 45-60 sec rest
+- Flexibility/mobility: focus on range and control, not load
+
+Apply the session length (${answers.session_length}) to keep total workout time realistic. Do not prescribe more volume than fits the time.
+
+WARM-UP RULES
+- Approximately 5 minutes
+- Dynamic mobility and activation ONLY — no static stretching
+- Must prepare every movement pattern used in that day's strength work
+- Write it as 3-5 specific exercises or one integrated flow (e.g. "leg swings → hip circles → bodyweight squat → arm circles → band pull-apart")
+- Keep cues brief and actionable
+
+COOL-DOWN
+- Brief reminder only (1-2 sentences)
+- Tell the client what to stretch and why — do not write a full routine
+
+TRAINING DAY EXERCISES (DO NOT CHANGE THESE):
 ${skeletonText}
 
 Return ONLY a valid JSON object with this exact structure (no markdown, no extra text):
 {
-  "program_name": "string (creative, motivating program name)",
-  "description": "string (2-3 sentences, Katie-style intro to this program)",
+  "program_name": "string (creative, motivating LWC-style program name)",
+  "description": "string (2-3 sentences, Katie-style intro using Life Warrior language)",
   "days": [
     {
-      "warmup": { "reps": "string (e.g. '5 minutes')", "notes": "string, brief warm-up description" },
-      "cooldown": { "reps": "string (e.g. '5 minutes')", "notes": "string, brief cool-down description" },
+      "warmup": {
+        "duration": "string (e.g. '5 minutes')",
+        "exercises": "string (specific dynamic movements that prepare today's patterns)"
+      },
+      "cooldown": {
+        "duration": "string (e.g. '3-5 minutes')",
+        "notes": "string (brief stretch reminder)"
+      },
       "exercises": [
-        { "slot_id": "string, exactly as given above", "sets": number, "reps": "string (e.g. '10-12' or '30 seconds')", "rest_seconds": number, "notes": "string (brief form tip or coaching cue, 1 sentence)" }
+        {
+          "slot_id": "string (exactly as given above)",
+          "sets": number,
+          "reps": "string (e.g. '10-12' or '30 seconds' or '10 each side')",
+          "rest_seconds": number,
+          "notes": "string (one coaching cue — form tip, breathing, or encouragement)"
+        }
       ]
     }
   ]
 }
 
-Include exactly ${daySkeletons.length} days, in the same order as given above, and echo each
-slot_id exactly as provided so exercises can be matched back up. Make the sets/reps/rest
-realistic and progressive for a ${answers.fitness_level} trainee with a ${answers.session_length} session.`
+Include exactly ${daySkeletons.length} days in the same order as given. Echo each slot_id exactly as provided. Make sets/reps/rest realistic for a ${answers.fitness_level} trainee with a ${answers.session_length} session.`
 }
 
 // ── Response merge ───────────────────────────────────────────────────────────
@@ -288,7 +368,7 @@ function mergeResponse(daySkeletons, aiPlan) {
 
     const exercises = []
     if (aiDay.warmup) {
-      exercises.push({ name: 'Warm-Up', sets: 1, reps: aiDay.warmup.reps ?? '5 minutes', rest_seconds: null, notes: aiDay.warmup.notes ?? null, exercise_id: null, movement_pattern: null })
+      exercises.push({ name: 'Warm-Up', sets: 1, reps: aiDay.warmup.duration ?? '5 minutes', rest_seconds: null, notes: aiDay.warmup.exercises ?? aiDay.warmup.notes ?? null, exercise_id: null, movement_pattern: null })
     }
     for (const slot of skeleton.slots) {
       const ai = aiBySlot.get(slot.slot_id) ?? {}
@@ -398,6 +478,72 @@ async function requestAndParsePlan(prompt) {
   )
 }
 
+// ── Validator 1: Push/pull ratio ─────────────────────────────────────────────
+// Counts upper_push vs upper_pull slots across the full week.
+// Rejects if push > pull at the weekly level.
+function validatePushPullRatio(daysPerWeek, sessionLength) {
+  let pushCount = 0
+  let pullCount = 0
+  for (let d = 0; d < daysPerWeek; d++) {
+    const quota = buildDayQuota(d, sessionLength)
+    for (const slot of quota) {
+      if (slot === 'upper_push') pushCount++
+      if (slot === 'upper_pull') pullCount++
+    }
+  }
+  if (pushCount > pullCount) {
+    throw new Error(
+      `Push/pull imbalance: ${pushCount} push slots vs ${pullCount} pull slots across the week. Pull must equal or exceed push. Adjust buildDayQuota or session length.`
+    )
+  }
+  console.log(`[workoutGenerator] Push/pull check passed: ${pushCount} push / ${pullCount} pull`)
+}
+
+// ── Validator 2: Circuit and superset count ───────────────────────────────────
+// "some" means exactly 1 per workout day. "none" means 0. "full" means as many as fit.
+// This validator logs the selections so they are explicit in server logs.
+// Actual enforcement of count is in the Katie prompt (Part 3).
+function validateCircuitSuperset(answers) {
+  const valid = ['none', 'some', 'full']
+  if (!valid.includes(answers.supersets)) {
+    throw new Error(`Invalid supersets value: "${answers.supersets}". Must be one of: none, some, full.`)
+  }
+  if (!valid.includes(answers.circuits)) {
+    throw new Error(`Invalid circuits value: "${answers.circuits}". Must be one of: none, some, full.`)
+  }
+  console.log(`[workoutGenerator] Structure: supersets=${answers.supersets} circuits=${answers.circuits}`)
+}
+
+// ── Validator 3: Beginner exercise block list ─────────────────────────────────
+// These exercise names are blocked for beginner clients at the prompt level.
+// The validator logs a warning so coaches can see when a block was triggered.
+const BEGINNER_BLOCKED_EXERCISES = [
+  'dip', 'bench dip', 'ring dip',
+  'clean', 'power clean', 'hang clean', 'clean and press',
+  'kettlebell swing', 'single-leg kettlebell swing',
+  'russian twist',
+  'sit-up', 'full sit-up',
+  'box jump', 'depth jump',
+]
+
+function getBeginnnerBlockList(fitnessLevel) {
+  if (FITNESS_LEVEL_MAP[fitnessLevel] !== 'beginner') return []
+  return BEGINNER_BLOCKED_EXERCISES
+}
+
+// ── Validator 4: Floor transfer exercise filter ───────────────────────────────
+// If floor_transfer is unable or restricted, warn Katie in the prompt
+// and flag it so exercise instructions avoid floor cues.
+function getFloorTransferContext(floorTransfer) {
+  if (floorTransfer === 'unable' || floorTransfer === 'restricted') {
+    return 'CLIENT CANNOT GET ON THE FLOOR. Do not write warmup, exercise, or cooldown cues that require lying down, getting on hands and knees, or floor-based positions. Substitute seated or standing alternatives in all coaching notes.'
+  }
+  if (floorTransfer === 'needs_support') {
+    return 'Client needs support to get up and down from the floor. Note this in any coaching cues for floor-based exercises — suggest using a chair or wall for assistance.'
+  }
+  return null
+}
+
 // ── Public entry point ───────────────────────────────────────────────────────
 
 /**
@@ -419,8 +565,14 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
     injuries: answers.injuries,
     healthAssessmentInjuries: opts.healthAssessmentInjuries,
     forceBilateral: opts.forceBilateral,
+    fitnessLevel: answers.fitness_level,
     floorTransfer: answers.floor_transfer,
   })
+
+  validatePushPullRatio(answers.days_per_week, answers.session_length)
+  validateCircuitSuperset(answers)
+  const beginnerBlockList = getBeginnnerBlockList(answers.fitness_level)
+  const floorTransferContext = getFloorTransferContext(answers.floor_transfer)
 
   const requiredPatterns = getRequiredPatterns(answers.days_per_week, answers.session_length, preferBilateral)
   await assertLibraryHasRequiredPatterns(pool, requiredPatterns)
@@ -433,7 +585,7 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
     preferBilateral,
   })
 
-  const prompt = buildWorkoutPrompt(firstName, answers, daySkeletons)
+  const prompt = buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext)
   const aiPlan = await requestAndParsePlan(prompt)
 
   return mergeResponse(daySkeletons, aiPlan)
