@@ -426,7 +426,7 @@ export async function migrate() {
                            'squat_bilateral', 'squat_unilateral',
                            'hinge_bilateral', 'hinge_unilateral',
                            'upper_push', 'upper_pull', 'core', 'carry',
-                           'conditioning', 'mobility'
+                           'conditioning', 'mobility', 'arms'
                          )),
       is_unilateral     BOOLEAN NOT NULL DEFAULT FALSE,
       primary_muscles   TEXT[] DEFAULT '{}',
