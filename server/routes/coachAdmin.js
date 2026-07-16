@@ -5,7 +5,7 @@ import { pool, getOrCreateUser } from '../db.js'
 import { sendInviteEmail } from '../services/email.js'
 import { getAppBaseUrl } from '../services/appUrl.js'
 import { notifyNewDirectMessage, notifyNewFormDelivery } from '../services/pushService.js'
-import { generateWorkoutPlan } from '../services/workoutGenerator.js'
+import { generateWorkoutPlan, ExerciseLibraryError } from '../services/workoutGenerator.js'
 
 const router = Router()
 
@@ -3522,24 +3522,40 @@ router.post('/clients/:id/workouts/generate', requireAuth(), async (req, res, ne
     if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
 
     const answers = req.body
-    if (!answers.goals || !answers.days_per_week || !answers.fitness_level || !answers.supersets || !answers.circuits) {
-      return res.status(400).json({ error: 'Missing required fields' })
+    if (!answers.goals?.length || !answers.days_per_week || !answers.fitness_level || !answers.supersets || !answers.circuits) {
+      return res.status(400).json({ error: 'Missing required fields: goals, days_per_week, fitness_level, supersets, circuits' })
+    }
+    if (!answers.strength_history) {
+      return res.status(400).json({ error: 'Missing required field: strength_history' })
+    }
+    if (!answers.floor_transfer) {
+      return res.status(400).json({ error: 'Missing required field: floor_transfer' })
     }
 
-    // Use the client's first name in the Katie prompt
-    const { rows: [client] } = await pool.query('SELECT first_name FROM users WHERE id=$1', [clientId])
+    // Get client first name for Katie prompt
+    const { rows: [client] } = await pool.query(
+      'SELECT first_name FROM users WHERE id = $1', [clientId]
+    )
     const firstName = client?.first_name || 'your client'
 
+    // Get health assessment injuries to supplement the questionnaire injuries field
     const { rows: [assessment] } = await pool.query(
-      'SELECT injuries_limitations FROM health_assessments WHERE user_id = $1', [clientId],
+      'SELECT injuries_limitations FROM health_assessments WHERE user_id = $1', [clientId]
     )
+    const healthAssessmentInjuries = assessment?.injuries_limitations || null
 
     const plan = await generateWorkoutPlan(pool, firstName, answers, {
-      healthAssessmentInjuries: assessment?.injuries_limitations ?? null,
-      forceBilateral: answers.force_bilateral === true,
+      healthAssessmentInjuries,
+      forceBilateral: false,
     })
+
     res.json(plan)
-  } catch (err) { next(err) }
+  } catch (err) {
+    if (err instanceof ExerciseLibraryError) {
+      return res.status(503).json({ error: err.message })
+    }
+    next(err)
+  }
 })
 
 // POST /api/coach-admin/clients/:id/workouts — create a workout program for a client
