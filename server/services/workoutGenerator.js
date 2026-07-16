@@ -53,8 +53,14 @@ function buildDayQuota(dayIndex, sessionLength) {
 // limitations, or an explicit coach override.
 const BILATERAL_SIGNAL_RE = /\b(knee|ankle|balance|hip|vertigo|dizz|stability|fall(ing)?)\b/i
 
-export function shouldPreferBilateral({ injuries, healthAssessmentInjuries, forceBilateral }) {
+const FLOOR_TRANSFER_FORCE_BILATERAL = new Set(['unable', 'restricted'])
+
+export function shouldPreferBilateral({ injuries, healthAssessmentInjuries, forceBilateral, floorTransfer }) {
   if (forceBilateral) return true
+  if (FLOOR_TRANSFER_FORCE_BILATERAL.has(floorTransfer)) {
+    console.warn(`[workoutGenerator] floor_transfer="${floorTransfer}" — forcing bilateral selection; floor exercises will be skipped`)
+    return true
+  }
   const text = [injuries, healthAssessmentInjuries].filter(Boolean).join(' ')
   return BILATERAL_SIGNAL_RE.test(text)
 }
@@ -231,6 +237,9 @@ Create a personalized weekly workout program for ${firstName} based on their pro
 - Fitness level: ${answers.fitness_level}
 - Supersets: ${SUPERSET_LABELS[answers.supersets] || 'No supersets — standard workout'}
 - Circuits: ${CIRCUIT_LABELS[answers.circuits] || 'No circuits — standard format'}
+- Strength training history: ${answers.strength_history || 'Not specified'}
+- Floor transfer ability: ${answers.floor_transfer || 'Not specified'}
+- Secondary goal: ${answers.secondary_goal || 'None'}
 - Injuries/limitations and program direction: ${answers.injuries || 'None'}
 
 The exercises for each day have already been selected from our exercise library by
@@ -410,6 +419,7 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
     injuries: answers.injuries,
     healthAssessmentInjuries: opts.healthAssessmentInjuries,
     forceBilateral: opts.forceBilateral,
+    floorTransfer: answers.floor_transfer,
   })
 
   const requiredPatterns = getRequiredPatterns(answers.days_per_week, answers.session_length, preferBilateral)

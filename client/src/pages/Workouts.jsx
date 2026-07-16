@@ -31,13 +31,45 @@ const EQUIPMENT_OPTIONS = [
 
 const FITNESS_LEVELS = ['Beginner', 'Intermediate', 'Advanced']
 
+const STRENGTH_HISTORY_OPTIONS = [
+  { id: 'never',        label: 'Never strength trained' },
+  { id: 'cardio_only',  label: 'Cardio only' },
+  { id: 'lt_6mo',       label: 'Less than 6 months' },
+  { id: '6_12mo',       label: '6–12 months' },
+  { id: '1yr_plus',     label: '1+ year' },
+  { id: 'returning',    label: 'Returning after 1+ year off' },
+]
+
+const FLOOR_TRANSFER_OPTIONS = [
+  { id: 'independent',   label: 'I can get up and down from the floor on my own' },
+  { id: 'needs_support', label: 'I need something to hold onto' },
+  { id: 'unable',        label: 'I cannot get on the floor' },
+  { id: 'restricted',    label: 'Medically restricted from floor work' },
+]
+
+const SUPERSET_OPTIONS = [
+  { id: 'none', label: 'No Supersets' },
+  { id: 'some', label: 'Some Supersets' },
+  { id: 'full', label: 'Full Supersets' },
+]
+
+const CIRCUIT_OPTIONS = [
+  { id: 'none', label: 'No Circuits' },
+  { id: 'some', label: 'Some Circuits' },
+  { id: 'full', label: 'Full Circuits' },
+]
+
 const EMPTY_FORM = {
   goals: [],
-  days_per_week: '4',
-  session_length: '45 minutes',
-  equipment: ['Full gym'],
+  days_per_week: '3',
+  session_length: '30 minutes',
+  equipment: [],
+  fitness_level: 'Beginner',
+  strength_history: '',
+  floor_transfer: '',
+  supersets: '',
+  circuits: '',
   injuries: '',
-  fitness_level: 'Intermediate',
 }
 
 // ── Questionnaire — Katie generates the starting plan ─────────────────────────
@@ -65,13 +97,24 @@ function Questionnaire({ onGenerate }) {
   async function handleSubmit(e) {
     e.preventDefault()
     if (!form.goals.length) { setError('Please select at least one goal.'); return }
+    if (!form.strength_history) { setError('Please tell us your strength training history.'); return }
+    if (!form.floor_transfer) { setError('Please tell us if you can get up and down from the floor.'); return }
+    if (!form.supersets) { setError('Please select a superset preference.'); return }
+    if (!form.circuits) { setError('Please select a circuit preference.'); return }
     setGenerating(true); setError(null)
     try {
       const token = await getToken()
       const res = await fetch(`${API_URL}/api/workouts/generate`, {
         method:  'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, days_per_week: parseInt(form.days_per_week, 10) }),
+        body: JSON.stringify({
+          ...form,
+          days_per_week: parseInt(form.days_per_week, 10),
+          strength_history: form.strength_history,
+          floor_transfer: form.floor_transfer,
+          supersets: form.supersets,
+          circuits: form.circuits,
+        }),
       })
       if (!res.ok) {
         const { error: msg } = await res.json().catch(() => ({}))
@@ -158,6 +201,54 @@ function Questionnaire({ onGenerate }) {
         </div>
 
         <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
+            How long have you been strength training? <span className="text-red-400">*</span>
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {STRENGTH_HISTORY_OPTIONS.map(opt => (
+              <button key={opt.id} type="button" onClick={() => setForm(f => ({ ...f, strength_history: opt.id }))}
+                className={pillCls(form.strength_history === opt.id)}>{opt.label}</button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
+            Can you get up and down from the floor? <span className="text-red-400">*</span>
+          </label>
+          <div className="flex flex-col gap-2">
+            {FLOOR_TRANSFER_OPTIONS.map(opt => (
+              <button key={opt.id} type="button" onClick={() => setForm(f => ({ ...f, floor_transfer: opt.id }))}
+                className={`${pillCls(form.floor_transfer === opt.id)} text-left w-full rounded-lg`}>{opt.label}</button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
+            Do you want to include supersets? <span className="text-red-400">*</span>
+          </label>
+          <div className="flex gap-2 flex-wrap">
+            {SUPERSET_OPTIONS.map(opt => (
+              <button key={opt.id} type="button" onClick={() => setForm(f => ({ ...f, supersets: opt.id }))}
+                className={pillCls(form.supersets === opt.id)}>{opt.label}</button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
+            Do you want to include circuits? <span className="text-red-400">*</span>
+          </label>
+          <div className="flex gap-2 flex-wrap">
+            {CIRCUIT_OPTIONS.map(opt => (
+              <button key={opt.id} type="button" onClick={() => setForm(f => ({ ...f, circuits: opt.id }))}
+                className={pillCls(form.circuits === opt.id)}>{opt.label}</button>
+            ))}
+          </div>
+        </div>
+
+        <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1">
             Injuries or limitations <span className="text-gray-400 font-normal">(optional)</span>
           </label>
@@ -175,7 +266,7 @@ function Questionnaire({ onGenerate }) {
 
         <button
           type="submit"
-          disabled={generating || !form.goals.length}
+          disabled={generating || !form.goals.length || !form.strength_history || !form.floor_transfer || !form.supersets || !form.circuits}
           className="w-full bg-[#E8670A] text-white py-3 rounded-xl text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
         >
           {generating ? (
