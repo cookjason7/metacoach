@@ -521,39 +521,43 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
 
       <div className="p-4">
         {/* Header */}
-        <div className="flex items-start gap-3 mb-3">
-          <Avatar name={post.first_name} />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <p className="text-sm font-semibold text-gray-900">{post.first_name ?? 'Member'}</p>
-              {post.hot && <span title="Trending" className="text-sm leading-none">🔥</span>}
+        <div className="mb-3">
+          {/* Row 1: avatar, name, actions */}
+          <div className="flex items-center gap-3">
+            <Avatar name={post.first_name} />
+            <div className="flex-1 min-w-0 flex items-center gap-2">
+              <p className="text-sm font-semibold text-gray-900 truncate">{post.first_name ?? 'Member'}</p>
+              {post.hot && <span title="Trending" className="text-sm leading-none shrink-0">🔥</span>}
             </div>
-            <p className="text-xs text-gray-400">{timeAgo(post.created_at)}</p>
+            <div className="flex items-center gap-3 shrink-0">
+              {canEdit && (
+                <button
+                  onClick={() => { setIsEditing(e => !e); setEditContent(post.content); setEditCategory(post.category ?? CATEGORIES[0]) }}
+                  className="text-sm text-gray-400 hover:text-gray-700 transition-colors"
+                >
+                  {isEditing ? 'Cancel' : 'Edit'}
+                </button>
+              )}
+              {isAdmin && (
+                <>
+                  <button onClick={() => onPin(post.id)} className="text-sm text-amber-500 hover:text-amber-700 transition-colors">
+                    {post.pinned ? 'Unpin' : 'Pin'}
+                  </button>
+                  <button onClick={() => onDeletePost(post.id)} className="text-sm text-red-400 hover:text-red-600 transition-colors">
+                    Delete
+                  </button>
+                </>
+              )}
+            </div>
           </div>
-          {catStyle && !isEditing && (
-            <span className={`text-xs px-2 py-0.5 rounded-full border font-medium shrink-0 max-w-[9rem] truncate ${catStyle}`}>
-              {post.category}
-            </span>
-          )}
-          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-            {canEdit && (
-              <button
-                onClick={() => { setIsEditing(e => !e); setEditContent(post.content); setEditCategory(post.category ?? CATEGORIES[0]) }}
-                className="text-xs text-gray-400 hover:text-gray-700 transition-colors"
-              >
-                {isEditing ? 'Cancel' : 'Edit'}
-              </button>
+          {/* Row 2: category badge + timestamp, indented under avatar */}
+          <div className="flex items-center gap-2 mt-1 pl-12">
+            {catStyle && !isEditing && (
+              <span className={`text-xs px-2 py-0.5 rounded-full border font-medium shrink-0 max-w-[9rem] truncate ${catStyle}`}>
+                {post.category}
+              </span>
             )}
-            {isAdmin && (
-              <>
-                <button onClick={() => onPin(post.id)} className="text-xs text-amber-500 hover:text-amber-700 transition-colors">
-                  {post.pinned ? 'Unpin' : 'Pin'}
-                </button>
-                <button onClick={() => onDeletePost(post.id)} className="text-xs text-red-400 hover:text-red-600 transition-colors">
-                  Delete
-                </button>
-              </>
-            )}
+            <p className="text-xs text-gray-400 shrink-0">{timeAgo(post.created_at)}</p>
           </div>
         </div>
 
