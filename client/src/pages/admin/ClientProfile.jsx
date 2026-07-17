@@ -5235,7 +5235,7 @@ const WO_FLOOR_TRANSFER_OPTIONS = [
   { id: 'restricted',    label: 'Medically restricted from floor work' },
 ]
 const WO_EMPTY_FORM = {
-  goals: [],
+  goals: '',
   days_per_week: '4',
   session_length: '45 minutes',
   equipment: ['Full Gym'],
@@ -5705,15 +5705,15 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
   }
 
   // ── Katie generation ───────────────────────────────────────────────────────
-  function toggleGenGoal(id) {
-    setGenForm(f => ({ ...f, goals: f.goals.includes(id) ? f.goals.filter(g => g !== id) : [...f.goals, id] }))
+  function selectGenGoal(id) {
+    setGenForm(f => ({ ...f, goals: id }))
   }
   function toggleGenEquipment(eq) {
     setGenForm(f => ({ ...f, equipment: f.equipment.includes(eq) ? f.equipment.filter(e => e !== eq) : [...f.equipment, eq] }))
   }
   async function generatePlan(e) {
     e.preventDefault()
-    if (!genForm.goals.length) { setGenError('Select at least one goal.'); return }
+    if (!genForm.goals) { setGenError('Select a goal.'); return }
     if (!genForm.strength_history) { setGenError('Select the client\'s strength training history.'); return }
     if (!genForm.floor_transfer) { setGenError('Select the client\'s floor transfer ability.'); return }
     if (!genForm.supersets) { setGenError('Select a superset preference.'); return }
@@ -5732,6 +5732,7 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
       }
       setGeneratedPlan(await res.json())
       setGenFlow('review')
+      setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 100)
     } catch (err) { setGenError(err.message) } finally { setGenerating(false) }
   }
   async function savePlan(status = 'assigned') {
@@ -6224,8 +6225,8 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
             <label className="block text-sm font-semibold text-gray-700 mb-2">Fitness goals <span className="text-red-400">*</span></label>
             <div className="flex flex-wrap gap-2">
               {WO_GOALS.map(g => (
-                <button key={g.id} type="button" onClick={() => toggleGenGoal(g.id)}
-                  className={pillCls(genForm.goals.includes(g.id))}>{g.label}</button>
+                <button key={g.id} type="button" onClick={() => selectGenGoal(g.id)}
+                  className={pillCls(genForm.goals === g.id)}>{g.label}</button>
               ))}
             </div>
           </div>
@@ -6351,7 +6352,7 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
               className={`${inputCls} resize-none`} />
           </div>
           {genError && <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">{genError}</div>}
-          <button type="submit" disabled={generating || !genForm.goals.length || !genForm.strength_history || !genForm.floor_transfer || !genForm.supersets || !genForm.circuits}
+          <button type="submit" disabled={generating || !genForm.goals || !genForm.strength_history || !genForm.floor_transfer || !genForm.supersets || !genForm.circuits}
             className="w-full bg-[#E8670A] text-white py-3 rounded-xl text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
             {generating
               ? <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />Katie is building the program…</>

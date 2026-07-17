@@ -60,7 +60,7 @@ const CIRCUIT_OPTIONS = [
 ]
 
 const EMPTY_FORM = {
-  goals: [],
+  goals: '',
   days_per_week: '3',
   session_length: '30 minutes',
   equipment: [],
@@ -80,11 +80,8 @@ function Questionnaire({ onGenerate }) {
   const [error,      setError]      = useState(null)
   const { getToken } = useAuth()
 
-  function toggleGoal(id) {
-    setForm(f => ({
-      ...f,
-      goals: f.goals.includes(id) ? f.goals.filter(g => g !== id) : [...f.goals, id],
-    }))
+  function selectGoal(id) {
+    setForm(f => ({ ...f, goals: id }))
   }
 
   function toggleEquipment(eq) {
@@ -96,7 +93,7 @@ function Questionnaire({ onGenerate }) {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!form.goals.length) { setError('Please select at least one goal.'); return }
+    if (!form.goals) { setError('Please select a goal.'); return }
     if (!form.strength_history) { setError('Please tell us your strength training history.'); return }
     if (!form.floor_transfer) { setError('Please tell us if you can get up and down from the floor.'); return }
     if (!form.supersets) { setError('Please select a superset preference.'); return }
@@ -152,8 +149,8 @@ function Questionnaire({ onGenerate }) {
           </label>
           <div className="flex flex-wrap gap-2">
             {GOALS.map(g => (
-              <button key={g.id} type="button" onClick={() => toggleGoal(g.id)}
-                className={pillCls(form.goals.includes(g.id))}>
+              <button key={g.id} type="button" onClick={() => selectGoal(g.id)}
+                className={pillCls(form.goals === g.id)}>
                 {g.label}
               </button>
             ))}
@@ -266,7 +263,7 @@ function Questionnaire({ onGenerate }) {
 
         <button
           type="submit"
-          disabled={generating || !form.goals.length || !form.strength_history || !form.floor_transfer || !form.supersets || !form.circuits}
+          disabled={generating || !form.goals || !form.strength_history || !form.floor_transfer || !form.supersets || !form.circuits}
           className="w-full bg-[#E8670A] text-white py-3 rounded-xl text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
         >
           {generating ? (
