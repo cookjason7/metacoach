@@ -1728,9 +1728,9 @@ export default function CoachDashboard({ getToken, userRole }) {
         throw new Error(err.error ?? 'Failed to add tag')
       }
       // Update client's tags in state
+      const newTag = await res.json()
       setClients(prev => prev.map(c => {
         if (c.id === clientId) {
-          const newTag = await res.json()
           return { ...c, tags: [...(c.tags ?? []), newTag] }
         }
         return c
