@@ -5732,7 +5732,15 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
       }
       setGeneratedPlan(await res.json())
       setGenFlow('review')
-      setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 100)
+      setTimeout(() => {
+        const scrollable = document.querySelector('.overflow-y-auto')
+          || document.querySelector('main')
+          || document.querySelector('[class*="overflow"]')
+        if (scrollable) {
+          scrollable.scrollTo({ top: 0, behavior: 'smooth' })
+        }
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      }, 150)
     } catch (err) { setGenError(err.message) } finally { setGenerating(false) }
   }
   async function savePlan(status = 'assigned') {
