@@ -914,6 +914,19 @@ export async function migrate() {
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_notes_client ON client_notes (client_id)`)
 
+  // Client tags (CRM-style tagging for admin dashboard)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS client_tags (
+      id         SERIAL PRIMARY KEY,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      tag_name   VARCHAR(50) NOT NULL,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(user_id, tag_name)
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_tags_user ON client_tags (user_id)`)
+
   // Client messaging (with thread visibility scoping)
   // thread_type: 'coach_thread' (visible to client + coach + admin)
   //              'admin_private' (visible to client + admin only)

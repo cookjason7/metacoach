@@ -160,6 +160,28 @@ function StatusBadge({ status }) {
   )
 }
 
+// ── TagChip ──────────────────────────────────────────────────────────────────
+// Single tag chip with optional delete button for inline display on client list.
+
+function TagChip({ tag, onDelete, isEditingId, setEditingId }) {
+  const displayName = tag.tag_name.charAt(0).toUpperCase() + tag.tag_name.slice(1)
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold bg-[#f97316] text-white whitespace-nowrap">
+      {displayName}
+      {onDelete && (
+        <button
+          onClick={e => { e.stopPropagation(); onDelete(tag.tag_name); setEditingId(null) }}
+          className="ml-0.5 text-white hover:opacity-75 transition-opacity focus:outline-none min-w-[20px] h-full flex items-center justify-center"
+          aria-label={`Remove ${displayName} tag`}
+          title="Remove tag"
+        >
+          ✕
+        </button>
+      )}
+    </span>
+  )
+}
+
 // ── RecentActivityRail ────────────────────────────────────────────────────────
 // Compact activity feed used in both the right rail (desktop) and below tabs (mobile).
 
@@ -1661,6 +1683,12 @@ export default function CoachDashboard({ getToken, userRole }) {
   const [bulkMessageOpen,   setBulkMessageOpen]    = useState(false)
   const [bulkToast,         setBulkToast]          = useState(null)
 
+  // ── Tags ─────────────────────────────────────────────────────────────────────
+  const [editingClientId,   setEditingClientId]    = useState(null) // which client's tags are being edited
+  const [newTagInput,       setNewTagInput]        = useState('') // text being typed into new tag input
+  const [tagError,          setTagError]           = useState(null)
+  const [tagLoading,        setTagLoading]         = useState(false)
+
   // ── Filters ─────────────────────────────────────────────────────────────────
   const [clientSearch,   setClientSearch]   = useState('')
   const [coachFilter,    setCoachFilter]    = useState('all')
@@ -1680,6 +1708,56 @@ export default function CoachDashboard({ getToken, userRole }) {
     }
   }
   const [repliedIds,     setRepliedIds]     = useState(() => new Set()) // optimistic checkin-replied toggles
+
+  // ── Tag handlers ─────────────────────────────────────────────────────────────
+  async function addTag(clientId) {
+    const input = newTagInput.trim()
+    if (!input) { setTagError('Tag cannot be empty'); return }
+    if (input.length > 50) { setTagError('Tag must be 50 characters or less'); return }
+
+    setTagLoading(true); setTagError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/tags`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ tag_name: input }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error ?? 'Failed to add tag')
+      }
+      // Update client's tags in state
+      setClients(prev => prev.map(c => {
+        if (c.id === clientId) {
+          const newTag = await res.json()
+          return { ...c, tags: [...(c.tags ?? []), newTag] }
+        }
+        return c
+      }))
+      setNewTagInput('')
+      setEditingClientId(null)
+    } catch (err) { setTagError(err.message) } finally { setTagLoading(false) }
+  }
+
+  async function removeTag(clientId, tagName) {
+    setTagLoading(true); setTagError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/tags/${encodeURIComponent(tagName)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error('Failed to remove tag')
+      // Update client's tags in state
+      setClients(prev => prev.map(c => {
+        if (c.id === clientId) {
+          return { ...c, tags: (c.tags ?? []).filter(t => t.tag_name !== tagName) }
+        }
+        return c
+      }))
+    } catch (err) { setTagError(err.message) } finally { setTagLoading(false) }
+  }
 
   // ── Tabs ─────────────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState('clients')
@@ -2270,6 +2348,7 @@ export default function CoachDashboard({ getToken, userRole }) {
                       </SortHeader>
                       <SortHeader col="momentum" sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Momentum</SortHeader>
                       <SortHeader col="status"   sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>Status</SortHeader>
+                      <th className="px-3 py-2 font-semibold">Tags</th>
                       <th className="text-right px-3 py-2 font-semibold">Actions</th>
                     </tr>
                   </thead>
@@ -2336,6 +2415,50 @@ export default function CoachDashboard({ getToken, userRole }) {
                           <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${accountStatusBadgeClass(c)}`}>
                             {accountStatusLabel(c)}
                           </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-wrap items-center gap-1">
+                            {!c.tags?.length ? (
+                              <span className="text-xs text-gray-400">No tags</span>
+                            ) : (
+                              c.tags.map(tag => (
+                                <TagChip key={tag.id} tag={tag} onDelete={isAdmin ? () => removeTag(c.id, tag.tag_name) : null} isEditingId={editingClientId} setEditingId={setEditingClientId} />
+                              ))
+                            )}
+                            {isAdmin && editingClientId === c.id && (
+                              <div className="flex items-center gap-1 mt-1" onClick={e => e.stopPropagation()}>
+                                <input
+                                  type="text"
+                                  value={newTagInput}
+                                  onChange={e => { setNewTagInput(e.target.value); setTagError(null) }}
+                                  onKeyPress={e => e.key === 'Enter' && addTag(c.id)}
+                                  placeholder="Add tag..."
+                                  maxLength={50}
+                                  className="px-2 py-1 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                                  disabled={tagLoading}
+                                  autoFocus
+                                />
+                                <button
+                                  onClick={e => { e.stopPropagation(); addTag(c.id) }}
+                                  disabled={tagLoading || !newTagInput.trim()}
+                                  className="px-2 py-1 text-xs bg-[#E8670A] text-white rounded-lg hover:bg-[#c45e09] disabled:opacity-40 transition-colors"
+                                >
+                                  {tagLoading ? '…' : 'Add'}
+                                </button>
+                              </div>
+                            )}
+                            {isAdmin && editingClientId !== c.id && (
+                              <button
+                                onClick={e => { e.stopPropagation(); setEditingClientId(c.id); setNewTagInput(''); setTagError(null) }}
+                                className="text-[10px] text-[#E8670A] hover:text-[#c45e09] font-semibold"
+                              >
+                                + Add
+                              </button>
+                            )}
+                            {tagError && editingClientId === c.id && (
+                              <p className="text-[10px] text-red-500 w-full">{tagError}</p>
+                            )}
+                          </div>
                         </td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           <MessageIconButton
@@ -2411,21 +2534,68 @@ export default function CoachDashboard({ getToken, userRole }) {
                         <span className="text-gray-400">Login {daysSince(c.last_login_at) === 0 ? 'today' : `${daysSince(c.last_login_at)}d ago`}</span>
                       )}
                     </div>
-                    <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between gap-2">
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${accountStatusBadgeClass(c)}`}>
-                        {accountStatusLabel(c)}
-                      </span>
-                      <div className="flex items-center gap-3">
-                        <MessageIconButton
-                          className="min-w-[44px] min-h-[44px]"
-                          onClick={e => { e.stopPropagation(); setMessageClient({ id: c.id, name: clientName(c) }) }}
-                        />
-                        {c.client_status === 'deactivated'
-                          ? <button type="button" onClick={e => reactivateClient(e, c.id)} className="text-[11px] text-emerald-600 hover:text-emerald-700 font-semibold min-h-[44px] px-1">Reactivate</button>
-                          : <button type="button" onClick={e => deactivateClient(e, c.id)} className="text-[11px] text-gray-500 hover:text-gray-700 font-medium min-h-[44px] px-1">Deactivate</button>
-                        }
-                        <button type="button" onClick={e => deleteClient(e, c.id, c.first_name ?? 'this client')}
-                          className="text-[11px] text-red-400 hover:text-red-600 font-medium min-h-[44px] px-1">Delete</button>
+                    <div className="mt-2 pt-2 border-t border-gray-100">
+                      <div className="mb-2">
+                        <p className="text-[10px] font-semibold text-gray-600 mb-1">Tags</p>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {!c.tags?.length ? (
+                            <span className="text-[10px] text-gray-400">No tags</span>
+                          ) : (
+                            c.tags.map(tag => (
+                              <TagChip key={tag.id} tag={tag} onDelete={isAdmin ? () => removeTag(c.id, tag.tag_name) : null} isEditingId={editingClientId} setEditingId={setEditingClientId} />
+                            ))
+                          )}
+                        </div>
+                        {isAdmin && editingClientId === c.id && (
+                          <div className="flex items-center gap-1 mt-2" onClick={e => e.stopPropagation()}>
+                            <input
+                              type="text"
+                              value={newTagInput}
+                              onChange={e => { setNewTagInput(e.target.value); setTagError(null) }}
+                              onKeyPress={e => e.key === 'Enter' && addTag(c.id)}
+                              placeholder="Add tag..."
+                              maxLength={50}
+                              className="px-2 py-1 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E8670A] flex-1"
+                              disabled={tagLoading}
+                              autoFocus
+                            />
+                            <button
+                              onClick={e => { e.stopPropagation(); addTag(c.id) }}
+                              disabled={tagLoading || !newTagInput.trim()}
+                              className="px-3 py-1 text-xs bg-[#E8670A] text-white rounded-lg hover:bg-[#c45e09] disabled:opacity-40 transition-colors"
+                            >
+                              {tagLoading ? '…' : 'Add'}
+                            </button>
+                          </div>
+                        )}
+                        {isAdmin && editingClientId !== c.id && (
+                          <button
+                            onClick={e => { e.stopPropagation(); setEditingClientId(c.id); setNewTagInput(''); setTagError(null) }}
+                            className="text-[10px] text-[#E8670A] hover:text-[#c45e09] font-semibold mt-2"
+                          >
+                            + Add Tag
+                          </button>
+                        )}
+                        {tagError && editingClientId === c.id && (
+                          <p className="text-[10px] text-red-500 mt-1">{tagError}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-gray-100">
+                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${accountStatusBadgeClass(c)}`}>
+                          {accountStatusLabel(c)}
+                        </span>
+                        <div className="flex items-center gap-3">
+                          <MessageIconButton
+                            className="min-w-[44px] min-h-[44px]"
+                            onClick={e => { e.stopPropagation(); setMessageClient({ id: c.id, name: clientName(c) }) }}
+                          />
+                          {c.client_status === 'deactivated'
+                            ? <button type="button" onClick={e => reactivateClient(e, c.id)} className="text-[11px] text-emerald-600 hover:text-emerald-700 font-semibold min-h-[44px] px-1">Reactivate</button>
+                            : <button type="button" onClick={e => deactivateClient(e, c.id)} className="text-[11px] text-gray-500 hover:text-gray-700 font-medium min-h-[44px] px-1">Deactivate</button>
+                          }
+                          <button type="button" onClick={e => deleteClient(e, c.id, c.first_name ?? 'this client')}
+                            className="text-[11px] text-red-400 hover:text-red-600 font-medium min-h-[44px] px-1">Delete</button>
+                        </div>
                       </div>
                     </div>
                   </button>

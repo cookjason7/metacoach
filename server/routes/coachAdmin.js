@@ -198,10 +198,14 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
           SELECT AVG(completion_percentage)::numeric(5,1)
           FROM habit_completions hc
           WHERE hc.user_id = u.id AND hc.completion_date >= CURRENT_DATE - INTERVAL '30 days'
-        ), 0) AS adherence_30d
+        ), 0) AS adherence_30d,
+        COALESCE(json_agg(json_build_object('id', ct.id, 'tag_name', ct.tag_name))
+          FILTER (WHERE ct.id IS NOT NULL), '[]'::json) AS tags
       FROM users u
       LEFT JOIN health_assessments ha ON ha.user_id = u.id
+      LEFT JOIN client_tags ct ON ct.user_id = u.id
       ${where}
+      GROUP BY u.id, ha.first_name, ha.last_name, ha.phone
       ORDER BY COALESCE(u.first_name, ha.first_name,
         CASE WHEN u.name IS NOT NULL THEN SPLIT_PART(u.name, ' ', 1) END
       ) ASC NULLS LAST
@@ -3912,6 +3916,83 @@ router.delete('/clients/:id/workout-schedules/:assignmentId', requireAuth(), asy
     const { rowCount } = await pool.query(
       'DELETE FROM coach_assigned_workouts WHERE id = $1 AND user_id = $2', [assignmentId, clientId])
     if (!rowCount) return res.status(404).json({ error: 'Schedule not found' })
+    res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
+// ─── Client Tags ──────────────────────────────────────────────────────────────
+// CRM-style tagging for clients (inline chips on the dashboard).
+// Staff+ can view tags; admin+ can add/remove.
+
+// GET /api/coach-admin/clients/:id/tags — list tags for a client
+router.get('/clients/:id/tags', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+
+    const { rows } = await pool.query(
+      `SELECT id, tag_name, created_at FROM client_tags
+       WHERE user_id = $1 ORDER BY tag_name ASC`,
+      [id],
+    )
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
+// POST /api/coach-admin/clients/:id/tags — add a tag (admin+ only)
+router.post('/clients/:id/tags', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireAdmin(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+
+    const { tag_name } = req.body
+    if (!tag_name?.trim()) return res.status(400).json({ error: 'tag_name is required' })
+
+    const normalized = tag_name.trim().toLowerCase().slice(0, 50)
+    if (normalized.length === 0) return res.status(400).json({ error: 'tag_name cannot be empty' })
+
+    // Check if we would exceed max 10 tags
+    const { rows: countRows } = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM client_tags WHERE user_id = $1`,
+      [id],
+    )
+    if (countRows[0].count >= 10) {
+      return res.status(400).json({ error: 'Maximum 10 tags per client' })
+    }
+
+    try {
+      const { rows } = await pool.query(
+        `INSERT INTO client_tags (user_id, tag_name, created_by)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (user_id, tag_name) DO NOTHING
+         RETURNING id, tag_name, created_at`,
+        [id, normalized, ctx.dbUserId],
+      )
+      if (!rows.length) {
+        return res.status(409).json({ ok: true, message: 'Tag already exists' })
+      }
+      res.status(201).json(rows[0])
+    } catch (dbErr) {
+      if (dbErr.code === '23503') return res.status(404).json({ error: 'Client not found' })
+      throw dbErr
+    }
+  } catch (err) { next(err) }
+})
+
+// DELETE /api/coach-admin/clients/:id/tags/:tagName — remove a tag (admin+ only)
+router.delete('/clients/:id/tags/:tagName', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireAdmin(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    const tagName = req.params.tagName.toLowerCase()
+
+    const { rowCount } = await pool.query(
+      `DELETE FROM client_tags
+       WHERE user_id = $1 AND tag_name = $2`,
+      [id, tagName],
+    )
+    if (!rowCount) return res.status(404).json({ error: 'Tag not found' })
     res.json({ ok: true })
   } catch (err) { next(err) }
 })

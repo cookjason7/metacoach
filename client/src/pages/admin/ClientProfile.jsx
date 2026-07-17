@@ -430,8 +430,144 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
         {saved && !editing && <p className="text-xs font-medium text-emerald-600 mt-3">Saved.</p>}
       </div>
 
+      {/* Tags card */}
+      {role === 'admin' && <TagsCard clientId={client.id} getToken={getToken} />}
+
       <HealthConnectionsCard clientId={client.id} getToken={getToken} />
 
+    </div>
+  )
+}
+
+// ─── Tags Card ──────────────────────────────────────────────────────────────────
+
+function TagsCard({ clientId, getToken }) {
+  const [tags, setTags] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [editingTag, setEditingTag] = useState(false)
+  const [newTagInput, setNewTagInput] = useState('')
+  const [error, setError] = useState(null)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    loadTags()
+  }, [clientId])
+
+  async function loadTags() {
+    setLoading(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/tags`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) setTags(await res.json())
+    } catch { setError('Failed to load tags') }
+    finally { setLoading(false) }
+  }
+
+  async function addTag() {
+    const input = newTagInput.trim()
+    if (!input) { setError('Tag cannot be empty'); return }
+    if (input.length > 50) { setError('Tag must be 50 characters or less'); return }
+
+    setSaving(true); setError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/tags`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ tag_name: input }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error ?? 'Failed to add tag')
+      }
+      const newTag = await res.json()
+      setTags([...tags, newTag])
+      setNewTagInput('')
+      setEditingTag(false)
+    } catch (err) { setError(err.message) }
+    finally { setSaving(false) }
+  }
+
+  async function removeTag(tagName) {
+    setSaving(true); setError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/tags/${encodeURIComponent(tagName)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error('Failed to remove tag')
+      setTags(tags.filter(t => t.tag_name !== tagName))
+    } catch (err) { setError(err.message) }
+    finally { setSaving(false) }
+  }
+
+  if (loading) return <div className="bg-white border border-gray-200 rounded-xl p-5"><p className="text-xs text-gray-400">Loading tags…</p></div>
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-5">
+      <h3 className="text-sm font-semibold text-gray-900 mb-3">Tags</h3>
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        {tags.length === 0 ? (
+          <span className="text-xs text-gray-400">No tags</span>
+        ) : (
+          tags.map(tag => {
+            const displayName = tag.tag_name.charAt(0).toUpperCase() + tag.tag_name.slice(1)
+            return (
+              <span key={tag.id} className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold bg-[#f97316] text-white">
+                {displayName}
+                <button
+                  onClick={() => removeTag(tag.tag_name)}
+                  disabled={saving}
+                  className="text-white hover:opacity-75 transition-opacity disabled:opacity-40"
+                  title="Remove tag"
+                >
+                  ✕
+                </button>
+              </span>
+            )
+          })
+        )}
+      </div>
+      {editingTag ? (
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={newTagInput}
+            onChange={e => { setNewTagInput(e.target.value); setError(null) }}
+            onKeyPress={e => e.key === 'Enter' && addTag()}
+            placeholder="Add tag..."
+            maxLength={50}
+            className="px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#E8670A] flex-1"
+            disabled={saving}
+            autoFocus
+          />
+          <button
+            onClick={addTag}
+            disabled={saving || !newTagInput.trim()}
+            className="px-3 py-2 text-xs bg-[#E8670A] text-white rounded-lg hover:bg-[#c45e09] disabled:opacity-40 transition-colors whitespace-nowrap"
+          >
+            {saving ? '…' : 'Add'}
+          </button>
+          <button
+            onClick={() => { setEditingTag(false); setNewTagInput(''); setError(null) }}
+            disabled={saving}
+            className="px-3 py-2 text-xs text-gray-500 hover:text-gray-700 disabled:opacity-40"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => setEditingTag(true)}
+          className="text-xs text-[#E8670A] hover:text-[#c45e09] font-semibold"
+        >
+          + Add Tag
+        </button>
+      )}
+      {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
     </div>
   )
 }
