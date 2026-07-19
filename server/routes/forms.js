@@ -13,6 +13,19 @@ function localDateString(date, timezoneOffsetMinutes = 0) {
   return new Date(date.getTime() - offsetMs).toISOString().slice(0, 10)
 }
 
+// Mirrors FormFill.jsx's client-side visibility check: a conditional question
+// only counts toward "required" validation when its controlling answer is
+// actually present. Without this, a hidden required question would block
+// submission since the client never collected (or explicitly cleared) it.
+// Values are compared as strings since rating answers are numeric.
+function isFieldVisible(field, answers) {
+  if (!field.condition) return true
+  const { questionId, value } = field.condition
+  const actual = answers[questionId]
+  if (actual === undefined || actual === null) return false
+  return String(actual) === String(value)
+}
+
 // ── Auth helpers (mirrors coachAdmin.js pattern) ──────────────────────────────
 
 async function getCurrentUser(req) {
@@ -391,6 +404,7 @@ router.post('/:id/submit', requireAuth(), async (req, res, next) => {
     const schema = ver?.schema ?? []
     const missing = schema
       .filter(f => f.required)
+      .filter(f => isFieldVisible(f, answers))
       .filter(f => {
         const val = answers[f.id]
         return val === undefined || val === null || val === '' ||
