@@ -616,12 +616,35 @@ export default function Dashboard() {
   return (
     <div>
 
-      {/* Header — today only, no date picker */}
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold text-gray-900">Today</h1>
-        <p className="text-sm text-gray-400 mt-0.5">
-          {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-        </p>
+      {/* Header — today only, no date picker, with shortcut buttons */}
+      <div className="mb-4 flex justify-between items-start">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Today</h1>
+          <p className="text-sm text-gray-400 mt-0.5">
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+          </p>
+        </div>
+
+        {/* Shortcut buttons */}
+        <div className="flex gap-5">
+          {/* Supps button */}
+          <button
+            onClick={() => window.open('https://store.lwcvip.com', '_blank')}
+            className="w-12 flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:opacity-75 transition-opacity"
+          >
+            <span style={{ fontSize: '20px', lineHeight: 1 }}>💊</span>
+            <span className="text-[10px] text-gray-500 font-medium leading-none">Supps</span>
+          </button>
+
+          {/* Wellness button (disabled) */}
+          <button
+            disabled
+            className="w-12 flex flex-col items-center justify-center gap-1.5 opacity-40 cursor-not-allowed"
+          >
+            <span style={{ fontSize: '20px', lineHeight: 1 }}>🩺</span>
+            <span className="text-[10px] text-gray-500 font-medium leading-none">Wellness</span>
+          </button>
+        </div>
       </div>
 
       {/* Identity card */}
