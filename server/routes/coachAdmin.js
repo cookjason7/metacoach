@@ -1,13 +1,16 @@
 import { Router } from 'express'
 import { requireAuth, getAuth, clerkClient } from '@clerk/express'
 import { v2 as cloudinary } from 'cloudinary'
+import Anthropic from '@anthropic-ai/sdk'
 import { pool, getOrCreateUser } from '../db.js'
 import { sendInviteEmail } from '../services/email.js'
 import { getAppBaseUrl } from '../services/appUrl.js'
 import { notifyNewDirectMessage, notifyNewFormDelivery } from '../services/pushService.js'
 import { generateWorkoutPlan, ExerciseLibraryError } from '../services/workoutGenerator.js'
+import { trackEvent } from '../services/usageTracker.js'
 
 const router = Router()
+const anthropic = new Anthropic()
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -2768,17 +2771,20 @@ router.get('/clients/:id/form-submissions', requireAuth(), async (req, res, next
         fs.answers, fs.submitted_at, fs.updated_at,
         fs.reviewed_at, fs.reviewed_by, fs.coach_note, fs.due_at, fs.is_late,
         fs.completed_at, fs.completed_by,
+        fs.ai_feedback, fs.ai_feedback_generated_at, fs.ai_feedback_generated_by,
         ft.title  AS form_title,
         ft.status AS form_status,
         fv.version_num,
         fv.schema AS version_schema,
-        reviewer.first_name  AS reviewed_by_name,
-        completer.first_name AS completed_by_name
+        reviewer.first_name    AS reviewed_by_name,
+        completer.first_name   AS completed_by_name,
+        ai_generator.first_name AS ai_feedback_generated_by_name
       FROM form_submissions fs
       JOIN form_templates ft ON ft.id = fs.template_id
       JOIN form_versions  fv ON fv.id = fs.version_id
-      LEFT JOIN users reviewer  ON reviewer.id  = fs.reviewed_by
-      LEFT JOIN users completer ON completer.id = fs.completed_by
+      LEFT JOIN users reviewer     ON reviewer.id     = fs.reviewed_by
+      LEFT JOIN users completer    ON completer.id    = fs.completed_by
+      LEFT JOIN users ai_generator ON ai_generator.id = fs.ai_feedback_generated_by
       WHERE fs.user_id = $1
       ORDER BY fs.submitted_at DESC
     `, [id])
@@ -2800,17 +2806,20 @@ router.get('/form-submissions/:submissionId', requireAuth(), async (req, res, ne
         fs.answers, fs.submitted_at, fs.updated_at,
         fs.reviewed_at, fs.reviewed_by, fs.coach_note, fs.due_at, fs.is_late,
         fs.completed_at, fs.completed_by,
+        fs.ai_feedback, fs.ai_feedback_generated_at, fs.ai_feedback_generated_by,
         ft.title  AS form_title,
         ft.status AS form_status,
         fv.version_num,
         fv.schema AS version_schema,
-        reviewer.first_name  AS reviewed_by_name,
-        completer.first_name AS completed_by_name
+        reviewer.first_name    AS reviewed_by_name,
+        completer.first_name   AS completed_by_name,
+        ai_generator.first_name AS ai_feedback_generated_by_name
       FROM form_submissions fs
       JOIN form_templates ft ON ft.id = fs.template_id
       JOIN form_versions  fv ON fv.id = fs.version_id
-      LEFT JOIN users reviewer  ON reviewer.id  = fs.reviewed_by
-      LEFT JOIN users completer ON completer.id = fs.completed_by
+      LEFT JOIN users reviewer     ON reviewer.id     = fs.reviewed_by
+      LEFT JOIN users completer    ON completer.id    = fs.completed_by
+      LEFT JOIN users ai_generator ON ai_generator.id = fs.ai_feedback_generated_by
       WHERE fs.id = $1
     `, [subId])
 
@@ -2950,6 +2959,87 @@ router.patch('/form-submissions/:submissionId/note', requireAuth(), async (req, 
       [normalizedNote || null, subId],
     )
     res.json({ ok: true, coach_note: updated.coach_note })
+  } catch (err) { next(err) }
+})
+
+// POST /api/coach-admin/form-submissions/:submissionId/ai-feedback
+// Generates coaching feedback for a submission via Claude from its Q&A, saves
+// it on the submission, and returns it. Regenerating overwrites the previous
+// value — no history is kept.
+router.post('/form-submissions/:submissionId/ai-feedback', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const subId = parseInt(req.params.submissionId, 10)
+
+    const { rows: [sub] } = await pool.query(`
+      SELECT fs.id, fs.user_id, fs.answers, fv.schema AS version_schema, u.first_name
+      FROM form_submissions fs
+      JOIN form_versions fv ON fv.id = fs.version_id
+      JOIN users u          ON u.id  = fs.user_id
+      WHERE fs.id = $1
+    `, [subId])
+    if (!sub) return res.status(404).json({ error: 'Submission not found' })
+    if (!await canAccessClient(ctx, sub.user_id)) return res.status(403).json({ error: 'Forbidden' })
+
+    const schema  = Array.isArray(sub.version_schema) ? sub.version_schema : []
+    const answers = sub.answers ?? {}
+    const qaText = schema
+      .filter(f => f.type !== 'text_block')
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .map(f => {
+        const val = answers[f.id]
+        const empty = val === undefined || val === null || val === '' ||
+                      (Array.isArray(val) && val.length === 0)
+        const formatted = empty ? 'No response' : Array.isArray(val) ? val.join(', ') : String(val)
+        return `Q: ${f.label}\nA: ${formatted}\n`
+      })
+      .join('\n')
+
+    if (!qaText.trim()) {
+      return res.status(400).json({ error: 'This submission has no answered questions to generate feedback from.' })
+    }
+
+    const firstName = sub.first_name || 'there'
+
+    const t0 = Date.now()
+    const claudeMsg = await anthropic.messages.create({
+      model:      'claude-sonnet-4-6',
+      max_tokens: 1024,
+      system: `You are a fitness coach reviewing a client's weekly check-in submission. Generate concise, direct coaching feedback in the voice of a supportive but no-nonsense coach. Address the client by first name. Lead with what they're doing well, then give one or two specific, actionable pieces of guidance based on their actual answers. Keep it to three to five short paragraphs. Write as natural prose, the way a coach would speak directly to their client — no markdown headers, no bullet lists.`,
+      messages: [{ role: 'user', content: `Client name: ${firstName}\n\n${qaText}` }],
+    })
+
+    trackEvent({
+      actorUserId:  ctx.dbUserId,
+      targetUserId: sub.user_id,
+      feature:      'checkin_ai_feedback',
+      action:       'ai_call',
+      provider:     'anthropic',
+      providerOp:   'messages.create',
+      model:        'claude-sonnet-4-6',
+      inputTokens:  claudeMsg.usage?.input_tokens,
+      outputTokens: claudeMsg.usage?.output_tokens,
+      durationMs:   Date.now() - t0,
+    })
+
+    const feedback = claudeMsg.content.find(b => b.type === 'text')?.text?.trim()
+    if (!feedback) return res.status(502).json({ error: 'AI did not return feedback. Try again.' })
+
+    const { rows: [updated] } = await pool.query(
+      `UPDATE form_submissions
+       SET ai_feedback = $1, ai_feedback_generated_at = NOW(), ai_feedback_generated_by = $2
+       WHERE id = $3
+       RETURNING ai_feedback, ai_feedback_generated_at, ai_feedback_generated_by`,
+      [feedback, ctx.dbUserId, subId],
+    )
+    const { rows: [generator] } = await pool.query('SELECT first_name FROM users WHERE id = $1', [ctx.dbUserId])
+
+    res.json({
+      ai_feedback:                   updated.ai_feedback,
+      ai_feedback_generated_at:      updated.ai_feedback_generated_at,
+      ai_feedback_generated_by:      updated.ai_feedback_generated_by,
+      ai_feedback_generated_by_name: generator?.first_name ?? null,
+    })
   } catch (err) { next(err) }
 })
 
