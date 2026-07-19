@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
 import { Capacitor } from '@capacitor/core'
 import { API_URL } from '../config.js'
@@ -918,7 +919,12 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                   </svg>
                 </button>
-                <p className="text-sm font-semibold text-gray-900 flex-1 min-w-0 truncate">{selected.clientName}</p>
+                <Link
+                  to={`/admin/clients/${selected.clientId}`}
+                  className="text-sm font-semibold text-gray-900 flex-1 min-w-0 truncate hover:underline transition-all"
+                >
+                  {selected.clientName}
+                </Link>
                 {/* Mark as Unread — only in active view */}
                 {inboxView === 'active' && (
                   <button
