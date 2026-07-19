@@ -1016,9 +1016,15 @@ export async function migrate() {
   //      the exact fields the client saw, even after the form is edited again
   //
   // Field schema object format (stored as JSONB array):
-  //   { id, type, label, description, required, order, options, max_chars }
+  //   { id, type, label, description, required, order, options, max_chars, condition }
   //   type: short_text | long_text | number | date | single_choice |
   //         multi_choice | yes_no | rating
+  //   condition (optional, null by default): conditional-display rule —
+  //     { questionId, operator: 'equals', value } — question is only shown
+  //     when the answer to questionId equals value. No DB column needed;
+  //     stored inline in the JSONB schema, so no migration is required.
+  //     Only yes_no / single_choice / rating questions (fixed value sets)
+  //     can be a condition's controlling question.
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS form_templates (

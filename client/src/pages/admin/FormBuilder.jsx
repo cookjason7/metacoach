@@ -17,6 +17,22 @@ const FIELD_TYPES = [
   { value: 'text_block',    label: 'Text Block' },
 ]
 
+// Question types whose answers have a fixed, enumerable set of values — only
+// these can be used as the controlling question for conditional logic.
+const CONDITION_ELIGIBLE_TYPES = ['yes_no', 'single_choice', 'rating']
+
+// Possible answer values for a controlling question, used to populate the
+// "Answer equals" dropdown in ConditionalLogicSection.
+function getConditionValues(controllingField) {
+  if (!controllingField) return []
+  if (controllingField.type === 'yes_no') return ['Yes', 'No']
+  if (controllingField.type === 'rating') return ['1', '2', '3', '4', '5']
+  if (controllingField.type === 'single_choice') {
+    return (controllingField.options ?? []).filter(o => o.trim())
+  }
+  return []
+}
+
 // Type-specific placeholder examples for the Question input
 const QUESTION_PLACEHOLDER = {
   short_text:    'e.g. What was your biggest win this week?',
@@ -49,6 +65,7 @@ function makeField(order) {
     order,
     options:     ['Option 1', 'Option 2'],
     max_chars:   null,
+    condition:   null,
   }
 }
 
@@ -136,9 +153,131 @@ function YesNoPreview() {
   )
 }
 
+// ── Conditional logic editor ────────────────────────────────────────────────
+// "Only show this question when [precedingQuestion] answer = [value]".
+// precedingFields is already filtered (by the parent) to questions before
+// this one in the list, restricted to CONDITION_ELIGIBLE_TYPES.
+
+function ConditionalLogicSection({ field, precedingFields, onChange }) {
+  const condition = field.condition ?? null
+  const enabled   = !!condition
+  const controllingField = condition
+    ? precedingFields.find(f => f.id === condition.questionId)
+    : null
+  const availableValues = getConditionValues(controllingField)
+
+  function handleToggle(next) {
+    if (!next) { onChange(null); return }
+    const first  = precedingFields[0]
+    const values = getConditionValues(first)
+    onChange({ questionId: first.id, operator: 'equals', value: values[0] ?? '' })
+  }
+
+  function handleQuestionChange(questionId) {
+    const next   = precedingFields.find(f => f.id === questionId)
+    const values = getConditionValues(next)
+    onChange({ questionId, operator: 'equals', value: values[0] ?? '' })
+  }
+
+  function handleValueChange(value) {
+    onChange({ ...condition, value })
+  }
+
+  const header = (
+    <div className="flex items-center gap-1.5 mb-2">
+      <span className="text-sm" aria-hidden="true">👁</span>
+      <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Conditional Logic</p>
+    </div>
+  )
+
+  if (precedingFields.length === 0) {
+    return (
+      <div className="pt-4 border-t border-gray-100">
+        {header}
+        <p className="text-xs text-gray-400">
+          No earlier Yes/No, Single Choice, or Rating questions to condition on yet.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="pt-4 border-t border-gray-100">
+      {header}
+
+      <label className="flex items-center gap-2 min-h-[44px] cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={e => handleToggle(e.target.checked)}
+          className="sr-only"
+        />
+        <span className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+          enabled ? 'bg-[#f97316] border-[#f97316]' : 'border-gray-300'
+        }`}>
+          {enabled && (
+            <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+        </span>
+        <span className="text-sm text-gray-700">Only show this question when…</span>
+      </label>
+
+      {enabled && !controllingField && (
+        <div className="mt-3 bg-red-50 border border-red-100 rounded-xl p-3">
+          <p className="text-xs text-red-500 font-medium mb-2">
+            The question this condition depends on is no longer available (deleted or moved after this question).
+          </p>
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="text-xs text-[#E8670A] font-semibold hover:underline"
+          >
+            Clear condition
+          </button>
+        </div>
+      )}
+
+      {enabled && controllingField && (
+        <div className="mt-3 bg-orange-50/50 border border-orange-100 rounded-xl p-3 space-y-3">
+          <div>
+            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+              Question
+            </label>
+            <select
+              value={condition.questionId}
+              onChange={e => handleQuestionChange(e.target.value)}
+              className="w-full min-h-[44px] border border-gray-200 rounded-lg px-2.5 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+            >
+              {precedingFields.map(f => (
+                <option key={f.id} value={f.id}>{f.label || 'Untitled question'}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+              Answer equals
+            </label>
+            <select
+              value={condition.value}
+              onChange={e => handleValueChange(e.target.value)}
+              className="w-full min-h-[44px] border border-gray-200 rounded-lg px-2.5 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+            >
+              {availableValues.map(v => (
+                <option key={v} value={v}>{v}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Field editor ──────────────────────────────────────────────────────────────
 
-function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst, isLast, publishError }) {
+function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst, isLast, publishError, showConditional, precedingFields }) {
   const [open, setOpen] = useState(!field.label)  // open by default if new
 
   const isTextBlock   = field.type === 'text_block'
@@ -223,6 +362,11 @@ function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
             <span className="text-[10px] text-gray-400 bg-gray-100 rounded px-1.5 py-0.5 font-medium">{typeLabel}</span>
             {!isTextBlock && field.required && (
               <span className="text-[10px] text-[#E8670A] font-bold uppercase tracking-wide">Required</span>
+            )}
+            {field.condition && (
+              <span className="text-[10px] font-bold uppercase tracking-wide text-white bg-[#f97316] px-1.5 py-0.5 rounded-full">
+                Conditional
+              </span>
             )}
             {choiceBadge()}
             {hasError && (
@@ -455,6 +599,14 @@ function FieldEditor({ field, onChange, onDelete, onMoveUp, onMoveDown, isFirst,
                 Add Option
               </button>
             </div>
+          )}
+
+          {showConditional && (
+            <ConditionalLogicSection
+              field={field}
+              precedingFields={precedingFields}
+              onChange={c => update('condition', c)}
+            />
           )}
         </div>
       )}
@@ -700,6 +852,8 @@ export default function FormBuilder() {
               isFirst={idx === 0}
               isLast={idx === fields.length - 1}
               publishError={fieldHasPublishError(idx)}
+              showConditional={idx > 0}
+              precedingFields={fields.slice(0, idx).filter(f => CONDITION_ELIGIBLE_TYPES.includes(f.type))}
             />
           ))
         )}

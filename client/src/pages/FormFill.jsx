@@ -187,6 +187,18 @@ function FieldInput({ field, value, onChange, disabled }) {
   }
 }
 
+// Whether a question should currently be shown, given the client's in-progress
+// answers. Values are compared as strings since RatingField stores numeric
+// answers (1-5) while single_choice/yes_no store strings — the FormBuilder
+// condition editor always stores condition.value as a string.
+function isFieldVisible(field, answers) {
+  if (!field.condition) return true
+  const { questionId, value } = field.condition
+  const actual = answers[questionId]
+  if (actual === undefined || actual === null) return false
+  return String(actual) === String(value)
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function FormFill() {
@@ -207,6 +219,10 @@ export default function FormFill() {
   const [submitted,    setSubmitted]    = useState(false)
   const [alreadyDone,  setAlreadyDone]  = useState(false)
   const submittedRef = useRef(false)
+
+  // Hoisted above the early-return blocks below so it can be used by the
+  // hidden-answer-clearing effect (hooks must run unconditionally).
+  const schema = form?.schema ?? []
 
   useEffect(() => {
     async function load() {
@@ -230,6 +246,19 @@ export default function FormFill() {
     load()
   }, [id, getToken, isPreview])
 
+  // A question can become hidden when an earlier answer changes (the answer
+  // that satisfied its condition no longer does). Clear its stored answer so
+  // a hidden required question can never block submission.
+  useEffect(() => {
+    const toClear = schema.filter(f => f.condition && !isFieldVisible(f, answers) && answers[f.id] !== undefined)
+    if (toClear.length === 0) return
+    setAnswers(prev => {
+      const next = { ...prev }
+      for (const f of toClear) delete next[f.id]
+      return next
+    })
+  }, [answers, schema])
+
   function setAnswer(fieldId, value) {
     if (isPreview) return
     setAnswers(prev => ({ ...prev, [fieldId]: value }))
@@ -244,12 +273,12 @@ export default function FormFill() {
   async function handleSubmit(e) {
     e.preventDefault()
     if (isPreview || submittedRef.current) return
-    const schema = form?.schema ?? []
 
     const errors = {}
     for (const field of schema) {
       if (field.type === 'text_block') continue
       if (!field.required) continue
+      if (!isFieldVisible(field, answers)) continue
       const val = answers[field.id]
       const empty = val === undefined || val === null || val === '' ||
                     (Array.isArray(val) && val.length === 0)
@@ -341,8 +370,6 @@ export default function FormFill() {
     )
   }
 
-  const schema = form?.schema ?? []
-
   return (
     <div className="max-w-xl mx-auto pb-12">
 
@@ -377,46 +404,57 @@ export default function FormFill() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-6" noValidate>
+      <form onSubmit={handleSubmit} noValidate>
         {(() => {
           let qNum = 0
           return schema.map(field => {
+            const visible = isFieldVisible(field, answers)
+            // Kept in the DOM (not removed) so hide/show animates instead of
+            // popping; margin collapses along with height/opacity so no gap
+            // is left behind when a conditional question is hidden.
+            const wrapperClass = `transition-all duration-300 ease-in-out overflow-hidden ${
+              visible ? 'max-h-[2000px] opacity-100 mb-6' : 'max-h-0 opacity-0 mb-0 pointer-events-none'
+            }`
+
             if (field.type === 'text_block') {
               return (
-                <div key={field.id} className="rounded-2xl border border-blue-100 bg-blue-50/60 px-5 py-4">
-                  <p className="text-sm text-gray-700 whitespace-pre-wrap">{field.label}</p>
+                <div key={field.id} className={wrapperClass} aria-hidden={!visible}>
+                  <div className="rounded-2xl border border-blue-100 bg-blue-50/60 px-5 py-4">
+                    <p className="text-sm text-gray-700 whitespace-pre-wrap">{field.label}</p>
+                  </div>
                 </div>
               )
             }
-            qNum++
+            if (visible) qNum++
             return (
-              <div
-                key={field.id}
-                id={`field-${field.id}`}
-                className={`bg-white rounded-2xl border p-5 transition-colors ${
-                  fieldErrors[field.id] ? 'border-red-300 bg-red-50/30' : 'border-gray-200'
-                }`}
-              >
-                <label className="block mb-3">
-                  <span className="text-sm font-bold text-gray-900">
-                    {qNum}. {field.label}
-                    {field.required && !isPreview && <span className="text-red-500 ml-1">*</span>}
-                  </span>
-                  {field.description && (
-                    <span className="block text-xs text-gray-500 mt-0.5">{field.description}</span>
+              <div key={field.id} className={wrapperClass} aria-hidden={!visible}>
+                <div
+                  id={`field-${field.id}`}
+                  className={`bg-white rounded-2xl border p-5 transition-colors ${
+                    fieldErrors[field.id] ? 'border-red-300 bg-red-50/30' : 'border-gray-200'
+                  }`}
+                >
+                  <label className="block mb-3">
+                    <span className="text-sm font-bold text-gray-900">
+                      {qNum}. {field.label}
+                      {field.required && !isPreview && <span className="text-red-500 ml-1">*</span>}
+                    </span>
+                    {field.description && (
+                      <span className="block text-xs text-gray-500 mt-0.5">{field.description}</span>
+                    )}
+                  </label>
+
+                  <FieldInput
+                    field={field}
+                    value={answers[field.id]}
+                    onChange={val => setAnswer(field.id, val)}
+                    disabled={isPreview}
+                  />
+
+                  {fieldErrors[field.id] && (
+                    <p className="mt-2 text-xs text-red-500 font-medium">{fieldErrors[field.id]}</p>
                   )}
-                </label>
-
-                <FieldInput
-                  field={field}
-                  value={answers[field.id]}
-                  onChange={val => setAnswer(field.id, val)}
-                  disabled={isPreview}
-                />
-
-                {fieldErrors[field.id] && (
-                  <p className="mt-2 text-xs text-red-500 font-medium">{fieldErrors[field.id]}</p>
-                )}
+                </div>
               </div>
             )
           })
