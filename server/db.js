@@ -1125,6 +1125,11 @@ export async function migrate() {
   await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS is_late BOOLEAN DEFAULT FALSE`)
   await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ`)
   await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS completed_by INTEGER REFERENCES users(id) ON DELETE SET NULL`)
+  // AI-generated coaching feedback for a submission — generated on staff demand,
+  // regenerating overwrites the previous value (no history kept).
+  await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS ai_feedback TEXT`)
+  await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS ai_feedback_generated_at TIMESTAMPTZ`)
+  await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS ai_feedback_generated_by INTEGER REFERENCES users(id) ON DELETE SET NULL`)
   await pool.query(`
     DO $$
     BEGIN

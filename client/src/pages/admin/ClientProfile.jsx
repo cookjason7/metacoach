@@ -3522,6 +3522,7 @@ function FormSubmissionsSection({ clientId, getToken }) {
   const [completing,  setCompleting]  = useState(null)
   const [savingNote,  setSavingNote]  = useState(null)
   const [noteDrafts,  setNoteDrafts]  = useState({})
+  const [generatingFeedback, setGeneratingFeedback] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -3589,6 +3590,37 @@ function FormSubmissionsSection({ clientId, getToken }) {
     finally { setCompleting(null) }
   }
 
+  async function handleGenerateFeedback(sub) {
+    if (generatingFeedback === sub.id) return
+    setGeneratingFeedback(sub.id)
+    try {
+      const token = await getToken()
+      const res = await fetch(
+        `${API_URL}/api/coach-admin/form-submissions/${sub.id}/ai-feedback`,
+        { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
+      )
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) {
+        setSubmissions(prev => prev.map(s =>
+          s.id === sub.id
+            ? {
+                ...s,
+                ai_feedback:                   data.ai_feedback,
+                ai_feedback_generated_at:      data.ai_feedback_generated_at,
+                ai_feedback_generated_by_name: data.ai_feedback_generated_by_name,
+              }
+            : s
+        ))
+      } else {
+        alert(data.error ?? 'Failed to generate feedback.')
+      }
+    } catch {
+      alert('Failed to generate feedback.')
+    } finally {
+      setGeneratingFeedback(null)
+    }
+  }
+
   async function handleSaveNote(sub) {
     if (savingNote === sub.id) return
     const note = noteDrafts[sub.id] ?? ''
@@ -3636,6 +3668,32 @@ function FormSubmissionsSection({ clientId, getToken }) {
             ))}
           </div>
         )}
+
+        <div className="pt-3 border-t border-gray-200">
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">AI Feedback</p>
+            <button
+              onClick={() => handleGenerateFeedback(sub)}
+              disabled={generatingFeedback === sub.id}
+              className="min-h-11 md:min-h-0 text-xs bg-[#1e2a3a] text-white font-bold px-3 py-1.5 rounded-lg hover:bg-[#28374b] disabled:opacity-50 shrink-0"
+            >
+              {generatingFeedback === sub.id ? 'Generating…' : sub.ai_feedback ? 'Regenerate AI Feedback' : 'Generate AI Feedback'}
+            </button>
+          </div>
+          {sub.ai_feedback ? (
+            <div className="bg-orange-50/50 border border-orange-100 rounded-xl p-3">
+              <p className="text-sm text-gray-800 whitespace-pre-wrap">{sub.ai_feedback}</p>
+              {sub.ai_feedback_generated_at && (
+                <p className="text-[10px] text-gray-400 mt-2">
+                  Generated {fmtDateTime(sub.ai_feedback_generated_at)}
+                  {sub.ai_feedback_generated_by_name ? ` by ${sub.ai_feedback_generated_by_name}` : ''}
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-gray-400">No AI feedback generated yet.</p>
+          )}
+        </div>
 
         <div className="pt-3 border-t border-gray-200">
           <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-1">Staff Note</p>
