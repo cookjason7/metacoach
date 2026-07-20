@@ -159,6 +159,21 @@ function shouldExcludeCardioMachines(equipmentList) {
   return !hasFullGym && !hasCardioEquipment
 }
 
+// Plyometrics must never fill a strength-pattern slot — there is no dedicated
+// plyo slot in this day template (see BASE_QUOTA/BONUS_SLOTS above), so without
+// an explicit exclusion a plyo-named exercise could otherwise be selected into
+// squat/hinge/push/pull/core just because it happens to carry that
+// movement_pattern tag in the library. Deliberately NOT applied to carry/
+// conditioning (BONUS_SLOTS) — plyo work (e.g. burpee) is legitimate there.
+const PLYO_TERMS = [
+  'rocket jump', 'broad jump', 'standing long jump', 'long jump',
+  'box jump', 'depth jump', 'plyo push-up', 'plyometric push-up',
+  'clap push-up', 'jump squat', 'jumping squat', 'lateral bound',
+  'star jump', 'scissors jump', 'plyo', 'plyometric',
+  'split jump', 'tuck jump', 'burpee',
+]
+const PLYO_EXCLUDED_SLOTS = new Set(['squat', 'upper_push', 'hinge', 'upper_pull', 'core'])
+
 function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
 
 /** Merges two optional regex source strings into one (`a|b`), passing either through unchanged if the other is absent. */
@@ -446,7 +461,7 @@ async function assertLibraryHasRequiredPatterns(pool, requiredPatterns) {
 }
 
 /** Builds the per-day exercise skeleton (deterministic DB picks, no AI involved yet). */
-async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentList, difficulty, preferBilateral, excludeNamePattern, strictDifficulty, isBeginner, injuryFlags }) {
+async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentList, difficulty, preferBilateral, excludeNamePattern, strictDifficulty, isBeginner, injuryFlags, includeSuperset }) {
   const usedIds = []
   const days = []
   let totalFilled = 0
@@ -456,11 +471,16 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
     for (const slot of quota) {
       const pattern = slotToPattern(slot, preferBilateral)
 
-      // Core slot: always exclude sprint/cardio-named exercises, on top of the
-      // caller's normal exclusions — see CORE_SLOT_BLOCKED_TERMS above.
-      const slotExcludeNamePattern = slot === 'core'
-        ? combinePatterns(excludeNamePattern, CORE_SLOT_BLOCKED_TERMS.map(escapeRegExp).join('|'))
+      // Every strength-pattern slot (squat, upper_push, hinge, upper_pull, core)
+      // additionally excludes PLYO_TERMS on top of the caller's normal exclusions —
+      // see PLYO_EXCLUDED_SLOTS above. Core slot further excludes sprint/cardio-named
+      // exercises — see CORE_SLOT_BLOCKED_TERMS above.
+      let slotExcludeNamePattern = PLYO_EXCLUDED_SLOTS.has(slot)
+        ? combinePatterns(excludeNamePattern, PLYO_TERMS.map(escapeRegExp).join('|'))
         : excludeNamePattern
+      if (slot === 'core') {
+        slotExcludeNamePattern = combinePatterns(slotExcludeNamePattern, CORE_SLOT_BLOCKED_TERMS.map(escapeRegExp).join('|'))
+      }
 
       // Beginner squat day-variation: try the day's preferred name pattern first
       // (excludeIds already carries every exercise used on prior days of this
@@ -549,7 +569,20 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
         equipment: exercise.equipment,
         fallbackNotes,
         pullVarietyFlag,
+        supersetLabel: null,
       })
+    }
+    // Superset pairing: always pair the day's push + pull slots (guaranteed one of
+    // each — both are in BASE_QUOTA every day) when the coach requested supersets.
+    // Core/hinge/squat/bonus slots stay standalone — no pairing rule for those was
+    // specified, so they're deliberately left out rather than guessed at.
+    if (includeSuperset) {
+      const pushSlot = slots.find(s => s.movement_pattern === 'upper_push')
+      const pullSlot = slots.find(s => s.movement_pattern === 'upper_pull')
+      if (pushSlot && pullSlot) {
+        pushSlot.supersetLabel = 'Superset A - Exercise 1'
+        pullSlot.supersetLabel = 'Superset A - Exercise 2'
+      }
     }
     days.push({
       day_index: d,
@@ -570,7 +603,7 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
 const SUPERSET_LABELS = { none: 'No supersets — standard workout', some: 'Some supersets — about 1 per workout', full: 'Full supersets — maximum intensity' }
 const CIRCUIT_LABELS  = { none: 'No circuits — standard format', some: 'Some circuits — about 1 per workout', full: 'Full circuits — multiple circuits' }
 
-function buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext, injuryFlags = {}) {
+function buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext, injuryFlags = {}, includeSuperset = false) {
   const goals = Array.isArray(answers.goals) ? answers.goals.join(', ') : answers.goals
   const equipment = Array.isArray(answers.equipment) ? answers.equipment.join(', ') : answers.equipment
   const isBegginer = (FITNESS_LEVEL_MAP[answers.fitness_level] ?? answers.fitness_level) === 'beginner'
@@ -691,7 +724,7 @@ Circuits selection: ${answers.circuits}
 Circuits and supersets may coexist only when both are selected and session length supports them.
 Show inter-exercise rest AND round rest explicitly when circuits or supersets are used.
 Use opposing or non-competing movement patterns in supersets/circuits (upper/lower alternation preferred).
-${blockedText}
+${includeSuperset ? '\nThis workout uses supersets. Pair the push and pull exercises together as a superset — label them clearly as \'Superset A - Exercise 1\' and \'Superset A - Exercise 2\' in the notes field. The client performs Exercise 1 immediately followed by Exercise 2 with no rest between them, then rests the full rest period before repeating. Write the cue note for each exercise knowing it will be performed back-to-back with its pair — mention this in the coaching note for each.\n' : ''}${blockedText}
 
 BEGINNER RULES${isBegginer ? ' — THIS CLIENT IS A BEGINNER. ENFORCE ALL OF THESE.' : ' (not applicable — intermediate/advanced client)'}
 ${isBegginer ? `- Begin with low complexity and generous rest (minimum 60 seconds between sets)
@@ -778,6 +811,14 @@ Include exactly ${daySkeletons.length} days in the same order as given. Echo eac
 // to preserve exact exercise names) and prepends/appends warm-up/cool-down as
 // synthetic exercise rows (sets=1, matching the pre-existing UI convention).
 
+/** Prefixes `notes` with a bracketed superset label (e.g. "[Superset A - Exercise 1]")
+ * when the slot was paired — see buildDaySkeletons. Passes `notes` through unchanged
+ * when the slot has no superset label. */
+function applySupersetLabel(notes, supersetLabel) {
+  if (!supersetLabel) return notes
+  return `[${supersetLabel}] ${notes ?? ''}`.trim()
+}
+
 function mergeResponse(daySkeletons, aiPlan) {
   const days = daySkeletons.map((skeleton, i) => {
     const aiDay = aiPlan.days?.[i] ?? {}
@@ -799,8 +840,10 @@ function mergeResponse(daySkeletons, aiPlan) {
         reps: ai.reps ?? null,
         rest_seconds: ai.rest_seconds ?? null,
         // Hardcoded fallback exercises (e.g. the bodyweight pull substitute) carry
-        // their own fixed description — never let Katie's guess override it.
-        notes: slot.fallbackNotes ?? ai.notes ?? null,
+        // their own fixed description — never let Katie's guess override it. Superset
+        // pairing (see buildDaySkeletons) is labeled directly into the notes string —
+        // the exercise table UI reads notes only, so no separate field/UI change needed.
+        notes: applySupersetLabel(slot.fallbackNotes ?? ai.notes ?? null, slot.supersetLabel),
         // Coach-facing only (see PULL_VARIETY_FLAG) — not shown to the client, and
         // never overrides the exercise itself, which is otherwise perfectly valid.
         pull_variety_flag: slot.pullVarietyFlag ?? null,
@@ -1140,6 +1183,12 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
   const isBeginner = (FITNESS_LEVEL_MAP[answers.fitness_level] ?? answers.fitness_level) === 'beginner'
   const injuryFlags = getInjuryFlags(answers.injuries, opts.healthAssessmentInjuries)
   const blockedNamePattern = buildBlockedNamePattern({ isBeginner, injuryFlags, equipmentList, fitnessLevel: answers.fitness_level })
+  // 'some'/'full' both request supersets (validateCircuitSuperset above already
+  // guarantees answers.supersets is one of 'none'/'some'/'full') — the push+pull
+  // pairing below is deterministic and guaranteed either way; 'full' additionally
+  // asks Katie (via the existing "Supersets selection" prompt block) to organize
+  // further supersets among the remaining exercises.
+  const includeSuperset = answers.supersets !== 'none'
 
   const requiredPatterns = getRequiredPatterns(answers.days_per_week, answers.session_length, preferBilateral)
   await assertLibraryHasRequiredPatterns(pool, requiredPatterns)
@@ -1154,9 +1203,10 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
     strictDifficulty: isBeginner,
     isBeginner,
     injuryFlags,
+    includeSuperset,
   })
 
-  const prompt = buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext, injuryFlags)
+  const prompt = buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext, injuryFlags, includeSuperset)
   const aiPlan = await requestAndParsePlan(prompt)
 
   const plan = mergeResponse(daySkeletons, aiPlan)
