@@ -101,6 +101,7 @@ const GLOBAL_BLOCKED_TERMS = [
   'wide-grip pulldown behind the neck', 'pulldown behind neck', 'behind the neck', // shoulder injury risk for all clients
   'wood chop', // rotational power — risky risk/reward ratio
   'side jackknife', // advanced floor plyometric, poor risk/reward for this population
+  'flutter kick', // poor risk/reward for general population — previously only excluded when a knee injury was flagged (still in KNEE_UNSAFE_TERMS below), now blocked for everyone
 ]
 const KNEE_UNSAFE_TERMS = [
   'lunge', 'jump squat', 'jumping squat', 'lateral bound', 'box jump', 'depth jump', 'split squat jump',
@@ -172,6 +173,7 @@ const PLYO_TERMS = [
   'star jump', 'scissors jump', 'plyo', 'plyometric',
   'split jump', 'tuck jump', 'burpee',
   'lateral hop', 'single-leg hop', 'single leg hop', 'lateral jump',
+  'lunge sprint', 'lunge jump', 'jumping lunge', 'split jump lunge',
 ]
 const PLYO_EXCLUDED_SLOTS = new Set(['squat', 'upper_push', 'hinge', 'upper_pull', 'core'])
 
@@ -589,6 +591,11 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
         fallbackNotes,
         pullVarietyFlag,
         supersetLabel: null,
+        // Only ever forced true on the push half of a superset pair — see below.
+        // Never relaxed/inferred from the AI response: rest=0 between a superset's
+        // two exercises must hold even if Claude ignores or misreads the prompt's
+        // "no rest between them" instruction.
+        forceZeroRest: false,
       })
     }
     // Superset pairing: always pair the day's push + pull slots (guaranteed one of
@@ -603,6 +610,10 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
       if (pushSlot && pullSlot) {
         pushSlot.supersetLabel = 'Superset A - Exercise 1'
         pullSlot.supersetLabel = 'Superset A - Exercise 2'
+        // Exercise 1 (push) is immediately followed by Exercise 2 (pull) with no
+        // rest between them — only the round rest (after pull) is a real rest
+        // period, and that stays whatever Claude assigns via ai.rest_seconds.
+        pushSlot.forceZeroRest = true
       }
     }
     days.push({
@@ -859,7 +870,10 @@ function mergeResponse(daySkeletons, aiPlan) {
         equipment: slot.equipment ?? null,
         sets: ai.sets ?? null,
         reps: ai.reps ?? null,
-        rest_seconds: ai.rest_seconds ?? null,
+        // Superset lead (push) exercise always gets rest=0 regardless of what Claude
+        // returned — see forceZeroRest in buildDaySkeletons. The paired pull exercise
+        // is unaffected and keeps the normal ai-provided rest period.
+        rest_seconds: slot.forceZeroRest ? 0 : (ai.rest_seconds ?? null),
         // Hardcoded fallback exercises (e.g. the bodyweight pull substitute) carry
         // their own fixed description — never let Katie's guess override it. Superset
         // pairing (see buildDaySkeletons) is labeled directly into the notes string —
@@ -1156,6 +1170,10 @@ const INTERMEDIATE_BLOCKED_EXERCISES = [
   '3/4 sit-up', 'three quarter sit-up', // sit-ups blocked for beginners, extended to intermediate
   'decline crunch', 'decline sit-up',
   'kettlebell swing', 'one-arm kettlebell swing', 'single arm swing', // ballistic power movement requiring established hip hinge mechanics
+  'clock push-up', 'clock pushup', // advanced multi-plane variation
+  'lunge sprint', // plyometric lunge pattern
+  'rope climb', // requires specialized equipment and extreme pulling strength
+  'pistol squat', 'smith machine pistol', // single leg to full depth, advanced
 ]
 
 function getBeginnnerBlockList(fitnessLevel) {
