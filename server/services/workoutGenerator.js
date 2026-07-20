@@ -566,8 +566,23 @@ export function sanitizeJsonText(text) {
 
 function extractJsonText(rawText) {
   let text = rawText.trim()
-  const fence = text.match(/```(?:json)?\n?([\s\S]+?)\n?```/)
-  if (fence) text = fence[1]
+
+  // Strip a leading ```json or ``` fence (with or without a trailing newline)
+  // and a trailing ``` fence, independently — handles both matched pairs and
+  // a fence on only one side.
+  text = text.replace(/^```(?:json)?\s*\n?/, '')
+  text = text.replace(/\n?```\s*$/, '')
+  text = text.trim()
+
+  // Defense in depth: if any leading/trailing prose slipped through (or the
+  // fence regex above didn't match, e.g. inconsistent fencing), narrow to the
+  // first { through the last } — the JSON object itself.
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start !== -1 && end !== -1 && end > start) {
+    text = text.slice(start, end + 1)
+  }
+
   return text
 }
 
