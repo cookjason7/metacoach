@@ -6216,6 +6216,12 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
                 {day.focus && <p className="text-[10px] text-white/50">{day.focus}</p>}
               </div>
 
+              {day.sequence_warning && (
+                <div className="px-4 py-2 bg-yellow-50 border-b border-yellow-200">
+                  <span className="text-xs font-semibold text-yellow-700">{day.sequence_warning}</span>
+                </div>
+              )}
+
               {warmup.length > 0 && (
                 <>
                   <div className="px-4 py-2 bg-blue-50 border-b border-blue-100">
@@ -6268,9 +6274,10 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
                       const isLast  = pos === mainExercises.length - 1
                       const exIdx   = i
                       return (
-                        <tr key={exIdx} className="hover:bg-gray-50/40">
+                        <tr key={exIdx} className={ex.flagged ? 'bg-red-50 hover:bg-red-50' : 'hover:bg-gray-50/40'}>
                           <td className="px-3 py-2.5 font-medium text-gray-900">
                             <div className="flex items-center gap-2">
+                              {ex.flagged && <span title={ex.flag_reason === 'equipment_mismatch' ? 'Equipment mismatch' : 'Blocked exercise'} className="text-red-500">⚠</span>}
                               <span onClick={() => ex.image_url && setLightboxSrc(ex.image_url)} className={ex.image_url ? 'cursor-zoom-in' : ''}>
                                 <ExerciseThumb src={ex.image_url} alt={ex.name} />
                               </span>

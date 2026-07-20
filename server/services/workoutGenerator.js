@@ -22,6 +22,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
+import { validateWorkoutPlan } from './workoutValidation.js'
 
 const anthropic = new Anthropic()
 
@@ -37,7 +38,11 @@ export class ExerciseLibraryError extends Error {
 
 // ── Day template ─────────────────────────────────────────────────────────────
 // Core quota every training day gets, plus one bonus slot on longer sessions.
-const BASE_QUOTA  = ['squat', 'hinge', 'upper_push', 'upper_pull', 'core']
+// Order is load-bearing: squat and hinge (the two lower-body patterns) must
+// never be adjacent, so an upper push/pull always separates them — Warm-Up is
+// prepended and Cool-Down appended by mergeResponse(), giving the full
+// required sequence Warm-Up -> Squat -> Push -> Hinge -> Pull -> Core -> Cool-Down.
+const BASE_QUOTA  = ['squat', 'upper_push', 'hinge', 'upper_pull', 'core']
 const BONUS_SLOTS = ['carry', 'conditioning']
 
 function buildDayQuota(dayIndex, sessionLength) {
@@ -64,6 +69,55 @@ export function shouldPreferBilateral({ injuries, healthAssessmentInjuries, forc
   }
   const text = [injuries, healthAssessmentInjuries].filter(Boolean).join(' ')
   return BILATERAL_SIGNAL_RE.test(text)
+}
+
+// ── Injury/limitation flags ──────────────────────────────────────────────────
+// Drive both DB-level exercise exclusion (below) and prompt context so a
+// flagged limitation can never surface as a selected exercise in the first
+// place, rather than relying on Katie to avoid it after the fact.
+const KNEE_SIGNAL_RE       = /\b(knee|patell|meniscus|\bacl\b|\bmcl\b)\b/i
+const WRIST_SIGNAL_RE      = /\b(wrist|carpal tunnel|carpal)\b/i
+const LOWER_BACK_SIGNAL_RE = /\b(lower back|low back|lumbar|disc|sciatica)\b/i
+
+export function getInjuryFlags(injuries, healthAssessmentInjuries) {
+  const text = [injuries, healthAssessmentInjuries].filter(Boolean).join(' ')
+  return {
+    knee:      KNEE_SIGNAL_RE.test(text),
+    wrist:     WRIST_SIGNAL_RE.test(text),
+    lowerBack: LOWER_BACK_SIGNAL_RE.test(text),
+  }
+}
+
+// ── Blocked exercise names ───────────────────────────────────────────────────
+// Applied as a DB-query exclusion (never selected) and re-checked by the
+// post-generation validator as a defense-in-depth safety net.
+const GLOBAL_BLOCKED_TERMS = [
+  'russian twist', 'janda sit-up', 'janda situp', 'jackknife sit-up', 'jackknife situp',
+  'cocoon', 'hang clean', 'alternating hang clean', 'power clean', 'clean and press',
+  'olympic lift', 'snatch',
+]
+const KNEE_UNSAFE_TERMS = [
+  'lunge', 'jump squat', 'jumping squat', 'lateral bound', 'box jump', 'depth jump', 'split squat jump',
+]
+const LOWER_BACK_UNSAFE_TERMS = ['deadlift', 'good morning', 'bent-over row', 'bent over row']
+
+function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
+
+/** Builds a single case-insensitive regex source string (for Postgres `!~*` and
+ * the post-generation validator) of every exercise name that must never be
+ * selected for this client, given fitness level and injury flags. Returns null
+ * when there's nothing to exclude. */
+export function buildBlockedNamePattern({ isBeginner, injuryFlags }) {
+  const terms = new Set(GLOBAL_BLOCKED_TERMS)
+  if (isBeginner) for (const t of BEGINNER_BLOCKED_EXERCISES) terms.add(t)
+  if (injuryFlags?.knee) for (const t of KNEE_UNSAFE_TERMS) terms.add(t)
+  if (injuryFlags?.lowerBack) for (const t of LOWER_BACK_UNSAFE_TERMS) terms.add(t)
+  const escaped = [...terms].map(escapeRegExp)
+  // Wrist/carpal tunnel: block the bare standard push-up (wrist in full extension
+  // under load) but not incline/wall/fist/neutral-grip variants, which contain
+  // "push-up" as a substring and remain selectable.
+  if (injuryFlags?.wrist) escaped.push('^push-?up$')
+  return escaped.length ? escaped.join('|') : null
 }
 
 // ── Exercise selection ───────────────────────────────────────────────────────
@@ -97,21 +151,25 @@ function resolveEquipmentList(equipmentAnswers) {
 
 const FITNESS_LEVEL_MAP = { Beginner: 'beginner', Intermediate: 'intermediate', Advanced: 'advanced' }
 
-/** Picks one exercise for `pattern`, relaxing filters progressively until something is found. */
-async function pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds }) {
+/** Picks one exercise for `pattern`, relaxing filters progressively until something is found.
+ * Equipment and the blocked-name exclusion are hard constraints — zero tolerance means
+ * they are never relaxed as a fallback. Only difficulty and exercise-repeat are relaxed;
+ * if nothing matches even then, the slot is left unfilled (see buildDaySkeletons) rather
+ * than returning an exercise the client can't perform or shouldn't be given. */
+async function pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds, excludeNamePattern }) {
   const attempts = [
-    { useEquipment: true,  useDifficulty: true  },
-    { useEquipment: true,  useDifficulty: false },
-    { useEquipment: false, useDifficulty: false },
+    { useDifficulty: true,  allowRepeat: false },
+    { useDifficulty: false, allowRepeat: false },
+    { useDifficulty: false, allowRepeat: true  }, // library subset exhausted — repeat an exercise, but never drop equipment/name constraints
   ]
-  for (const { useEquipment, useDifficulty } of attempts) {
+  for (const { useDifficulty, allowRepeat } of attempts) {
     const conditions = ['movement_pattern = $1']
     const params = [pattern]
-    if (excludeIds.length) {
+    if (!allowRepeat && excludeIds.length) {
       params.push(excludeIds)
       conditions.push(`id != ALL($${params.length})`)
     }
-    if (useEquipment && equipmentList?.length) {
+    if (equipmentList?.length) {
       params.push(equipmentList)
       conditions.push(`equipment = ANY($${params.length})`)
     }
@@ -119,18 +177,17 @@ async function pickExercise(pool, { pattern, equipmentList, difficulty, excludeI
       params.push(difficulty)
       conditions.push(`difficulty = $${params.length}`)
     }
+    if (excludeNamePattern) {
+      params.push(excludeNamePattern)
+      conditions.push(`name !~* $${params.length}`)
+    }
     const { rows } = await pool.query(
       `SELECT * FROM exercises WHERE ${conditions.join(' AND ')} ORDER BY random() LIMIT 1`,
       params,
     )
     if (rows[0]) return rows[0]
   }
-  // Last resort: allow repeats (small library subset exhausted).
-  const { rows } = await pool.query(
-    `SELECT * FROM exercises WHERE movement_pattern = $1 ORDER BY random() LIMIT 1`,
-    [pattern],
-  )
-  return rows[0] ?? null
+  return null
 }
 
 const PATTERN_LABELS = {
@@ -177,7 +234,7 @@ async function assertLibraryHasRequiredPatterns(pool, requiredPatterns) {
 }
 
 /** Builds the per-day exercise skeleton (deterministic DB picks, no AI involved yet). */
-async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentList, difficulty, preferBilateral }) {
+async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentList, difficulty, preferBilateral, excludeNamePattern }) {
   const usedIds = []
   const days = []
   let totalFilled = 0
@@ -186,7 +243,7 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
     const slots = []
     for (const slot of quota) {
       const pattern = slotToPattern(slot, preferBilateral)
-      const exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds })
+      const exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern })
       if (!exercise) {
         console.error(
           `[workoutGenerator] No exercise found for slot: pattern=${pattern} equipment=${JSON.stringify(equipmentList)} difficulty=${difficulty ?? 'any'} (day ${d + 1}) — skipping slot`,
@@ -200,6 +257,7 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
         exercise_id: exercise.id,
         name: exercise.name,
         movement_pattern: exercise.movement_pattern,
+        equipment: exercise.equipment,
       })
     }
     days.push({
@@ -221,7 +279,7 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
 const SUPERSET_LABELS = { none: 'No supersets — standard workout', some: 'Some supersets — about 1 per workout', full: 'Full supersets — maximum intensity' }
 const CIRCUIT_LABELS  = { none: 'No circuits — standard format', some: 'Some circuits — about 1 per workout', full: 'Full circuits — multiple circuits' }
 
-function buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext) {
+function buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext, injuryFlags = {}) {
   const goals = Array.isArray(answers.goals) ? answers.goals.join(', ') : answers.goals
   const equipment = Array.isArray(answers.equipment) ? answers.equipment.join(', ') : answers.equipment
   const isBegginer = (FITNESS_LEVEL_MAP[answers.fitness_level] ?? answers.fitness_level) === 'beginner'
@@ -238,6 +296,45 @@ function buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList,
   const floorText = floorTransferContext
     ? `\n${floorTransferContext}`
     : ''
+
+  const beginnerProgressionText = isBegginer ? `
+
+BEGINNER EXERCISE PROGRESSIONS
+The exercises for this program were already selected from the library within safe beginner bounds — you are not choosing exercises. Use this ladder only to calibrate how you write cues, sets/reps, and coaching notes so they match where a true beginner actually is:
+
+Hinge pattern progression (early programs progress in this order):
+- Week 1-2: Glute bridge (floor) or hip thrust to bench
+- Week 2-4: Glute kickback (standing, bodyweight)
+- Week 4+: Romanian Deadlift (RDL) with light weight
+- Never: kettlebell swings, hang cleans, or any ballistic hinge pattern
+
+Squat pattern progression:
+- Start with bodyweight squat or sit-to-stand from chair
+- Goblet squat only in week 3+ or a second program
+- Never: barbell back squat, jump squat, or lateral bound as a squat substitute
+
+Push pattern progression:
+- Start with wall push-up or incline push-up (hands on counter/bench)
+- Floor push-up only after wall/incline is mastered
+- DB floor press is acceptable (floor stops ROM, teaches control)
+- Never: barbell bench press on day 1
+
+Core progression:
+- Dead bug is the default beginner core exercise
+- Side bridge (modified, knees bent) and seated leg tucks in a chair are acceptable
+- Never: cocoons, jackknife sit-ups, Russian twist, Janda sit-up, or any rotational loaded core` : ''
+
+  const injuryContextLines = []
+  if (injuryFlags.knee) {
+    injuryContextLines.push('Right knee arthritis / knee injury flagged: never write cues implying lunges, lateral bounds, jump squats, or single-leg exercises with impact. The selected exercises already avoid these — keep coaching notes consistent with bilateral, controlled, low-impact movement.')
+  }
+  if (injuryFlags.wrist) {
+    injuryContextLines.push('Carpal tunnel / wrist issue flagged: avoid cues that put the wrist into full extension under load. For any push exercise, explicitly note the wrist cue (e.g. "press from a neutral wrist, weight through the knuckles" or "fists/handles instead of flat palm if that\'s more comfortable").')
+  }
+  if (injuryFlags.lowerBack) {
+    injuryContextLines.push('Lower back issue flagged: never write cues implying deadlifts, good mornings, or bent-over rows as primary movements — the selected exercises already avoid these. Reinforce hip-hinge cues from a supported/controlled position.')
+  }
+  const injuryText = injuryContextLines.length ? `\n${injuryContextLines.map(l => `- ${l}`).join('\n')}` : ''
 
   return `You are Katie, the Life Warrior Coaching workout programming assistant for women over 40.
 
@@ -262,6 +359,15 @@ PROGRAMMING PHILOSOPHY — FOLLOW EXACTLY
 - Keep power work outside fast circuits — power quality requires recovery.
 - Unilateral reps must always say "each side" — never write an ambiguous total.
 
+DAY STRUCTURE — REQUIRED SEQUENCE
+Every training day already follows this exact order (Warm-Up -> Squat -> Push -> Hinge -> Pull -> Core -> Cool-Down), non-negotiable regardless of fitness level, so the two lower-body patterns (squat, hinge) are never adjacent. This is enforced by the exercise list below — do not reorder the given slots, and write warm-up/cool-down copy consistent with this sequence.
+
+EQUIPMENT HARD RULES — ZERO TOLERANCE
+The exercises below were already filtered to the client's available equipment (${equipment || 'Full Gym'}) — every exercise you see already satisfies this. Zero tolerance for cues that imply otherwise:
+- Never add an "if you had equipment" note or reference equipment the client doesn't have.
+- Never suggest a substitution that requires equipment outside ${equipment || 'anything available in a full gym'}.
+- If equipment is bodyweight-only, every cue must describe a zero-equipment execution.
+
 CLIENT PROFILE
 - Name: ${firstName}
 - Primary goal: ${goals}
@@ -276,6 +382,8 @@ CLIENT PROFILE
 - Circuits: ${CIRCUIT_LABELS[answers.circuits] || 'No circuits'}
 - Injuries/limitations and program direction: ${answers.injuries || 'None'}
 ${floorText}
+INJURY AND LIMITATION FLAGS${injuryText || '\n- None flagged for this client.'}
+- Floor limitations: whenever a cue involves getting down to or up from the floor, include a clear setup instruction for using a chair or wall — never skip this note for a floor exercise.
 
 STRUCTURE RULES — ENFORCE EXACTLY
 Supersets selection: ${answers.supersets}
@@ -300,6 +408,7 @@ ${isBegginer ? `- Begin with low complexity and generous rest (minimum 60 second
 - Do not write cues that assume prior strength training experience
 - Warmup cues should be simple and clearly explained
 - Flag any exercise in the list that seems beyond beginner level so the coach can review` : `- Standard sets/reps/rest appropriate for ${answers.fitness_level} level`}
+${beginnerProgressionText}
 
 SETS/REPS/REST DEFAULTS BY GOAL
 - Weight loss: 3 sets 8-12 reps, 30-45 sec rest in circuits, up to 10 min post-strength conditioning
@@ -320,6 +429,21 @@ WARM-UP RULES
 COOL-DOWN
 - Brief reminder only (1-2 sentences)
 - Tell the client what to stretch and why — do not write a full routine
+
+EXERCISE DESCRIPTION QUALITY STANDARDS
+Every exercise "notes" field must read like a coach is in the room, not a manual — warm, direct, specific, never generic — and must cover all four of:
+1. Setup: exactly how to get into position, including any props needed (chair, wall, bench)
+2. The movement: what to do, in plain language a beginner can follow
+3. Breathing cue: exactly when to breathe in and when to breathe out
+4. The coaching note: one cue that connects the exercise to their goal or limitation (e.g. "this builds the glute strength that actually supports your knee joint")
+
+ABSOLUTELY NEVER GENERATE THESE EXERCISES FOR ANY CLIENT AT ANY LEVEL:
+- Russian Twist (any variation)
+- Janda Sit-Up
+- Jackknife Sit-Up
+- Cocoon (unless explicitly approved by coach for advanced clients)
+- Hang Clean (any variation)
+- Any Olympic lift for non-athletic populations
 
 TRAINING DAY EXERCISES (DO NOT CHANGE THESE):
 ${skeletonText}
@@ -344,7 +468,7 @@ Return ONLY a valid JSON object with this exact structure (no markdown, no extra
           "sets": number,
           "reps": "string (e.g. '10-12' or '30 seconds' or '10 each side')",
           "rest_seconds": number,
-          "notes": "string (one coaching cue — form tip, breathing, or encouragement)"
+          "notes": "string (setup + movement + breathing cue + coaching note, per EXERCISE DESCRIPTION QUALITY STANDARDS above)"
         }
       ]
     }
@@ -376,6 +500,7 @@ function mergeResponse(daySkeletons, aiPlan) {
         name: slot.name,
         exercise_id: slot.exercise_id,
         movement_pattern: slot.movement_pattern,
+        equipment: slot.equipment ?? null,
         sets: ai.sets ?? null,
         reps: ai.reps ?? null,
         rest_seconds: ai.rest_seconds ?? null,
@@ -573,6 +698,9 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
   validateCircuitSuperset(answers)
   const beginnerBlockList = getBeginnnerBlockList(answers.fitness_level)
   const floorTransferContext = getFloorTransferContext(answers.floor_transfer)
+  const isBeginner = (FITNESS_LEVEL_MAP[answers.fitness_level] ?? answers.fitness_level) === 'beginner'
+  const injuryFlags = getInjuryFlags(answers.injuries, opts.healthAssessmentInjuries)
+  const blockedNamePattern = buildBlockedNamePattern({ isBeginner, injuryFlags })
 
   const requiredPatterns = getRequiredPatterns(answers.days_per_week, answers.session_length, preferBilateral)
   await assertLibraryHasRequiredPatterns(pool, requiredPatterns)
@@ -583,10 +711,12 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
     equipmentList,
     difficulty,
     preferBilateral,
+    excludeNamePattern: blockedNamePattern,
   })
 
-  const prompt = buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext)
+  const prompt = buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext, injuryFlags)
   const aiPlan = await requestAndParsePlan(prompt)
 
-  return mergeResponse(daySkeletons, aiPlan)
+  const plan = mergeResponse(daySkeletons, aiPlan)
+  return validateWorkoutPlan(plan, { equipmentList, blockedNamePattern })
 }
