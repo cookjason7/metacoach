@@ -53,7 +53,12 @@ export function validateWorkoutPlan(plan, { equipmentList = null, blockedNamePat
 
       const patternLabel = PATTERN_DISPLAY[ex.movement_pattern] ?? ex.movement_pattern
       const isBlocked = blockedRe ? blockedRe.test(ex.name) : false
-      const isEquipmentMismatch = !isBlocked && !!equipmentList?.length && !!ex.equipment && !equipmentList.includes(ex.equipment)
+      // 'body only' requires literally zero equipment, so it's always performable
+      // regardless of the client's selected equipment — never a real mismatch. This
+      // matters now that the vertical-pull Day 3 preference (workoutGenerator.js)
+      // intentionally relaxes equipment matching to include body-only/band exercises
+      // even for clients who selected other equipment.
+      const isEquipmentMismatch = !isBlocked && !!equipmentList?.length && !!ex.equipment && ex.equipment !== 'body only' && !equipmentList.includes(ex.equipment)
 
       if (isBlocked) {
         ex.flagged = true
