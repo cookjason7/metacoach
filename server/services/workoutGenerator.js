@@ -216,6 +216,39 @@ function getBodyweightPullFallback(dayIndex) {
   }
 }
 
+// ── Vertical pull day-variation (Day 3) ──────────────────────────────────────
+// Without this, the pull slot is picked independently per day with no pattern
+// awareness, so a 3-day program typically lands 3 horizontal pulls (row
+// variants) back to back across the week. Day 1/2 stay horizontal (varied only
+// by usedIds excluding whatever was already picked); Day 3 actively prefers a
+// vertical pull (pulldown-family) instead.
+const VERTICAL_PULL_DAY_INDEX = 2 // Day 3, 0-indexed
+const VERTICAL_PULL_TERMS = ['pulldown', 'high-to-low', 'high to low', 'lat pull', 'vertical pull', 'band pull down']
+
+function getVerticalPullPreference() {
+  return VERTICAL_PULL_TERMS.map(escapeRegExp).join('|')
+}
+
+const PULL_VARIETY_FLAG =
+  '[PULL VARIETY — Day 3 ideally uses a vertical pull. Consider substituting a lat pulldown, band pulldown, or high-to-low band pull-apart if equipment allows.]'
+
+// Bodyweight-only fallback specifically for the Day 3 vertical pull, distinct from
+// the generic (horizontal) BODYWEIGHT_PULL_FALLBACKS above — used only if the DB
+// genuinely has no vertical-pull match for a bodyweight-only client (in practice the
+// seeded 'Doorframe Lat Pull' row should cover this; this is defense in depth).
+const BODYWEIGHT_VERTICAL_PULL_FALLBACK_NOTE =
+  'Stand in an open doorframe, reach both hands up to grip the top corners of the frame at shoulder width. Pull your elbows down and back toward your hips as if trying to bend the doorframe, hold the squeeze for 2 seconds, then release. Breathe out as you pull, breathe in as you release. This builds the lat and upper back strength that balances all your push work and keeps your shoulders healthy over time.'
+
+function getBodyweightVerticalPullFallback() {
+  return {
+    name: 'Doorframe Lat Pull',
+    movement_pattern: 'upper_pull',
+    equipment: 'body only',
+    difficulty: 'beginner',
+    notes: BODYWEIGHT_VERTICAL_PULL_FALLBACK_NOTE,
+  }
+}
+
 // ── Beginner squat day variation ─────────────────────────────────────────────
 // Biases which squat-pattern exercise gets picked on each day of a beginner's
 // program so the same one exercise (usually the only bodyweight-squat row in
@@ -362,6 +395,15 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
           exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
         }
       }
+      // Day 3 pull-pattern variation: try a vertical pull (pulldown-family) before
+      // anything else, so a 3-day program isn't 3 horizontal rows back to back. If
+      // none is available for this client's equipment, fall through to whatever
+      // horizontal pull the rest of this block finds, but keep a coach-facing flag.
+      let pullVarietyFlag = null
+      if (!exercise && slot === 'upper_pull' && d === VERTICAL_PULL_DAY_INDEX) {
+        exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern: getVerticalPullPreference() })
+        if (!exercise) pullVarietyFlag = PULL_VARIETY_FLAG
+      }
       // Low back injury: prefer a supported single-arm row for the horizontal pull
       // slot over whatever bilateral row would otherwise be picked (bent-over rows
       // are already hard-excluded above, but this actively biases toward the safer
@@ -375,6 +417,13 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
       }
 
       let fallbackNotes = null
+      if (!exercise && slot === 'upper_pull' && d === VERTICAL_PULL_DAY_INDEX && isBodyweightOnly(equipmentList)) {
+        const fallback = getBodyweightVerticalPullFallback()
+        exercise = { id: null, name: fallback.name, movement_pattern: fallback.movement_pattern, equipment: fallback.equipment }
+        fallbackNotes = fallback.notes
+        pullVarietyFlag = null // this fallback IS a vertical pull — no longer needs the variety flag
+        console.warn(`[workoutGenerator] No DB vertical pull exercise available for bodyweight-only client (day ${d + 1}) — using hardcoded fallback "${fallback.name}"`)
+      }
       if (!exercise && slot === 'upper_pull' && isBodyweightOnly(equipmentList)) {
         const fallback = getBodyweightPullFallback(d)
         exercise = { id: null, name: fallback.name, movement_pattern: fallback.movement_pattern, equipment: fallback.equipment }
@@ -397,6 +446,7 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
         movement_pattern: exercise.movement_pattern,
         equipment: exercise.equipment,
         fallbackNotes,
+        pullVarietyFlag,
       })
     }
     days.push({
@@ -649,6 +699,9 @@ function mergeResponse(daySkeletons, aiPlan) {
         // Hardcoded fallback exercises (e.g. the bodyweight pull substitute) carry
         // their own fixed description — never let Katie's guess override it.
         notes: slot.fallbackNotes ?? ai.notes ?? null,
+        // Coach-facing only (see PULL_VARIETY_FLAG) — not shown to the client, and
+        // never overrides the exercise itself, which is otherwise perfectly valid.
+        pull_variety_flag: slot.pullVarietyFlag ?? null,
       })
     }
     if (aiDay.cooldown) {
