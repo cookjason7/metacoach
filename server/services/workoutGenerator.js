@@ -632,10 +632,9 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
 
 // ── Prompt ───────────────────────────────────────────────────────────────────
 
-const SUPERSET_LABELS = { none: 'No supersets — standard workout', some: 'Some supersets — about 1 per workout', full: 'Full supersets — maximum intensity' }
 const CIRCUIT_LABELS  = { none: 'No circuits — standard format', some: 'Some circuits — about 1 per workout', full: 'Full circuits — multiple circuits' }
 
-function buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext, injuryFlags = {}, includeSuperset = false) {
+function buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext, injuryFlags = {}) {
   const goals = Array.isArray(answers.goals) ? answers.goals.join(', ') : answers.goals
   const equipment = Array.isArray(answers.equipment) ? answers.equipment.join(', ') : answers.equipment
   const isBegginer = (FITNESS_LEVEL_MAP[answers.fitness_level] ?? answers.fitness_level) === 'beginner'
@@ -735,7 +734,6 @@ CLIENT PROFILE
 - Fitness level: ${answers.fitness_level}
 - Strength training history: ${answers.strength_history || 'Not specified'}
 - Floor transfer ability: ${answers.floor_transfer || 'Not specified'}
-- Supersets: ${SUPERSET_LABELS[answers.supersets] || 'No supersets'}
 - Circuits: ${CIRCUIT_LABELS[answers.circuits] || 'No circuits'}
 - Injuries/limitations and program direction: ${answers.injuries || 'None'}
 ${floorText}
@@ -743,20 +741,16 @@ INJURY AND LIMITATION FLAGS${injuryText || '\n- None flagged for this client.'}
 - Floor limitations: whenever a cue involves getting down to or up from the floor, include a clear setup instruction for using a chair or wall — never skip this note for a floor exercise.
 
 STRUCTURE RULES — ENFORCE EXACTLY
-Supersets selection: ${answers.supersets}
-- "none" = no supersets anywhere in the workout
-- "some" = exactly ONE two-exercise superset per workout day, no more
-- "full" = organize as many exercises as feasible into two-exercise supersets
-
 Circuits selection: ${answers.circuits}
 - "none" = no circuits anywhere in the workout
 - "some" = exactly ONE circuit of 3-4 exercises per workout day, no more
 - "full" = organize the strength work into multiple 3-4 exercise circuits where session length permits
 
-Circuits and supersets may coexist only when both are selected and session length supports them.
-Show inter-exercise rest AND round rest explicitly when circuits or supersets are used.
-Use opposing or non-competing movement patterns in supersets/circuits (upper/lower alternation preferred).
-${includeSuperset ? '\nThis workout uses supersets. Pair the push and pull exercises together as a superset — label them clearly as \'Superset A - Exercise 1\' and \'Superset A - Exercise 2\' in the notes field. The client performs Exercise 1 immediately followed by Exercise 2 with no rest between them, then rests the full rest period before repeating. Write the cue note for each exercise knowing it will be performed back-to-back with its pair — mention this in the coaching note for each.\n' : ''}${blockedText}
+Show inter-exercise rest AND round rest explicitly when circuits are used.
+Use opposing or non-competing movement patterns in circuits (upper/lower alternation preferred).
+
+Do NOT mention supersets, paired exercises, superset labels, or exercise sequencing between exercises in any notes or descriptions. Do not use the words 'Superset', 'Exercise 1', 'Exercise 2', 'go straight into', 'move directly into', or 'no rest' in any exercise description. The app handles all superset structure and labeling automatically.
+${blockedText}
 
 BEGINNER RULES${isBegginer ? ' — THIS CLIENT IS A BEGINNER. ENFORCE ALL OF THESE.' : ' (not applicable — intermediate/advanced client)'}
 ${isBegginer ? `- Begin with low complexity and generous rest (minimum 60 seconds between sets)
@@ -1174,6 +1168,9 @@ const INTERMEDIATE_BLOCKED_EXERCISES = [
   'lunge sprint', // plyometric lunge pattern
   'rope climb', // requires specialized equipment and extreme pulling strength
   'pistol squat', 'smith machine pistol', // single leg to full depth, advanced
+  'turkish get-up', 'turkish getup', 'get-up', // extreme advanced multi-pattern skill movement
+  'frog sit-up', 'frog situp',
+  'weighted sit-up', 'banded sit-up', 'sit-up', // sit-ups blocked for beginners, extended to intermediate
 ]
 
 function getBeginnnerBlockList(fitnessLevel) {
@@ -1233,9 +1230,10 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
   const blockedNamePattern = buildBlockedNamePattern({ isBeginner, injuryFlags, equipmentList, fitnessLevel: answers.fitness_level })
   // 'some'/'full' both request supersets (validateCircuitSuperset above already
   // guarantees answers.supersets is one of 'none'/'some'/'full') — the push+pull
-  // pairing below is deterministic and guaranteed either way; 'full' additionally
-  // asks Katie (via the existing "Supersets selection" prompt block) to organize
-  // further supersets among the remaining exercises.
+  // pairing is deterministic (buildDaySkeletons/applySupersetLabel/forceZeroRest)
+  // and identical either way. Katie's prompt is never told about superset
+  // structure at all (see buildWorkoutPrompt) — 'some' vs 'full' no longer changes
+  // anything about what she writes, only that the app pairs push+pull for either.
   const includeSuperset = answers.supersets !== 'none'
 
   const requiredPatterns = getRequiredPatterns(answers.days_per_week, answers.session_length, preferBilateral)
@@ -1254,7 +1252,7 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
     includeSuperset,
   })
 
-  const prompt = buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext, injuryFlags, includeSuperset)
+  const prompt = buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext, injuryFlags)
   const aiPlan = await requestAndParsePlan(prompt)
 
   const plan = mergeResponse(daySkeletons, aiPlan)
