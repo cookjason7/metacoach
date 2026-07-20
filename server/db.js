@@ -1779,8 +1779,9 @@ export async function getOrCreateUser(clerkUserId, email = null) {
       )
     }
   } else {
+    // New users default to org_id = 1 (Life Warrior Coaching) until assigned elsewhere.
     const inserted = await pool.query(
-      'INSERT INTO users (clerk_user_id, email) VALUES ($1, $2) RETURNING id',
+      'INSERT INTO users (clerk_user_id, email, org_id) VALUES ($1, $2, 1) RETURNING id',
       [clerkUserId, email],
     )
     dbUserId = inserted.rows[0].id
@@ -1803,4 +1804,16 @@ export async function getOrCreateUser(clerkUserId, email = null) {
   }
 
   return dbUserId
+}
+
+// Used only by the orgContext middleware (server/middleware/orgContext.js) to get
+// org_id and the full user row in one extra query alongside getOrCreateUser.
+// Deliberately kept separate from getOrCreateUser rather than changing that
+// function's return shape — 28+ route files call getOrCreateUser expecting back
+// a plain numeric id (e.g. `const dbUserId = await getOrCreateUser(userId)` used
+// directly as a SQL param), and returning an object there would break all of them.
+export async function getOrCreateUserWithOrg(clerkUserId, email = null) {
+  const dbUserId = await getOrCreateUser(clerkUserId, email)
+  const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [dbUserId])
+  return rows[0]
 }
