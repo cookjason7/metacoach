@@ -95,12 +95,35 @@ const GLOBAL_BLOCKED_TERMS = [
   'russian twist', 'janda sit-up', 'janda situp', 'jackknife sit-up', 'jackknife situp',
   'cocoon', 'hang clean', 'alternating hang clean', 'power clean', 'clean and press',
   'olympic lift', 'snatch', 'tuck crunch', 'knee tuck jump',
+  'bottoms up', // renamed to 'Dead Bug' in the DB — still blocked here in case any variant row exists under the old name
+  'side bend', // covers Dumbbell Side Bend, Barbell Side Bend, and any other Side Bend variation
 ]
 const KNEE_UNSAFE_TERMS = [
   'lunge', 'jump squat', 'jumping squat', 'lateral bound', 'box jump', 'depth jump', 'split squat jump',
   'scissors jump', 'bench jump', 'star jump', 'jumping jack', 'flutter kick',
 ]
-const LOWER_BACK_UNSAFE_TERMS = ['deadlift', 'good morning', 'bent-over row', 'bent over row']
+// Broad 'bent-over'/'bent over' (not just "...row") so "Bent Over Barbell Row" and
+// "Bent Over Dumbbell Row" are caught — the literal "bent over row" substring never
+// appears in those names since the equipment word sits between "over" and "row".
+// 'deadlift' is handled separately below (LOWER_BACK_DEADLIFT_EXEMPT_RE) since sumo
+// and trap-bar variants are exempt.
+const LOWER_BACK_UNSAFE_TERMS = ['good morning', 'bent-over', 'bent over', 'stiff leg']
+// Blocks any "...deadlift..." name for low-back-injured clients EXCEPT sumo or
+// trap-bar variants (more upright torso, lower lumbar shear) — expressed as a single
+// raw regex (not escaped/joined like the plain terms above) using a negative lookahead.
+const LOWER_BACK_DEADLIFT_EXEMPT_RE = '^(?!.*(sumo|trap.?bar)).*deadlift.*$'
+
+// Preferred horizontal-pull substitutes for low-back-injured clients: single-arm,
+// supported variations instead of bilateral bent-over rows. Seated Cable Row only
+// offered when cable equipment is actually available.
+const LOWER_BACK_PULL_PREFERENCE_TERMS = ['one-arm dumbbell row', 'one arm dumbbell row', 'single arm row', 'single-arm row']
+
+function getLowerBackPullPreference(equipmentList) {
+  const terms = [...LOWER_BACK_PULL_PREFERENCE_TERMS]
+  const cableAvailable = !equipmentList?.length || equipmentList.includes('cable')
+  if (cableAvailable) terms.push('seated cable row')
+  return terms.map(escapeRegExp).join('|')
+}
 
 // Applied only to the core slot: sprint/cardio-named exercises are occasionally
 // mistagged movement_pattern='core' in the library (Wind Sprints was — corrected
@@ -131,6 +154,9 @@ export function buildBlockedNamePattern({ isBeginner, injuryFlags }) {
   // under load) but not incline/wall/fist/neutral-grip variants, which contain
   // "push-up" as a substring and remain selectable.
   if (injuryFlags?.wrist) escaped.push('^push-?up$')
+  // Low back: block any deadlift EXCEPT sumo/trap-bar variants — a raw regex (not
+  // escaped, unlike the plain substring terms above) since it needs a lookahead.
+  if (injuryFlags?.lowerBack) escaped.push(LOWER_BACK_DEADLIFT_EXEMPT_RE)
   return escaped.length ? escaped.join('|') : null
 }
 
@@ -310,7 +336,7 @@ async function assertLibraryHasRequiredPatterns(pool, requiredPatterns) {
 }
 
 /** Builds the per-day exercise skeleton (deterministic DB picks, no AI involved yet). */
-async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentList, difficulty, preferBilateral, excludeNamePattern, strictDifficulty, isBeginner }) {
+async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentList, difficulty, preferBilateral, excludeNamePattern, strictDifficulty, isBeginner, injuryFlags }) {
   const usedIds = []
   const days = []
   let totalFilled = 0
@@ -335,6 +361,14 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
         if (preferredNamePattern) {
           exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
         }
+      }
+      // Low back injury: prefer a supported single-arm row for the horizontal pull
+      // slot over whatever bilateral row would otherwise be picked (bent-over rows
+      // are already hard-excluded above, but this actively biases toward the safer
+      // supported variant rather than leaving it to chance among what's left).
+      if (!exercise && slot === 'upper_pull' && injuryFlags?.lowerBack) {
+        const preferredNamePattern = getLowerBackPullPreference(equipmentList)
+        exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
       }
       if (!exercise) {
         exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty })
@@ -437,7 +471,8 @@ Core progression:
     injuryContextLines.push('Carpal tunnel / wrist issue flagged: avoid cues that put the wrist into full extension under load. For any push exercise, explicitly note the wrist cue (e.g. "press from a neutral wrist, weight through the knuckles" or "fists/handles instead of flat palm if that\'s more comfortable").')
   }
   if (injuryFlags.lowerBack) {
-    injuryContextLines.push('Lower back issue flagged: never write cues implying deadlifts, good mornings, or bent-over rows as primary movements — the selected exercises already avoid these. Reinforce hip-hinge cues from a supported/controlled position.')
+    injuryContextLines.push('Low back injury or pain: Never generate bent-over bilateral rows (bent over barbell row, bent over dumbbell row) as these place unsupported load on the lumbar spine. Substitute with single-arm rows where the client can brace with their free hand on a bench or front leg in a split stance. Cue the supported position explicitly in every description.')
+    injuryContextLines.push('Also for low back: never write cues implying deadlifts (other than sumo or trap-bar variations), good mornings, or stiff-leg movements as primary movements — the selected exercises already avoid these. Reinforce hip-hinge cues from a supported/controlled position.')
   }
   const injuryText = injuryContextLines.length ? `\n${injuryContextLines.map(l => `- ${l}`).join('\n')}` : ''
 
@@ -946,6 +981,7 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
     excludeNamePattern: blockedNamePattern,
     strictDifficulty: isBeginner,
     isBeginner,
+    injuryFlags,
   })
 
   const prompt = buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext, injuryFlags)
