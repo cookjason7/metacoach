@@ -636,10 +636,10 @@ export default function Dashboard() {
             <span className="text-[10px] text-gray-500 font-medium leading-none">Supps</span>
           </button>
 
-          {/* Wellness button (disabled) */}
+          {/* Wellness button */}
           <button
-            disabled
-            className="w-12 flex flex-col items-center justify-center gap-1.5 opacity-40 cursor-not-allowed"
+            onClick={() => window.open('https://altroapp.com/lifewarrior', '_blank')}
+            className="w-12 flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:opacity-75 transition-opacity"
           >
             <span style={{ fontSize: '20px', lineHeight: 1 }}>🩺</span>
             <span className="text-[10px] text-gray-500 font-medium leading-none">Wellness</span>
