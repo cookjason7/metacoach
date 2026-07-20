@@ -98,11 +98,24 @@ const GLOBAL_BLOCKED_TERMS = [
 ]
 const KNEE_UNSAFE_TERMS = [
   'lunge', 'jump squat', 'jumping squat', 'lateral bound', 'box jump', 'depth jump', 'split squat jump',
-  'scissors jump', 'bench jump', 'star jump', 'jumping jack',
+  'scissors jump', 'bench jump', 'star jump', 'jumping jack', 'flutter kick',
 ]
 const LOWER_BACK_UNSAFE_TERMS = ['deadlift', 'good morning', 'bent-over row', 'bent over row']
 
+// Applied only to the core slot: sprint/cardio-named exercises are occasionally
+// mistagged movement_pattern='core' in the library (Wind Sprints was — corrected
+// to 'conditioning' directly in the DB), so this name-based exclusion is a
+// defense-in-depth backstop against the same mistagging recurring, on top of the
+// data fix. A core slot should always sit out with the DB fix; this just means it
+// can never silently regress if a future import mistags another cardio exercise.
+const CORE_SLOT_BLOCKED_TERMS = ['wind sprint', 'sprint', 'shuttle run', 'suicide run', 'cardio']
+
 function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
+
+/** Merges two optional regex source strings into one (`a|b`), passing either through unchanged if the other is absent. */
+function combinePatterns(a, b) {
+  return a && b ? `${a}|${b}` : a || b || null
+}
 
 /** Builds a single case-insensitive regex source string (for Postgres `!~*` and
  * the post-generation validator) of every exercise name that must never be
@@ -180,11 +193,16 @@ function getBodyweightPullFallback(dayIndex) {
 // ── Beginner squat day variation ─────────────────────────────────────────────
 // Biases which squat-pattern exercise gets picked on each day of a beginner's
 // program so the same one exercise (usually the only bodyweight-squat row in
-// a sparse library) doesn't repeat on every day.
+// a sparse library) doesn't repeat on every day. Beginners force bilateral
+// squat selection (see shouldPreferBilateral), so these must be names that
+// actually exist as beginner/bodyweight `squat_bilateral` rows — confirmed
+// against the exercise library directly (Sumo Squat, Sit to Stand were added
+// and Chair Squat's equipment tag was corrected from 'machine' to 'body only'
+// after the original preference list matched nothing beyond day 1).
 const BEGINNER_SQUAT_DAY_PREFERENCES = [
-  ['bodyweight squat', 'sit-to-stand', 'sit to stand'],
-  ['sumo squat', 'wide stance squat', 'squat to chair', 'chair squat'],
-  ['step-up', 'step up', 'lateral step'],
+  ['bodyweight squat'],
+  ['sumo squat'],
+  ['chair squat', 'sit to stand'],
 ]
 
 /** Regex source string of the day's preferred squat exercise names, or null past
@@ -302,6 +320,12 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
     for (const slot of quota) {
       const pattern = slotToPattern(slot, preferBilateral)
 
+      // Core slot: always exclude sprint/cardio-named exercises, on top of the
+      // caller's normal exclusions — see CORE_SLOT_BLOCKED_TERMS above.
+      const slotExcludeNamePattern = slot === 'core'
+        ? combinePatterns(excludeNamePattern, CORE_SLOT_BLOCKED_TERMS.map(escapeRegExp).join('|'))
+        : excludeNamePattern
+
       // Beginner squat day-variation: try the day's preferred name pattern first
       // (excludeIds already carries every exercise used on prior days of this
       // program, so this also naturally avoids repeats even without a match).
@@ -309,11 +333,11 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
       if (slot === 'squat' && isBeginner) {
         const preferredNamePattern = getBeginnerSquatDayPreference(d)
         if (preferredNamePattern) {
-          exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern, strictDifficulty, preferredNamePattern })
+          exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
         }
       }
       if (!exercise) {
-        exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern, strictDifficulty })
+        exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty })
       }
 
       let fallbackNotes = null
