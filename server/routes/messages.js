@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { requireAuth, getAuth } from '@clerk/express'
-import { pool, getOrCreateUser } from '../db.js'
+import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
 import multer from 'multer'
 import { v2 as cloudinary } from 'cloudinary'
 import { trackEvent } from '../services/usageTracker.js'
@@ -69,7 +69,7 @@ async function getClientContext(req) {
   const { userId } = getAuth(req)
   const dbUserId = await getOrCreateUser(userId)
   const { rows } = await pool.query(
-    `SELECT u.id, u.coaching_type, u.assigned_coach_id,
+    `SELECT u.id, u.org_id, u.email, u.coaching_type, u.assigned_coach_id,
             coach.first_name AS assigned_coach_name,
             coach.role AS assigned_coach_role
      FROM users u
@@ -77,8 +77,30 @@ async function getClientContext(req) {
      WHERE u.id = $1`,
     [dbUserId],
   )
-  return { dbUserId, ...(rows[0] ?? {}) }
+  const row = rows[0] ?? {}
+  return { dbUserId, orgId: row.org_id ?? 1, ...row }
 }
+
+// Super admin (platform owner accounts in ADMIN_EMAILS, e.g. Jason) bypasses org
+// scoping. Same distinction as coachAdmin.js: isAdminRole()/'admin' role is NOT
+// enough here since every org gets its own admin user under multi-tenancy — only
+// the hardcoded platform-owner allowlist should see across orgs.
+function isSuperAdmin(ctx) {
+  return isAdminEmail(ctx.email)
+}
+
+// Org-scoping note: every route below already filters client_messages by
+// `client_id = ctx.dbUserId` — the requesting client's own row id, which is a
+// strictly stronger and already-correct boundary than org_id (a user belongs to
+// exactly one org, so scoping by their own id can never cross an org boundary).
+// Those reads/updates are deliberately NOT given an additional `org_id = ...`
+// filter: client_messages.org_id isn't set on INSERT by every write path in the
+// app yet (e.g. staff-sent replies via coachAdmin.js), so filtering reads by it
+// would silently hide legitimate messages instead of adding real isolation. New
+// rows inserted from this file DO set org_id (see POST /thread/:threadType)
+// so future org-scoped reporting has correct data to work from. The one place
+// this file queries across users (the admin-notification fallback below) is
+// scoped to org_id explicitly, since that's a genuine cross-tenant read.
 
 // True when the client's assigned coach IS an admin — in that case coach_thread and
 // admin_private point at the same person, so they should present as one thread instead
@@ -313,10 +335,10 @@ router.post('/thread/:threadType', requireAuth(), async (req, res, next) => {
 
     const { rows } = await pool.query(`
       INSERT INTO client_messages
-        (client_id, sender_id, sender_role, message_body, thread_type, visibility, image_url, audio_url)
-      VALUES ($1, $2, 'client', $3, $4, $5, $6, $7)
+        (client_id, sender_id, sender_role, message_body, thread_type, visibility, image_url, audio_url, org_id)
+      VALUES ($1, $2, 'client', $3, $4, $5, $6, $7, $8)
       RETURNING *
-    `, [ctx.dbUserId, ctx.dbUserId, message_body.trim(), canonicalThread, visibility, image_url ?? null, audio_url ?? null])
+    `, [ctx.dbUserId, ctx.dbUserId, message_body.trim(), canonicalThread, visibility, image_url ?? null, audio_url ?? null, ctx.orgId])
 
     // Auto-restore archived conversations when client sends a new message
     await pool.query(`
@@ -333,9 +355,12 @@ router.post('/thread/:threadType', requireAuth(), async (req, res, next) => {
       if (u?.coach_id) {
         await notifyNewDirectMessage(u.coach_id, ctx.dbUserId).catch(() => {})
       } else {
-        const { rows: admins } = await pool.query(
-          `SELECT id FROM users WHERE role = 'admin'`,
-        )
+        // Notify admins in this client's own org only — a client with no assigned
+        // coach shouldn't page every admin across every other org on the platform.
+        // Super admin (Jason) is exempt from this org filter, matching coachAdmin.js.
+        const { rows: admins } = isSuperAdmin(ctx)
+          ? await pool.query(`SELECT id FROM users WHERE role = 'admin'`)
+          : await pool.query(`SELECT id FROM users WHERE role = 'admin' AND org_id = $1`, [ctx.orgId])
         for (const a of admins) await notifyNewDirectMessage(a.id, ctx.dbUserId).catch(() => {})
       }
     }).catch(() => {})
