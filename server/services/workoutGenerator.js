@@ -152,6 +152,48 @@ function resolveEquipmentList(equipmentAnswers) {
 
 const FITNESS_LEVEL_MAP = { Beginner: 'beginner', Intermediate: 'intermediate', Advanced: 'advanced' }
 
+function isBodyweightOnly(equipmentList) {
+  return !!equipmentList && equipmentList.length === 1 && equipmentList[0] === 'body only'
+}
+
+// ── Bodyweight pull fallback ─────────────────────────────────────────────────
+// Most upper_pull exercises in the library need a pull-up bar or band — genuinely
+// scarce for a bodyweight-only client, especially combined with the strict
+// beginner-difficulty constraint above. Rather than silently dropping the pull
+// slot (breaking the required day sequence and the weekly pull >= push ratio),
+// fall back to one of these hardcoded, no-equipment substitutes. Rotates by day
+// index so a multi-day program doesn't repeat the same substitute every day.
+const BODYWEIGHT_PULL_FALLBACKS = ['Door Frame Row', 'Table Row', 'Towel Row']
+const BODYWEIGHT_PULL_FALLBACK_NOTE =
+  'Setup: Find a sturdy door frame or table edge. For a door frame row: hold both sides of an open door frame, lean back slightly, and pull your chest toward the frame. For a table row: lie under a sturdy table, grip the edge, and pull your chest up. Movement: Pull with control, pause at the top, lower slowly. Breathe out as you pull, breathe in as you lower. This builds the back strength that balances your push work and supports better posture.'
+
+function getBodyweightPullFallback(dayIndex) {
+  return {
+    name: BODYWEIGHT_PULL_FALLBACKS[dayIndex % BODYWEIGHT_PULL_FALLBACKS.length],
+    movement_pattern: 'upper_pull',
+    equipment: 'body only',
+    difficulty: 'beginner',
+    notes: BODYWEIGHT_PULL_FALLBACK_NOTE,
+  }
+}
+
+// ── Beginner squat day variation ─────────────────────────────────────────────
+// Biases which squat-pattern exercise gets picked on each day of a beginner's
+// program so the same one exercise (usually the only bodyweight-squat row in
+// a sparse library) doesn't repeat on every day.
+const BEGINNER_SQUAT_DAY_PREFERENCES = [
+  ['bodyweight squat', 'sit-to-stand', 'sit to stand'],
+  ['sumo squat', 'wide stance squat', 'squat to chair', 'chair squat'],
+  ['step-up', 'step up', 'lateral step'],
+]
+
+/** Regex source string of the day's preferred squat exercise names, or null past
+ * the defined preference days (falls through to normal random selection). */
+function getBeginnerSquatDayPreference(dayIndex) {
+  const terms = BEGINNER_SQUAT_DAY_PREFERENCES[dayIndex]
+  return terms ? terms.map(escapeRegExp).join('|') : null
+}
+
 /** Picks one exercise for `pattern`, relaxing filters progressively until something is found.
  * Equipment and the blocked-name exclusion are always hard constraints — zero tolerance means
  * they are never relaxed as a fallback. Difficulty is normally relaxed as a last resort so the
@@ -159,8 +201,11 @@ const FITNESS_LEVEL_MAP = { Beginner: 'beginner', Intermediate: 'intermediate', 
  * it's a hard constraint too — a beginner must never be handed an intermediate/advanced
  * exercise, so the fallback that drops the difficulty filter entirely is skipped. If nothing
  * matches even after the remaining relaxation, the slot is left unfilled (see
- * buildDaySkeletons) rather than returning an exercise the client shouldn't be given. */
-async function pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds, excludeNamePattern, strictDifficulty }) {
+ * buildDaySkeletons) rather than returning an exercise the client shouldn't be given.
+ * `preferredNamePattern` (optional) additionally requires the name to match a regex —
+ * used for beginner squat day-variation — and is not itself relaxed across attempts;
+ * the caller retries without it if a preferred pick isn't found. */
+async function pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds, excludeNamePattern, strictDifficulty, preferredNamePattern }) {
   const attempts = strictDifficulty
     ? [
         { useDifficulty: true, allowRepeat: false },
@@ -189,6 +234,10 @@ async function pickExercise(pool, { pattern, equipmentList, difficulty, excludeI
     if (excludeNamePattern) {
       params.push(excludeNamePattern)
       conditions.push(`name !~* $${params.length}`)
+    }
+    if (preferredNamePattern) {
+      params.push(preferredNamePattern)
+      conditions.push(`name ~* $${params.length}`)
     }
     const { rows } = await pool.query(
       `SELECT * FROM exercises WHERE ${conditions.join(' AND ')} ORDER BY random() LIMIT 1`,
@@ -243,7 +292,7 @@ async function assertLibraryHasRequiredPatterns(pool, requiredPatterns) {
 }
 
 /** Builds the per-day exercise skeleton (deterministic DB picks, no AI involved yet). */
-async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentList, difficulty, preferBilateral, excludeNamePattern, strictDifficulty }) {
+async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentList, difficulty, preferBilateral, excludeNamePattern, strictDifficulty, isBeginner }) {
   const usedIds = []
   const days = []
   let totalFilled = 0
@@ -252,21 +301,44 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
     const slots = []
     for (const slot of quota) {
       const pattern = slotToPattern(slot, preferBilateral)
-      const exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern, strictDifficulty })
+
+      // Beginner squat day-variation: try the day's preferred name pattern first
+      // (excludeIds already carries every exercise used on prior days of this
+      // program, so this also naturally avoids repeats even without a match).
+      let exercise = null
+      if (slot === 'squat' && isBeginner) {
+        const preferredNamePattern = getBeginnerSquatDayPreference(d)
+        if (preferredNamePattern) {
+          exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern, strictDifficulty, preferredNamePattern })
+        }
+      }
+      if (!exercise) {
+        exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern, strictDifficulty })
+      }
+
+      let fallbackNotes = null
+      if (!exercise && slot === 'upper_pull' && isBodyweightOnly(equipmentList)) {
+        const fallback = getBodyweightPullFallback(d)
+        exercise = { id: null, name: fallback.name, movement_pattern: fallback.movement_pattern, equipment: fallback.equipment }
+        fallbackNotes = fallback.notes
+        console.warn(`[workoutGenerator] No DB pull exercise available for bodyweight-only client (day ${d + 1}) — using hardcoded fallback "${fallback.name}"`)
+      }
+
       if (!exercise) {
         console.error(
           `[workoutGenerator] No exercise found for slot: pattern=${pattern} equipment=${JSON.stringify(equipmentList)} difficulty=${difficulty ?? 'any'} (day ${d + 1}) — skipping slot`,
         )
         continue // library has nothing matching this exact slot; skip it rather than fail the whole plan
       }
-      usedIds.push(exercise.id)
+      if (exercise.id != null) usedIds.push(exercise.id)
       totalFilled++
       slots.push({
         slot_id: `d${d}-${slots.length}`,
-        exercise_id: exercise.id,
+        exercise_id: exercise.id ?? null,
         name: exercise.name,
         movement_pattern: exercise.movement_pattern,
         equipment: exercise.equipment,
+        fallbackNotes,
       })
     }
     days.push({
@@ -515,7 +587,9 @@ function mergeResponse(daySkeletons, aiPlan) {
         sets: ai.sets ?? null,
         reps: ai.reps ?? null,
         rest_seconds: ai.rest_seconds ?? null,
-        notes: ai.notes ?? null,
+        // Hardcoded fallback exercises (e.g. the bodyweight pull substitute) carry
+        // their own fixed description — never let Katie's guess override it.
+        notes: slot.fallbackNotes ?? ai.notes ?? null,
       })
     }
     if (aiDay.cooldown) {
@@ -847,6 +921,7 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
     preferBilateral,
     excludeNamePattern: blockedNamePattern,
     strictDifficulty: isBeginner,
+    isBeginner,
   })
 
   const prompt = buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext, injuryFlags)
