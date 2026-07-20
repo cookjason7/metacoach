@@ -448,6 +448,8 @@ ABSOLUTELY NEVER GENERATE THESE EXERCISES FOR ANY CLIENT AT ANY LEVEL:
 TRAINING DAY EXERCISES (DO NOT CHANGE THESE):
 ${skeletonText}
 
+Respond with raw JSON only. No markdown. No code fences. No prose before or after. No newlines or special characters inside string values — use a space instead.
+
 Return ONLY a valid JSON object with this exact structure (no markdown, no extra text):
 {
   "program_name": "string (creative, motivating LWC-style program name)",
@@ -564,6 +566,104 @@ export function sanitizeJsonText(text) {
   return sanitized
 }
 
+/**
+ * Best-effort repair of literal control characters and stray internal quotes
+ * inside JSON string values. Claude occasionally emits a raw newline/tab, or
+ * an unescaped `"` inside a description string — both invalid JSON, and both
+ * distinct from the Unicode-punctuation issue sanitizeJsonText() handles.
+ * Walks the text tracking whether we're inside a string (an unescaped `"`
+ * toggles it) and repairs in place; never touches structural characters
+ * outside strings, and leaves already-escaped sequences (\n, \", \\, etc.)
+ * untouched. */
+function escapeControlCharsInStrings(text) {
+  let result = ''
+  let inString = false
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (!inString) {
+      if (ch === '"') inString = true
+      result += ch
+      continue
+    }
+    if (ch === '\\') {
+      // Preserve existing escape sequences untouched (\n, \", \\, etc.)
+      result += ch + (text[i + 1] ?? '')
+      i++
+      continue
+    }
+    if (ch === '"') {
+      // Look ahead past whitespace for the character that would legally
+      // follow a string terminator in JSON. If it's not one of those, this
+      // quote is very likely an unescaped quote inside the string content
+      // rather than the closing quote — escape it instead of ending the string.
+      let j = i + 1
+      while (j < text.length && /\s/.test(text[j])) j++
+      const next = text[j]
+      const legalAfterString = next === undefined || ',:}]'.includes(next)
+      if (legalAfterString) {
+        inString = false
+        result += ch
+      } else {
+        result += '\\"'
+      }
+      continue
+    }
+    if (ch === '\n') { result += '\\n'; continue }
+    if (ch === '\r') { result += '\\r'; continue }
+    if (ch === '\t') { result += '\\t'; continue }
+    result += ch
+  }
+  return result
+}
+
+/** Tracks bracket/brace/string state through `text` and returns the stack of
+ * still-open `{`/`[` characters at the end (innermost last). */
+function openBracketStack(text) {
+  const stack = []
+  let inString = false
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (inString) {
+      if (ch === '\\') { i++; continue }
+      if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') { inString = true; continue }
+    if (ch === '{' || ch === '[') stack.push(ch)
+    else if (ch === '}' || ch === ']') stack.pop()
+  }
+  return stack
+}
+
+/** Last-resort repair for a response truncated mid-JSON (e.g. cut off by the
+ * token limit before the closing braces). Finds the last point where the
+ * text holds a complete value (a closing `}`/`]` or a `,` outside a string),
+ * truncates there, drops a dangling trailing comma, and appends exactly the
+ * closing characters needed to balance every still-open object/array.
+ * Returns null if there's nothing usable to repair. */
+function repairTruncatedJson(text) {
+  let inString = false
+  let lastSafeIndex = -1
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (inString) {
+      if (ch === '\\') { i++; continue }
+      if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') { inString = true; continue }
+    if (ch === '}' || ch === ']' || ch === ',') lastSafeIndex = i
+  }
+  if (lastSafeIndex === -1) return null
+
+  let truncated = text.slice(0, lastSafeIndex + 1).replace(/,\s*$/, '')
+  const stillOpen = openBracketStack(truncated)
+  if (stillOpen.length === 0) return null // already balanced — nothing for this repair to fix
+
+  const closing = stillOpen.reverse().map(c => (c === '{' ? '}' : ']')).join('')
+  return truncated + closing
+}
+
 function extractJsonText(rawText) {
   let text = rawText.trim()
 
@@ -604,10 +704,20 @@ async function requestAndParsePlan(prompt) {
   let lastErr
   for (let attempt = 1; attempt <= 2; attempt++) {
     const rawText = await requestPlanFromClaude(prompt)
-    const jsonText = sanitizeJsonText(extractJsonText(rawText))
+    const jsonText = escapeControlCharsInStrings(sanitizeJsonText(extractJsonText(rawText)))
     try {
       return JSON.parse(jsonText)
     } catch (err) {
+      const repaired = repairTruncatedJson(jsonText)
+      if (repaired) {
+        try {
+          const parsed = JSON.parse(repaired)
+          console.warn(`[workoutGenerator] Repaired a malformed/truncated workout JSON response on attempt ${attempt}/2 by closing structure early at the last complete value (original error: ${err.message})`)
+          return parsed
+        } catch {
+          // Repair attempt itself didn't parse — fall through with the original error.
+        }
+      }
       lastErr = err
       console.warn(`[workoutGenerator] Failed to parse Claude's workout response on attempt ${attempt}/2: ${err.message}`)
     }
