@@ -97,6 +97,10 @@ const GLOBAL_BLOCKED_TERMS = [
   'olympic lift', 'snatch', 'tuck crunch', 'knee tuck jump',
   'bottoms up', // renamed to 'Dead Bug' in the DB — still blocked here in case any variant row exists under the old name
   'side bend', // covers Dumbbell Side Bend, Barbell Side Bend, and any other Side Bend variation
+  'oblique crunch', // rotational/lateral core — contraindicated for general population
+  'wide-grip pulldown behind the neck', 'pulldown behind neck', 'behind the neck', // shoulder injury risk for all clients
+  'wood chop', // rotational power — risky risk/reward ratio
+  'side jackknife', // advanced floor plyometric, poor risk/reward for this population
 ]
 const KNEE_UNSAFE_TERMS = [
   'lunge', 'jump squat', 'jumping squat', 'lateral bound', 'box jump', 'depth jump', 'split squat jump',
@@ -137,6 +141,24 @@ function getLowerBackPullPreference(equipmentList) {
 // can never silently regress if a future import mistags another cardio exercise.
 const CORE_SLOT_BLOCKED_TERMS = ['wind sprint', 'sprint', 'shuttle run', 'suicide run', 'cardio']
 
+// Cardio machines that should never appear in a home/equipment-restricted workout.
+// Excluded when client does not have access to full gym or dedicated cardio equipment.
+const CARDIO_MACHINE_TERMS = [
+  'stairmaster', 'stair master', 'stair climber',
+  'treadmill',
+  'elliptical',
+  'stationary bike', 'exercise bike',
+  'rowing machine', 'rower',
+]
+
+function shouldExcludeCardioMachines(equipmentList) {
+  if (!equipmentList) return false // null = "Full Gym" = has everything
+  // Include cardio machines only if client has 'Full Gym' or explicitly selected cardio/gym equipment
+  const hasFullGym = equipmentList.includes('Full Gym') || equipmentList.includes('Full gym')
+  const hasCardioEquipment = equipmentList.includes('cardio') || equipmentList.includes('gym')
+  return !hasFullGym && !hasCardioEquipment
+}
+
 function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
 
 /** Merges two optional regex source strings into one (`a|b`), passing either through unchanged if the other is absent. */
@@ -146,13 +168,15 @@ function combinePatterns(a, b) {
 
 /** Builds a single case-insensitive regex source string (for Postgres `!~*` and
  * the post-generation validator) of every exercise name that must never be
- * selected for this client, given fitness level and injury flags. Returns null
+ * selected for this client, given fitness level, injury flags, and equipment. Returns null
  * when there's nothing to exclude. */
-export function buildBlockedNamePattern({ isBeginner, injuryFlags }) {
+export function buildBlockedNamePattern({ isBeginner, injuryFlags, equipmentList, fitnessLevel }) {
   const terms = new Set(GLOBAL_BLOCKED_TERMS)
   if (isBeginner) for (const t of BEGINNER_BLOCKED_EXERCISES) terms.add(t)
+  if (FITNESS_LEVEL_MAP[fitnessLevel] === 'intermediate') for (const t of INTERMEDIATE_BLOCKED_EXERCISES) terms.add(t)
   if (injuryFlags?.knee) for (const t of KNEE_UNSAFE_TERMS) terms.add(t)
   if (injuryFlags?.lowerBack) for (const t of LOWER_BACK_UNSAFE_TERMS) terms.add(t)
+  if (shouldExcludeCardioMachines(equipmentList)) for (const t of CARDIO_MACHINE_TERMS) terms.add(t)
   const escaped = [...terms].map(escapeRegExp)
   // Wrist/carpal tunnel: block the bare standard push-up (wrist in full extension
   // under load) but not incline/wall/fist/neutral-grip variants, which contain
@@ -1047,11 +1071,28 @@ const BEGINNER_BLOCKED_EXERCISES = [
   'russian twist',
   'sit-up', 'full sit-up',
   'box jump', 'depth jump',
+  'chin-up', 'chin up', // requires significant pulling strength not yet built
+  'pull-up', 'pullup', // requires significant pulling strength not yet built
+  'natural glute ham raise', 'glute ham raise', // advanced posterior chain, inappropriate for beginners
+  'plyo push-up', 'plyometric push-up', 'clap push-up', // floor plyometrics for beginners
+  'rocket jump', // high impact plyometric
+  'standing long jump', // high impact plyometric
+]
+
+const INTERMEDIATE_BLOCKED_EXERCISES = [
+  'natural glute ham raise', 'glute ham raise', // requires advanced posterior chain strength; assisted or band-assisted version preferred
+  'chin-up', 'chin up', // intermediate clients should use assisted or band-assisted version only — flag with coach note rather than block if assisted variation exists
+  'wide-grip pulldown behind the neck', 'behind the neck', // shoulder injury risk even for intermediate clients
 ]
 
 function getBeginnnerBlockList(fitnessLevel) {
   if (FITNESS_LEVEL_MAP[fitnessLevel] !== 'beginner') return []
   return BEGINNER_BLOCKED_EXERCISES
+}
+
+function getIntermediateBlockList(fitnessLevel) {
+  if (FITNESS_LEVEL_MAP[fitnessLevel] !== 'intermediate') return []
+  return INTERMEDIATE_BLOCKED_EXERCISES
 }
 
 // ── Validator 4: Floor transfer exercise filter ───────────────────────────────
@@ -1098,7 +1139,7 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
   const floorTransferContext = getFloorTransferContext(answers.floor_transfer)
   const isBeginner = (FITNESS_LEVEL_MAP[answers.fitness_level] ?? answers.fitness_level) === 'beginner'
   const injuryFlags = getInjuryFlags(answers.injuries, opts.healthAssessmentInjuries)
-  const blockedNamePattern = buildBlockedNamePattern({ isBeginner, injuryFlags })
+  const blockedNamePattern = buildBlockedNamePattern({ isBeginner, injuryFlags, equipmentList, fitnessLevel: answers.fitness_level })
 
   const requiredPatterns = getRequiredPatterns(answers.days_per_week, answers.session_length, preferBilateral)
   await assertLibraryHasRequiredPatterns(pool, requiredPatterns)
