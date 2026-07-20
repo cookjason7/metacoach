@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { requireAuth, getAuth, clerkClient } from '@clerk/express'
 import { v2 as cloudinary } from 'cloudinary'
 import Anthropic from '@anthropic-ai/sdk'
-import { pool, getOrCreateUser } from '../db.js'
+import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
 import { sendInviteEmail } from '../services/email.js'
 import { getAppBaseUrl } from '../services/appUrl.js'
 import { notifyNewDirectMessage, notifyNewFormDelivery } from '../services/pushService.js'
@@ -15,14 +15,38 @@ const anthropic = new Anthropic()
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function getCurrentStaff(req) {
+  // orgContext middleware (mounted before this router in server/index.js) already
+  // resolved the full user row for this request — reuse it instead of re-querying.
+  if (req.internalUser) {
+    return {
+      dbUserId: req.internalUser.id,
+      role:     req.internalUser.role ?? 'client',
+      orgId:    req.orgId ?? req.internalUser.org_id ?? 1,
+      email:    req.internalUser.email ?? null,
+    }
+  }
   const { userId } = getAuth(req)
   const dbUserId = await getOrCreateUser(userId)
-  const { rows } = await pool.query('SELECT id, role FROM users WHERE id = $1', [dbUserId])
-  return { dbUserId, role: rows[0]?.role ?? 'client' }
+  const { rows } = await pool.query('SELECT id, role, org_id, email FROM users WHERE id = $1', [dbUserId])
+  return {
+    dbUserId,
+    role:  rows[0]?.role ?? 'client',
+    orgId: rows[0]?.org_id ?? 1,
+    email: rows[0]?.email ?? null,
+  }
 }
 
 function isAdminRole(role) {
   return role === 'admin' || role === 'account_owner'
+}
+
+// Super admin (platform owner accounts in ADMIN_EMAILS, e.g. Jason) bypasses org
+// scoping entirely and sees/manages every org. This is deliberately NOT the same
+// check as isAdminRole()/'admin' role: under multi-tenancy every org gets its own
+// 'admin' user too, so role alone is not enough to grant cross-org access — only
+// the hardcoded platform-owner allowlist should.
+function isSuperAdmin(ctx) {
+  return isAdminEmail(ctx.email)
 }
 
 async function requireStaff(req, res) {
@@ -43,14 +67,20 @@ async function requireAdmin(req, res) {
   return ctx
 }
 
-// Returns true if staff member (admin or coach) can access this client
+// Returns true if staff member (admin or coach) can access this client.
+// Super admin bypasses org scoping entirely. Everyone else — including org-level
+// 'admin' role staff — must be in the same org as the client; coaches additionally
+// must be that client's assigned coach.
 async function canAccessClient(ctx, clientId) {
-  if (isAdminRole(ctx.role)) return true
   const { rows } = await pool.query(
-    'SELECT id FROM users WHERE id = $1 AND assigned_coach_id = $2',
-    [clientId, ctx.dbUserId],
+    'SELECT org_id, assigned_coach_id FROM users WHERE id = $1',
+    [clientId],
   )
-  return rows.length > 0
+  if (!rows.length) return false
+  if (isSuperAdmin(ctx)) return true
+  if (rows[0].org_id !== ctx.orgId) return false
+  if (isAdminRole(ctx.role)) return true
+  return rows[0].assigned_coach_id === ctx.dbUserId
 }
 
 // True when this admin IS the client's assigned coach — coach_thread and admin_private
@@ -138,6 +168,11 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
     const params = []
     let where = `WHERE u.role = 'client' AND COALESCE(u.client_status, 'active') != 'deleted'`
 
+    if (!isSuperAdmin(ctx)) {
+      params.push(ctx.orgId)
+      where += ` AND u.org_id = $${params.length}`
+    }
+
     const statusFilter = req.query.status ?? 'active'
     if (statusFilter === 'active') {
       where += ` AND COALESCE(u.client_status, 'active') = 'active'`
@@ -221,13 +256,20 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
 // GET /api/coach-admin/coaches — list available coaches for assignment dropdown
 router.get('/coaches', requireAuth(), async (req, res, next) => {
   try {
-    if (await requireAdmin(req, res) === null) return
+    const ctx = await requireAdmin(req, res); if (!ctx) return
+    const params = []
+    let orgClause = ''
+    if (!isSuperAdmin(ctx)) {
+      params.push(ctx.orgId)
+      orgClause = ` AND org_id = $${params.length}`
+    }
     const { rows } = await pool.query(`
       SELECT id, first_name, email FROM users
       WHERE role IN ('coach', 'admin')
         AND COALESCE(staff_status, 'active') = 'active'
+        ${orgClause}
       ORDER BY first_name ASC NULLS LAST
-    `)
+    `, params)
     res.json(rows)
   } catch (err) { next(err) }
 })
@@ -238,6 +280,10 @@ router.get('/dashboard-summary', requireAuth(), async (req, res, next) => {
     const ctx = await requireStaff(req, res); if (!ctx) return
     const params = []
     let clientScope = `u.role = 'client' AND COALESCE(u.client_status, 'active') != 'deleted'`
+    if (!isSuperAdmin(ctx)) {
+      params.push(ctx.orgId)
+      clientScope += ` AND u.org_id = $${params.length}`
+    }
     if (ctx.role === 'coach') {
       params.push(ctx.dbUserId)
       clientScope += ` AND u.assigned_coach_id = $${params.length}`
@@ -362,6 +408,12 @@ router.get('/team', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireStaff(req, res); if (!ctx) return
     const statusFilter = req.query.status === 'archived' ? 'archived' : 'active'
+    const params = [statusFilter]
+    let orgClause = ''
+    if (!isSuperAdmin(ctx)) {
+      params.push(ctx.orgId)
+      orgClause = ` AND u.org_id = $${params.length}`
+    }
     const { rows } = await pool.query(`
       SELECT
         u.id,
@@ -383,11 +435,12 @@ router.get('/team', requireAuth(), async (req, res, next) => {
        AND COALESCE(c.client_status, 'active') != 'deleted'
       WHERE u.role IN ('coach', 'admin')
         AND COALESCE(u.staff_status, 'active') = $1
+        ${orgClause}
       GROUP BY u.id
       ORDER BY
         CASE WHEN u.role = 'admin' THEN 0 ELSE 1 END,
         name ASC
-    `, [statusFilter])
+    `, params)
     res.json(rows)
   } catch (err) { next(err) }
 })
@@ -407,6 +460,7 @@ router.get('/staff/:id', requireAuth(), async (req, res, next) => {
         u.role,
         u.phone_number,
         u.last_login_at,
+        u.org_id,
         COALESCE(u.staff_status, 'active') AS staff_status,
         ha.street_address,
         ha.city,
@@ -426,6 +480,9 @@ router.get('/staff/:id', requireAuth(), async (req, res, next) => {
     `, [staffId])
 
     if (!rows.length) return res.status(404).json({ error: 'Staff member not found' })
+    if (!isSuperAdmin(ctx) && rows[0].org_id !== ctx.orgId) {
+      return res.status(404).json({ error: 'Staff member not found' })
+    }
     res.json(rows[0])
   } catch (err) { next(err) }
 })
@@ -438,10 +495,13 @@ router.patch('/staff/:id', requireAuth(), async (req, res, next) => {
 
     // Verify target is staff
     const { rows: target } = await pool.query(
-      'SELECT id, role FROM users WHERE id = $1 AND role IN (\'coach\', \'admin\')',
+      'SELECT id, role, org_id FROM users WHERE id = $1 AND role IN (\'coach\', \'admin\')',
       [staffId],
     )
     if (!target.length) return res.status(404).json({ error: 'Staff member not found' })
+    if (!isSuperAdmin(ctx) && target[0].org_id !== ctx.orgId) {
+      return res.status(404).json({ error: 'Staff member not found' })
+    }
 
     const { first_name, last_name, phone_number, role } = req.body
 
@@ -484,6 +544,13 @@ router.patch('/staff/:id/archive', requireAuth(), async (req, res, next) => {
       return res.status(400).json({ error: 'You cannot archive yourself.' })
     }
 
+    if (!isSuperAdmin(ctx)) {
+      const { rows: targetOrg } = await pool.query('SELECT org_id FROM users WHERE id = $1', [staffId])
+      if (!targetOrg.length || targetOrg[0].org_id !== ctx.orgId) {
+        return res.status(404).json({ error: 'Staff member not found' })
+      }
+    }
+
     // Block if coach still has active assigned clients
     const { rows: assigned } = await pool.query(
       `SELECT COUNT(*)::int AS n FROM users
@@ -513,6 +580,13 @@ router.patch('/staff/:id/reactivate', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireAdmin(req, res); if (!ctx) return
     const staffId = parseInt(req.params.id, 10)
+
+    if (!isSuperAdmin(ctx)) {
+      const { rows: targetOrg } = await pool.query('SELECT org_id FROM users WHERE id = $1', [staffId])
+      if (!targetOrg.length || targetOrg[0].org_id !== ctx.orgId) {
+        return res.status(404).json({ error: 'Staff member not found' })
+      }
+    }
 
     const { rows } = await pool.query(
       `UPDATE users SET staff_status = 'active'
@@ -633,6 +707,14 @@ router.post('/clients/invite', requireAuth(), async (req, res, next) => {
 
     const coachId = (['ai', 'hybrid', 'basic'].includes(resolvedType) || !assigned_coach_id) ? null : parseInt(assigned_coach_id, 10)
 
+    // A client can only be pre-assigned to a coach within the inviting staff member's org.
+    if (coachId !== null && !isSuperAdmin(ctx)) {
+      const { rows: coachRows } = await pool.query('SELECT org_id FROM users WHERE id = $1', [coachId])
+      if (!coachRows.length || coachRows[0].org_id !== ctx.orgId) {
+        return res.status(400).json({ error: 'Invalid coach selection.' })
+      }
+    }
+
     const { rows: [invite] } = await pool.query(
       `INSERT INTO client_invites
          (email, first_name, last_name, phone, assigned_coach_id, coaching_type, notes, invited_by)
@@ -698,6 +780,12 @@ router.get('/clients/pending-invites', requireAuth(), async (req, res, next) => 
       params.push(ctx.dbUserId)
       extra = `AND ci.assigned_coach_id = $${params.length}`
     }
+    // client_invites has no org_id column — scope via the org of whichever staff
+    // member the invite is tied to (assigned coach, falling back to whoever sent it).
+    if (!isSuperAdmin(ctx)) {
+      params.push(ctx.orgId)
+      extra += ` AND COALESCE(invcoach.org_id, invstaff.org_id) = $${params.length}`
+    }
 
     const { rows } = await pool.query(`
       SELECT ci.id, ci.email, ci.first_name, ci.last_name, ci.coaching_type,
@@ -705,6 +793,8 @@ router.get('/clients/pending-invites', requireAuth(), async (req, res, next) => 
              (SELECT first_name FROM users WHERE id = ci.invited_by)      AS invited_by_name,
              (SELECT first_name FROM users WHERE id = ci.assigned_coach_id) AS assigned_coach_name
       FROM client_invites ci
+      LEFT JOIN users invcoach ON invcoach.id = ci.assigned_coach_id
+      LEFT JOIN users invstaff ON invstaff.id = ci.invited_by
       WHERE ci.accepted_at IS NULL
         AND (ci.expires_at IS NULL OR ci.expires_at > NOW())
         ${extra}
@@ -722,10 +812,17 @@ router.post('/clients/pending-invites/:id/resend', requireAuth(), async (req, re
     const id = parseInt(req.params.id, 10)
 
     const { rows } = await pool.query(
-      `SELECT * FROM client_invites WHERE id = $1 AND accepted_at IS NULL`,
+      `SELECT ci.*, COALESCE(invcoach.org_id, invstaff.org_id) AS invite_org_id
+       FROM client_invites ci
+       LEFT JOIN users invcoach ON invcoach.id = ci.assigned_coach_id
+       LEFT JOIN users invstaff ON invstaff.id = ci.invited_by
+       WHERE ci.id = $1 AND ci.accepted_at IS NULL`,
       [id],
     )
     if (!rows.length) return res.status(404).json({ error: 'Invite not found or already accepted.' })
+    if (!isSuperAdmin(ctx) && rows[0].invite_org_id !== ctx.orgId) {
+      return res.status(404).json({ error: 'Invite not found or already accepted.' })
+    }
 
     const invite  = rows[0]
     const appUrl  = getAppBaseUrl()
@@ -756,22 +853,27 @@ router.delete('/clients/pending-invites/:id', requireAuth(), async (req, res, ne
     const ctx = await requireStaff(req, res); if (!ctx) return
     const id = parseInt(req.params.id, 10)
 
-    // Admins cancel any invite; coaches only ones they created or are assigned to
-    const params = [id]
-    let extra = ''
-    if (ctx.role === 'coach') {
-      params.push(ctx.dbUserId)
-      extra = `AND (assigned_coach_id = $2 OR invited_by = $2)`
+    // Admins cancel any invite in their org; coaches only ones they created or are assigned to
+    const { rows: inviteRows } = await pool.query(
+      `SELECT ci.id, ci.assigned_coach_id, ci.invited_by,
+              COALESCE(invcoach.org_id, invstaff.org_id) AS invite_org_id
+       FROM client_invites ci
+       LEFT JOIN users invcoach ON invcoach.id = ci.assigned_coach_id
+       LEFT JOIN users invstaff ON invstaff.id = ci.invited_by
+       WHERE ci.id = $1 AND ci.accepted_at IS NULL`,
+      [id],
+    )
+    if (!inviteRows.length) return res.status(404).json({ error: 'Invite not found, already accepted, or you do not have permission.' })
+    const invite = inviteRows[0]
+
+    if (!isSuperAdmin(ctx) && invite.invite_org_id !== ctx.orgId) {
+      return res.status(404).json({ error: 'Invite not found, already accepted, or you do not have permission.' })
+    }
+    if (ctx.role === 'coach' && invite.assigned_coach_id !== ctx.dbUserId && invite.invited_by !== ctx.dbUserId) {
+      return res.status(404).json({ error: 'Invite not found, already accepted, or you do not have permission.' })
     }
 
-    const { rows } = await pool.query(
-      `DELETE FROM client_invites
-       WHERE id = $1 AND accepted_at IS NULL ${extra}
-       RETURNING id`,
-      params,
-    )
-
-    if (!rows.length) return res.status(404).json({ error: 'Invite not found, already accepted, or you do not have permission.' })
+    await pool.query(`DELETE FROM client_invites WHERE id = $1 AND accepted_at IS NULL`, [id])
     res.json({ ok: true })
   } catch (err) { next(err) }
 })
@@ -914,8 +1016,9 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
 // COALESCE, which would preserve the existing value).
 router.patch('/clients/:id', requireAuth(), async (req, res, next) => {
   try {
-    if (await requireAdmin(req, res) === null) return
+    const ctx = await requireAdmin(req, res); if (!ctx) return
     const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
 
     const allowed = ['coaching_type', 'assigned_coach_id', 'role', 'start_date',
                      'program_end_date', 'phone_number', 'paid', 'first_name', 'last_name',
@@ -931,6 +1034,13 @@ router.patch('/clients/:id', requireAuth(), async (req, res, next) => {
         // Normalize empty string → NULL for these fields
         if (key === 'assigned_coach_id') {
           value = (value === '' || value === null) ? null : Number(value)
+          // A client can only be assigned to a coach within the same org.
+          if (value !== null && !isSuperAdmin(ctx)) {
+            const { rows: coachRows } = await pool.query('SELECT org_id FROM users WHERE id = $1', [value])
+            if (!coachRows.length || coachRows[0].org_id !== ctx.orgId) {
+              return res.status(400).json({ error: 'Invalid coach selection.' })
+            }
+          }
         }
         if ((key === 'start_date' || key === 'program_end_date') && value === '') value = null
         if (key === 'starting_weight_lbs') {
@@ -976,8 +1086,9 @@ router.patch('/clients/:id', requireAuth(), async (req, res, next) => {
 // freshly-issued session can't be used again until they're reactivated.
 router.patch('/clients/:id/deactivate', requireAuth(), async (req, res, next) => {
   try {
-    if (await requireAdmin(req, res) === null) return
+    const ctx = await requireAdmin(req, res); if (!ctx) return
     const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
     const { userId } = getAuth(req)
     const adminDbId = await getOrCreateUser(userId)
 
@@ -1018,8 +1129,9 @@ router.patch('/clients/:id/deactivate', requireAuth(), async (req, res, next) =>
 // PATCH /api/coach-admin/clients/:id/reactivate
 router.patch('/clients/:id/reactivate', requireAuth(), async (req, res, next) => {
   try {
-    if (await requireAdmin(req, res) === null) return
+    const ctx = await requireAdmin(req, res); if (!ctx) return
     const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
     const { rows } = await pool.query(`
       UPDATE users
       SET client_status = 'active',
@@ -1040,8 +1152,9 @@ router.patch('/clients/:id/reactivate', requireAuth(), async (req, res, next) =>
 // at the API level by sending {confirm: 'PERMANENT_DELETE'} in the body).
 router.delete('/clients/:id', requireAuth(), async (req, res, next) => {
   try {
-    if (await requireAdmin(req, res) === null) return
+    const ctx = await requireAdmin(req, res); if (!ctx) return
     const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
     const { userId } = getAuth(req)
     const adminDbId = await getOrCreateUser(userId)
 
@@ -2125,6 +2238,7 @@ router.delete('/notes/:noteId', requireAuth(), async (req, res, next) => {
 
     const { rows: nRows } = await pool.query('SELECT client_id, author_id, visibility FROM client_notes WHERE id = $1', [noteId])
     if (!nRows.length) return res.status(404).json({ error: 'Note not found' })
+    if (!await canAccessClient(ctx, nRows[0].client_id)) return res.status(404).json({ error: 'Note not found' })
 
     // Coaches can only delete their own notes; admins can delete any
     if (!isAdminRole(ctx.role) && nRows[0].author_id !== ctx.dbUserId) {
@@ -2149,6 +2263,7 @@ router.patch('/notes/:noteId', requireAuth(), async (req, res, next) => {
       'SELECT client_id, author_id, visibility FROM client_notes WHERE id = $1', [noteId]
     )
     if (!nRows.length) return res.status(404).json({ error: 'Note not found' })
+    if (!await canAccessClient(ctx, nRows[0].client_id)) return res.status(404).json({ error: 'Note not found' })
 
     if (!isAdminRole(ctx.role) && nRows[0].author_id !== ctx.dbUserId) {
       return res.status(403).json({ error: 'Cannot edit this note' })
@@ -2190,6 +2305,10 @@ router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
       + ` AND m.thread_type IN ('admin_private', 'coach_thread', 'ai_admin')`
     if (!isAdmin) {
       extraWhere += ` AND u.assigned_coach_id = $1 AND m.thread_type = 'coach_thread'`
+    }
+    if (!isSuperAdmin(ctx)) {
+      params.push(ctx.orgId)
+      extraWhere += ` AND u.org_id = $${params.length}`
     }
     const { rows } = await pool.query(`
       SELECT
@@ -2258,6 +2377,10 @@ router.get('/messaging/unread-count', requireAuth(), async (req, res, next) => {
     if (!isAdmin) {
       extraWhere += ` AND u.assigned_coach_id = $1 AND m.thread_type = 'coach_thread'`
     }
+    if (!isSuperAdmin(ctx)) {
+      params.push(ctx.orgId)
+      extraWhere += ` AND u.org_id = $${params.length}`
+    }
     const { rows } = await pool.query(`
       SELECT COUNT(*) FILTER (WHERE m.sender_role = 'client' AND m.read_at IS NULL)::int AS unread
       FROM client_messages m
@@ -2285,6 +2408,11 @@ router.get('/messaging/client-search', requireAuth(), async (req, res, next) => 
     if (ctx.role === 'coach') {
       coachFilter = ` AND u.assigned_coach_id = $3`
     }
+    let orgFilter = ''
+    if (!isSuperAdmin(ctx)) {
+      params.push(ctx.orgId)
+      orgFilter = ` AND u.org_id = $${params.length}`
+    }
 
     const { rows } = await pool.query(`
       SELECT
@@ -2300,7 +2428,7 @@ router.get('/messaging/client-search', requireAuth(), async (req, res, next) => 
           LOWER(CONCAT_WS(' ', u.first_name, u.last_name)) LIKE LOWER($1)
           OR LOWER(u.email) LIKE LOWER($2)
         )
-        ${coachFilter}
+        ${coachFilter}${orgFilter}
       ORDER BY u.first_name, u.last_name
       LIMIT 20
     `, params)
@@ -3354,8 +3482,16 @@ router.get('/form-schedules', requireAuth(), async (req, res, next) => {
 
     let rows
     if (isAdminRole(ctx.role)) {
-      const params = clientId ? [clientId] : []
-      const clause = clientId ? clientClause.replace('$__CLIENT__', '$1') : ''
+      const params = []
+      let clause = ''
+      if (!isSuperAdmin(ctx)) {
+        params.push(ctx.orgId)
+        clause += ` AND u.org_id = $${params.length}`
+      }
+      if (clientId) {
+        params.push(clientId)
+        clause += ` AND fa.client_id = $${params.length}`
+      }
       ;({ rows } = await pool.query(baseSelect + clause + ' ORDER BY fa.created_at DESC LIMIT 200', params))
     } else {
       const params = clientId ? [ctx.dbUserId, clientId] : [ctx.dbUserId]
@@ -4035,6 +4171,7 @@ router.post('/clients/:id/tags', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireAdmin(req, res); if (!ctx) return
     const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
 
     const { tag_name } = req.body
     if (!tag_name?.trim()) return res.status(400).json({ error: 'tag_name is required' })
@@ -4075,6 +4212,7 @@ router.delete('/clients/:id/tags/:tagName', requireAuth(), async (req, res, next
   try {
     const ctx = await requireAdmin(req, res); if (!ctx) return
     const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
     const tagName = req.params.tagName.toLowerCase()
 
     const { rowCount } = await pool.query(
