@@ -171,6 +171,7 @@ const PLYO_TERMS = [
   'clap push-up', 'jump squat', 'jumping squat', 'lateral bound',
   'star jump', 'scissors jump', 'plyo', 'plyometric',
   'split jump', 'tuck jump', 'burpee',
+  'lateral hop', 'single-leg hop', 'single leg hop', 'lateral jump',
 ]
 const PLYO_EXCLUDED_SLOTS = new Set(['squat', 'upper_push', 'hinge', 'upper_pull', 'core'])
 
@@ -475,9 +476,19 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
       // additionally excludes PLYO_TERMS on top of the caller's normal exclusions —
       // see PLYO_EXCLUDED_SLOTS above. Core slot further excludes sprint/cardio-named
       // exercises — see CORE_SLOT_BLOCKED_TERMS above.
-      let slotExcludeNamePattern = PLYO_EXCLUDED_SLOTS.has(slot)
-        ? combinePatterns(excludeNamePattern, PLYO_TERMS.map(escapeRegExp).join('|'))
-        : excludeNamePattern
+      let slotExcludeNamePattern = excludeNamePattern
+      if (PLYO_EXCLUDED_SLOTS.has(slot)) {
+        const plyoPattern = PLYO_TERMS.map(escapeRegExp).join('|')
+        slotExcludeNamePattern = combinePatterns(excludeNamePattern, plyoPattern)
+        // Defensive check: combinePatterns must fold the plyo terms into the final
+        // pattern for every strength slot — if it silently dropped them (e.g. a
+        // future combinePatterns change breaks the `a && b` branch), a plyo exercise
+        // could leak into squat/hinge/push/pull/core with no query-level exclusion
+        // at all. Fail loudly rather than let that regress silently.
+        if (!slotExcludeNamePattern || !slotExcludeNamePattern.includes(plyoPattern)) {
+          console.error(`[workoutGenerator] PLYO_TERMS failed to combine into excludeNamePattern for slot=${slot} (day ${d + 1}) — plyo exercises may not be excluded from this query. excludeNamePattern=${JSON.stringify(excludeNamePattern)} plyoPattern=${JSON.stringify(plyoPattern)} result=${JSON.stringify(slotExcludeNamePattern)}`)
+        }
+      }
       if (slot === 'core') {
         slotExcludeNamePattern = combinePatterns(slotExcludeNamePattern, CORE_SLOT_BLOCKED_TERMS.map(escapeRegExp).join('|'))
       }
@@ -566,6 +577,14 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
         exercise_id: exercise.id ?? null,
         name: exercise.name,
         movement_pattern: exercise.movement_pattern,
+        // Deterministic quota slot (squat/hinge/upper_push/upper_pull/core/carry/
+        // conditioning) this exercise was picked for — distinct from
+        // exercise.movement_pattern above, which comes straight from the DB row and
+        // can't be trusted for pairing logic (the library has had rows mistagged
+        // before, e.g. cardio exercises mistagged movement_pattern='core' — see
+        // CORE_SLOT_BLOCKED_TERMS). Superset pairing below keys off this field so a
+        // mistagged row can never get paired into the wrong superset slot.
+        quotaSlot: slot,
         equipment: exercise.equipment,
         fallbackNotes,
         pullVarietyFlag,
@@ -575,10 +594,12 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
     // Superset pairing: always pair the day's push + pull slots (guaranteed one of
     // each — both are in BASE_QUOTA every day) when the coach requested supersets.
     // Core/hinge/squat/bonus slots stay standalone — no pairing rule for those was
-    // specified, so they're deliberately left out rather than guessed at.
+    // specified, so they're deliberately left out rather than guessed at. Keyed off
+    // quotaSlot (the loop's own slot variable), not movement_pattern, so a hinge or
+    // squat exercise can never be tagged into the push/pull superset.
     if (includeSuperset) {
-      const pushSlot = slots.find(s => s.movement_pattern === 'upper_push')
-      const pullSlot = slots.find(s => s.movement_pattern === 'upper_pull')
+      const pushSlot = slots.find(s => s.quotaSlot === 'upper_push')
+      const pullSlot = slots.find(s => s.quotaSlot === 'upper_pull')
       if (pushSlot && pullSlot) {
         pushSlot.supersetLabel = 'Superset A - Exercise 1'
         pullSlot.supersetLabel = 'Superset A - Exercise 2'
@@ -1126,6 +1147,15 @@ const INTERMEDIATE_BLOCKED_EXERCISES = [
   'natural glute ham raise', 'glute ham raise', // requires advanced posterior chain strength; assisted or band-assisted version preferred
   'chin-up', 'chin up', // intermediate clients should use assisted or band-assisted version only — flag with coach note rather than block if assisted variation exists
   'wide-grip pulldown behind the neck', 'behind the neck', // shoulder injury risk even for intermediate clients
+  'kettlebell clean', 'one-arm clean', 'open palm clean', 'clean', // power clean already globally blocked; this catches remaining clean variations
+  'ring dip', // rings require significant stabilization strength beyond intermediate
+  'muscle up', // extreme advanced
+  'single-arm push-up', 'one-arm push-up', // extreme advanced
+  'plate twist', // rotational loaded core — same risk as Russian Twist
+  'windmill', // advanced kettlebell skill
+  '3/4 sit-up', 'three quarter sit-up', // sit-ups blocked for beginners, extended to intermediate
+  'decline crunch', 'decline sit-up',
+  'kettlebell swing', 'one-arm kettlebell swing', 'single arm swing', // ballistic power movement requiring established hip hinge mechanics
 ]
 
 function getBeginnnerBlockList(fitnessLevel) {
