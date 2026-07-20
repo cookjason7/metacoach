@@ -174,6 +174,7 @@ const PLYO_TERMS = [
   'split jump', 'tuck jump', 'burpee',
   'lateral hop', 'single-leg hop', 'single leg hop', 'lateral jump',
   'lunge sprint', 'lunge jump', 'jumping lunge', 'split jump lunge',
+  'stride jump', 'single-leg stride jump',
 ]
 const PLYO_EXCLUDED_SLOTS = new Set(['squat', 'upper_push', 'hinge', 'upper_pull', 'core'])
 
@@ -607,13 +608,21 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
     if (includeSuperset) {
       const pushSlot = slots.find(s => s.quotaSlot === 'upper_push')
       const pullSlot = slots.find(s => s.quotaSlot === 'upper_pull')
-      if (pushSlot && pullSlot) {
+      // Guard against pairing a missing/placeholder exercise: if the push slot was
+      // skipped entirely (library had nothing to fill it — see the `continue` above)
+      // pushSlot is undefined and this already wouldn't match, but a defensive name
+      // check on both slots means a day can never end up superset-labeled as
+      // pull+pull (or push+push) if either side isn't a real, named exercise.
+      const hasRealExercise = s => !!s && typeof s.name === 'string' && s.name.trim().length > 0
+      if (hasRealExercise(pushSlot) && hasRealExercise(pullSlot)) {
         pushSlot.supersetLabel = 'Superset A - Exercise 1'
         pullSlot.supersetLabel = 'Superset A - Exercise 2'
         // Exercise 1 (push) is immediately followed by Exercise 2 (pull) with no
         // rest between them — only the round rest (after pull) is a real rest
         // period, and that stays whatever Claude assigns via ai.rest_seconds.
         pushSlot.forceZeroRest = true
+      } else {
+        console.warn(`[workoutGenerator] Skipping superset labeling for day ${d + 1} — push and/or pull slot has no valid exercise (push=${pushSlot?.name ?? 'missing'}, pull=${pullSlot?.name ?? 'missing'})`)
       }
     }
     days.push({
