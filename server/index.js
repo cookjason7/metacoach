@@ -6,6 +6,7 @@ import { existsSync } from 'fs'
 import { fileURLToPath } from 'url'
 import { clerkMiddleware, getAuth } from '@clerk/express'
 import { migrate, pool } from './db.js'
+import orgContext from './middleware/orgContext.js'
 import mealsRouter from './routes/meals.js'
 import dailyLogsRouter from './routes/dailyLogs.js'
 import usersRouter from './routes/users.js'
@@ -85,35 +86,35 @@ async function blockDeactivatedClients(req, res, next) {
   } catch (err) { next(err) }
 }
 
-app.use('/api/users',      clerkMiddleware(), blockDeactivatedClients, usersRouter)
-app.use('/api/meals',      clerkMiddleware(), blockDeactivatedClients, mealsRouter)
-app.use('/api/daily-logs', clerkMiddleware(), blockDeactivatedClients, dailyLogsRouter)
-app.use('/api/coach',      clerkMiddleware(), blockDeactivatedClients, coachRouter)
-app.use('/api/community',       clerkMiddleware(), blockDeactivatedClients, communityRouter)
-app.use('/api/progress-photos', clerkMiddleware(), blockDeactivatedClients, progressPhotosRouter)
-app.use('/api/foods',           clerkMiddleware(), blockDeactivatedClients, foodsRouter)
-app.use('/api/admin',           clerkMiddleware(), blockDeactivatedClients, adminRouter)
-app.use('/api/recipes',         clerkMiddleware(), blockDeactivatedClients, recipesRouter)
-app.use('/api/custom-foods',    clerkMiddleware(), blockDeactivatedClients, customFoodsRouter)
-app.use('/api/workouts',        clerkMiddleware(), blockDeactivatedClients, workoutsRouter)
-app.use('/api/workout-builder',   clerkMiddleware(), blockDeactivatedClients, workoutBuilderRouter)
-app.use('/api/gamification',      clerkMiddleware(), blockDeactivatedClients, gamificationRouter)
-app.use('/api/health-assessment', clerkMiddleware(), blockDeactivatedClients, healthAssessmentRouter)
-app.use('/api/coach-admin',       clerkMiddleware(), blockDeactivatedClients, coachAdminRouter)
-app.use('/api/client-habits',     clerkMiddleware(), blockDeactivatedClients, clientHabitsRouter)
-app.use('/api/client-workouts',   clerkMiddleware(), blockDeactivatedClients, clientWorkoutsRouter)
-app.use('/api/messages',          clerkMiddleware(), blockDeactivatedClients, messagesRouter)
-app.use('/api/client-invites',    clerkMiddleware(), blockDeactivatedClients, invitesRouter)
-app.use('/api/staff-invites',     clerkMiddleware(), blockDeactivatedClients, invitesRouter)
-app.use('/api/weekly-checkins',  clerkMiddleware(), blockDeactivatedClients, weeklyCheckinsRouter)
-app.use('/api/forms',            clerkMiddleware(), blockDeactivatedClients, formsRouter)
-app.use('/api/measurements',     clerkMiddleware(), blockDeactivatedClients, measurementsRouter)
-app.use('/api/mindset-videos',        clerkMiddleware(), blockDeactivatedClients, mindsetVideosRouter)
-app.use('/api/community-resources',   clerkMiddleware(), blockDeactivatedClients, communityResourcesRouter)
-app.use('/api/fitbit',                clerkMiddleware(), blockDeactivatedClients, fitbitRouter)
-app.use('/api/apple-health',          clerkMiddleware(), blockDeactivatedClients, appleHealthRouter)
-app.use('/api/bloodwork',             clerkMiddleware(), blockDeactivatedClients, bloodworkRouter)
-app.use('/api/push',                  clerkMiddleware(), blockDeactivatedClients, pushRouter)
+app.use('/api/users',      clerkMiddleware(), blockDeactivatedClients, orgContext, usersRouter)
+app.use('/api/meals',      clerkMiddleware(), blockDeactivatedClients, orgContext, mealsRouter)
+app.use('/api/daily-logs', clerkMiddleware(), blockDeactivatedClients, orgContext, dailyLogsRouter)
+app.use('/api/coach',      clerkMiddleware(), blockDeactivatedClients, orgContext, coachRouter)
+app.use('/api/community',       clerkMiddleware(), blockDeactivatedClients, orgContext, communityRouter)
+app.use('/api/progress-photos', clerkMiddleware(), blockDeactivatedClients, orgContext, progressPhotosRouter)
+app.use('/api/foods',           clerkMiddleware(), blockDeactivatedClients, orgContext, foodsRouter)
+app.use('/api/admin',           clerkMiddleware(), blockDeactivatedClients, orgContext, adminRouter)
+app.use('/api/recipes',         clerkMiddleware(), blockDeactivatedClients, orgContext, recipesRouter)
+app.use('/api/custom-foods',    clerkMiddleware(), blockDeactivatedClients, orgContext, customFoodsRouter)
+app.use('/api/workouts',        clerkMiddleware(), blockDeactivatedClients, orgContext, workoutsRouter)
+app.use('/api/workout-builder',   clerkMiddleware(), blockDeactivatedClients, orgContext, workoutBuilderRouter)
+app.use('/api/gamification',      clerkMiddleware(), blockDeactivatedClients, orgContext, gamificationRouter)
+app.use('/api/health-assessment', clerkMiddleware(), blockDeactivatedClients, orgContext, healthAssessmentRouter)
+app.use('/api/coach-admin',       clerkMiddleware(), blockDeactivatedClients, orgContext, coachAdminRouter)
+app.use('/api/client-habits',     clerkMiddleware(), blockDeactivatedClients, orgContext, clientHabitsRouter)
+app.use('/api/client-workouts',   clerkMiddleware(), blockDeactivatedClients, orgContext, clientWorkoutsRouter)
+app.use('/api/messages',          clerkMiddleware(), blockDeactivatedClients, orgContext, messagesRouter)
+app.use('/api/client-invites',    clerkMiddleware(), blockDeactivatedClients, orgContext, invitesRouter)
+app.use('/api/staff-invites',     clerkMiddleware(), blockDeactivatedClients, orgContext, invitesRouter)
+app.use('/api/weekly-checkins',  clerkMiddleware(), blockDeactivatedClients, orgContext, weeklyCheckinsRouter)
+app.use('/api/forms',            clerkMiddleware(), blockDeactivatedClients, orgContext, formsRouter)
+app.use('/api/measurements',     clerkMiddleware(), blockDeactivatedClients, orgContext, measurementsRouter)
+app.use('/api/mindset-videos',        clerkMiddleware(), blockDeactivatedClients, orgContext, mindsetVideosRouter)
+app.use('/api/community-resources',   clerkMiddleware(), blockDeactivatedClients, orgContext, communityResourcesRouter)
+app.use('/api/fitbit',                clerkMiddleware(), blockDeactivatedClients, orgContext, fitbitRouter)
+app.use('/api/apple-health',          clerkMiddleware(), blockDeactivatedClients, orgContext, appleHealthRouter)
+app.use('/api/bloodwork',             clerkMiddleware(), blockDeactivatedClients, orgContext, bloodworkRouter)
+app.use('/api/push',                  clerkMiddleware(), blockDeactivatedClients, orgContext, pushRouter)
 
 // Demo seed endpoint — only mounted on staging / when explicitly allowed
 if (process.env.NODE_ENV !== 'production' || process.env.ALLOW_DEMO_SEED === 'true') {
