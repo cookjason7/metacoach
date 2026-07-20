@@ -94,10 +94,11 @@ export function getInjuryFlags(injuries, healthAssessmentInjuries) {
 const GLOBAL_BLOCKED_TERMS = [
   'russian twist', 'janda sit-up', 'janda situp', 'jackknife sit-up', 'jackknife situp',
   'cocoon', 'hang clean', 'alternating hang clean', 'power clean', 'clean and press',
-  'olympic lift', 'snatch',
+  'olympic lift', 'snatch', 'tuck crunch', 'knee tuck jump',
 ]
 const KNEE_UNSAFE_TERMS = [
   'lunge', 'jump squat', 'jumping squat', 'lateral bound', 'box jump', 'depth jump', 'split squat jump',
+  'scissors jump', 'bench jump', 'star jump', 'jumping jack',
 ]
 const LOWER_BACK_UNSAFE_TERMS = ['deadlift', 'good morning', 'bent-over row', 'bent over row']
 
@@ -152,16 +153,24 @@ function resolveEquipmentList(equipmentAnswers) {
 const FITNESS_LEVEL_MAP = { Beginner: 'beginner', Intermediate: 'intermediate', Advanced: 'advanced' }
 
 /** Picks one exercise for `pattern`, relaxing filters progressively until something is found.
- * Equipment and the blocked-name exclusion are hard constraints — zero tolerance means
- * they are never relaxed as a fallback. Only difficulty and exercise-repeat are relaxed;
- * if nothing matches even then, the slot is left unfilled (see buildDaySkeletons) rather
- * than returning an exercise the client can't perform or shouldn't be given. */
-async function pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds, excludeNamePattern }) {
-  const attempts = [
-    { useDifficulty: true,  allowRepeat: false },
-    { useDifficulty: false, allowRepeat: false },
-    { useDifficulty: false, allowRepeat: true  }, // library subset exhausted — repeat an exercise, but never drop equipment/name constraints
-  ]
+ * Equipment and the blocked-name exclusion are always hard constraints — zero tolerance means
+ * they are never relaxed as a fallback. Difficulty is normally relaxed as a last resort so the
+ * plan doesn't go unfilled over a difficulty preference, but for beginners (`strictDifficulty`)
+ * it's a hard constraint too — a beginner must never be handed an intermediate/advanced
+ * exercise, so the fallback that drops the difficulty filter entirely is skipped. If nothing
+ * matches even after the remaining relaxation, the slot is left unfilled (see
+ * buildDaySkeletons) rather than returning an exercise the client shouldn't be given. */
+async function pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds, excludeNamePattern, strictDifficulty }) {
+  const attempts = strictDifficulty
+    ? [
+        { useDifficulty: true, allowRepeat: false },
+        { useDifficulty: true, allowRepeat: true  }, // library subset exhausted — repeat an exercise, but never drop the beginner difficulty constraint
+      ]
+    : [
+        { useDifficulty: true,  allowRepeat: false },
+        { useDifficulty: false, allowRepeat: false },
+        { useDifficulty: false, allowRepeat: true  }, // library subset exhausted — repeat an exercise, but never drop equipment/name constraints
+      ]
   for (const { useDifficulty, allowRepeat } of attempts) {
     const conditions = ['movement_pattern = $1']
     const params = [pattern]
@@ -234,7 +243,7 @@ async function assertLibraryHasRequiredPatterns(pool, requiredPatterns) {
 }
 
 /** Builds the per-day exercise skeleton (deterministic DB picks, no AI involved yet). */
-async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentList, difficulty, preferBilateral, excludeNamePattern }) {
+async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentList, difficulty, preferBilateral, excludeNamePattern, strictDifficulty }) {
   const usedIds = []
   const days = []
   let totalFilled = 0
@@ -243,7 +252,7 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
     const slots = []
     for (const slot of quota) {
       const pattern = slotToPattern(slot, preferBilateral)
-      const exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern })
+      const exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern, strictDifficulty })
       if (!exercise) {
         console.error(
           `[workoutGenerator] No exercise found for slot: pattern=${pattern} equipment=${JSON.stringify(equipmentList)} difficulty=${difficulty ?? 'any'} (day ${d + 1}) — skipping slot`,
@@ -431,10 +440,10 @@ COOL-DOWN
 - Tell the client what to stretch and why — do not write a full routine
 
 EXERCISE DESCRIPTION QUALITY STANDARDS
-Every exercise "notes" field must read like a coach is in the room, not a manual — warm, direct, specific, never generic — and must cover all four of:
+Every exercise "notes" field must read like a coach is in the room, not a manual — warm, direct, specific, never generic. Keep it short: setup + movement + coaching note combined must be 3 sentences maximum, and the breathing cue is exactly one additional sentence (4 sentences total — hard cap, do not exceed it). Cover all four:
 1. Setup: exactly how to get into position, including any props needed (chair, wall, bench)
 2. The movement: what to do, in plain language a beginner can follow
-3. Breathing cue: exactly when to breathe in and when to breathe out
+3. Breathing cue: exactly when to breathe in and when to breathe out — one sentence only
 4. The coaching note: one cue that connects the exercise to their goal or limitation (e.g. "this builds the glute strength that actually supports your knee joint")
 
 ABSOLUTELY NEVER GENERATE THESE EXERCISES FOR ANY CLIENT AT ANY LEVEL:
@@ -470,7 +479,7 @@ Return ONLY a valid JSON object with this exact structure (no markdown, no extra
           "sets": number,
           "reps": "string (e.g. '10-12' or '30 seconds' or '10 each side')",
           "rest_seconds": number,
-          "notes": "string (setup + movement + breathing cue + coaching note, per EXERCISE DESCRIPTION QUALITY STANDARDS above)"
+          "notes": "string (setup + movement + breathing cue + coaching note, 4 sentences maximum, per EXERCISE DESCRIPTION QUALITY STANDARDS above)"
         }
       ]
     }
@@ -837,6 +846,7 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
     difficulty,
     preferBilateral,
     excludeNamePattern: blockedNamePattern,
+    strictDifficulty: isBeginner,
   })
 
   const prompt = buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext, injuryFlags)
