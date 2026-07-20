@@ -107,7 +107,11 @@ const KNEE_UNSAFE_TERMS = [
 // appears in those names since the equipment word sits between "over" and "row".
 // 'deadlift' is handled separately below (LOWER_BACK_DEADLIFT_EXEMPT_RE) since sumo
 // and trap-bar variants are exempt.
-const LOWER_BACK_UNSAFE_TERMS = ['good morning', 'bent-over', 'bent over', 'stiff leg']
+const LOWER_BACK_UNSAFE_TERMS = [
+  'good morning', 'bent-over', 'bent over', 'stiff leg',
+  // Rotational/lateral-loaded core — contraindicated for low back pain.
+  'spell caster', 'wood chop', 'oblique crunch', 'side bend',
+]
 // Blocks any "...deadlift..." name for low-back-injured clients EXCEPT sumo or
 // trap-bar variants (more upright torso, lower lumbar shear) — expressed as a single
 // raw regex (not escaped/joined like the plain terms above) using a negative lookahead.
@@ -303,6 +307,23 @@ function getBeginnerHingeDayPreference(dayIndex, equipmentList) {
   return terms ? terms.map(escapeRegExp).join('|') : null
 }
 
+// ── Beginner core day variation ──────────────────────────────────────────────
+// Same idea as squat/hinge above — without it the core slot tends to repeat one
+// exercise (e.g. Spell Caster) across all 3 days. Confirmed against the library:
+// 'Dead Bug', 'Bird Dog', 'Side Plank Modified', 'Pallof Press', and 'Seated Leg
+// Tucks' all exist exactly as named at core/beginner. No exercise is literally
+// named "Elevated Plank" — the closest real match is the base 'Plank' row.
+const BEGINNER_CORE_DAY_PREFERENCES = [
+  ['dead bug', 'bird dog'],
+  ['side plank modified', 'pallof press'],
+  ['seated leg tucks', 'plank'],
+]
+
+function getBeginnerCoreDayPreference(dayIndex) {
+  const terms = BEGINNER_CORE_DAY_PREFERENCES[dayIndex]
+  return terms ? terms.map(escapeRegExp).join('|') : null
+}
+
 /** Picks one exercise for `pattern`, relaxing filters progressively until something is found.
  * Equipment and the blocked-name exclusion are always hard constraints — zero tolerance means
  * they are never relaxed as a fallback. Difficulty is normally relaxed as a last resort so the
@@ -435,13 +456,30 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
           exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
         }
       }
+      // Beginner core day-variation: same idea as squat/hinge above.
+      if (!exercise && slot === 'core' && isBeginner) {
+        const preferredNamePattern = getBeginnerCoreDayPreference(d)
+        if (preferredNamePattern) {
+          exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
+        }
+      }
       // Day 3 pull-pattern variation: try a vertical pull (pulldown-family) before
       // anything else, so a 3-day program isn't 3 horizontal rows back to back. If
       // none is available for this client's equipment, fall through to whatever
       // horizontal pull the rest of this block finds, but keep a coach-facing flag.
+      // Vertical-pull rows in the library are tagged 'bands', 'body only', or
+      // 'cable' — never 'dumbbell'/'barbell'/etc — so a client whose equipment is
+      // e.g. dumbbells + bench would never match one under the normal equipment
+      // filter, even though a bodyweight/band vertical pull is always physically
+      // performable regardless of what other equipment they have. Relax equipment
+      // ONLY for this one preferred pick (never the exercise list generally, and
+      // never the fallback picks below) to also allow 'body only'/'bands'.
       let pullVarietyFlag = null
       if (!exercise && slot === 'upper_pull' && d === VERTICAL_PULL_DAY_INDEX) {
-        exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern: getVerticalPullPreference() })
+        const verticalPullEquipmentList = equipmentList?.length
+          ? [...new Set([...equipmentList, 'body only', 'bands'])]
+          : equipmentList // null = "Full Gym" = no restriction already
+        exercise = await pickExercise(pool, { pattern, equipmentList: verticalPullEquipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern: getVerticalPullPreference() })
         if (!exercise) pullVarietyFlag = PULL_VARIETY_FLAG
       }
       // Low back injury: prefer a supported single-arm row for the horizontal pull
