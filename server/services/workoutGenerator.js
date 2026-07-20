@@ -271,6 +271,38 @@ function getBeginnerSquatDayPreference(dayIndex) {
   return terms ? terms.map(escapeRegExp).join('|') : null
 }
 
+// ── Beginner hinge day variation ─────────────────────────────────────────────
+// Mirrors the squat day-variation above, matching the beginner hinge progression
+// already documented in BEGINNER EXERCISE PROGRESSIONS ("Week 1-2: Glute bridge...
+// Week 2-4: Glute kickback... Week 4+: Romanian Deadlift with light weight").
+// Confirmed against the library: 'Butt Lift (Bridge)' and 'Glute Kickback' exist as
+// beginner/bodyweight hinge_bilateral rows; 'Hip Lift with Band' covers "Hip Lift".
+// No exercise is literally named "Romanian Deadlift" or "Single Leg RDL" — the
+// closest real beginner/dumbbell match is 'Stiff-Legged Dumbbell Deadlift' (same
+// movement: a straight-leg loaded hip hinge), included alongside the RDL name terms
+// so Day 3 with dumbbells actually resolves to a DB row instead of matching nothing.
+const BEGINNER_HINGE_DAY_PREFERENCES = [
+  ['butt lift', 'glute bridge', 'bridge'],
+  ['glute kickback', 'hip lift', 'kickback'],
+]
+const BEGINNER_HINGE_DAY3_DUMBBELL_TERMS = ['romanian deadlift', 'rdl', 'single leg rdl', 'stiff-legged dumbbell deadlift', 'stiff leg dumbbell deadlift']
+
+/** Regex source string of the day's preferred hinge exercise names, or null past
+ * the defined preference days. Day 3 (index 2) prefers a loaded RDL-style hinge
+ * when dumbbells are available (equipmentList null = no restriction = available),
+ * otherwise falls back to the same bridge/kickback terms as Day 1-2. */
+function getBeginnerHingeDayPreference(dayIndex, equipmentList) {
+  if (dayIndex === 2) {
+    const dumbbellAvailable = !equipmentList?.length || equipmentList.includes('dumbbell')
+    const terms = dumbbellAvailable
+      ? BEGINNER_HINGE_DAY3_DUMBBELL_TERMS
+      : [...BEGINNER_HINGE_DAY_PREFERENCES[0], ...BEGINNER_HINGE_DAY_PREFERENCES[1]]
+    return terms.map(escapeRegExp).join('|')
+  }
+  const terms = BEGINNER_HINGE_DAY_PREFERENCES[dayIndex]
+  return terms ? terms.map(escapeRegExp).join('|') : null
+}
+
 /** Picks one exercise for `pattern`, relaxing filters progressively until something is found.
  * Equipment and the blocked-name exclusion are always hard constraints — zero tolerance means
  * they are never relaxed as a fallback. Difficulty is normally relaxed as a last resort so the
@@ -391,6 +423,14 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
       let exercise = null
       if (slot === 'squat' && isBeginner) {
         const preferredNamePattern = getBeginnerSquatDayPreference(d)
+        if (preferredNamePattern) {
+          exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
+        }
+      }
+      // Beginner hinge day-variation: same idea as squat above — bridge/kickback
+      // early, a loaded hinge (RDL-style) once dumbbells are available on Day 3.
+      if (!exercise && slot === 'hinge' && isBeginner) {
+        const preferredNamePattern = getBeginnerHingeDayPreference(d, equipmentList)
         if (preferredNamePattern) {
           exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
         }
@@ -965,7 +1005,7 @@ function validateCircuitSuperset(answers) {
 const BEGINNER_BLOCKED_EXERCISES = [
   'dip', 'bench dip', 'ring dip',
   'clean', 'power clean', 'hang clean', 'clean and press',
-  'kettlebell swing', 'single-leg kettlebell swing',
+  'kettlebell swing', 'single-leg kettlebell swing', 'vertical swing',
   'russian twist',
   'sit-up', 'full sit-up',
   'box jump', 'depth jump',
