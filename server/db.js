@@ -1672,6 +1672,32 @@ export async function migrate() {
       console.log('[admin-bootstrap] no existing rows matched ADMIN_EMAILS yet; will self-promote on first /api/users/me call')
     }
   }
+
+  await runMigrations()
+}
+
+// Multi-tenancy foundation migration (server/migrations/001_multi_tenancy.js).
+// Idempotent by design — safe to call on every server startup alongside migrate().
+// Failure is logged only, never crashes the server: the app must keep running
+// single-tenant (org_id nullable, resolveOrgId() falls back to 1) even if this
+// migration hasn't been applied yet.
+export async function runMigrations() {
+  try {
+    const { default: runMultiTenancyMigration } = await import('./migrations/001_multi_tenancy.js')
+    await runMultiTenancyMigration(pool)
+    console.log('[migrations] 001_multi_tenancy applied successfully')
+  } catch (err) {
+    console.error('[migrations] 001_multi_tenancy failed:', err.message)
+  }
+}
+
+// Resolves the organization an internal user id belongs to. Falls back to 1
+// (Life Warrior Coaching, the seeded single-tenant org) when org_id is NULL —
+// covers rows created before this migration ran, and any environment where
+// the migration hasn't applied yet.
+export async function resolveOrgId(userId) {
+  const { rows } = await pool.query('SELECT org_id FROM users WHERE id = $1', [userId])
+  return rows[0]?.org_id ?? 1
 }
 
 // getOrCreateUser: ensures a DB user row exists for this Clerk user.
