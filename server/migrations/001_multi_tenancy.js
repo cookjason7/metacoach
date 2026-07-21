@@ -83,7 +83,7 @@ export default async function runMigration(pool) {
       primary_color         VARCHAR(7) DEFAULT '#f97316',
       brand_name            VARCHAR(255),
       ai_coach_name         VARCHAR(100) DEFAULT 'Katie',
-      subscription_tier     VARCHAR(50) DEFAULT 'trial',
+      subscription_tier     VARCHAR(50) DEFAULT 'starter',
       subscription_status   VARCHAR(50) DEFAULT 'active',
       stripe_customer_id    VARCHAR(255),
       stripe_subscription_id VARCHAR(255),
@@ -116,8 +116,8 @@ export default async function runMigration(pool) {
 
   // ─── 2C. Seed Life Warrior Coaching as org_id = 1 ─────────────────────────
   await pool.query(`
-    INSERT INTO organizations (id, name, slug, brand_name, ai_coach_name, subscription_tier, subscription_status, is_active)
-    VALUES (1, 'Life Warrior Coaching', 'lwc', 'Life Warrior Coaching', 'Katie', 'enterprise', 'active', TRUE)
+    INSERT INTO organizations (id, name, slug, brand_name, ai_coach_name, subscription_tier, subscription_status, max_clients, is_active)
+    VALUES (1, 'Life Warrior Coaching', 'lwc', 'Life Warrior Coaching', 'Katie', 'enterprise', 'active', 9999, TRUE)
     ON CONFLICT (id) DO NOTHING
   `)
   // Keep the id=1 sequence ahead of the seeded row so the next INSERT without
