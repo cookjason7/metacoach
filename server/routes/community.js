@@ -48,6 +48,35 @@ async function checkAdmin(req, res) {
   return dbUserId
 }
 
+// Verifies the post belongs to the requester's org before a sub-resource (likers,
+// reactions, comments, poll) is returned. 404 (not 403) so cross-org callers can't
+// distinguish "not your org" from "doesn't exist".
+async function checkPostOrgAccess(req, res, postId) {
+  const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+  if (isSuperAdmin(ctx)) return true
+  const { rows } = await pool.query('SELECT org_id FROM community_posts WHERE id = $1', [postId])
+  if (!rows.length || rows[0].org_id !== ctx.orgId) {
+    res.status(404).json({ error: 'Not found' })
+    return false
+  }
+  return true
+}
+
+// Same as checkPostOrgAccess but for a comment, via its parent post's org.
+async function checkCommentOrgAccess(req, res, commentId) {
+  const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+  if (isSuperAdmin(ctx)) return true
+  const { rows } = await pool.query(
+    `SELECT cp.org_id FROM post_comments pc JOIN community_posts cp ON cp.id = pc.post_id WHERE pc.id = $1`,
+    [commentId],
+  )
+  if (!rows.length || rows[0].org_id !== ctx.orgId) {
+    res.status(404).json({ error: 'Not found' })
+    return false
+  }
+  return true
+}
+
 function normalizeChannel(_ct) {
   return 'vip'  // one shared community for all coaching types
 }
@@ -276,9 +305,12 @@ router.get('/notifications/count', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const dbUserId = await getOrCreateUser(userId)
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(ctx)
+    const orgFilter = bypassOrg ? '' : ` AND org_id = $2`
     const { rows } = await pool.query(
-      'SELECT COUNT(*)::int AS count FROM notifications WHERE user_id = $1 AND read = FALSE',
-      [dbUserId],
+      `SELECT COUNT(*)::int AS count FROM notifications WHERE user_id = $1 AND read = FALSE${orgFilter}`,
+      bypassOrg ? [dbUserId] : [dbUserId, ctx.orgId],
     )
     res.json({ count: rows[0].count })
   } catch (err) { next(err) }
@@ -288,9 +320,12 @@ router.post('/notifications/read', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const dbUserId = await getOrCreateUser(userId)
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(ctx)
+    const orgFilter = bypassOrg ? '' : ` AND org_id = $2`
     await pool.query(
-      'UPDATE notifications SET read = TRUE WHERE user_id = $1 AND read = FALSE',
-      [dbUserId],
+      `UPDATE notifications SET read = TRUE WHERE user_id = $1 AND read = FALSE${orgFilter}`,
+      bypassOrg ? [dbUserId] : [dbUserId, ctx.orgId],
     )
     res.json({ ok: true })
   } catch (err) { next(err) }
@@ -547,6 +582,7 @@ router.post('/posts/:id/like', requireAuth(), async (req, res, next) => {
 router.get('/posts/:id/likers', requireAuth(), async (req, res, next) => {
   try {
     const postId = parseInt(req.params.id, 10)
+    if (await checkPostOrgAccess(req, res, postId) === false) return
     const { rows } = await pool.query(
       `SELECT u.id, u.first_name, u.last_name
        FROM post_likes pl
@@ -565,6 +601,7 @@ router.get('/posts/:id/reactions', requireAuth(), async (req, res, next) => {
     const { userId } = getAuth(req)
     const dbUserId = await getOrCreateUser(userId)
     const postId   = parseInt(req.params.id, 10)
+    if (await checkPostOrgAccess(req, res, postId) === false) return
 
     const { rows } = await pool.query(
       `SELECT
@@ -629,6 +666,7 @@ router.post('/posts/:id/reactions', requireAuth(), async (req, res, next) => {
 router.get('/posts/:id/reactors', requireAuth(), async (req, res, next) => {
   try {
     const postId = parseInt(req.params.id, 10)
+    if (await checkPostOrgAccess(req, res, postId) === false) return
     const { rows } = await pool.query(
       `SELECT pr.reaction_type, u.id, u.first_name, u.last_name
        FROM post_reactions pr
@@ -651,6 +689,7 @@ router.get('/posts/:id/comments', requireAuth(), async (req, res, next) => {
     const { userId } = getAuth(req)
     const dbUserId = await getOrCreateUser(userId)
     const postId   = parseInt(req.params.id, 10)
+    if (await checkPostOrgAccess(req, res, postId) === false) return
 
     const { rows } = await pool.query(
       `SELECT pc.id, pc.content, pc.created_at, u.first_name,
@@ -715,6 +754,7 @@ router.get('/posts/:id/poll', requireAuth(), async (req, res, next) => {
     const { userId } = getAuth(req)
     const dbUserId = await getOrCreateUser(userId)
     const postId   = parseInt(req.params.id, 10)
+    if (await checkPostOrgAccess(req, res, postId) === false) return
 
     const { rows: polls } = await pool.query(
       'SELECT id, question FROM community_polls WHERE post_id = $1', [postId],
@@ -788,6 +828,7 @@ router.get('/comments/:id/reactions', requireAuth(), async (req, res, next) => {
     const { userId } = getAuth(req)
     const dbUserId  = await getOrCreateUser(userId)
     const commentId = parseInt(req.params.id, 10)
+    if (await checkCommentOrgAccess(req, res, commentId) === false) return
 
     const { rows } = await pool.query(
       `SELECT
