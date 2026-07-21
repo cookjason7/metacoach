@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { requireAuth, getAuth } from '@clerk/express'
-import { pool, getOrCreateUser } from '../db.js'
+import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
 import { parseFormWithAI } from '../services/formParser.js'
 import { notifyLateCheckInSubmitted } from '../services/pushService.js'
 const router = Router()
@@ -38,6 +38,12 @@ async function getCurrentUser(req) {
 function isAdmin(role)  { return role === 'admin' }
 function isStaff(role)  { return role === 'admin' || role === 'coach' }
 
+// Super admin (platform owner accounts in ADMIN_EMAILS, e.g. Jason) bypasses org
+// scoping. Same pattern as coachAdmin.js / community.js (commits bf7addf, dbc3f60).
+function isSuperAdmin(ctx) {
+  return isAdminEmail(ctx.email)
+}
+
 // ── Admin: Forms Library ───────────────────────────────────────────────────────
 
 // GET /api/forms — list all form templates (staff only)
@@ -46,6 +52,11 @@ router.get('/', requireAuth(), async (req, res, next) => {
     const ctx = await getCurrentUser(req)
     if (!isStaff(ctx.role)) return res.status(403).json({ error: 'Staff only' })
 
+    const adminCtx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(adminCtx)
+    const orgFilter = bypassOrg ? '' : ` AND ft.org_id = $1`
+    const qParams = bypassOrg ? [] : [req.orgId]
+
     const { rows } = await pool.query(`
       SELECT
         ft.id, ft.title, ft.description, ft.status,
@@ -53,8 +64,9 @@ router.get('/', requireAuth(), async (req, res, next) => {
         ft.created_at, ft.updated_at,
         (SELECT COUNT(*) FROM form_submissions fs WHERE fs.template_id = ft.id)::int AS submission_count
       FROM form_templates ft
+      WHERE 1=1${orgFilter}
       ORDER BY ft.updated_at DESC
-    `)
+    `, qParams)
     res.json(rows)
   } catch (err) { next(err) }
 })
@@ -69,10 +81,10 @@ router.post('/', requireAuth(), async (req, res, next) => {
     if (!title?.trim()) return res.status(400).json({ error: 'Title is required.' })
 
     const { rows } = await pool.query(`
-      INSERT INTO form_templates (title, description, status, draft_schema, created_by)
-      VALUES ($1, $2, 'draft', '[]', $3)
+      INSERT INTO form_templates (title, description, status, draft_schema, created_by, org_id)
+      VALUES ($1, $2, 'draft', '[]', $3, $4)
       RETURNING *
-    `, [title.trim(), description?.trim() ?? null, ctx.dbUserId])
+    `, [title.trim(), description?.trim() ?? null, ctx.dbUserId, req.orgId])
 
     res.status(201).json(rows[0])
   } catch (err) { next(err) }
@@ -91,10 +103,10 @@ router.post('/ai-import', requireAuth(), async (req, res, next) => {
     const { title, description, fields } = await parseFormWithAI(raw_text.trim())
 
     const { rows: [newForm] } = await pool.query(`
-      INSERT INTO form_templates (title, description, status, draft_schema, created_by)
-      VALUES ($1, $2, 'draft', $3::jsonb, $4)
+      INSERT INTO form_templates (title, description, status, draft_schema, created_by, org_id)
+      VALUES ($1, $2, 'draft', $3::jsonb, $4, $5)
       RETURNING id, title
-    `, [title, description ?? null, JSON.stringify(fields), ctx.dbUserId])
+    `, [title, description ?? null, JSON.stringify(fields), ctx.dbUserId, req.orgId])
 
     res.status(201).json({ id: newForm.id, title: newForm.title, field_count: fields.length })
   } catch (err) { next(err) }
@@ -107,14 +119,19 @@ router.get('/:id', requireAuth(), async (req, res, next) => {
     if (!isStaff(ctx.role)) return res.status(403).json({ error: 'Staff only' })
 
     const id = parseInt(req.params.id, 10)
+    const adminCtx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(adminCtx)
+    const orgFilter = bypassOrg ? '' : ` AND ft.org_id = $2`
+    const qParams = bypassOrg ? [id] : [id, req.orgId]
+
     const { rows } = await pool.query(`
       SELECT ft.*,
         fv.version_num AS current_version_num,
         fv.schema AS current_version_schema
       FROM form_templates ft
       LEFT JOIN form_versions fv ON fv.id = ft.current_version_id
-      WHERE ft.id = $1
-    `, [id])
+      WHERE ft.id = $1${orgFilter}
+    `, qParams)
 
     if (!rows.length) return res.status(404).json({ error: 'Form not found' })
     res.json(rows[0])
@@ -148,9 +165,14 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
 
     if (params.length === 0) return res.status(400).json({ error: 'Nothing to update' })
 
+    const adminCtx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(adminCtx)
+    const orgFilter = bypassOrg ? '' : ` AND org_id = $${params.length + 1}`
     params.push(id)
+    if (!bypassOrg) params.push(req.orgId)
+
     const { rows } = await pool.query(
-      `UPDATE form_templates SET ${setClauses.join(', ')} WHERE id = $${params.length} RETURNING *`,
+      `UPDATE form_templates SET ${setClauses.join(', ')} WHERE id = $${params.length - (bypassOrg ? 0 : 1)}${orgFilter} RETURNING *`,
       params,
     )
     if (!rows.length) return res.status(404).json({ error: 'Form not found' })
@@ -165,8 +187,13 @@ router.post('/:id/publish', requireAuth(), async (req, res, next) => {
     if (!isAdmin(ctx.role)) return res.status(403).json({ error: 'Admin only' })
 
     const id = parseInt(req.params.id, 10)
+    const adminCtx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(adminCtx)
+    const orgFilter = bypassOrg ? '' : ` AND org_id = $2`
+    const qParams = bypassOrg ? [id] : [id, req.orgId]
+
     const { rows: [tpl] } = await pool.query(
-      'SELECT * FROM form_templates WHERE id = $1', [id],
+      `SELECT * FROM form_templates WHERE id = $1${orgFilter}`, qParams,
     )
     if (!tpl) return res.status(404).json({ error: 'Form not found' })
     if (tpl.status === 'archived') return res.status(400).json({ error: 'Cannot publish an archived form.' })
@@ -183,12 +210,12 @@ router.post('/:id/publish', requireAuth(), async (req, res, next) => {
     )
     const newVersionNum = Number(max_ver) + 1
 
-    // Create immutable version snapshot
+    // Create immutable version snapshot (include org_id for data isolation)
     const { rows: [version] } = await pool.query(`
-      INSERT INTO form_versions (template_id, version_num, schema, published_by)
-      VALUES ($1, $2, $3::jsonb, $4)
+      INSERT INTO form_versions (template_id, version_num, schema, published_by, org_id)
+      VALUES ($1, $2, $3::jsonb, $4, $5)
       RETURNING *
-    `, [id, newVersionNum, JSON.stringify(schema), ctx.dbUserId])
+    `, [id, newVersionNum, JSON.stringify(schema), ctx.dbUserId, req.orgId])
 
     // Update template: point to new version, set status=published
     const { rows: [updated] } = await pool.query(`
@@ -211,10 +238,15 @@ router.patch('/:id/archive', requireAuth(), async (req, res, next) => {
     if (!isAdmin(ctx.role)) return res.status(403).json({ error: 'Admin only' })
 
     const id = parseInt(req.params.id, 10)
+    const adminCtx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(adminCtx)
+    const orgFilter = bypassOrg ? '' : ` AND org_id = $2`
+    const qParams = bypassOrg ? [id] : [id, req.orgId]
+
     const { rows } = await pool.query(`
       UPDATE form_templates SET status = 'archived', updated_at = NOW()
-      WHERE id = $1 RETURNING *
-    `, [id])
+      WHERE id = $1${orgFilter} RETURNING *
+    `, qParams)
     if (!rows.length) return res.status(404).json({ error: 'Form not found' })
     res.json(rows[0])
   } catch (err) { next(err) }
@@ -227,14 +259,21 @@ router.post('/:id/duplicate', requireAuth(), async (req, res, next) => {
     if (!isAdmin(ctx.role)) return res.status(403).json({ error: 'Admin only' })
 
     const id = parseInt(req.params.id, 10)
-    const { rows: [src] } = await pool.query('SELECT * FROM form_templates WHERE id = $1', [id])
+    const adminCtx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(adminCtx)
+    const orgFilter = bypassOrg ? '' : ` AND org_id = $2`
+    const qParams = bypassOrg ? [id] : [id, req.orgId]
+
+    const { rows: [src] } = await pool.query(`
+      SELECT * FROM form_templates WHERE id = $1${orgFilter}
+    `, qParams)
     if (!src) return res.status(404).json({ error: 'Form not found' })
 
     const { rows: [copy] } = await pool.query(`
-      INSERT INTO form_templates (title, description, status, draft_schema, created_by)
-      VALUES ($1, $2, 'draft', $3::jsonb, $4)
+      INSERT INTO form_templates (title, description, status, draft_schema, created_by, org_id)
+      VALUES ($1, $2, 'draft', $3::jsonb, $4, $5)
       RETURNING *
-    `, [`${src.title} (copy)`, src.description, JSON.stringify(src.draft_schema), ctx.dbUserId])
+    `, [`${src.title} (copy)`, src.description, JSON.stringify(src.draft_schema), ctx.dbUserId, req.orgId])
 
     res.status(201).json(copy)
   } catch (err) { next(err) }
@@ -249,14 +288,19 @@ router.get('/:id/preview', requireAuth(), async (req, res, next) => {
     if (!isStaff(ctx.role)) return res.status(403).json({ error: 'Staff only' })
 
     const id = parseInt(req.params.id, 10)
+    const adminCtx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(adminCtx)
+    const orgFilter = bypassOrg ? '' : ` AND ft.org_id = $2`
+    const qParams = bypassOrg ? [id] : [id, req.orgId]
+
     const { rows: [tpl] } = await pool.query(`
       SELECT ft.id, ft.title, ft.description, ft.status,
              ft.draft_schema, ft.current_version_id,
              fv.version_num, fv.schema AS published_schema
       FROM form_templates ft
       LEFT JOIN form_versions fv ON fv.id = ft.current_version_id
-      WHERE ft.id = $1
-    `, [id])
+      WHERE ft.id = $1${orgFilter}
+    `, qParams)
 
     if (!tpl) return res.status(404).json({ error: 'Form not found' })
 
@@ -282,16 +326,22 @@ router.get('/:id/preview', requireAuth(), async (req, res, next) => {
 // GET /api/forms/:id/fill — get the published version for a client to fill
 router.get('/:id/fill', requireAuth(), async (req, res, next) => {
   try {
-    await getCurrentUser(req) // just confirms auth
+    const ctx = await getCurrentUser(req)
     const id = parseInt(req.params.id, 10)
+
+    // For client fill, check if the form is published and accessible from this org
+    const adminCtx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(adminCtx)
+    const orgFilter = bypassOrg ? '' : ` AND ft.org_id = $2`
+    const qParams = bypassOrg ? [id] : [id, req.orgId]
 
     const { rows: [tpl] } = await pool.query(`
       SELECT ft.id, ft.title, ft.description, ft.status, ft.current_version_id,
              fv.version_num, fv.schema
       FROM form_templates ft
       LEFT JOIN form_versions fv ON fv.id = ft.current_version_id
-      WHERE ft.id = $1
-    `, [id])
+      WHERE ft.id = $1${orgFilter}
+    `, qParams)
 
     if (!tpl) return res.status(404).json({ error: 'Form not found' })
     if (tpl.status !== 'published') {
@@ -318,8 +368,14 @@ router.post('/:id/submit', requireAuth(), async (req, res, next) => {
     const ctx = await getCurrentUser(req)
     const id  = parseInt(req.params.id, 10)
 
+    // Check that form exists in this org and is published
+    const adminCtx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(adminCtx)
+    const orgFilter = bypassOrg ? '' : ` AND org_id = $2`
+    const qParams = bypassOrg ? [id] : [id, req.orgId]
+
     const { rows: [tpl] } = await pool.query(
-      'SELECT id, status, current_version_id FROM form_templates WHERE id = $1', [id],
+      `SELECT id, status, current_version_id FROM form_templates WHERE id = $1${orgFilter}`, qParams,
     )
     if (!tpl) return res.status(404).json({ error: 'Form not found' })
     if (tpl.status !== 'published' || !tpl.current_version_id) {
@@ -346,8 +402,8 @@ router.post('/:id/submit', requireAuth(), async (req, res, next) => {
                 parent.recurring_rule AS parent_recurring_rule
          FROM form_assignments fa
          LEFT JOIN form_assignments parent ON parent.id = fa.parent_assignment_id
-         WHERE fa.id = $1`,
-        [assignId],
+         WHERE fa.id = $1 AND fa.org_id = $2`,
+        [assignId, req.orgId],
       )
       if (!assignment) {
         return res.status(400).json({ error: 'Form assignment not found.' })
@@ -419,10 +475,10 @@ router.post('/:id/submit', requireAuth(), async (req, res, next) => {
     }
 
     const { rows: [submission] } = await pool.query(`
-      INSERT INTO form_submissions (template_id, version_id, user_id, answers, assignment_id, due_at, is_late)
-      VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
+      INSERT INTO form_submissions (template_id, version_id, user_id, answers, assignment_id, due_at, is_late, org_id)
+      VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)
       RETURNING *
-    `, [id, tpl.current_version_id, ctx.dbUserId, JSON.stringify(answers), assignId, dueAt, isLate])
+    `, [id, tpl.current_version_id, ctx.dbUserId, JSON.stringify(answers), assignId, dueAt, isLate, req.orgId])
 
     console.log('[forms submit] submission created for staff review', {
       submission_id: submission.id,
