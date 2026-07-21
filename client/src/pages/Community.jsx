@@ -2007,6 +2007,32 @@ function MindsetTab({ getToken, isStaff }) {
                   </div>
                 ))}
               </div>
+
+              {/* Full training library card */}
+              <div className="mt-4 bg-gray-100 rounded-xl p-6 flex flex-col sm:flex-row items-center gap-4">
+                <div className="w-14 h-14 rounded-xl bg-[#1e2a3a] flex items-center justify-center shrink-0">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7">
+                    <path d="M12 7v14" />
+                    <path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z" />
+                  </svg>
+                </div>
+                <div className="flex-1 text-center sm:text-left">
+                  <h3 className="text-base font-bold text-gray-900">Full Brain Mapping Training Library</h3>
+                  <p className="text-sm text-gray-500 mt-1">Access the complete archive of all previous trainings in the Google Docs library.</p>
+                </div>
+                <a
+                  href="https://docs.google.com/document/d/1DxlaTB5tL5TCgpGad2uJLi55NkOsIH2ePKNH67m7IcQ/edit?tab=t.0#heading=h.h552ng7uhtbb"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-[#f97316] text-white px-5 py-2.5 rounded-lg font-semibold flex items-center justify-center gap-2 shrink-0 min-h-[44px] w-full sm:w-auto"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                    <path d="M12 7v14" />
+                    <path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z" />
+                  </svg>
+                  Open Full Library
+                </a>
+              </div>
             </>
           )}
         </>
