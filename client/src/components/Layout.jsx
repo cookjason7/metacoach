@@ -768,29 +768,33 @@ export default function Layout() {
     ? baseClientNav.map(item => item.label === 'Messages' ? { ...item, label: 'Support' } : item)
     : baseClientNav
 
-  // Org-level admins/owners (not Jason) get "Dashboard" -> /org/dashboard in place
-  // of "Coaching Dashboard" -> /dashboard, plus a "My Organization" -> /org/setup
-  // entry right after it.
-  const orgAdminNavItems = (() => {
-    const items = STAFF_NAV_ITEMS.map(item =>
-      item.label === 'Coaching Dashboard' ? { to: '/org/dashboard', label: 'Dashboard' } : item,
-    )
-    const dashboardIdx = items.findIndex(i => i.label === 'Dashboard')
-    items.splice(dashboardIdx + 1, 0, { to: '/org/setup', label: 'My Organization' })
-    return items
-  })()
+  // Org-level admins/owners (not Jason) get their own fixed nav — no LWC-internal
+  // tools (Usage Analytics, Workout Builder Test), but Katie Corrections stays
+  // since org owners do need to review their own AI coach's corrections.
+  const orgAdminNavItems = [
+    { to: '/org/dashboard',           label: 'Dashboard' },
+    { to: '/org/setup',               label: 'My Organization' },
+    { to: '/messages',                label: 'Messages' },
+    { to: '/admin/forms',             label: 'Forms' },
+    { to: '/staff-chat',              label: 'Team Communication' },
+    { to: '/community',               label: 'Community' },
+    { to: '/admin/katie-corrections', label: 'Katie Corrections' },
+    { to: '/settings',                label: 'Settings' },
+  ]
 
-  // Super-admin gets extra "Usage Analytics", "Katie Corrections", "Workout Builder Test",
-  // and (Jason only, not org admins) "Organizations" nav entries.
+  // Super-admin gets extra "Usage Analytics", "Workout Builder Test", and
+  // "Organizations" nav entries — LWC-internal tools, never shown to org admins.
   const navItems = isStaff
     ? isAdmin
-      ? [
-          ...(isOrgAdmin ? orgAdminNavItems : STAFF_NAV_ITEMS),
-          { to: '/admin/usage', label: 'Usage Analytics' },
-          { to: '/admin/katie-corrections', label: 'Katie Corrections' },
-          { to: '/admin/workout-builder-test', label: 'Workout Builder Test' },
-          ...(isSuperAdmin ? [{ to: '/admin/organizations', label: 'Organizations' }] : []),
-        ]
+      ? (isOrgAdmin
+          ? orgAdminNavItems
+          : [
+              ...STAFF_NAV_ITEMS,
+              { to: '/admin/usage', label: 'Usage Analytics' },
+              { to: '/admin/katie-corrections', label: 'Katie Corrections' },
+              { to: '/admin/workout-builder-test', label: 'Workout Builder Test' },
+              ...(isSuperAdmin ? [{ to: '/admin/organizations', label: 'Organizations' }] : []),
+            ])
       : (isOrgAdmin ? orgAdminNavItems : STAFF_NAV_ITEMS)
     : clientNavWithLabels
 
