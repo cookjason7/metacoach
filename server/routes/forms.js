@@ -2,7 +2,6 @@ import { Router } from 'express'
 import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
 import { parseFormWithAI } from '../services/formParser.js'
-import { notifyLateCheckInSubmitted } from '../services/pushService.js'
 const router = Router()
 
 const SUBMITTABLE_ASSIGNMENT_TYPES = new Set(['manual', 'scheduled', 'recurring_occurrence'])
@@ -488,9 +487,6 @@ router.post('/:id/submit', requireAuth(), async (req, res, next) => {
       is_late: submission.is_late,
       due_at: submission.due_at,
     })
-    if (submission.is_late) {
-      notifyLateCheckInSubmitted(ctx.dbUserId).catch(() => {})
-    }
     res.status(201).json(submission)
   } catch (err) {
     if (err.code === '23505' && err.constraint === 'idx_form_submissions_assignment_user_unique') {
