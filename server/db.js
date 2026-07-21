@@ -1160,6 +1160,21 @@ export async function migrate() {
     END $$;
   `)
 
+  // ── Multi-tenancy: org_id scoping for forms (critical security isolation) ────
+  await pool.query(`ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_form_templates_org ON form_templates (org_id)`)
+  await pool.query(`ALTER TABLE form_versions ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_form_versions_org ON form_versions (org_id)`)
+  await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_form_submissions_org ON form_submissions (org_id)`)
+  await pool.query(`ALTER TABLE form_assignments ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_form_assignments_org ON form_assignments (org_id)`)
+  // Backfill: assign existing forms to org_id = 1 (seed org)
+  await pool.query(`UPDATE form_templates SET org_id = 1 WHERE org_id IS NULL`)
+  await pool.query(`UPDATE form_versions SET org_id = 1 WHERE org_id IS NULL`)
+  await pool.query(`UPDATE form_submissions SET org_id = 1 WHERE org_id IS NULL`)
+  await pool.query(`UPDATE form_assignments SET org_id = 1 WHERE org_id IS NULL`)
+
   // ── Grandfather existing users ───────────────────────────────────────────────
   // Any user who already completed onboarding before the assessment feature was
   // introduced should be treated as having completed the assessment so they are
