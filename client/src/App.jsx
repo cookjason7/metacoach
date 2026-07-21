@@ -38,6 +38,8 @@ import About from './pages/About'
 import Progress from './pages/Progress'
 import StaffChat from './pages/StaffChat'
 import Organizations from './pages/admin/Organizations'
+import OrgDashboard from './pages/org/OrgDashboard'
+import OrgSetup from './pages/org/OrgSetup'
 import { API_URL } from './config.js'
 
 // Mirrors ADMIN_EMAILS in server/db.js — route gating only, the real gate is
@@ -107,12 +109,20 @@ function ProtectedLayout() {
         clearTimeout(timeoutId)
         if (!res.ok) throw new Error()
         const data = await res.json()
+        const email = (data.email ?? '').toLowerCase()
+        const isSuperAdminUser = SUPER_ADMIN_EMAILS.includes(email)
+        // Org-level admin/owner: the org's own 'admin' role, or the org's
+        // owner_user_id even when their role is 'coach' — never Jason (super
+        // admin has his own admin views, not the gym-owner ones).
+        const isOrgAdminUser = !isSuperAdminUser
+          && (data.role === 'admin' || data.role === 'account_owner' || (data.role === 'coach' && !!data.is_org_owner))
         userStateCache = {
           onboardingComplete:  !!data.onboarding_complete,
           assessmentComplete:  !!data.assessment_complete,
           paid: !!data.paid,
           role: data.role ?? null,
           email: data.email ?? null,
+          isOrgAdmin: isOrgAdminUser,
         }
         if (!cancelled) {
           setUserState(userStateCache)
@@ -162,6 +172,15 @@ function AdminRoute() {
 function SuperAdminRoute() {
   const email = (userStateCache?.email ?? '').toLowerCase()
   if (!SUPER_ADMIN_EMAILS.includes(email)) {
+    return <Navigate to="/dashboard" replace />
+  }
+  return <Outlet />
+}
+
+// Org-level admins/owners only — never Jason (SuperAdminRoute), never clients.
+// See isOrgAdminUser computation above where userStateCache is populated.
+function OrgAdminRoute() {
+  if (!userStateCache?.isOrgAdmin) {
     return <Navigate to="/dashboard" replace />
   }
   return <Outlet />
@@ -235,6 +254,10 @@ export default function App() {
           </Route>
           <Route element={<SuperAdminRoute />}>
             <Route path="/admin/organizations" element={<Organizations />} />
+          </Route>
+          <Route element={<OrgAdminRoute />}>
+            <Route path="/org/dashboard" element={<OrgDashboard />} />
+            <Route path="/org/setup"     element={<OrgSetup />} />
           </Route>
         </Route>
       </Routes>

@@ -36,7 +36,9 @@ router.get('/me', requireAuth(), async (req, res, next) => {
               goal_calories, goal_protein, goal_carbs, goal_fat, goal_fiber, goal_water,
               gender, phone_number, paid, role, coaching_type, coaching_type_source,
               bloodwork_enabled, food_dislikes, food_allergies,
-              notif_master_enabled, notif_dm_enabled, notif_community_enabled
+              notif_master_enabled, notif_dm_enabled, notif_community_enabled,
+              org_id,
+              EXISTS(SELECT 1 FROM organizations o WHERE o.owner_user_id = users.id) AS is_org_owner
        FROM users WHERE id = $1`,
       [dbUserId],
     )

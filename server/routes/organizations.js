@@ -33,6 +33,24 @@ function slugify(input) {
   return String(input).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 }
 
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
+const FOCUS_AREAS = [
+  'weight_loss', 'strength', 'nutrition', 'mindset', 'mobility',
+  'performance', 'recovery', 'menopause', 'self_trust', 'consistency',
+]
+
+// True when the requesting user may manage their own org's settings: the
+// org's 'admin'/'account_owner' role, or the org's owner_user_id even if
+// their role is 'coach'. Unlike requireSuperAdmin above, this is scoped to
+// req.orgId — it never grants access to a different org.
+async function isOrgOwnerOrAdmin(req) {
+  const u = req.internalUser
+  if (!u) return false
+  if (u.role === 'admin' || u.role === 'account_owner') return true
+  const { rows } = await pool.query('SELECT owner_user_id FROM organizations WHERE id = $1', [req.orgId])
+  return rows.length > 0 && rows[0].owner_user_id === u.id
+}
+
 // ─── List ─────────────────────────────────────────────────────────────────────
 
 // GET /api/organizations
@@ -312,6 +330,179 @@ router.post('/:id/invite-owner', requireAuth(), async (req, res, next) => {
       last_name:  invite.last_name,
       email:      invite.email,
     })
+  } catch (err) { next(err) }
+})
+
+// ─── Org owner / org admin self-service ("mine") ──────────────────────────────
+// These routes are scoped to req.orgId (set by orgContext middleware) rather
+// than gated by isAdminEmail — under multi-tenancy every org's own owner/admin
+// needs to manage their own org, just never anyone else's.
+
+// GET /api/organizations/mine — any authenticated user, returns their own org
+router.get('/mine', requireAuth(), async (req, res, next) => {
+  try {
+    const orgId = req.orgId
+    const { rows } = await pool.query(`
+      SELECT
+        o.*,
+        ow.first_name AS owner_first_name,
+        ow.last_name  AS owner_last_name,
+        ow.email      AS owner_email,
+        (SELECT COUNT(*) FROM users
+          WHERE org_id = o.id AND role = 'client' AND COALESCE(client_status, 'active') != 'deleted')::int AS client_count,
+        (SELECT COUNT(*) FROM users
+          WHERE org_id = o.id AND role IN ('coach', 'admin'))::int AS coach_count
+      FROM organizations o
+      LEFT JOIN users ow ON ow.id = o.owner_user_id
+      WHERE o.id = $1
+    `, [orgId])
+    if (!rows.length) return res.status(404).json({ error: 'Organization not found' })
+    res.json(rows[0])
+  } catch (err) { next(err) }
+})
+
+// PATCH /api/organizations/mine — org owner/admin only. slug, tier, max_clients,
+// and subscription_status are deliberately not in `allowed` — those stay Jason-only
+// via the /:id route above.
+router.patch('/mine', requireAuth(), async (req, res, next) => {
+  try {
+    if (!await isOrgOwnerOrAdmin(req)) return res.status(403).json({ error: 'Admin only' })
+    const orgId = req.orgId
+
+    const allowed = ['name', 'logo_url', 'primary_color', 'brand_name', 'ai_coach_name']
+    const setClauses = []
+    const params = []
+    for (const key of allowed) {
+      if (!(key in req.body)) continue
+      let value = req.body[key]
+      if (key === 'name' && !String(value ?? '').trim()) {
+        return res.status(400).json({ error: 'Organization name cannot be empty.' })
+      }
+      if (key === 'primary_color' && value && !HEX_COLOR_RE.test(value)) {
+        return res.status(400).json({ error: 'Primary color must be a hex value like #f97316.' })
+      }
+      value = typeof value === 'string' ? (value.trim() || null) : value
+      params.push(value)
+      setClauses.push(`${key} = $${params.length}`)
+    }
+
+    if (!setClauses.length) {
+      const { rows } = await pool.query('SELECT * FROM organizations WHERE id = $1', [orgId])
+      return res.json(rows[0])
+    }
+
+    params.push(orgId)
+    const { rows } = await pool.query(
+      `UPDATE organizations SET ${setClauses.join(', ')} WHERE id = $${params.length} RETURNING *`,
+      params,
+    )
+    res.json(rows[0])
+  } catch (err) { next(err) }
+})
+
+// GET /api/organizations/mine/ai-config — any authenticated user; creates a
+// default row on first access so the org always has one to read/edit.
+router.get('/mine/ai-config', requireAuth(), async (req, res, next) => {
+  try {
+    const orgId = req.orgId
+    let { rows } = await pool.query('SELECT * FROM org_ai_config WHERE org_id = $1', [orgId])
+    if (!rows.length) {
+      const inserted = await pool.query(
+        `INSERT INTO org_ai_config (org_id) VALUES ($1)
+         ON CONFLICT (org_id) DO UPDATE SET org_id = EXCLUDED.org_id
+         RETURNING *`,
+        [orgId],
+      )
+      rows = inserted.rows
+    }
+    res.json(rows[0])
+  } catch (err) { next(err) }
+})
+
+// PATCH /api/organizations/mine/ai-config — org owner/admin only
+router.patch('/mine/ai-config', requireAuth(), async (req, res, next) => {
+  try {
+    if (!await isOrgOwnerOrAdmin(req)) return res.status(403).json({ error: 'Admin only' })
+    const orgId = req.orgId
+
+    // Guarantee a row exists before the UPDATE below (mirrors the GET route).
+    await pool.query(
+      `INSERT INTO org_ai_config (org_id) VALUES ($1) ON CONFLICT (org_id) DO NOTHING`,
+      [orgId],
+    )
+
+    const allowed = ['coach_name', 'coaching_philosophy', 'tone_instructions', 'focus_areas', 'restricted_topics', 'custom_greeting']
+    const setClauses = []
+    const params = []
+    for (const key of allowed) {
+      if (!(key in req.body)) continue
+      let value = req.body[key]
+      if (key === 'focus_areas') {
+        if (!Array.isArray(value)) return res.status(400).json({ error: 'focus_areas must be an array.' })
+        value = value.filter(v => FOCUS_AREAS.includes(v))
+      }
+      if (typeof value === 'string') value = value.trim() || null
+      params.push(value)
+      setClauses.push(`${key} = $${params.length}`)
+    }
+
+    if (!setClauses.length) {
+      const { rows } = await pool.query('SELECT * FROM org_ai_config WHERE org_id = $1', [orgId])
+      return res.json(rows[0])
+    }
+
+    params.push(orgId)
+    const { rows } = await pool.query(
+      `UPDATE org_ai_config SET ${setClauses.join(', ')} WHERE org_id = $${params.length} RETURNING *`,
+      params,
+    )
+    res.json(rows[0])
+  } catch (err) { next(err) }
+})
+
+// GET /api/organizations/mine/dashboard — summary stats for the org owner dashboard
+router.get('/mine/dashboard', requireAuth(), async (req, res, next) => {
+  try {
+    const orgId = req.orgId
+    const { rows } = await pool.query(`
+      SELECT
+        (SELECT COUNT(*) FROM users
+          WHERE org_id = $1 AND role = 'client' AND COALESCE(client_status, 'active') != 'deleted')::int AS total_clients,
+        (SELECT COUNT(*) FROM users
+          WHERE org_id = $1 AND role = 'client' AND COALESCE(client_status, 'active') != 'deleted'
+            AND last_login_at >= NOW() - INTERVAL '7 days')::int AS active_clients,
+        (SELECT COUNT(*) FROM users
+          WHERE org_id = $1 AND role IN ('coach', 'admin'))::int AS total_coaches,
+        (SELECT COUNT(*) FROM client_messages
+          WHERE org_id = $1 AND created_at >= NOW() - INTERVAL '7 days')::int AS messages_this_week,
+        (SELECT COUNT(*) FROM habit_completions
+          WHERE org_id = $1 AND completion_percentage >= 100
+            AND completion_date >= CURRENT_DATE - INTERVAL '7 days')::int AS habits_completed_this_week,
+        (SELECT COUNT(*) FROM users
+          WHERE org_id = $1 AND role = 'client' AND COALESCE(client_status, 'active') != 'deleted'
+            AND created_at >= DATE_TRUNC('month', NOW()))::int AS new_clients_this_month
+    `, [orgId])
+    res.json(rows[0])
+  } catch (err) { next(err) }
+})
+
+// GET /api/organizations/mine/recent-clients — last 5 clients who logged in, for
+// the org dashboard's Recent Activity section.
+router.get('/mine/recent-clients', requireAuth(), async (req, res, next) => {
+  try {
+    const orgId = req.orgId
+    const { rows } = await pool.query(`
+      SELECT
+        id,
+        COALESCE(NULLIF(TRIM(CONCAT_WS(' ', first_name, last_name)), ''), NULLIF(name, ''), email, 'Client') AS name,
+        last_login_at
+      FROM users
+      WHERE org_id = $1 AND role = 'client' AND COALESCE(client_status, 'active') != 'deleted'
+        AND last_login_at IS NOT NULL
+      ORDER BY last_login_at DESC
+      LIMIT 5
+    `, [orgId])
+    res.json(rows)
   } catch (err) { next(err) }
 })
 
