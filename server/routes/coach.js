@@ -10,6 +10,14 @@ import { getKatieCorrections } from '../services/katieCorrections.js'
 const router = Router()
 const anthropic = new Anthropic()
 
+// Org-scoping note: every query below is already filtered by user_id = dbUserId,
+// the requesting client's own row id — a strictly stronger boundary than org_id
+// (a user belongs to exactly one org, so scoping by their own id can never cross
+// an org boundary). Reads/updates are deliberately NOT given an additional
+// `org_id = ...` filter for that reason. INSERTs into coaching_conversations do
+// set org_id so future org-scoped reporting has correct data (same reasoning as
+// server/routes/messages.js, commit dbc3f60).
+
 // ── Katie system prompt ───────────────────────────────────────────────────────
 const KATIE_BASE_PROMPT = `You are Katie, the AI coaching support inside MetaCoach, built on the Life Warrior Coaching methodology. You are not a chatbot. You are not a calorie counter. You are a coach.
 
@@ -631,8 +639,8 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     // Save the user's message to DB before streaming
     if (message) {
       await pool.query(
-        `INSERT INTO coaching_conversations (user_id, role, message) VALUES ($1, 'user', $2)`,
-        [dbUserId, message],
+        `INSERT INTO coaching_conversations (user_id, role, message, org_id) VALUES ($1, 'user', $2, $3)`,
+        [dbUserId, message, req.orgId],
       )
     }
 
@@ -683,8 +691,8 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
         ? `Hey ${firstName}! I want to start by saying thank you — making your health a priority is one of the smartest decisions you'll ever make, and I don't take that lightly. I'm Katie, your AI coach, and I'm genuinely excited to work with you on this journey.\n\nBefore we dive in, I have one important question — what's your favorite food? No judgment here at all. 😄`
         : `Hey ${firstName}! I'm Katie. Your coach leads your program — I'm here if you have questions about the app, food logging, or resources.`
       await pool.query(
-        `INSERT INTO coaching_conversations (user_id, role, message, is_proactive, proactive_trigger) VALUES ($1, 'assistant', $2, TRUE, $3)`,
-        [dbUserId, welcomeMsg, 'welcome'],
+        `INSERT INTO coaching_conversations (user_id, role, message, is_proactive, proactive_trigger, org_id) VALUES ($1, 'assistant', $2, TRUE, $3, $4)`,
+        [dbUserId, welcomeMsg, 'welcome', req.orgId],
       )
       res.setHeader('Content-Type', 'text/event-stream')
       res.setHeader('Cache-Control', 'no-cache')
@@ -709,8 +717,8 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
 
       try {
         await pool.query(
-          `INSERT INTO coaching_conversations (user_id, role, message, is_proactive, proactive_trigger) VALUES ($1, 'assistant', $2, TRUE, $3)`,
-          [dbUserId, icebreakerReply, 'icebreaker'],
+          `INSERT INTO coaching_conversations (user_id, role, message, is_proactive, proactive_trigger, org_id) VALUES ($1, 'assistant', $2, TRUE, $3, $4)`,
+          [dbUserId, icebreakerReply, 'icebreaker', req.orgId],
         )
       } catch (dbErr) {
         console.error('[coach] icebreaker save failed:', dbErr.message)
@@ -761,8 +769,8 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     stream.on('finalMessage', async (finalMsg) => {
       try {
         await pool.query(
-          `INSERT INTO coaching_conversations (user_id, role, message) VALUES ($1, 'assistant', $2)`,
-          [dbUserId, fullResponse],
+          `INSERT INTO coaching_conversations (user_id, role, message, org_id) VALUES ($1, 'assistant', $2, $3)`,
+          [dbUserId, fullResponse, req.orgId],
         )
       } catch (dbErr) {
         console.error('[coach] failed to save response:', dbErr.message)
@@ -1005,10 +1013,10 @@ router.post('/check-proactive', requireAuth(), async (req, res, next) => {
     // ── Persist with proactive flags ─────────────────────────────────────────
     const { rows: saved } = await pool.query(
       `INSERT INTO coaching_conversations
-         (user_id, role, message, is_proactive, proactive_trigger, trigger_date)
-       VALUES ($1, 'assistant', $2, TRUE, $3, $4)
+         (user_id, role, message, is_proactive, proactive_trigger, trigger_date, org_id)
+       VALUES ($1, 'assistant', $2, TRUE, $3, $4, $5)
        RETURNING id, created_at`,
-      [dbUserId, katieMsgText, trigger, todayStr],
+      [dbUserId, katieMsgText, trigger, todayStr, req.orgId],
     )
 
     res.json({ generated: true, trigger, message: katieMsgText, id: saved[0].id })

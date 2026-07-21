@@ -4,6 +4,14 @@ import { pool, getOrCreateUser } from '../db.js'
 
 const router = Router()
 
+// Org-scoping note: every query below is already filtered by user_id = dbUserId,
+// the requesting client's own row id — a strictly stronger boundary than org_id
+// (a user belongs to exactly one org, so scoping by their own id can never cross
+// an org boundary). Reads/updates/deletes are deliberately NOT given an additional
+// `org_id = ...` filter for that reason. The INSERT into habit_completions does
+// set org_id so future org-scoped reporting has correct data (same reasoning as
+// server/routes/messages.js, commit dbc3f60).
+
 // Helper: safely convert a pg DATE value (which arrives as a JS Date object)
 // or a string into a YYYY-MM-DD ISO date string.
 // IMPORTANT: pg returns DATE columns as Date objects parsed in the server's
@@ -132,8 +140,8 @@ router.post('/me/completions', requireAuth(), async (req, res, next) => {
 
     const { rows } = await pool.query(`
       INSERT INTO habit_completions
-        (user_id, habit_id, completion_date, completed_value, target_value, completion_percentage, status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+        (user_id, habit_id, completion_date, completed_value, target_value, completion_percentage, status, org_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       ON CONFLICT (habit_id, completion_date) DO UPDATE SET
         completed_value       = EXCLUDED.completed_value,
         target_value          = EXCLUDED.target_value,
@@ -143,7 +151,7 @@ router.post('/me/completions', requireAuth(), async (req, res, next) => {
       RETURNING *
     `, [
       dbUserId, habit_id, completion_date,
-      val, habit.target_value, percentage, status,
+      val, habit.target_value, percentage, status, req.orgId,
     ])
 
     res.json(rows[0])
