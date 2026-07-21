@@ -36,6 +36,7 @@ import fitbitRouter from './routes/fitbit.js'
 import appleHealthRouter from './routes/appleHealth.js'
 import bloodworkRouter from './routes/bloodwork.js'
 import pushRouter from './routes/push.js'
+import staffChatRouter, { requireStaffMiddleware } from './routes/staffChat.js'
 import { initPush } from './services/pushService.js'
 import { runInactivityAlert } from './jobs/inactivityAlert.js'
 import { processFormSchedules } from './jobs/formScheduler.js'
@@ -115,6 +116,7 @@ app.use('/api/fitbit',                clerkMiddleware(), blockDeactivatedClients
 app.use('/api/apple-health',          clerkMiddleware(), blockDeactivatedClients, orgContext, appleHealthRouter)
 app.use('/api/bloodwork',             clerkMiddleware(), blockDeactivatedClients, orgContext, bloodworkRouter)
 app.use('/api/push',                  clerkMiddleware(), blockDeactivatedClients, orgContext, pushRouter)
+app.use('/api/staff-chat',            clerkMiddleware(), blockDeactivatedClients, orgContext, requireStaffMiddleware, staffChatRouter)
 
 // Demo seed endpoint — only mounted on staging / when explicitly allowed
 if (process.env.NODE_ENV !== 'production' || process.env.ALLOW_DEMO_SEED === 'true') {

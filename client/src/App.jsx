@@ -36,6 +36,7 @@ import Terms from './pages/Terms'
 import Privacy from './pages/Privacy'
 import About from './pages/About'
 import Progress from './pages/Progress'
+import StaffChat from './pages/StaffChat'
 import { API_URL } from './config.js'
 
 // Module-level cache: null | { onboardingComplete: bool, paid: bool }
@@ -214,6 +215,7 @@ export default function App() {
             <Route path="/admin/usage"         element={<UsageAnalytics />} />
             <Route path="/admin/katie-corrections" element={<KatieCorrections />} />
             <Route path="/admin/workout-builder-test" element={<WorkoutBuilderTest />} />
+            <Route path="/staff-chat"          element={<StaffChat />} />
           </Route>
         </Route>
       </Routes>

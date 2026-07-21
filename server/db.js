@@ -1649,6 +1649,122 @@ export async function migrate() {
     ON CONFLICT (goal) DO NOTHING
   `)
 
+  // INVENTED — 'mobility' has no source in the guide's volume/intensity table
+  // (that table only covers strength/power/hypertrophy/endurance main-lift
+  // work). sets_min/sets_max = 0 is a deliberate signal, not a placeholder
+  // gap: getMainLiftVolume() returns sets: 0 for this goal with no code
+  // change, and buildMainWork() (workoutAssembly/assembleSession.js) treats
+  // sets === 0 as "skip main-lift work for this session" so a mobility
+  // session never forces a squat/hinge pick. rep_range is unused when
+  // sets = 0 but kept non-null to satisfy the NOT NULL constraint.
+  await pool.query(`
+    INSERT INTO volume_rules (goal, rep_range, sets_min, sets_max) VALUES
+      ('mobility', 'n/a', 0, 0)
+    ON CONFLICT (goal) DO NOTHING
+  `)
+
+  // Admin-entered corrections pulled into Katie's context at answer-time so a
+  // wrong/hedged answer can be fixed without a code deploy. org_id is nullable
+  // and unused while the product is single-org — reserved so multi-tenant scoping
+  // can be added later without a migration.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS katie_corrections (
+      id               SERIAL PRIMARY KEY,
+      org_id           INTEGER,
+      trigger_keywords TEXT[]      NOT NULL,
+      correct_answer   TEXT        NOT NULL,
+      created_by       INTEGER     REFERENCES users(id) ON DELETE SET NULL,
+      active           BOOLEAN     NOT NULL DEFAULT TRUE,
+      created_at       TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_katie_corrections_active ON katie_corrections (active)`)
+
+  // ── Staff Team Communication (Slack-style channels + DMs, coaches/admins only) ──
+  // Entirely separate from client_messages — clients never see or query this.
+  // org_id is added below via TENANT_TABLES in 001_multi_tenancy.js (runs after
+  // this migrate() call, once the organizations table exists) rather than as a
+  // direct FK here, matching how every other post-launch table in this codebase
+  // picks up multi-tenancy scoping.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS staff_channels (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      is_private BOOLEAN DEFAULT false,
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS staff_channel_members (
+      channel_id INTEGER REFERENCES staff_channels(id) ON DELETE CASCADE,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      PRIMARY KEY (channel_id, user_id)
+    )
+  `)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS staff_messages (
+      id SERIAL PRIMARY KEY,
+      channel_id INTEGER REFERENCES staff_channels(id) ON DELETE CASCADE,
+      sender_id INTEGER REFERENCES users(id),
+      message_body TEXT,
+      audio_url TEXT,
+      attachment_url TEXT,
+      attachment_name TEXT,
+      is_pinned BOOLEAN DEFAULT false,
+      pinned_by INTEGER REFERENCES users(id),
+      pinned_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_staff_messages_channel ON staff_messages (channel_id, created_at)`)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS staff_message_reads (
+      message_id INTEGER REFERENCES staff_messages(id) ON DELETE CASCADE,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      read_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (message_id, user_id)
+    )
+  `)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS staff_direct_messages (
+      id SERIAL PRIMARY KEY,
+      sender_id INTEGER REFERENCES users(id),
+      recipient_id INTEGER REFERENCES users(id),
+      message_body TEXT,
+      audio_url TEXT,
+      attachment_url TEXT,
+      attachment_name TEXT,
+      is_pinned BOOLEAN DEFAULT false,
+      pinned_by INTEGER REFERENCES users(id),
+      pinned_at TIMESTAMPTZ,
+      read_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_staff_dm_participants      ON staff_direct_messages (sender_id, recipient_id, created_at)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_staff_dm_recipient_unread ON staff_direct_messages (recipient_id, read_at)`)
+
+  // Seed the default #coachingteam channel and auto-join every current staff
+  // user. Re-running is a no-op for the channel row (name-guarded) and
+  // idempotent for membership (ON CONFLICT DO NOTHING) — newly-promoted staff
+  // pick up membership on the next server restart.
+  await pool.query(`
+    INSERT INTO staff_channels (name, description, is_private)
+    SELECT 'coachingteam', 'Default team channel', TRUE
+    WHERE NOT EXISTS (SELECT 1 FROM staff_channels WHERE name = 'coachingteam')
+  `)
+  await pool.query(`
+    INSERT INTO staff_channel_members (channel_id, user_id)
+    SELECT c.id, u.id
+    FROM staff_channels c
+    CROSS JOIN users u
+    WHERE c.name = 'coachingteam'
+      AND u.role IN ('admin', 'coach', 'staff', 'account_owner')
+    ON CONFLICT (channel_id, user_id) DO NOTHING
+  `)
   // ── Admin allowlist bootstrap ───────────────────────────────────────────────
   // Force role=admin for the hard-coded ADMIN_EMAILS list on every startup.
   // Existing user data (meals, workouts, journal, etc.) is preserved — this

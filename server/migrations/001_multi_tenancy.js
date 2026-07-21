@@ -49,6 +49,7 @@ const TENANT_TABLES = [
   'katie_corrections',
   'mindset_videos',
   'resources',
+  'staff_channels',
 ]
 
 // Adds org_id (FK -> organizations, ON DELETE CASCADE) to tableName and backs

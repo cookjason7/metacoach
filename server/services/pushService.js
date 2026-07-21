@@ -168,11 +168,39 @@ export async function notifyLateCheckInSubmitted(clientUserId) {
     console.warn('[push] notifyLateCheckInSubmitted error:', err.message)
   }
 }
-// Notify community members about a new post.
-// Generic copy only — no post content, no health data.
-// Staff/admin are always notified of any new post (staff or client authored).
-// Clients are only notified when the post is staff-authored (authorIsStaff=true) —
-// posts from other clients don't push to the whole client base, to limit spam.
+
+// Notify a staff member (coach/admin) about a new Team Communication message —
+// either a channel post or a DM. previewBody is already truncated/generic by
+// the caller (server/routes/staffChat.js) so no message content decisions live
+// here. url (optional) deep-links into the specific channel or DM thread.
+export async function notifyNewTeamMessage(recipientUserId, previewBody, url = null) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT notif_master_enabled FROM users WHERE id = $1`,
+      [recipientUserId],
+    )
+    const prefs = rows[0]
+    if (!prefs) {
+      console.warn('[push] notifyNewTeamMessage — user not found userId=%s', recipientUserId)
+      return
+    }
+    if (!prefs.notif_master_enabled) {
+      console.log('[push] notifyNewTeamMessage — suppressed by prefs userId=%s', recipientUserId)
+      return
+    }
+    console.log('[push] notifyNewTeamMessage — sending to userId=%s', recipientUserId)
+    await sendToUser(recipientUserId, {
+      title: 'New Team Message',
+      body:  previewBody,
+      data:  url ? { url } : undefined,
+    })
+  } catch (err) {
+    console.warn('[push] notifyNewTeamMessage error userId=%s: %s', recipientUserId, err.message)
+  }
+}
+
+// Notify a user about a new top-level community post.
+// Generic copy only - no post content, no health data.
 // postId (optional): the new post's id. When provided, the notification carries
 // a deep-link url so tapping it opens the Community page scrolled to and
 // highlighting that specific post instead of just landing on the Dashboard.
