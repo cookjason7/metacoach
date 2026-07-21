@@ -48,6 +48,7 @@ export default function StaffChat() {
 
   const [channels, setChannels] = useState([])
   const [dms,      setDms]      = useState([])
+  const [staffUsers, setStaffUsers] = useState([])
   const [search,   setSearch]   = useState('')
 
   const [activeType, setActiveType] = useState(null) // 'channel' | 'dm'
@@ -67,7 +68,17 @@ export default function StaffChat() {
   const [newChanName,     setNewChanName]     = useState('')
   const [newChanPrivate,  setNewChanPrivate]  = useState(false)
   const [newChanDesc,     setNewChanDesc]     = useState('')
+  const [newChanMemberIds, setNewChanMemberIds] = useState(new Set())
   const [creatingChan,    setCreatingChan]    = useState(false)
+
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
+  const [channelMembers,    setChannelMembers]    = useState([])
+  const [loadingMembers,    setLoadingMembers]    = useState(false)
+  const [addMemberIds,      setAddMemberIds]      = useState(new Set())
+  const [memberSearch,      setMemberSearch]      = useState('')
+  const [savingMembers,     setSavingMembers]     = useState(false)
+  const [removingMemberId,  setRemovingMemberId]  = useState(null)
+  const [deletingChannel,   setDeletingChannel]   = useState(false)
 
   const scrollRef    = useRef(null)
   const fileInputRef = useRef(null)
@@ -109,7 +120,15 @@ export default function StaffChat() {
     } catch {}
   }, [getToken])
 
-  useEffect(() => { loadChannels(); loadDms() }, [loadChannels, loadDms])
+  const loadStaffUsers = useCallback(async () => {
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/staff-chat/staff-users`, { headers: { Authorization: `Bearer ${token}` } })
+      if (res.ok) setStaffUsers(await res.json())
+    } catch {}
+  }, [getToken])
+
+  useEffect(() => { loadChannels(); loadDms(); loadStaffUsers() }, [loadChannels, loadDms, loadStaffUsers])
   useEffect(() => {
     const id = setInterval(() => { loadChannels(); loadDms() }, 30_000)
     return () => clearInterval(id)
@@ -290,20 +309,116 @@ export default function StaffChat() {
       const res = await fetch(`${API_URL}/api/staff-chat/channels`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newChanName.trim(), is_private: newChanPrivate, description: newChanDesc.trim() || null }),
+        body: JSON.stringify({
+          name: newChanName.trim(),
+          is_private: newChanPrivate,
+          description: newChanDesc.trim() || null,
+          member_ids: [...newChanMemberIds],
+        }),
       })
       if (res.ok) {
         const channel = await res.json()
         await loadChannels()
         setActiveType('channel'); setActiveId(channel.id)
         setShowCreateModal(false)
-        setNewChanName(''); setNewChanPrivate(false); setNewChanDesc('')
+        setNewChanName(''); setNewChanPrivate(false); setNewChanDesc(''); setNewChanMemberIds(new Set())
       } else {
         const err = await res.json().catch(() => ({}))
         alert(err.error ?? 'Could not create channel')
       }
     } catch { alert('Could not create channel') }
     finally { setCreatingChan(false) }
+  }
+
+  function toggleNewChanMember(id) {
+    setNewChanMemberIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  // ── Channel settings (admin) ───────────────────────────────────────────
+  async function openChannelSettings() {
+    setShowSettingsModal(true)
+    setAddMemberIds(new Set())
+    setMemberSearch('')
+    setLoadingMembers(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/staff-chat/channels/${activeId}/members`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) setChannelMembers(await res.json())
+    } finally { setLoadingMembers(false) }
+  }
+
+  function toggleAddMember(id) {
+    setAddMemberIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  async function addSelectedMembers() {
+    if (!addMemberIds.size || savingMembers) return
+    setSavingMembers(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/staff-chat/channels/${activeId}/members`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_ids: [...addMemberIds] }),
+      })
+      if (res.ok) {
+        setAddMemberIds(new Set())
+        await openChannelSettings()
+        loadChannels()
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.error ?? 'Could not add members')
+      }
+    } catch { alert('Could not add members') }
+    finally { setSavingMembers(false) }
+  }
+
+  async function removeMember(userId) {
+    setRemovingMemberId(userId)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/staff-chat/channels/${activeId}/members/${userId}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        setChannelMembers(prev => prev.filter(m => m.id !== userId))
+        loadChannels()
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.error ?? 'Could not remove member')
+      }
+    } catch { alert('Could not remove member') }
+    finally { setRemovingMemberId(null) }
+  }
+
+  async function deleteChannel() {
+    if (!window.confirm('Are you sure? This will permanently delete all messages in this channel.')) return
+    setDeletingChannel(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/staff-chat/channels/${activeId}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        setShowSettingsModal(false)
+        setActiveType(null); setActiveId(null)
+        await loadChannels()
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.error ?? 'Could not delete channel')
+      }
+    } catch { alert('Could not delete channel') }
+    finally { setDeletingChannel(false) }
   }
 
   function selectConversation(type, id) {
@@ -454,6 +569,19 @@ export default function StaffChat() {
                   </svg>
                 </button>
                 <p className="text-sm font-semibold text-gray-900 flex-1 min-w-0 truncate">{headerTitle}</p>
+                {activeType === 'channel' && isAdmin && (
+                  <button
+                    onClick={openChannelSettings}
+                    title="Channel settings"
+                    aria-label="Channel settings"
+                    className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-200 transition-colors shrink-0"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                  </button>
+                )}
                 {pinnedMessages.length > 0 && (
                   <button
                     onClick={() => setShowPinned(v => !v)}
@@ -650,6 +778,29 @@ export default function StaffChat() {
                 <input type="checkbox" checked={newChanPrivate} onChange={e => setNewChanPrivate(e.target.checked)} className="w-4 h-4" />
                 Private channel
               </label>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Members</label>
+                <div className="border border-gray-200 rounded-lg max-h-40 overflow-y-auto divide-y divide-gray-100">
+                  <label className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400 bg-gray-50">
+                    <input type="checkbox" checked disabled className="w-4 h-4" />
+                    {myFirstName ?? 'You'} (creator)
+                  </label>
+                  {staffUsers.map(u => (
+                    <label key={u.id} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 min-h-[44px]">
+                      <input
+                        type="checkbox"
+                        checked={newChanMemberIds.has(u.id)}
+                        onChange={() => toggleNewChanMember(u.id)}
+                        className="w-4 h-4"
+                      />
+                      {fullName(u)}
+                    </label>
+                  ))}
+                  {staffUsers.length === 0 && (
+                    <p className="text-xs text-gray-400 px-3 py-2">No other staff yet.</p>
+                  )}
+                </div>
+              </div>
               <div className="flex gap-2 pt-1">
                 <button
                   type="submit" disabled={creatingChan || !newChanName.trim()}
@@ -663,6 +814,92 @@ export default function StaffChat() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Channel settings modal (admin only) */}
+      {showSettingsModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-4 py-5">
+          <div className="w-full max-w-md rounded-xl bg-white shadow-xl border border-gray-200 p-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-base font-bold text-gray-900">{activeMeta?.name ? `# ${activeMeta.name}` : 'Channel Settings'}</p>
+              <button onClick={() => setShowSettingsModal(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none p-1">×</button>
+            </div>
+
+            {/* Current members */}
+            <div className="mb-4">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Members</p>
+              {loadingMembers && <p className="text-xs text-gray-400 py-2">Loading…</p>}
+              {!loadingMembers && (
+                <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-40 overflow-y-auto">
+                  {channelMembers.map(m => (
+                    <div key={m.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                      <span className="text-sm text-gray-700 truncate">{fullName(m)}</span>
+                      <button
+                        onClick={() => removeMember(m.id)}
+                        disabled={removingMemberId === m.id}
+                        title="Remove from channel"
+                        className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 font-bold text-sm"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  {channelMembers.length === 0 && (
+                    <p className="text-xs text-gray-400 px-3 py-2">No members yet.</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Add members */}
+            <div className="mb-5">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Add Members</p>
+              <input
+                type="text"
+                value={memberSearch}
+                onChange={e => setMemberSearch(e.target.value)}
+                placeholder="Search staff…"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-2 focus:outline-none focus:ring-2"
+                style={{ '--tw-ring-color': ORANGE }}
+              />
+              <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-40 overflow-y-auto">
+                {staffUsers
+                  .filter(u => !channelMembers.some(m => m.id === u.id))
+                  .filter(u => !memberSearch.trim() || fullName(u).toLowerCase().includes(memberSearch.trim().toLowerCase()))
+                  .map(u => (
+                    <label key={u.id} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 min-h-[44px]">
+                      <input
+                        type="checkbox"
+                        checked={addMemberIds.has(u.id)}
+                        onChange={() => toggleAddMember(u.id)}
+                        className="w-4 h-4"
+                      />
+                      {fullName(u)}
+                    </label>
+                  ))}
+                {staffUsers.filter(u => !channelMembers.some(m => m.id === u.id)).length === 0 && (
+                  <p className="text-xs text-gray-400 px-3 py-2">Everyone is already a member.</p>
+                )}
+              </div>
+              <button
+                onClick={addSelectedMembers}
+                disabled={!addMemberIds.size || savingMembers}
+                className="mt-2 w-full min-h-[40px] rounded-lg text-white text-sm font-semibold disabled:opacity-40"
+                style={{ backgroundColor: ORANGE }}
+              >
+                {savingMembers ? 'Adding…' : 'Add Selected'}
+              </button>
+            </div>
+
+            <button
+              onClick={deleteChannel}
+              disabled={deletingChannel}
+              className="w-full min-h-[44px] rounded-lg border border-red-200 bg-red-50 text-red-600 text-sm font-semibold hover:bg-red-100 disabled:opacity-40 transition-colors"
+            >
+              {deletingChannel ? 'Deleting…' : 'Delete Channel'}
+            </button>
           </div>
         </div>
       )}

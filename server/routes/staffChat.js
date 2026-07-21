@@ -125,12 +125,13 @@ router.get('/channels', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-// POST /api/staff-chat/channels — admin only
+// POST /api/staff-chat/channels — admin only. Optional member_ids array adds
+// additional staff members alongside the creator (who is always a member).
 router.post('/channels', async (req, res, next) => {
   try {
     const ctx = getCtx(req)
     if (!isAdminRole(ctx.role)) return res.status(403).json({ error: 'Admin only' })
-    const { name, is_private = false, description = null } = req.body
+    const { name, is_private = false, description = null, member_ids = [] } = req.body
     if (!name?.trim()) return res.status(400).json({ error: 'name is required' })
 
     const { rows } = await pool.query(
@@ -144,7 +145,119 @@ router.post('/channels', async (req, res, next) => {
        ON CONFLICT (channel_id, user_id) DO NOTHING`,
       [channel.id, ctx.dbUserId],
     )
+
+    const extraIds = Array.isArray(member_ids)
+      ? [...new Set(member_ids.map(id => parseInt(id, 10)).filter(id => Number.isInteger(id) && id !== ctx.dbUserId))]
+      : []
+    if (extraIds.length) {
+      const { rows: validUsers } = await pool.query(
+        `SELECT id FROM users
+         WHERE id = ANY($1::int[])
+           AND role = ANY($2::text[])
+           AND ($3::boolean OR org_id = $4)`,
+        [extraIds, STAFF_ROLES, isSuperAdmin(ctx), ctx.orgId],
+      )
+      for (const u of validUsers) {
+        await pool.query(
+          `INSERT INTO staff_channel_members (channel_id, user_id) VALUES ($1, $2)
+           ON CONFLICT (channel_id, user_id) DO NOTHING`,
+          [channel.id, u.id],
+        )
+      }
+    }
+
     res.status(201).json(channel)
+  } catch (err) { next(err) }
+})
+
+// DELETE /api/staff-chat/channels/:id — admin only. Refuses to delete the
+// last remaining channel so staff always have somewhere to talk.
+router.delete('/channels/:id', async (req, res, next) => {
+  try {
+    const ctx = getCtx(req)
+    if (!isAdminRole(ctx.role)) return res.status(403).json({ error: 'Admin only' })
+    const channelId = parseInt(req.params.id, 10)
+    if (!Number.isInteger(channelId)) return res.status(400).json({ error: 'Invalid channel id' })
+
+    const { rows } = await pool.query('SELECT id FROM staff_channels WHERE id = $1', [channelId])
+    if (!rows.length) return res.status(404).json({ error: 'Channel not found' })
+
+    const { rows: [{ cnt }] } = await pool.query('SELECT COUNT(*)::int AS cnt FROM staff_channels')
+    if (cnt <= 1) return res.status(400).json({ error: 'Cannot delete the only channel' })
+
+    await pool.query('DELETE FROM staff_channels WHERE id = $1', [channelId])
+    res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
+// GET /api/staff-chat/channels/:id/members — current channel members
+router.get('/channels/:id/members', async (req, res, next) => {
+  try {
+    const ctx = getCtx(req)
+    const channelId = parseInt(req.params.id, 10)
+    if (!Number.isInteger(channelId)) return res.status(400).json({ error: 'Invalid channel id' })
+    if (!(await isChannelMember(channelId, ctx.dbUserId))) {
+      return res.status(403).json({ error: 'Not a member of this channel' })
+    }
+
+    const { rows } = await pool.query(`
+      SELECT u.id, u.first_name, u.last_name, u.role
+      FROM staff_channel_members cm
+      JOIN users u ON u.id = cm.user_id
+      WHERE cm.channel_id = $1
+      ORDER BY u.first_name
+    `, [channelId])
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
+// POST /api/staff-chat/channels/:id/members — admin only. body: { user_ids: [...] }
+router.post('/channels/:id/members', async (req, res, next) => {
+  try {
+    const ctx = getCtx(req)
+    if (!isAdminRole(ctx.role)) return res.status(403).json({ error: 'Admin only' })
+    const channelId = parseInt(req.params.id, 10)
+    if (!Number.isInteger(channelId)) return res.status(400).json({ error: 'Invalid channel id' })
+    const { user_ids } = req.body
+    if (!Array.isArray(user_ids) || !user_ids.length) return res.status(400).json({ error: 'user_ids is required' })
+
+    const { rows: channelRows } = await pool.query('SELECT id FROM staff_channels WHERE id = $1', [channelId])
+    if (!channelRows.length) return res.status(404).json({ error: 'Channel not found' })
+
+    const ids = [...new Set(user_ids.map(id => parseInt(id, 10)).filter(Number.isInteger))]
+    const { rows: validUsers } = await pool.query(
+      `SELECT id FROM users
+       WHERE id = ANY($1::int[])
+         AND role = ANY($2::text[])
+         AND ($3::boolean OR org_id = $4)`,
+      [ids, STAFF_ROLES, isSuperAdmin(ctx), ctx.orgId],
+    )
+    for (const u of validUsers) {
+      await pool.query(
+        `INSERT INTO staff_channel_members (channel_id, user_id) VALUES ($1, $2)
+         ON CONFLICT (channel_id, user_id) DO NOTHING`,
+        [channelId, u.id],
+      )
+    }
+    res.json({ ok: true, added: validUsers.length })
+  } catch (err) { next(err) }
+})
+
+// DELETE /api/staff-chat/channels/:id/members/:userId — admin only
+router.delete('/channels/:id/members/:userId', async (req, res, next) => {
+  try {
+    const ctx = getCtx(req)
+    if (!isAdminRole(ctx.role)) return res.status(403).json({ error: 'Admin only' })
+    const channelId = parseInt(req.params.id, 10)
+    const userId = parseInt(req.params.userId, 10)
+    if (!Number.isInteger(channelId) || !Number.isInteger(userId)) {
+      return res.status(400).json({ error: 'Invalid channel or user id' })
+    }
+    await pool.query(
+      'DELETE FROM staff_channel_members WHERE channel_id = $1 AND user_id = $2',
+      [channelId, userId],
+    )
+    res.json({ ok: true })
   } catch (err) { next(err) }
 })
 
@@ -291,7 +404,10 @@ router.post('/channels/:id/read', async (req, res, next) => {
 
 // ─── DM routes ──────────────────────────────────────────────────────────────
 
-// GET /api/staff-chat/dms — all staff users + last DM + unread count per user
+// GET /api/staff-chat/dms — ALL staff users (except self), regardless of
+// whether a DM thread already exists. last_message_*/unread come from LEFT-
+// style correlated subqueries so a staff member with no message history yet
+// still appears, with last_message_body/at = null and unread = 0.
 router.get('/dms', async (req, res, next) => {
   try {
     const ctx = getCtx(req)
@@ -308,6 +424,7 @@ router.get('/dms', async (req, res, next) => {
       FROM users u
       WHERE u.id != $1
         AND u.role = ANY($2::text[])
+        AND (u.staff_status IS NULL OR u.staff_status != 'archived')
         AND ($3::boolean OR u.org_id = $4)
       ORDER BY u.first_name
     `, [ctx.dbUserId, STAFF_ROLES, isSuperAdmin(ctx), ctx.orgId])
@@ -452,6 +569,7 @@ router.get('/staff-users', async (req, res, next) => {
       SELECT id, first_name, last_name, role
       FROM users
       WHERE role = ANY($1::text[])
+        AND (staff_status IS NULL OR staff_status != 'archived')
         AND ($2::boolean OR org_id = $3)
       ORDER BY first_name
     `, [STAFF_ROLES, isSuperAdmin(ctx), ctx.orgId])
