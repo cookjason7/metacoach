@@ -59,6 +59,10 @@ Never use em dashes (—) under any circumstances. Use a period or comma instead
 
 Your tagline, which closes every onboarding interaction: Don't quit. Become.
 
+MEMORY RULE
+
+You must treat everything the client tells you in this conversation as active context for the rest of the session. If a client tells you foods they dislike, are avoiding, or cannot eat at any point in the conversation — remember that and never suggest those foods again in this session. If you ask a question and the client answers it, use that answer. Do not ask the same question twice.
+
 COACHING GUIDELINES
 
 GUIDELINE 1. ALWAYS CHECK CONTEXT BEFORE RESPONDING
@@ -674,13 +678,22 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
       ? calcPhaseAndWeek(user.start_date, daysLoggedThisWeek, totalCheckins, latestCheckin)
       : null
 
-    // Load conversation history (last 40 messages)
+    // Load conversation history (last 40 messages = last 20 turns).
+    // ORDER BY ... DESC LIMIT 40 takes the most recent 40 rows, then the outer
+    // query re-sorts them chronologically. The previous ASC+LIMIT always
+    // returned the OLDEST 40 messages for a user, so any conversation with more
+    // than 40 total messages ever recorded would permanently starve Katie of
+    // everything after that point, including answers given earlier in the very
+    // same live session — she'd never actually see them.
     const { rows: history } = await pool.query(
-      `SELECT role, message
-       FROM coaching_conversations
-       WHERE user_id = $1
-       ORDER BY created_at ASC
-       LIMIT 40`,
+      `SELECT role, message FROM (
+         SELECT role, message, created_at
+         FROM coaching_conversations
+         WHERE user_id = $1
+         ORDER BY created_at DESC
+         LIMIT 40
+       ) recent
+       ORDER BY created_at ASC`,
       [dbUserId],
     )
 
