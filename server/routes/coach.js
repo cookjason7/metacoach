@@ -409,12 +409,12 @@ function buildContextBlock(user, meals, logs, nutritionTotals = [], recentFoods 
     ? meals.map(m =>
         `  - ${m.meal_name}: ${m.calories ?? '?'} cal, ${m.protein ?? '?'}g protein`
       ).join('\n')
-    : '  None logged in the last 7 days'
+    : '  None logged in the last 14 days'
 
-  // Build 7-day nutrition summary (daily totals, all clients)
+  // Build 14-day nutrition summary (daily totals, all clients)
   const buildNutritionSummary = () => {
     if (nutritionTotals.length === 0) {
-      return 'No food logged in the last 7 days.'
+      return 'No food logged in the last 14 days.'
     }
 
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -423,7 +423,7 @@ function buildContextBlock(user, meals, logs, nutritionTotals = [], recentFoods 
     )
 
     const summaryLines = []
-    for (let i = 6; i >= 0; i--) {
+    for (let i = 13; i >= 0; i--) {
       const d = new Date(Date.now() - i * 86_400_000)
       const dateStr = d.toISOString().slice(0, 10)
       const dayName = dayNames[d.getDay()]
@@ -451,7 +451,7 @@ function buildContextBlock(user, meals, logs, nutritionTotals = [], recentFoods 
     ? logs.map(l =>
         `  - ${l.logged_date}: ${l.water_oz ?? '?'} oz water, ${l.steps ?? '?'} steps, ${l.weight_lbs ?? '?'} lbs`
       ).join('\n')
-    : '  None logged in the last 7 days'
+    : '  None logged in the last 14 days'
 
   const goalsLines = [
     user.goal_calories ? `- Calorie target: ${user.goal_calories} cal/day` : null,
@@ -523,13 +523,13 @@ FOOD PREFERENCES:
 FOODS SHE ACTUALLY EATS (last 30 days, use these as meal-plan foundation):
 ${recentFoodsText}
 
-RECENT MEALS (last 7 days):
+RECENT MEALS (last 14 days):
 ${mealsText}
 
-RECENT FOOD LOG (last 7 days):
+RECENT FOOD LOG (last 14 days):
 ${nutritionSummaryText}
 
-RECENT DAILY LOGS (last 7 days):
+RECENT DAILY LOGS (last 14 days):
 ${logsText}
 `.trim()
 }
@@ -581,7 +581,7 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
       pool.query(
         `SELECT meal_name, calories, protein, logged_at
          FROM meals
-         WHERE user_id = $1 AND logged_at >= NOW() - INTERVAL '7 days'
+         WHERE user_id = $1 AND logged_at >= NOW() - INTERVAL '14 days'
          ORDER BY logged_at DESC LIMIT 20`,
         [dbUserId],
       ),
@@ -594,7 +594,7 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
            SUM(fat)::NUMERIC AS total_fat,
            COUNT(*) > 0 AS logged
          FROM meals
-         WHERE user_id = $1 AND COALESCE(log_date, logged_at::date) >= CURRENT_DATE - INTERVAL '7 days'
+         WHERE user_id = $1 AND COALESCE(log_date, logged_at::date) >= CURRENT_DATE - INTERVAL '14 days'
          GROUP BY COALESCE(log_date, logged_at::date)
          ORDER BY COALESCE(log_date, logged_at::date) DESC`,
         [dbUserId],
@@ -602,7 +602,7 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
       pool.query(
         `SELECT logged_date, water_oz, steps, weight_lbs
          FROM daily_logs
-         WHERE user_id = $1 AND logged_date >= CURRENT_DATE - INTERVAL '7 days'
+         WHERE user_id = $1 AND logged_date >= CURRENT_DATE - INTERVAL '14 days'
          ORDER BY logged_date DESC`,
         [dbUserId],
       ),
@@ -631,7 +631,7 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
             `SELECT COUNT(DISTINCT COALESCE(log_date, logged_at::date)) AS days_logged_this_week
              FROM meals
              WHERE user_id = $1
-               AND COALESCE(log_date, logged_at::date) >= NOW() - INTERVAL '7 days'`,
+               AND COALESCE(log_date, logged_at::date) >= NOW() - INTERVAL '14 days'`,
             [dbUserId],
           )
         : Promise.resolve({ rows: [{ days_logged_this_week: 0 }] }),
