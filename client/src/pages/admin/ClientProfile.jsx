@@ -875,8 +875,12 @@ const SLOT_DISPLAY_ORDER = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
 const SNACK_SLOTS = new Set(['Snack', 'AM Snack', 'PM Snack', 'Late Snack'])
 
 function FoodLogSection({ clientId, date, getToken }) {
-  const [meals,   setMeals]   = useState([])
-  const [loading, setLoading] = useState(true)
+  const [meals,    setMeals]    = useState([])
+  const [comments, setComments] = useState([])
+  const [loading,  setLoading]  = useState(true)
+  const [openCommentMealId, setOpenCommentMealId] = useState(null)
+  const [draftText, setDraftText] = useState('')
+  const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -884,18 +888,54 @@ function FoodLogSection({ clientId, date, getToken }) {
       setLoading(true)
       try {
         const token = await getToken()
-        const res = await fetch(
-          `${API_URL}/api/coach-admin/clients/${clientId}/meals?date=${date}`,
-          { headers: { Authorization: `Bearer ${token}` } },
-        )
-        if (!cancelled && res.ok) setMeals(await res.json())
-        else if (!cancelled) setMeals([])
-      } catch { if (!cancelled) setMeals([]) }
+        const [mRes, cRes] = await Promise.all([
+          fetch(`${API_URL}/api/coach-admin/clients/${clientId}/meals?date=${date}`,
+            { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_URL}/api/coach-admin/clients/${clientId}/meal-comments?date=${date}`,
+            { headers: { Authorization: `Bearer ${token}` } }),
+        ])
+        if (!cancelled) {
+          setMeals(mRes.ok ? await mRes.json() : [])
+          setComments(cRes.ok ? await cRes.json() : [])
+        }
+      } catch { if (!cancelled) { setMeals([]); setComments([]) } }
       finally { if (!cancelled) setLoading(false) }
     }
     load()
     return () => { cancelled = true }
   }, [clientId, date, getToken])
+
+  function openComment(mealId) {
+    setOpenCommentMealId(mealId)
+    setDraftText('')
+  }
+
+  async function submitComment(mealId) {
+    if (!draftText.trim() || submitting) return
+    setSubmitting(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/meal-comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ meal_id: mealId, comment_text: draftText.trim() }),
+      })
+      if (res.ok) {
+        const created = await res.json()
+        setComments(prev => [...prev, created])
+        setOpenCommentMealId(null)
+        setDraftText('')
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const commentsByMeal = {}
+  for (const c of comments) {
+    if (!commentsByMeal[c.meal_id]) commentsByMeal[c.meal_id] = []
+    commentsByMeal[c.meal_id].push(c)
+  }
 
   const grouped = {}
   for (const m of meals) {
@@ -935,15 +975,66 @@ function FoodLogSection({ clientId, date, getToken }) {
                     m.fiber != null && Number(m.fiber) > 0 ? `${m.fiber}g fiber` : null,
                   ].filter(Boolean)
 
+                  const mealComments = commentsByMeal[m.id] || []
+
                   return (
-                    <div key={m.id} className="flex items-start justify-between gap-2 py-1.5 border-b border-gray-50 last:border-0">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-gray-900 leading-snug truncate">{m.meal_name}</p>
-                        {serving && <p className="text-[11px] text-gray-400">{serving}</p>}
+                    <div key={m.id} className="py-1.5 border-b border-gray-50 last:border-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900 leading-snug truncate">{m.meal_name}</p>
+                          {serving && <p className="text-[11px] text-gray-400">{serving}</p>}
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="text-xs text-gray-500 leading-relaxed">{macros.join(' · ')}</p>
+                        </div>
                       </div>
-                      <div className="shrink-0 text-right">
-                        <p className="text-xs text-gray-500 leading-relaxed">{macros.join(' · ')}</p>
-                      </div>
+
+                      {mealComments.map(c => (
+                        <div key={c.id} className="mt-1.5 pl-2 border-l-2 border-orange-100">
+                          <p className="text-xs text-gray-600 whitespace-pre-wrap break-words">{c.comment_text}</p>
+                          <p className="text-[10px] text-gray-400 mt-0.5">
+                            {[c.first_name, c.last_name].filter(Boolean).join(' ') || 'Coach'} · {new Date(c.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                      ))}
+
+                      {openCommentMealId === m.id ? (
+                        <div className="mt-2">
+                          <textarea
+                            autoFocus
+                            value={draftText}
+                            onChange={e => setDraftText(e.target.value)}
+                            placeholder="Add a comment for the client…"
+                            rows={2}
+                            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-200"
+                          />
+                          <div className="flex items-center gap-2 mt-1.5">
+                            <button
+                              type="button"
+                              onClick={() => submitComment(m.id)}
+                              disabled={submitting || !draftText.trim()}
+                              className="min-h-[44px] px-4 text-sm font-medium text-white bg-orange-500 rounded-lg disabled:opacity-50"
+                            >
+                              Submit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setOpenCommentMealId(null); setDraftText('') }}
+                              className="min-h-[44px] px-4 text-sm text-gray-500"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => openComment(m.id)}
+                          className="mt-1 min-h-[44px] flex items-center text-[11px] text-gray-400 hover:text-orange-500"
+                        >
+                          + Add comment
+                        </button>
+                      )}
                     </div>
                   )
                 })}

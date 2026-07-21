@@ -1788,6 +1788,57 @@ router.get('/clients/:id/meals', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// POST /api/coach-admin/clients/:id/meal-comments — coach leaves a comment on a meal
+router.post('/clients/:id/meal-comments', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+
+    const { meal_id, comment_text } = req.body
+    if (!meal_id || !comment_text?.trim()) {
+      return res.status(400).json({ error: 'meal_id and comment_text are required' })
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO meal_comments (meal_id, coach_id, comment_text)
+       VALUES ($1, $2, $3)
+       RETURNING *`,
+      [meal_id, ctx.dbUserId, comment_text.trim()],
+    )
+
+    await pool.query(
+      `INSERT INTO notifications (user_id, type, title, message, org_id)
+       VALUES ($1, 'meal_comment', 'Comment from Coach', $2, $3)`,
+      [id, comment_text.trim().slice(0, 80), ctx.orgId],
+    ).catch(() => {})
+
+    res.status(201).json(rows[0])
+  } catch (err) { next(err) }
+})
+
+// GET /api/coach-admin/clients/:id/meal-comments?date=YYYY-MM-DD
+router.get('/clients/:id/meal-comments', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+
+    const date = req.query.date ?? new Date().toISOString().slice(0, 10)
+    const { rows } = await pool.query(`
+      SELECT
+        mc.id, mc.meal_id, mc.comment_text, mc.created_at,
+        u.first_name, u.last_name
+      FROM meal_comments mc
+      JOIN meals m ON m.id = mc.meal_id
+      JOIN users u ON u.id = mc.coach_id
+      WHERE m.user_id = $1 AND COALESCE(m.log_date, m.logged_at::date) = $2::date
+      ORDER BY mc.created_at
+    `, [id, date])
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
 // ─── Mindset watch progress ───────────────────────────────────────────────────
 
 // GET /api/coach-admin/clients/:id/mindset-progress

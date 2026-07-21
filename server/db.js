@@ -41,6 +41,15 @@ export async function migrate() {
     )
   `)
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS meal_comments (
+      id           SERIAL PRIMARY KEY,
+      meal_id      INTEGER REFERENCES meals(id) ON DELETE CASCADE,
+      coach_id     INTEGER REFERENCES users(id),
+      comment_text TEXT NOT NULL,
+      created_at   TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS daily_logs (
       id           SERIAL PRIMARY KEY,
       user_id      INTEGER     NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -199,9 +208,13 @@ export async function migrate() {
     DO $$ BEGIN
       ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_type_check;
       ALTER TABLE notifications ADD CONSTRAINT notifications_type_check
-        CHECK (type IN ('comment', 'mention', 'new_post'));
+        CHECK (type IN ('comment', 'mention', 'new_post', 'meal_comment'));
     END $$;
   `)
+  // title/message support a self-contained notification body (e.g. meal_comment)
+  // that isn't derived by joining back to a community_posts row like comment/mention/new_post are.
+  await pool.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS title   TEXT`)
+  await pool.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS message TEXT`)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS community_polls (
       id         SERIAL PRIMARY KEY,
