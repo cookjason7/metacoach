@@ -1,8 +1,19 @@
 import { Router } from 'express'
 import { requireAuth, getAuth } from '@clerk/express'
-import { pool, getOrCreateUser } from '../db.js'
+import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
 
 const router = Router()
+
+// Org-scoping note: the /me GET and the health_assessments/users writes below
+// are all filtered by user_id = dbUserId, the requesting client's own row id —
+// a strictly stronger boundary than org_id (a user belongs to exactly one org,
+// so scoping by their own id can never cross an org boundary). The one query
+// that DOES need explicit org scoping is the client_invites auto-close below:
+// it matches by email across the whole table with no user_id boundary, so
+// without a filter a client in one org could close/claim a pending invite
+// meant for a different org. client_invites has no org_id column, so it's
+// scoped via a join to the assigned coach's/inviter's org — same pattern as
+// coachAdmin.js (commit bf7addf). Super admin (Jason) bypasses that filter.
 
 // GET /api/health-assessment/me
 router.get('/me', requireAuth(), async (req, res, next) => {
@@ -51,7 +62,7 @@ router.post('/', requireAuth(), async (req, res, next) => {
         energy_level, sleep_hours, stress_management, sleep_quality, daily_water,
         alcohol_weekdays, alcohol_weekends, happiness_level, confidence_level, activity_level,
         identity_traits,
-        completed_at, updated_at
+        completed_at, updated_at, org_id
       ) VALUES (
         $1,
         $2,  $3,  $4,  $5,
@@ -61,7 +72,7 @@ router.post('/', requireAuth(), async (req, res, next) => {
         $19, $20, $21, $22, $23,
         $24, $25, $26, $27, $28,
         $29,
-        $30, NOW()
+        $30, NOW(), $31
       )
       ON CONFLICT (user_id) DO UPDATE SET
         first_name           = COALESCE($2,  health_assessments.first_name),
@@ -118,6 +129,7 @@ router.post('/', requireAuth(), async (req, res, next) => {
       activity_level    ?? null,
       Array.isArray(identity_traits) ? JSON.stringify(identity_traits) : null,
       completed ? new Date().toISOString() : null,
+      req.orgId,
     ])
 
     // On final submit: mark assessment complete and promote 'invited' → 'active'.
@@ -188,12 +200,24 @@ router.post('/', requireAuth(), async (req, res, next) => {
       )
       const userEmail = userEmailRows[0]?.email?.trim().toLowerCase()
       if (userEmail) {
+        const bypassOrgFilter = isAdminEmail(userEmail)
+        const orgFilter = bypassOrgFilter
+          ? ''
+          : ` AND COALESCE(invcoach.org_id, invstaff.org_id) = $3`
         const { rows: closedInvites } = await pool.query(
-          `UPDATE client_invites
+          `UPDATE client_invites ci
            SET accepted_at = NOW(), accepted_by_user_id = $1
-           WHERE LOWER(TRIM(email)) = $2 AND accepted_at IS NULL
-           RETURNING assigned_coach_id`,
-          [dbUserId, userEmail],
+           FROM (
+             SELECT ci2.id
+             FROM client_invites ci2
+             LEFT JOIN users invcoach ON invcoach.id = ci2.assigned_coach_id
+             LEFT JOIN users invstaff ON invstaff.id = ci2.invited_by
+             WHERE LOWER(TRIM(ci2.email)) = $2 AND ci2.accepted_at IS NULL
+             ${orgFilter}
+           ) matched
+           WHERE ci.id = matched.id
+           RETURNING ci.assigned_coach_id`,
+          bypassOrgFilter ? [dbUserId, userEmail] : [dbUserId, userEmail, req.orgId],
         )
         // Apply coach assignment from the invite if the user has none yet.
         const inviteCoachId = closedInvites[0]?.assigned_coach_id
@@ -207,6 +231,10 @@ router.post('/', requireAuth(), async (req, res, next) => {
 
       // One-time-safe backfill for existing completed assessments.
       // This fills only users with null/empty anchors and never overwrites selections.
+      // Scoped to the acting user's own org — no need for a super-admin bypass since
+      // this only ever writes a user's own identity_anchors from their own assessment
+      // row (ha.user_id = u.id), never another org's data; the org filter here is
+      // purely to avoid sweeping every other org's rows on every single submission.
       await pool.query(`
         UPDATE users u
         SET identity_anchors = ARRAY(
@@ -219,7 +247,8 @@ router.post('/', requireAuth(), async (req, res, next) => {
           AND jsonb_typeof(ha.identity_traits) = 'array'
           AND jsonb_array_length(ha.identity_traits) > 0
           AND (u.identity_anchors IS NULL OR cardinality(u.identity_anchors) = 0)
-      `)
+          AND u.org_id = $1
+      `, [req.orgId])
     }
 
     res.json(rows[0])
