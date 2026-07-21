@@ -401,7 +401,7 @@ function calcPhaseAndWeek(startDate, daysLoggedThisWeek, totalCheckins, latestCh
   return { weekNum, phase, phaseNum, progressionEarned, complianceThisWeek, daysLoggedThisWeek }
 }
 
-function buildContextBlock(user, meals, logs, recentFoods = [], healthAssessment = null, phaseData = null, latestCheckin = null) {
+function buildContextBlock(user, meals, logs, nutritionTotals = [], recentFoods = [], healthAssessment = null, phaseData = null, latestCheckin = null) {
   const h = user.height_inches
   const heightStr = h ? `${Math.floor(h / 12)}'${h % 12}"` : 'not set'
 
@@ -410,6 +410,42 @@ function buildContextBlock(user, meals, logs, recentFoods = [], healthAssessment
         `  - ${m.meal_name}: ${m.calories ?? '?'} cal, ${m.protein ?? '?'}g protein`
       ).join('\n')
     : '  None logged in the last 7 days'
+
+  // Build 7-day nutrition summary (daily totals, all clients)
+  const buildNutritionSummary = () => {
+    if (nutritionTotals.length === 0) {
+      return 'No food logged in the last 7 days.'
+    }
+
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    const nutritionMap = Object.fromEntries(
+      nutritionTotals.map(n => [n.day, n])
+    )
+
+    const summaryLines = []
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86_400_000)
+      const dateStr = d.toISOString().slice(0, 10)
+      const dayName = dayNames[d.getDay()]
+      const monthDay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+
+      const totals = nutritionMap[dateStr]
+      if (totals && totals.logged) {
+        const cal = totals.total_calories ?? 0
+        const pro = Math.round(parseFloat(totals.total_protein ?? 0) * 10) / 10
+        const carb = Math.round(parseFloat(totals.total_carbs ?? 0) * 10) / 10
+        const fat = Math.round(parseFloat(totals.total_fat ?? 0) * 10) / 10
+        summaryLines.push(
+          `  - ${dayName} ${monthDay}: ${cal.toLocaleString()} cal | ${pro}g protein | ${carb}g carbs | ${fat}g fat`
+        )
+      } else {
+        summaryLines.push(`  - ${dayName} ${monthDay}: no log`)
+      }
+    }
+    return summaryLines.join('\n')
+  }
+
+  const nutritionSummaryText = buildNutritionSummary()
 
   const logsText = logs.length
     ? logs.map(l =>
@@ -490,6 +526,9 @@ ${recentFoodsText}
 RECENT MEALS (last 7 days):
 ${mealsText}
 
+RECENT FOOD LOG (last 7 days):
+${nutritionSummaryText}
+
 RECENT DAILY LOGS (last 7 days):
 ${logsText}
 `.trim()
@@ -536,14 +575,28 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     const user = userRows[0] ?? {}
     const isAiClient = user.coaching_type !== 'vip'
 
-    // Load recent meals, daily logs, distinct recent foods, and (for AI/Hybrid only)
-    // health assessment, logging compliance, check-in, and total submissions — in parallel
+    // Load recent meals, daily logs, distinct recent foods, daily nutrition totals (all clients),
+    // and (for AI/Hybrid only) health assessment, logging compliance, check-in, and total submissions — in parallel
     const baseQueries = [
       pool.query(
         `SELECT meal_name, calories, protein, logged_at
          FROM meals
          WHERE user_id = $1 AND logged_at >= NOW() - INTERVAL '7 days'
          ORDER BY logged_at DESC LIMIT 20`,
+        [dbUserId],
+      ),
+      pool.query(
+        `SELECT
+           COALESCE(log_date, logged_at::date)::text AS day,
+           SUM(calories)::INTEGER AS total_calories,
+           SUM(protein)::NUMERIC AS total_protein,
+           SUM(carbs)::NUMERIC AS total_carbs,
+           SUM(fat)::NUMERIC AS total_fat,
+           COUNT(*) > 0 AS logged
+         FROM meals
+         WHERE user_id = $1 AND COALESCE(log_date, logged_at::date) >= CURRENT_DATE - INTERVAL '7 days'
+         GROUP BY COALESCE(log_date, logged_at::date)
+         ORDER BY COALESCE(log_date, logged_at::date) DESC`,
         [dbUserId],
       ),
       pool.query(
@@ -603,6 +656,7 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
 
     const [
       { rows: meals },
+      { rows: nutritionTotalsRows },
       { rows: logs },
       { rows: recentFoodRows },
       { rows: assessmentRows },
@@ -744,7 +798,7 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     // appended last and explicitly instructed to take priority if they conflict
     // with the app-help reference above them.
     const correctionsContext = await getKatieCorrections(message, priorUserMessage)
-    const systemPrompt = `${katiPrompt}${KATIE_MEAL_PLAN_ADDENDUM}${appHelpContext}${correctionsContext}\n\n${buildContextBlock(user, meals, logs, recentFoods, healthAssessment, phaseData, latestCheckin)}`
+    const systemPrompt = `${katiPrompt}${KATIE_MEAL_PLAN_ADDENDUM}${appHelpContext}${correctionsContext}\n\n${buildContextBlock(user, meals, logs, nutritionTotalsRows, recentFoods, healthAssessment, phaseData, latestCheckin)}`
 
     // Stream SSE response
     res.setHeader('Content-Type', 'text/event-stream')
