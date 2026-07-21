@@ -9,8 +9,13 @@ const router = Router()
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
-const TIERS = ['trial', 'starter', 'pro', 'enterprise']
+// 'trial' is a subscription_status only — never a tier. See TIER_MAX_CLIENTS below.
+const TIERS = ['starter', 'pro', 'enterprise']
 const STATUSES = ['active', 'trialing', 'past_due', 'cancelled', 'paused']
+
+// max_clients is always derived from tier, never freely set — keeps pricing
+// tiers and seat limits from drifting apart.
+const TIER_MAX_CLIENTS = { starter: 50, pro: 100, enterprise: 9999 }
 
 // Every route in this file is Jason-only (super admin), not the generic 'admin'
 // role — under multi-tenancy every org gets its own 'admin' user, so role alone
@@ -62,7 +67,7 @@ router.post('/', requireAuth(), async (req, res, next) => {
   try {
     if (!requireSuperAdmin(req, res)) return
 
-    const { name, subscription_tier, max_clients } = req.body
+    const { name, subscription_tier } = req.body
     let { slug } = req.body
 
     if (!name?.trim()) return res.status(400).json({ error: 'Organization name is required.' })
@@ -72,9 +77,8 @@ router.post('/', requireAuth(), async (req, res, next) => {
       return res.status(400).json({ error: 'Slug must be lowercase letters, numbers, and hyphens only.' })
     }
 
-    const tier = TIERS.includes(subscription_tier) ? subscription_tier : 'trial'
-    const maxClients = Number.isFinite(Number(max_clients)) && Number(max_clients) > 0
-      ? Math.trunc(Number(max_clients)) : 50
+    const tier = TIERS.includes(subscription_tier) ? subscription_tier : 'starter'
+    const maxClients = TIER_MAX_CLIENTS[tier]
 
     const { rows: existing } = await pool.query('SELECT id FROM organizations WHERE slug = $1', [slug])
     if (existing.length) return res.status(409).json({ error: 'This slug is already taken.' })
@@ -122,12 +126,16 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
       params.push(slug)
       setClauses.push(`slug = $${params.length}`)
     }
+    // max_clients is derived from tier whenever tier changes — track it here so
+    // the standalone max_clients branch below doesn't fight it with a stale value.
+    let tierMaxClients = null
     if ('subscription_tier' in body) {
       if (!TIERS.includes(body.subscription_tier)) {
         return res.status(400).json({ error: `subscription_tier must be one of: ${TIERS.join(', ')}` })
       }
       params.push(body.subscription_tier)
       setClauses.push(`subscription_tier = $${params.length}`)
+      tierMaxClients = TIER_MAX_CLIENTS[body.subscription_tier]
     }
     if ('subscription_status' in body) {
       if (!STATUSES.includes(body.subscription_status)) {
@@ -136,7 +144,10 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
       params.push(body.subscription_status)
       setClauses.push(`subscription_status = $${params.length}`)
     }
-    if ('max_clients' in body) {
+    if (tierMaxClients != null) {
+      params.push(tierMaxClients)
+      setClauses.push(`max_clients = $${params.length}`)
+    } else if ('max_clients' in body) {
       const n = Number(body.max_clients)
       if (!Number.isFinite(n) || n <= 0) return res.status(400).json({ error: 'max_clients must be a positive number.' })
       params.push(Math.trunc(n))

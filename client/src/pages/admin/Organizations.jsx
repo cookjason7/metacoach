@@ -6,8 +6,14 @@ import { API_URL } from '../../config.js'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const TIERS = ['trial', 'starter', 'pro', 'enterprise']
+// 'trial' is a subscription_status only — never a tier.
+const TIERS = ['starter', 'pro', 'enterprise']
 const STATUSES = ['active', 'trialing', 'past_due', 'cancelled', 'paused']
+
+// Mirrors TIER_MAX_CLIENTS in server/routes/organizations.js — max_clients is
+// always derived from tier, never freely edited.
+const TIER_MAX_CLIENTS = { starter: 50, pro: 100, enterprise: 9999 }
+const TIER_PRICING = { starter: 297, pro: 397, enterprise: 497 }
 
 const STATUS_STYLES = {
   active:    'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -17,7 +23,7 @@ const STATUS_STYLES = {
   cancelled: 'bg-red-50 text-red-600 border-red-200',
 }
 
-const EMPTY_CREATE = { name: '', slug: '', subscription_tier: 'trial', max_clients: '50' }
+const EMPTY_CREATE = { name: '', slug: '', subscription_tier: 'starter' }
 const EMPTY_INVITE = { first_name: '', last_name: '', email: '' }
 
 function slugify(input) {
@@ -31,6 +37,10 @@ function fmtDate(iso) {
 
 function tierLabel(tier) {
   return tier.charAt(0).toUpperCase() + tier.slice(1)
+}
+
+function tierDropdownLabel(tier) {
+  return `${tierLabel(tier)} ($${TIER_PRICING[tier]}/mo)`
 }
 
 function statusLabel(status) {
@@ -100,6 +110,8 @@ function CreateOrgModal({ onClose, onCreated, getToken }) {
     setForm(f => ({ ...f, slug: slugify(slug) }))
   }
 
+  const maxClients = TIER_MAX_CLIENTS[form.subscription_tier]
+
   async function submit(e) {
     e.preventDefault()
     if (!form.name.trim()) { setError('Organization name is required.'); return }
@@ -114,7 +126,6 @@ function CreateOrgModal({ onClose, onCreated, getToken }) {
           name: form.name.trim(),
           slug: form.slug.trim(),
           subscription_tier: form.subscription_tier,
-          max_clients: form.max_clients !== '' ? Number(form.max_clients) : 50,
         }),
       })
       const body = await res.json()
@@ -151,16 +162,16 @@ function CreateOrgModal({ onClose, onCreated, getToken }) {
               onChange={e => setForm(f => ({ ...f, subscription_tier: e.target.value }))}
               className="w-full min-h-11 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
             >
-              {TIERS.map(t => <option key={t} value={t}>{tierLabel(t)}</option>)}
+              {TIERS.map(t => <option key={t} value={t}>{tierDropdownLabel(t)}</option>)}
             </select>
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Max Clients</label>
             <input
-              type="number" min="1" value={form.max_clients}
-              onChange={e => setForm(f => ({ ...f, max_clients: e.target.value }))}
-              className="w-full min-h-11 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+              type="number" value={maxClients} readOnly disabled
+              className="w-full min-h-11 border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500 cursor-not-allowed"
             />
+            <p className="text-[10px] text-gray-400 mt-1">Auto-set by tier</p>
           </div>
         </div>
         {error && <p className="text-xs text-red-500">{error}</p>}
@@ -185,11 +196,12 @@ function EditOrgModal({ org, onClose, onSaved, getToken }) {
     slug: org.slug,
     subscription_tier: org.subscription_tier,
     subscription_status: org.subscription_status,
-    max_clients: String(org.max_clients ?? 50),
     trial_ends_at: org.trial_ends_at ? org.trial_ends_at.slice(0, 10) : '',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState(null)
+
+  const maxClients = TIER_MAX_CLIENTS[form.subscription_tier] ?? org.max_clients
 
   async function submit(e) {
     e.preventDefault()
@@ -206,7 +218,6 @@ function EditOrgModal({ org, onClose, onSaved, getToken }) {
           slug: slugify(form.slug),
           subscription_tier: form.subscription_tier,
           subscription_status: form.subscription_status,
-          max_clients: form.max_clients !== '' ? Number(form.max_clients) : 50,
           trial_ends_at: form.trial_ends_at || null,
         }),
       })
@@ -242,7 +253,7 @@ function EditOrgModal({ org, onClose, onSaved, getToken }) {
               onChange={e => setForm(f => ({ ...f, subscription_tier: e.target.value }))}
               className="w-full min-h-11 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
             >
-              {TIERS.map(t => <option key={t} value={t}>{tierLabel(t)}</option>)}
+              {TIERS.map(t => <option key={t} value={t}>{tierDropdownLabel(t)}</option>)}
             </select>
           </div>
           <div>
@@ -260,10 +271,10 @@ function EditOrgModal({ org, onClose, onSaved, getToken }) {
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Max Clients</label>
             <input
-              type="number" min="1" value={form.max_clients}
-              onChange={e => setForm(f => ({ ...f, max_clients: e.target.value }))}
-              className="w-full min-h-11 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+              type="number" value={maxClients} readOnly disabled
+              className="w-full min-h-11 border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500 cursor-not-allowed"
             />
+            <p className="text-[10px] text-gray-400 mt-1">Auto-set by tier</p>
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Trial Ends At</label>
