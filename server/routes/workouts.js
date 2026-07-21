@@ -1,11 +1,24 @@
 import { Router } from 'express'
 import { requireAuth, getAuth } from '@clerk/express'
-import { pool, getOrCreateUser } from '../db.js'
+import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
 import { awardAction } from '../gamification.js'
 import { workoutGenLimit } from '../middleware/rateLimits.js'
 import { generateWorkoutPlan } from '../services/workoutGenerator.js'
 
 const router = Router()
+
+// Super admin (platform owner accounts in ADMIN_EMAILS, e.g. Jason) bypasses org
+// scoping. Same pattern as coachAdmin.js / messages.js (commits bf7addf, dbc3f60).
+function isSuperAdmin(ctx) {
+  return isAdminEmail(ctx.email)
+}
+
+// Org-scoping note: reads below are already scoped by user_id = dbUserId (or, for
+// nested exercises/logs, by a workout_id already verified to belong to dbUserId) —
+// left unfiltered. activity_logs (POST /log-activity) has no org_id column, so
+// that INSERT is untouched. All other INSERTs into workouts/workout_exercises/
+// workout_logs now set org_id = req.orgId. UPDATE/DELETE additionally get an
+// explicit org_id filter (non-super-admin only), same as meals.js (eefd525).
 
 // POST /api/workouts/generate — AI generates a plan, not saved yet
 router.post('/generate', requireAuth(), workoutGenLimit, async (req, res, next) => {
@@ -135,17 +148,17 @@ router.post('/', requireAuth(), async (req, res, next) => {
     if (!Array.isArray(days) || !days.length) return res.status(400).json({ error: 'Days required' })
 
     const { rows: [workout] } = await pool.query(
-      'INSERT INTO workouts (user_id, name, description) VALUES ($1, $2, $3) RETURNING *',
-      [dbUserId, program_name.trim(), description ?? null],
+      'INSERT INTO workouts (user_id, name, description, org_id) VALUES ($1, $2, $3, $4) RETURNING *',
+      [dbUserId, program_name.trim(), description ?? null, req.orgId],
     )
 
     for (const day of days) {
       for (const ex of (day.exercises || [])) {
         await pool.query(
-          `INSERT INTO workout_exercises (workout_id, day, exercise_name, exercise_id, day_focus, sets, reps, rest_seconds, notes)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          `INSERT INTO workout_exercises (workout_id, day, exercise_name, exercise_id, day_focus, sets, reps, rest_seconds, notes, org_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
           [workout.id, day.day_name, ex.name, ex.exercise_id ?? null, day.focus ?? null,
-           ex.sets ?? null, ex.reps ?? null, ex.rest_seconds ?? null, ex.notes ?? null],
+           ex.sets ?? null, ex.reps ?? null, ex.rest_seconds ?? null, ex.notes ?? null, req.orgId],
         )
       }
     }
@@ -165,8 +178,8 @@ router.post('/:id/log', requireAuth(), async (req, res, next) => {
     const { notes } = req.body
 
     const { rows: [log] } = await pool.query(
-      'INSERT INTO workout_logs (user_id, workout_id, notes) VALUES ($1, $2, $3) RETURNING *',
-      [dbUserId, workoutId, notes ?? null],
+      'INSERT INTO workout_logs (user_id, workout_id, notes, org_id) VALUES ($1, $2, $3, $4) RETURNING *',
+      [dbUserId, workoutId, notes ?? null, req.orgId],
     )
     const today = new Date().toISOString().slice(0, 10)
     awardAction(pool, dbUserId, 'workout', today).catch(e => console.error('[gami workout]', e.message))
@@ -188,10 +201,10 @@ router.post('/:id/exercises', requireAuth(), async (req, res, next) => {
     const { day, exercise_name, sets, reps, weight, rest_seconds, notes, sort_order } = req.body
     if (!exercise_name?.trim()) return res.status(400).json({ error: 'exercise_name required' })
     const { rows: [ex] } = await pool.query(
-      `INSERT INTO workout_exercises (workout_id, day, exercise_name, sets, reps, weight, rest_seconds, notes, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      `INSERT INTO workout_exercises (workout_id, day, exercise_name, sets, reps, weight, rest_seconds, notes, sort_order, org_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
       [workoutId, day ?? 'Day 1', exercise_name.trim(), sets ?? null, reps ?? null,
-       weight ?? null, rest_seconds ?? null, notes ?? null, sort_order ?? 0],
+       weight ?? null, rest_seconds ?? null, notes ?? null, sort_order ?? 0, req.orgId],
     )
     res.status(201).json(ex)
   } catch (err) { next(err) }
@@ -214,9 +227,12 @@ router.put('/exercises/:id', requireAuth(), async (req, res, next) => {
     if (!sets_entries.length) return res.status(400).json({ error: 'No valid fields to update' })
     const setClauses = sets_entries.map(([k], i) => `${k}=$${i + 2}`).join(', ')
     const values     = sets_entries.map(([, v]) => v)
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(ctx)
+    const orgFilter = bypassOrg ? '' : ` AND org_id = $${values.length + 2}`
     const { rows: [updated] } = await pool.query(
-      `UPDATE workout_exercises SET ${setClauses} WHERE id=$1 RETURNING *`,
-      [exId, ...values],
+      `UPDATE workout_exercises SET ${setClauses} WHERE id=$1${orgFilter} RETURNING *`,
+      bypassOrg ? [exId, ...values] : [exId, ...values, ctx.orgId],
     )
     res.json(updated)
   } catch (err) { next(err) }
@@ -228,9 +244,12 @@ router.delete('/exercises/:id', requireAuth(), async (req, res, next) => {
     const { userId } = getAuth(req)
     const dbUserId  = await getOrCreateUser(userId)
     const exId      = parseInt(req.params.id, 10)
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const orgFilter = isSuperAdmin(ctx) ? '' : ` AND we.org_id=$3`
     const { rowCount } = await pool.query(
       `DELETE FROM workout_exercises we USING workouts w
-       WHERE we.workout_id=w.id AND we.id=$1 AND w.user_id=$2`, [exId, dbUserId])
+       WHERE we.workout_id=w.id AND we.id=$1 AND w.user_id=$2${orgFilter}`,
+      isSuperAdmin(ctx) ? [exId, dbUserId] : [exId, dbUserId, ctx.orgId])
     if (!rowCount) return res.status(404).json({ error: 'Exercise not found' })
     res.json({ ok: true })
   } catch (err) { next(err) }
@@ -243,9 +262,12 @@ router.delete('/:id', requireAuth(), async (req, res, next) => {
     const dbUserId = await getOrCreateUser(userId)
     const workoutId = parseInt(req.params.id, 10)
 
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const orgFilter = isSuperAdmin(ctx) ? '' : ` AND org_id = $3`
+
     const { rowCount } = await pool.query(
-      'DELETE FROM workouts WHERE id = $1 AND user_id = $2',
-      [workoutId, dbUserId],
+      `DELETE FROM workouts WHERE id = $1 AND user_id = $2${orgFilter}`,
+      isSuperAdmin(ctx) ? [workoutId, dbUserId] : [workoutId, dbUserId, ctx.orgId],
     )
     if (!rowCount) return res.status(404).json({ error: 'Workout not found' })
     res.json({ ok: true })

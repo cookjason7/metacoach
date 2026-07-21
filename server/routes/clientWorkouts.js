@@ -156,13 +156,13 @@ router.post('/me/logs', requireAuth(), async (req, res, next) => {
       await client.query('BEGIN')
 
       const { rows: [log] } = await client.query(`
-        INSERT INTO workout_logs (user_id, workout_id, assignment_id, scheduled_date, notes)
-        VALUES ($1, $2, $3, $4::date, $5)
+        INSERT INTO workout_logs (user_id, workout_id, assignment_id, scheduled_date, notes, org_id)
+        VALUES ($1, $2, $3, $4::date, $5, $6)
         ON CONFLICT (assignment_id, scheduled_date) DO UPDATE SET
           notes        = EXCLUDED.notes,
           completed_at = NOW()
         RETURNING *
-      `, [dbUserId, workoutId, assignment_id, scheduled_date, notes ?? null])
+      `, [dbUserId, workoutId, assignment_id, scheduled_date, notes ?? null, req.orgId])
 
       // Replace the child set logs so re-submitting a day is idempotent
       await client.query('DELETE FROM workout_set_logs WHERE workout_log_id = $1', [log.id])

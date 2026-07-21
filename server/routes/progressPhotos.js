@@ -116,15 +116,15 @@ router.post('/', requireAuth(), photoUploadLimit, upload.single('photo'), async 
 
     const { rows } = await pool.query(
       targetDate !== todayStr
-        ? `INSERT INTO progress_photos (user_id, photo_url, angle, photo_session_id, taken_at)
-           VALUES ($1, $2, $3, $4, $5::date + CURRENT_TIME)
+        ? `INSERT INTO progress_photos (user_id, photo_url, angle, photo_session_id, taken_at, org_id)
+           VALUES ($1, $2, $3, $4, $5::date + CURRENT_TIME, $6)
            RETURNING id, photo_url, angle, taken_at, photo_session_id AS session_id`
-        : `INSERT INTO progress_photos (user_id, photo_url, angle, photo_session_id)
-           VALUES ($1, $2, $3, $4)
+        : `INSERT INTO progress_photos (user_id, photo_url, angle, photo_session_id, org_id)
+           VALUES ($1, $2, $3, $4, $5)
            RETURNING id, photo_url, angle, taken_at, photo_session_id AS session_id`,
       targetDate !== todayStr
-        ? [dbUserId, result.secure_url, angle, sessionId, targetDate]
-        : [dbUserId, result.secure_url, angle, sessionId],
+        ? [dbUserId, result.secure_url, angle, sessionId, targetDate, req.orgId]
+        : [dbUserId, result.secure_url, angle, sessionId, req.orgId],
     )
     // Track upload (non-blocking)
     trackEvent({

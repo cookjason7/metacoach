@@ -2,10 +2,16 @@ import { Router } from 'express'
 import multer from 'multer'
 import { v2 as cloudinary } from 'cloudinary'
 import { requireAuth, getAuth } from '@clerk/express'
-import { pool, getOrCreateUser } from '../db.js'
+import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
 import { notifyNewCommunityPost } from '../services/pushService.js'
 
 const router = Router()
+
+// Super admin (platform owner accounts in ADMIN_EMAILS, e.g. Jason) bypasses org
+// scoping. Same pattern as coachAdmin.js / messages.js (commits bf7addf, dbc3f60).
+function isSuperAdmin(ctx) {
+  return isAdminEmail(ctx.email)
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -75,18 +81,21 @@ router.use(async (req, res, next) => {
 
 const CLIENT_CATEGORIES = new Set(['General Discussion', 'Non-Scale Victories'])
 
-async function createMentionNotifications(content, postId, fromUserId) {
+// orgId scopes the @mention lookup to the poster's own org — without it, a name
+// match in a different org would both leak that user's existence and misdirect
+// a notification cross-tenant.
+async function createMentionNotifications(content, postId, fromUserId, orgId) {
   const names = [...new Set((content.match(/(?<!\w)@([A-Za-z]\w*)/g) ?? []).map(m => m.slice(1)))]
   for (const name of names) {
     try {
       const { rows } = await pool.query(
-        `SELECT id FROM users WHERE first_name ILIKE $1 AND id != $2 LIMIT 1`,
-        [name, fromUserId],
+        `SELECT id FROM users WHERE first_name ILIKE $1 AND id != $2 AND org_id = $3 LIMIT 1`,
+        [name, fromUserId, orgId],
       )
       if (rows.length) {
         await pool.query(
-          `INSERT INTO notifications (user_id, type, post_id, from_user_id) VALUES ($1, 'mention', $2, $3)`,
-          [rows[0].id, postId, fromUserId],
+          `INSERT INTO notifications (user_id, type, post_id, from_user_id, org_id) VALUES ($1, 'mention', $2, $3, $4)`,
+          [rows[0].id, postId, fromUserId, orgId],
         )
       }
     } catch {}
@@ -96,43 +105,97 @@ async function createMentionNotifications(content, postId, fromUserId) {
 // In-app badge notification for clients when a coach/admin creates a new community post.
 // Never fires for client-authored posts — only notifies about the other clients' own
 // mentions/comments, not every new post from peers.
-async function createNewPostNotifications(postId, fromUserId) {
+async function createNewPostNotifications(postId, fromUserId, orgId) {
   try {
     const { rows } = await pool.query(
-      `SELECT id FROM users WHERE role = 'client' AND COALESCE(coaching_type, '') != 'basic' AND id != $1`,
-      [fromUserId],
+      `SELECT id FROM users WHERE role = 'client' AND COALESCE(coaching_type, '') != 'basic' AND id != $1 AND org_id = $2`,
+      [fromUserId, orgId],
     )
     for (const u of rows) {
       await pool.query(
-        `INSERT INTO notifications (user_id, type, post_id, from_user_id) VALUES ($1, 'new_post', $2, $3)`,
-        [u.id, postId, fromUserId],
+        `INSERT INTO notifications (user_id, type, post_id, from_user_id, org_id) VALUES ($1, 'new_post', $2, $3, $4)`,
+        [u.id, postId, fromUserId, orgId],
       ).catch(() => {})
     }
   } catch {}
 }
+async function notifyTopLevelCommunityPost({ authorUserId, authorIsStaff, postChannel, postId, orgId }) {
+  try {
+    if (authorIsStaff) {
+      if (postChannel !== 'vip') {
+        console.log('[push] community post skipped for clients - channel=%s has no client-visible audience', postChannel)
+        return
+      }
+      const { rows: clients } = await pool.query(
+        `SELECT id
+         FROM users
+         WHERE role = 'client'
+           AND COALESCE(coaching_type, '') != 'basic'
+           AND id != $1
+           AND org_id = $2`,
+        [authorUserId, orgId],
+      )
+      for (const client of clients) await notifyNewCommunityPost(client.id, postId).catch(() => {})
+      return
+    }
 
-// ── Delete ────────────────────────────────────────────────────────────────────
+    const { rows: [author] } = await pool.query(
+      `SELECT assigned_coach_id AS coach_id FROM users WHERE id = $1`,
+      [authorUserId],
+    )
+    if (author?.coach_id) {
+      await notifyNewCommunityPost(author.coach_id, postId).catch(() => {})
+      return
+    }
+
+    const { rows: admins } = await pool.query(
+      `SELECT id FROM users WHERE role = 'admin' AND id != $1 AND org_id = $2`,
+      [authorUserId, orgId],
+    )
+    for (const admin of admins) await notifyNewCommunityPost(admin.id, postId).catch(() => {})
+  } catch (err) {
+    console.warn('[push] notifyTopLevelCommunityPost error:', err.message)
+  }
+}
+// -- Delete -------------------------------------------------------------------
 
 router.delete('/posts/:id', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const { dbUserId, isStaff } = await getUserContext(userId)
     const postId = parseInt(req.params.id, 10)
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
     if (!isStaff) {
       // clients can only delete their own posts
       const { rows } = await pool.query('SELECT user_id FROM community_posts WHERE id = $1', [postId])
       if (!rows[0]) return res.status(404).json({ error: 'Not found' })
       if (rows[0].user_id !== dbUserId) return res.status(403).json({ error: 'Forbidden' })
+      await pool.query('DELETE FROM community_posts WHERE id = $1', [postId])
+    } else {
+      // Staff bypass — but only within their own org unless true super admin.
+      // Previously any org's staff could delete any other org's post.
+      const bypassOrg = isSuperAdmin(ctx)
+      const orgFilter = bypassOrg ? '' : ` AND org_id = $2`
+      const { rowCount } = await pool.query(
+        `DELETE FROM community_posts WHERE id = $1${orgFilter}`,
+        bypassOrg ? [postId] : [postId, ctx.orgId],
+      )
+      if (!rowCount) return res.status(404).json({ error: 'Not found' })
     }
-    await pool.query('DELETE FROM community_posts WHERE id = $1', [postId])
     res.json({ ok: true })
   } catch (err) { next(err) }
 })
-
 router.delete('/comments/:id', requireAuth(), async (req, res, next) => {
   try {
     if (await checkAdmin(req, res) === null) return
-    await pool.query('DELETE FROM post_comments WHERE id = $1', [parseInt(req.params.id, 10)])
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(ctx)
+    const orgFilter = bypassOrg ? '' : ` AND org_id = $2`
+    const { rowCount } = await pool.query(
+      `DELETE FROM post_comments WHERE id = $1${orgFilter}`,
+      bypassOrg ? [parseInt(req.params.id, 10)] : [parseInt(req.params.id, 10), ctx.orgId],
+    )
+    if (!rowCount) return res.status(404).json({ error: 'Not found' })
     res.json({ ok: true })
   } catch (err) { next(err) }
 })
@@ -141,15 +204,18 @@ router.delete('/comments/:id', requireAuth(), async (req, res, next) => {
 
 router.get('/leaderboard', requireAuth(), async (req, res, next) => {
   try {
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(ctx)
+    const orgFilter = bypassOrg ? '' : ` AND u.org_id = $1`
     const { rows } = await pool.query(`
       SELECT u.id, u.first_name, COUNT(DISTINCT DATE(m.logged_at))::int AS streak
       FROM users u
       JOIN meals m ON m.user_id = u.id
-      WHERE m.logged_at >= DATE_TRUNC('week', NOW())
+      WHERE m.logged_at >= DATE_TRUNC('week', NOW())${orgFilter}
       GROUP BY u.id, u.first_name
       ORDER BY streak DESC, u.first_name ASC
       LIMIT 10
-    `)
+    `, bypassOrg ? [] : [ctx.orgId])
     res.json(rows)
   } catch (err) { next(err) }
 })
@@ -158,6 +224,9 @@ router.get('/leaderboard', requireAuth(), async (req, res, next) => {
 
 router.get('/members', requireAuth(), async (req, res, next) => {
   try {
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(ctx)
+    const orgFilter = bypassOrg ? '' : ` AND u.org_id = $1`
     const { rows } = await pool.query(`
       SELECT u.id, u.first_name, u.identity_anchors, u.created_at,
              ARRAY_REMOVE(
@@ -168,10 +237,10 @@ router.get('/members', requireAuth(), async (req, res, next) => {
              ) AS log_dates
       FROM users u
       LEFT JOIN meals m ON m.user_id = u.id
-      WHERE u.onboarding_complete = TRUE
+      WHERE u.onboarding_complete = TRUE${orgFilter}
       GROUP BY u.id, u.first_name, u.identity_anchors, u.created_at
       ORDER BY u.first_name ASC NULLS LAST
-    `)
+    `, bypassOrg ? [] : [ctx.orgId])
 
     function computeStreak(logDates) {
       if (!logDates?.length) return 0
@@ -233,6 +302,8 @@ router.get('/posts', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const { dbUserId, isStaff, channel } = await getUserContext(userId)
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(ctx)
 
     // Clients always see their own channel; staff filter by ?channel= param when provided
     const requested   = ['vip', 'ai'].includes(req.query.channel) ? req.query.channel : null
@@ -243,9 +314,13 @@ router.get('/posts', requireAuth(), async (req, res, next) => {
 
     const qParams = [dbUserId, filterChannel]
     let extraWhere = ''
+    if (!bypassOrg) {
+      qParams.push(ctx.orgId)
+      extraWhere += ` AND cp.org_id = $${qParams.length}`
+    }
     if (beforeId) {
       qParams.push(beforeId)
-      extraWhere = ` AND cp.id < $${qParams.length}`
+      extraWhere += ` AND cp.id < $${qParams.length}`
     }
     qParams.push(limit + 1)
 
@@ -318,10 +393,10 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO community_posts (user_id, content, photo_url, category, channel)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO community_posts (user_id, content, photo_url, category, channel, org_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, user_id, content, photo_url, created_at, category, channel, pinned`,
-      [dbUserId, content.trim(), photo_url, category, postChannel],
+      [dbUserId, content.trim(), photo_url, category, postChannel, req.orgId],
     )
     const post = rows[0]
 
@@ -333,31 +408,33 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
         const validOptions = pollOptions.filter(o => o?.trim()).slice(0, 4)
         if (validOptions.length >= 2) {
           const { rows: pollRows } = await pool.query(
-            'INSERT INTO community_polls (post_id, question) VALUES ($1, $2) RETURNING id',
-            [post.id, pollQuestion.trim()],
+            'INSERT INTO community_polls (post_id, question, org_id) VALUES ($1, $2, $3) RETURNING id',
+            [post.id, pollQuestion.trim(), req.orgId],
           )
           const pollId = pollRows[0].id
           for (let i = 0; i < validOptions.length; i++) {
             await pool.query(
-              'INSERT INTO poll_options (poll_id, option_text, display_order) VALUES ($1, $2, $3)',
-              [pollId, validOptions[i].trim(), i],
+              'INSERT INTO poll_options (poll_id, option_text, display_order, org_id) VALUES ($1, $2, $3, $4)',
+              [pollId, validOptions[i].trim(), i, req.orgId],
             )
           }
         }
       } catch {}
     }
 
-    await createMentionNotifications(content.trim(), post.id, dbUserId)
+    await createMentionNotifications(content.trim(), post.id, dbUserId, req.orgId)
 
     // Staff post -> clients get an in-app badge notification too (fire-and-forget)
-    if (isStaff) createNewPostNotifications(post.id, dbUserId).catch(() => {})
+    if (isStaff) createNewPostNotifications(post.id, dbUserId, req.orgId).catch(() => {})
 
-    // Push: notify community — fire-and-forget. Clients only pushed when a staff
-    // member authored this post (see notifyNewCommunityPost for the role filter).
-    // postId is passed through so tapping the notification deep-links to this
-    // specific post instead of just landing on the Dashboard.
-    notifyNewCommunityPost(dbUserId, isStaff, post.id).catch(() => {})
-
+    // Push only for top-level post creation. Comments intentionally do not dispatch push.
+    notifyTopLevelCommunityPost({
+      authorUserId: dbUserId,
+      authorIsStaff: isStaff,
+      postChannel,
+      postId: post.id,
+      orgId: req.orgId,
+    }).catch(() => {})
     const { rows: userRows } = await pool.query(
       'SELECT first_name FROM users WHERE id = $1', [dbUserId],
     )
@@ -393,14 +470,20 @@ router.patch('/posts/:id', requireAuth(), async (req, res, next) => {
       return res.status(403).json({ error: 'Not your post' })
     }
 
+    // Own-post edits are already ownership-scoped above; the admin-bypass path needs
+    // its own org boundary — otherwise any org's admin could edit any other org's post.
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = cur[0].user_id === dbUserId || isSuperAdmin(ctx)
+    const orgFilter = bypassOrg ? '' : ` AND org_id = $4`
     const { rows } = await pool.query(
       `UPDATE community_posts
        SET content  = COALESCE($1, content),
            category = COALESCE($2, category)
-       WHERE id = $3
+       WHERE id = $3${orgFilter}
        RETURNING id, content, category`,
-      [content ?? null, category ?? null, postId],
+      bypassOrg ? [content ?? null, category ?? null, postId] : [content ?? null, category ?? null, postId, ctx.orgId],
     )
+    if (!rows.length) return res.status(404).json({ error: 'Not found' })
     res.json(rows[0])
   } catch (err) { next(err) }
 })
@@ -410,11 +493,20 @@ router.post('/posts/:id/pin', requireAuth(), async (req, res, next) => {
   try {
     if (await checkAdmin(req, res) === null) return
     const postId = parseInt(req.params.id, 10)
-    const { rows: cur } = await pool.query('SELECT pinned FROM community_posts WHERE id = $1', [postId])
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(ctx)
+    const orgFilter = bypassOrg ? '' : ` AND org_id = $1`
+    const { rows: cur } = await pool.query(
+      `SELECT pinned FROM community_posts WHERE id = $1${bypassOrg ? '' : ' AND org_id = $2'}`,
+      bypassOrg ? [postId] : [postId, ctx.orgId],
+    )
+    if (!cur.length) return res.status(404).json({ error: 'Not found' })
     const willPin = !cur[0]?.pinned
     if (willPin) {
-      await pool.query('UPDATE community_posts SET pinned = FALSE')
-      await pool.query('UPDATE community_posts SET pinned = TRUE WHERE id = $1', [postId])
+      // Unpinning is scoped to this org only — pinning a post in one org must not
+      // unpin a different org's pinned post.
+      await pool.query(`UPDATE community_posts SET pinned = FALSE WHERE pinned = TRUE${orgFilter}`, bypassOrg ? [] : [ctx.orgId])
+      await pool.query(`UPDATE community_posts SET pinned = TRUE WHERE id = $1`, [postId])
     } else {
       await pool.query('UPDATE community_posts SET pinned = FALSE WHERE id = $1', [postId])
     }
@@ -439,7 +531,7 @@ router.post('/posts/:id/like', requireAuth(), async (req, res, next) => {
       await pool.query('DELETE FROM post_likes WHERE post_id = $1 AND user_id = $2', [postId, dbUserId])
       liked = false
     } else {
-      await pool.query('INSERT INTO post_likes (post_id, user_id) VALUES ($1, $2)', [postId, dbUserId])
+      await pool.query('INSERT INTO post_likes (post_id, user_id, org_id) VALUES ($1, $2, $3)', [postId, dbUserId, req.orgId])
       liked = true
     }
 
@@ -513,8 +605,8 @@ router.post('/posts/:id/reactions', requireAuth(), async (req, res, next) => {
       active = false
     } else {
       await pool.query(
-        'INSERT INTO post_reactions (post_id, user_id, reaction_type) VALUES ($1, $2, $3)',
-        [postId, dbUserId, reaction_type],
+        'INSERT INTO post_reactions (post_id, user_id, reaction_type, org_id) VALUES ($1, $2, $3, $4)',
+        [postId, dbUserId, reaction_type, req.orgId],
       )
       active = true
     }
@@ -590,10 +682,10 @@ router.post('/posts/:id/comments', requireAuth(), async (req, res, next) => {
     if (!content?.trim()) return res.status(400).json({ error: 'Content required' })
 
     const { rows } = await pool.query(
-      `INSERT INTO post_comments (post_id, user_id, content)
-       VALUES ($1, $2, $3)
+      `INSERT INTO post_comments (post_id, user_id, content, org_id)
+       VALUES ($1, $2, $3, $4)
        RETURNING id, content, created_at`,
-      [postId, dbUserId, content.trim()],
+      [postId, dbUserId, content.trim(), req.orgId],
     )
 
     // Notify post owner (unless commenting on own post)
@@ -602,12 +694,12 @@ router.post('/posts/:id/comments', requireAuth(), async (req, res, next) => {
     )
     if (postOwner[0]?.user_id && postOwner[0].user_id !== dbUserId) {
       await pool.query(
-        `INSERT INTO notifications (user_id, type, post_id, from_user_id) VALUES ($1, 'comment', $2, $3)`,
-        [postOwner[0].user_id, postId, dbUserId],
+        `INSERT INTO notifications (user_id, type, post_id, from_user_id, org_id) VALUES ($1, 'comment', $2, $3, $4)`,
+        [postOwner[0].user_id, postId, dbUserId, req.orgId],
       ).catch(() => {})
     }
 
-    await createMentionNotifications(content.trim(), postId, dbUserId)
+    await createMentionNotifications(content.trim(), postId, dbUserId, req.orgId)
 
     const { rows: userRows } = await pool.query(
       'SELECT first_name FROM users WHERE id = $1', [dbUserId],
@@ -664,10 +756,10 @@ router.post('/polls/:id/vote', requireAuth(), async (req, res, next) => {
     const { option_id } = req.body
 
     await pool.query(
-      `INSERT INTO poll_votes (poll_id, option_id, user_id)
-       VALUES ($1, $2, $3)
+      `INSERT INTO poll_votes (poll_id, option_id, user_id, org_id)
+       VALUES ($1, $2, $3, $4)
        ON CONFLICT (poll_id, user_id) DO UPDATE SET option_id = $2`,
-      [pollId, option_id, dbUserId],
+      [pollId, option_id, dbUserId, req.orgId],
     )
 
     const { rows: options } = await pool.query(
@@ -736,8 +828,8 @@ router.post('/comments/:id/reactions', requireAuth(), async (req, res, next) => 
       active = false
     } else {
       await pool.query(
-        'INSERT INTO comment_reactions (comment_id, user_id, reaction_type) VALUES ($1, $2, $3)',
-        [commentId, dbUserId, reaction_type],
+        'INSERT INTO comment_reactions (comment_id, user_id, reaction_type, org_id) VALUES ($1, $2, $3, $4)',
+        [commentId, dbUserId, reaction_type, req.orgId],
       )
       active = true
     }

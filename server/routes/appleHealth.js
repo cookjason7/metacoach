@@ -33,12 +33,13 @@ router.post('/sync', requireAuth(), async (req, res, next) => {
     const SYNC_SOURCES = "('fitbit','google_health','synced','apple_health')"
 
     const { rows } = await pool.query(
-      `INSERT INTO daily_logs (user_id, logged_date, steps, sleep_minutes, steps_source, sleep_source, steps_source_updated_at, sleep_source_updated_at)
+      `INSERT INTO daily_logs (user_id, logged_date, steps, sleep_minutes, steps_source, sleep_source, steps_source_updated_at, sleep_source_updated_at, org_id)
        VALUES ($1, CURRENT_DATE, $2, $3,
                CASE WHEN $2::integer IS NOT NULL THEN 'apple_health' ELSE NULL END,
                CASE WHEN $3::integer IS NOT NULL THEN 'apple_health' ELSE NULL END,
                CASE WHEN $2::integer IS NOT NULL THEN NOW() ELSE NULL END,
-               CASE WHEN $3::integer IS NOT NULL THEN NOW() ELSE NULL END)
+               CASE WHEN $3::integer IS NOT NULL THEN NOW() ELSE NULL END,
+               $4)
        ON CONFLICT (user_id, logged_date) DO UPDATE SET
          steps = CASE
            WHEN daily_logs.steps IS NULL
@@ -87,7 +88,7 @@ router.post('/sync', requireAuth(), async (req, res, next) => {
            ELSE daily_logs.sleep_source_updated_at
          END
        RETURNING steps, sleep_minutes, steps_source, sleep_source`,
-      [dbUserId, steps, sleep_minutes],
+      [dbUserId, steps, sleep_minutes, req.orgId],
     )
 
     res.json({

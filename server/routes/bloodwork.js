@@ -4,7 +4,7 @@ import multer from 'multer'
 import { v2 as cloudinary } from 'cloudinary'
 import Anthropic from '@anthropic-ai/sdk'
 import { requireAuth, getAuth } from '@clerk/express'
-import { pool, getOrCreateUser } from '../db.js'
+import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
 import { bloodworkUploadLimit } from '../middleware/rateLimits.js'
 import { trackEvent } from '../services/usageTracker.js'
 
@@ -46,24 +46,56 @@ async function isBloodworkEnabled(dbUserId) {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
+// Reuses req.internalUser/req.orgId set by orgContext middleware (mounted before
+// this router in server/index.js) instead of re-querying, same as coachAdmin.js's
+// getCurrentStaff.
 async function getCtx(req) {
+  if (req.internalUser) {
+    return {
+      dbUserId: req.internalUser.id,
+      role:     req.internalUser.role ?? 'client',
+      orgId:    req.orgId ?? req.internalUser.org_id ?? 1,
+      email:    req.internalUser.email ?? null,
+    }
+  }
   const { userId } = getAuth(req)
   const dbUserId = await getOrCreateUser(userId)
-  const { rows } = await pool.query('SELECT role FROM users WHERE id = $1', [dbUserId])
-  return { dbUserId, role: rows[0]?.role ?? 'client' }
+  const { rows } = await pool.query('SELECT role, org_id, email FROM users WHERE id = $1', [dbUserId])
+  return {
+    dbUserId,
+    role:  rows[0]?.role ?? 'client',
+    orgId: rows[0]?.org_id ?? 1,
+    email: rows[0]?.email ?? null,
+  }
 }
 
 function isPrivileged(role) {
   return ['admin', 'staff', 'coach'].includes(role)
 }
 
+// Super admin (platform owner accounts in ADMIN_EMAILS, e.g. Jason) bypasses org
+// scoping. Same pattern as coachAdmin.js / messages.js (commits bf7addf, dbc3f60).
+function isSuperAdmin(ctx) {
+  return isAdminEmail(ctx.email)
+}
+
+// canAccessClient is the single gate for every /staff/* route and the staffAccess
+// bypass below — fixing it here closes cross-org access for the whole file at once,
+// same design as coachAdmin.js's canAccessClient (bf7addf). Previously `ctx.role ===
+// 'admin'` bypassed unconditionally — under multi-tenancy every org gets its own
+// admin, so that let any org's admin read/write any other org's client bloodwork.
+// bloodwork_uploads/bloodwork_intake have no org_id column of their own; org
+// membership is verified via the target client's own users.org_id instead.
 async function canAccessClient(ctx, clientId) {
-  if (ctx.role === 'admin') return true
   const { rows } = await pool.query(
-    'SELECT id FROM users WHERE id = $1 AND assigned_coach_id = $2',
-    [clientId, ctx.dbUserId],
+    'SELECT org_id, assigned_coach_id FROM users WHERE id = $1',
+    [clientId],
   )
-  return rows.length > 0
+  if (!rows.length) return false
+  if (isSuperAdmin(ctx)) return true
+  if (rows[0].org_id !== ctx.orgId) return false
+  if (ctx.role === 'admin') return true
+  return rows[0].assigned_coach_id === ctx.dbUserId
 }
 
 function uploadToCloud(buffer, mimetype) {
