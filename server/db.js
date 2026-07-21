@@ -1815,6 +1815,14 @@ export async function runMigrations() {
     const { default: runMultiTenancyMigration } = await import('./migrations/001_multi_tenancy.js')
     await runMultiTenancyMigration(pool)
     console.log('[migrations] 001_multi_tenancy applied successfully')
+
+    // org_id: set only by the super-admin "invite org owner" flow
+    // (server/routes/organizations.js) so a brand-new user created via
+    // getOrCreateUser() lands in the right org instead of defaulting to
+    // org_id = 1. NULL for ordinary staff invites (coachAdmin.js), which are
+    // always accepted by someone already scoped to the inviting admin's org.
+    // Must run after runMultiTenancyMigration — organizations doesn't exist before that.
+    await pool.query(`ALTER TABLE staff_invites ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL`)
   } catch (err) {
     console.error('[migrations] 001_multi_tenancy failed:', err.message)
   }
@@ -1864,10 +1872,24 @@ export async function getOrCreateUser(clerkUserId, email = null) {
       )
     }
   } else {
-    // New users default to org_id = 1 (Life Warrior Coaching) until assigned elsewhere.
+    // New users default to org_id = 1 (Life Warrior Coaching) unless a pending,
+    // unaccepted staff invite ties this email to a specific org — set by the
+    // super-admin "invite org owner" flow (server/routes/organizations.js) so a
+    // newly-invited org owner lands in their own org instead of LWC's.
+    let targetOrgId = 1
+    if (email) {
+      const { rows: pendingInvite } = await pool.query(
+        `SELECT org_id FROM staff_invites
+         WHERE LOWER(email) = LOWER($1) AND accepted_at IS NULL AND org_id IS NOT NULL
+           AND (expires_at IS NULL OR expires_at > NOW())
+         ORDER BY created_at DESC LIMIT 1`,
+        [email],
+      )
+      if (pendingInvite.length) targetOrgId = pendingInvite[0].org_id
+    }
     const inserted = await pool.query(
-      'INSERT INTO users (clerk_user_id, email, org_id) VALUES ($1, $2, 1) RETURNING id',
-      [clerkUserId, email],
+      'INSERT INTO users (clerk_user_id, email, org_id) VALUES ($1, $2, $3) RETURNING id',
+      [clerkUserId, email, targetOrgId],
     )
     dbUserId = inserted.rows[0].id
   }

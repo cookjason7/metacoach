@@ -32,6 +32,10 @@ const STAFF_NAV_ITEMS = [
 
 const SIDEBAR_BG = '#0F1E35'
 
+// Mirrors ADMIN_EMAILS in server/db.js — nav visibility only, the real gate is
+// isAdminEmail() on every /api/organizations route.
+const SUPER_ADMIN_EMAILS = ['jason@lwcvip.com', 'jason@efcfit.com']
+
 // Progress photo angle sequence — must match this order: Front → Side → Back
 const PHOTO_ANGLE_SEQUENCE = ['front', 'side', 'back']
 
@@ -61,6 +65,7 @@ export default function Layout() {
   const location           = useLocation()
   const mainRef            = useRef(null)
   const [isAdmin,      setIsAdmin]      = useState(false)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const [isStaff,      setIsStaff]      = useState(false)
   const [coachingType, setCoachingType] = useState(null) // 'vip' | 'ai' | 'hybrid' | 'basic' — null until loaded
   const [bloodworkEnabled, setBloodworkEnabled] = useState(false) // per-client flag from /api/users/me
@@ -297,6 +302,7 @@ export default function Layout() {
       const adminStatus = data.role === 'admin' || data.role === 'account_owner'
       const staffStatus = adminStatus || data.role === 'coach' || data.role === 'staff'
       setIsAdmin(adminStatus)
+      setIsSuperAdmin(SUPER_ADMIN_EMAILS.includes((data.email ?? '').toLowerCase()))
       setIsStaff(staffStatus)
       setCoachingType(data.coaching_type ?? 'vip')
       setBloodworkEnabled(data.bloodwork_enabled === true)
@@ -764,10 +770,17 @@ export default function Layout() {
     ? baseClientNav.map(item => item.label === 'Messages' ? { ...item, label: 'Support' } : item)
     : baseClientNav
 
-  // Super-admin gets extra "Usage Analytics", "Katie Corrections", and "Workout Builder Test" nav entries.
+  // Super-admin gets extra "Usage Analytics", "Katie Corrections", "Workout Builder Test",
+  // and (Jason only, not org admins) "Organizations" nav entries.
   const navItems = isStaff
     ? isAdmin
-      ? [...STAFF_NAV_ITEMS, { to: '/admin/usage', label: 'Usage Analytics' }, { to: '/admin/katie-corrections', label: 'Katie Corrections' }, { to: '/admin/workout-builder-test', label: 'Workout Builder Test' }]
+      ? [
+          ...STAFF_NAV_ITEMS,
+          { to: '/admin/usage', label: 'Usage Analytics' },
+          { to: '/admin/katie-corrections', label: 'Katie Corrections' },
+          { to: '/admin/workout-builder-test', label: 'Workout Builder Test' },
+          ...(isSuperAdmin ? [{ to: '/admin/organizations', label: 'Organizations' }] : []),
+        ]
       : STAFF_NAV_ITEMS
     : clientNavWithLabels
 

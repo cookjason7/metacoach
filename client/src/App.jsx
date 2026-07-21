@@ -37,7 +37,12 @@ import Privacy from './pages/Privacy'
 import About from './pages/About'
 import Progress from './pages/Progress'
 import StaffChat from './pages/StaffChat'
+import Organizations from './pages/admin/Organizations'
 import { API_URL } from './config.js'
+
+// Mirrors ADMIN_EMAILS in server/db.js — route gating only, the real gate is
+// isAdminEmail() on every /api/organizations route.
+const SUPER_ADMIN_EMAILS = ['jason@lwcvip.com', 'jason@efcfit.com']
 
 // Module-level cache: null | { onboardingComplete: bool, paid: bool }
 // Persists across React re-renders; resets on hard page refresh.
@@ -107,6 +112,7 @@ function ProtectedLayout() {
           assessmentComplete:  !!data.assessment_complete,
           paid: !!data.paid,
           role: data.role ?? null,
+          email: data.email ?? null,
         }
         if (!cancelled) {
           setUserState(userStateCache)
@@ -146,6 +152,16 @@ function ProtectedLayout() {
 
 function AdminRoute() {
   if (!['admin', 'account_owner', 'staff', 'coach'].includes(userStateCache?.role)) {
+    return <Navigate to="/dashboard" replace />
+  }
+  return <Outlet />
+}
+
+// Jason only — not the generic 'admin' role, since under multi-tenancy every org
+// gets its own 'admin' user too. See SUPER_ADMIN_EMAILS above / isAdminEmail() in db.js.
+function SuperAdminRoute() {
+  const email = (userStateCache?.email ?? '').toLowerCase()
+  if (!SUPER_ADMIN_EMAILS.includes(email)) {
     return <Navigate to="/dashboard" replace />
   }
   return <Outlet />
@@ -216,6 +232,9 @@ export default function App() {
             <Route path="/admin/katie-corrections" element={<KatieCorrections />} />
             <Route path="/admin/workout-builder-test" element={<WorkoutBuilderTest />} />
             <Route path="/staff-chat"          element={<StaffChat />} />
+          </Route>
+          <Route element={<SuperAdminRoute />}>
+            <Route path="/admin/organizations" element={<Organizations />} />
           </Route>
         </Route>
       </Routes>
