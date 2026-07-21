@@ -1173,45 +1173,53 @@ export default function HealthAssessment() {
         )}
 
         {/* ── Step 5: Complete ── */}
-        {step === 5 && (
-          <div className="bg-white rounded-2xl shadow-2xl overflow-hidden text-center">
-            <div className="bg-gradient-to-br from-[#E8670A] to-[#d45a08] px-8 py-10">
-              <div className="text-6xl mb-4">🎉</div>
-              <h1 className="text-2xl font-bold text-white mb-2">You're all set!</h1>
-              <p className="text-white/80 text-sm">
-                {form.first_name ? `Great work, ${form.first_name}!` : 'Great work!'}{' '}
-                {coachingType === 'ai'
-                  ? 'Your assessment has been saved and your AI coaching setup is ready.'
-                  : 'Your assessment has been saved and sent to your coach.'}
-              </p>
-            </div>
-            <div className="px-8 py-8 space-y-4">
-              <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-left">
-                <p className="text-sm font-semibold text-[#E8670A] mb-1">What happens next?</p>
-                {coachingType === 'ai' ? (
-                  <ul className="space-y-1.5 text-xs text-gray-600">
-                    <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> Enter WarriorFIT AI to start using your AI-powered coaching tools.</li>
-                    <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> You can access Katie, food tracking, Brain Mapping, resources, and community support.</li>
-                    <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> You can update your assessment anytime in Settings.</li>
-                  </ul>
-                ) : (
-                  <ul className="space-y-1.5 text-xs text-gray-600">
-                    <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> Your coach will review your assessment.</li>
-                    <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> We'll schedule your launch conference so you know exactly how to get started.</li>
-                    <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> You can update your assessment anytime in Settings.</li>
-                  </ul>
-                )}
+        {step === 5 && (() => {
+          // Org admins should never reach this screen — they skip health assessment entirely.
+          // This is a defense-in-depth check in case an org admin somehow ends up here anyway.
+          if (STAFF_ROLES.includes(form.role)) {
+            navigate('/dashboard', { replace: true })
+            return null
+          }
+          return (
+            <div className="bg-white rounded-2xl shadow-2xl overflow-hidden text-center">
+              <div className="bg-gradient-to-br from-[#E8670A] to-[#d45a08] px-8 py-10">
+                <div className="text-6xl mb-4">🎉</div>
+                <h1 className="text-2xl font-bold text-white mb-2">You're all set!</h1>
+                <p className="text-white/80 text-sm">
+                  {form.first_name ? `Great work, ${form.first_name}!` : 'Great work!'}{' '}
+                  {coachingType === 'ai'
+                    ? 'Your assessment has been saved and your AI coaching setup is ready.'
+                    : 'Your assessment has been saved and sent to your coach.'}
+                </p>
               </div>
+              <div className="px-8 py-8 space-y-4">
+                <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-left">
+                  <p className="text-sm font-semibold text-[#E8670A] mb-1">What happens next?</p>
+                  {coachingType === 'ai' ? (
+                    <ul className="space-y-1.5 text-xs text-gray-600">
+                      <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> Enter WarriorFIT AI to start using your AI-powered coaching tools.</li>
+                      <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> You can access Katie, food tracking, Brain Mapping, resources, and community support.</li>
+                      <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> You can update your assessment anytime in Settings.</li>
+                    </ul>
+                  ) : (
+                    <ul className="space-y-1.5 text-xs text-gray-600">
+                      <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> Your coach will review your assessment.</li>
+                      <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> We'll schedule your launch conference so you know exactly how to get started.</li>
+                      <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> You can update your assessment anytime in Settings.</li>
+                    </ul>
+                  )}
+                </div>
 
-              <button
-                onClick={handleEnterApp}
+                <button
+                  onClick={handleEnterApp}
                 className="w-full py-4 bg-[#E8670A] hover:bg-[#d45a08] text-white font-bold text-base rounded-xl shadow-lg transition-all hover:shadow-xl active:scale-[0.98]"
               >
                 Enter WarriorFIT AI →
               </button>
             </div>
           </div>
-        )}
+          )
+        })()}
 
         {/* Bottom brand note */}
         {step < 5 && (

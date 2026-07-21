@@ -202,18 +202,30 @@ router.post('/staff/:token/accept', requireAuth(), async (req, res, next) => {
       })
     }
 
-    // Update user with staff profile — no onboarding/assessment required for staff
+    // Update user with staff profile — no onboarding/assessment required for staff.
+    // For org owner invites (invite.org_id is set), set org_id on the user row IMMEDIATELY
+    // so the health assessment gate can detect the org admin role before any guard runs.
+    // Also set assessment_complete=TRUE for org admins to skip health assessment entirely.
+    const setClauses = [
+      'first_name = COALESCE(NULLIF(first_name, \'\'), $1)',
+      'last_name = COALESCE(NULLIF(last_name, \'\'), $2)',
+      'role = $3',
+      'staff_status = \'active\'',
+      'onboarding_complete = TRUE',
+      'assessment_complete = TRUE',
+      'paid = TRUE',
+    ]
+    const params = [invite.first_name, invite.last_name, invite.role]
+    // Org owner invites have org_id set in the staff_invites row. For those, explicitly
+    // update the org_id and reset it from the invite to ensure correctness.
+    if (invite.org_id) {
+      setClauses.push(`org_id = $${params.length + 1}`)
+      params.push(invite.org_id)
+    }
+    params.push(dbUserId)
     await pool.query(
-      `UPDATE users
-       SET first_name          = COALESCE(NULLIF(first_name, ''), $1),
-           last_name           = COALESCE(NULLIF(last_name,  ''), $2),
-           role                = $3,
-           staff_status        = 'active',
-           onboarding_complete = TRUE,
-           assessment_complete = TRUE,
-           paid                = TRUE
-       WHERE id = $4`,
-      [invite.first_name, invite.last_name, invite.role, dbUserId],
+      `UPDATE users SET ${setClauses.join(', ')} WHERE id = $${params.length}`,
+      params,
     )
 
     await pool.query(
@@ -223,7 +235,9 @@ router.post('/staff/:token/accept', requireAuth(), async (req, res, next) => {
       [dbUserId, invite.id],
     )
 
-    res.json({ ok: true, redirect_to: '/admin/clients' })
+    // Org owners land on /org/dashboard, everyone else on /admin/clients
+    const redirectTo = invite.org_id ? '/org/dashboard' : '/admin/clients'
+    res.json({ ok: true, redirect_to: redirectTo })
   } catch (err) { next(err) }
 })
 
