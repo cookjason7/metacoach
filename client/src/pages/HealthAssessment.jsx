@@ -370,6 +370,7 @@ export default function HealthAssessment() {
   const [error,        setError]       = useState(null)
   const [loaded,       setLoaded]      = useState(false)
   const [coachingType, setCoachingType] = useState(null)
+  const [isReturningUser, setIsReturningUser] = useState(false)
   // Per-section validation message (supportive language; null when valid)
   const [validation, setValidation] = useState(null)
 
@@ -400,7 +401,10 @@ export default function HealthAssessment() {
         if (meRes.ok)    meData     = await meRes.json()
         if (assessRes.ok) assessData = await assessRes.json()
 
-        if (meData) setCoachingType(meData.coaching_type ?? null)
+        if (meData) {
+          setCoachingType(meData.coaching_type ?? null)
+          setIsReturningUser(meData.onboarding_complete === true)
+        }
 
         // Merge: assessment fields come from health_assessments; physical-stats and
         // food-preference fields come from users (they are not stored in health_assessments).
@@ -681,6 +685,21 @@ export default function HealthAssessment() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#1e2a3a] via-[#243347] to-[#1e2a3a] flex items-start justify-center py-6 px-4">
       <div className="w-full max-w-lg">
+
+        {/* ── Cancel/back button for returning users ── */}
+        {isReturningUser && (
+          <div className="mb-4">
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="flex items-center gap-1.5 text-gray-400 hover:text-gray-200 transition-colors min-h-[44px] px-2"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                <path d="M15 19l-7-7 7-7" />
+              </svg>
+              <span className="text-sm font-medium">Back to App</span>
+            </button>
+          </div>
+        )}
 
         {/* ── Welcome step ── */}
         {step === 0 && (
