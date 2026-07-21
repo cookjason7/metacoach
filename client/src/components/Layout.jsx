@@ -25,6 +25,7 @@ const STAFF_NAV_ITEMS = [
   { to: '/dashboard',     label: 'Coaching Dashboard' },
   { to: '/admin/forms',   label: 'Forms' },
   { to: '/messages',      label: 'Messages' },
+  { to: '/staff-chat',    label: 'Team Communication' },
   { to: '/community',     label: 'Community' },
   { to: '/settings',      label: 'Settings' },
 ]
@@ -66,6 +67,7 @@ export default function Layout() {
   const [notifCount,   setNotifCount]   = useState(0)
   const [katieUnread,  setKatieUnread]  = useState(0)
   const [msgUnread,    setMsgUnread]    = useState(0)
+  const [staffUnread,  setStaffUnread]  = useState(0)
   const [sidebarOpen,  setSidebarOpen]  = useState(false)
   const [quickMenuOpen,       setQuickMenuOpen]       = useState(false)
   const [quickAction,         setQuickAction]         = useState(null)
@@ -327,6 +329,19 @@ export default function Layout() {
       if (!res.ok) return
       const data = await res.json()
       setMsgUnread(data.unread ?? 0)
+    } catch {}
+  }, [getToken, isStaff])
+
+  const fetchStaffUnread = useCallback(async () => {
+    if (!isStaff) return
+    try {
+      const token = await getToken()
+      const res   = await fetch(`${API_URL}/api/staff-chat/unread`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      setStaffUnread(data.total ?? 0)
     } catch {}
   }, [getToken, isStaff])
 
@@ -699,6 +714,12 @@ export default function Layout() {
     return () => clearInterval(id)
   }, [fetchMsgUnread])
 
+  useEffect(() => {
+    fetchStaffUnread()
+    const id = setInterval(fetchStaffUnread, 60_000)
+    return () => clearInterval(id)
+  }, [fetchStaffUnread])
+
   // Scroll desktop main content to top on every route change.
   // The <main> element persists across navigations (Layout never unmounts),
   // so its scrollTop is preserved without this — leaving a blank space above
@@ -793,6 +814,11 @@ export default function Layout() {
               {(label === 'Messages' || label === 'Support') && msgUnread > 0 && (
                 <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-[#E8670A] text-white text-[10px] font-bold px-1">
                   {msgUnread}
+                </span>
+              )}
+              {label === 'Team Communication' && staffUnread > 0 && (
+                <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-[#E8670A] text-white text-[10px] font-bold px-1">
+                  {staffUnread}
                 </span>
               )}
             </NavLink>
