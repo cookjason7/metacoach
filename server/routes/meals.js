@@ -3,7 +3,7 @@ import multer from 'multer'
 import Anthropic from '@anthropic-ai/sdk'
 import { v2 as cloudinary } from 'cloudinary'
 import { requireAuth, getAuth } from '@clerk/express'
-import { pool, getOrCreateUser } from '../db.js'
+import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
 import { awardAction, checkFullDay, checkProteinGoal } from '../gamification.js'
 import { normalizeMealPayload } from '../mealValidation.js'
 import { mealAnalyzeLimit, mealTextLimit } from '../middleware/rateLimits.js'
@@ -18,6 +18,19 @@ function fireGamification(pool, dbUserId, dateStr) {
 }
 
 const router = Router()
+
+// Super admin (platform owner accounts in ADMIN_EMAILS, e.g. Jason) bypasses org
+// scoping. Same pattern as coachAdmin.js / messages.js (commits bf7addf, dbc3f60).
+function isSuperAdmin(ctx) {
+  return isAdminEmail(ctx.email)
+}
+
+// Org-scoping note: every read below (GET /, /today, /week, /recent, /active-dates)
+// is already scoped to the requesting client's own rows via user_id = dbUserId or a
+// JOIN on u.clerk_user_id — a strictly stronger boundary than org_id, so those are
+// deliberately left unfiltered. All INSERTs into meals now set org_id = req.orgId.
+// PATCH/DELETE additionally get an explicit org_id filter (non-super-admin only) per
+// the established pattern, even though ownership via user_id already implies it here.
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -163,15 +176,15 @@ router.post('/manual', requireAuth(), async (req, res, next) => {
     const { rows } = await pool.query(
       `INSERT INTO meals (
          user_id, meal_name, calories, protein, carbs, fat, fiber, meal_slot, log_date,
-         serving_size, serving_unit, source_type, source_label, is_verified, micronutrients
+         serving_size, serving_unit, source_type, source_label, is_verified, micronutrients, org_id
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
        RETURNING *`,
       [dbUserId, d.meal_name, d.calories, d.protein, d.carbs, d.fat, d.fiber,
        d.meal_slot, d.log_date,
        d.serving_size ?? null, d.serving_unit ?? null,
        d.source_type ?? null, d.source_label ?? null,
-       d.is_verified ?? false, d.micronutrients ?? null],
+       d.is_verified ?? false, d.micronutrients ?? null, req.orgId],
     )
     fireGamification(pool, dbUserId, d.log_date)
     res.status(201).json(rows[0])
@@ -237,10 +250,10 @@ Return only valid JSON, no markdown.`,
     const d = v.data
 
     const { rows } = await pool.query(
-      `INSERT INTO meals (user_id, meal_name, calories, protein, carbs, fat, fiber, sugar, meal_slot, log_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      `INSERT INTO meals (user_id, meal_name, calories, protein, carbs, fat, fiber, sugar, meal_slot, log_date, org_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
       [dbUserId, d.meal_name, d.calories, d.protein, d.carbs, d.fat, d.fiber,
-       d.sugar, d.meal_slot, d.log_date],
+       d.sugar, d.meal_slot, d.log_date, req.orgId],
     )
     fireGamification(pool, dbUserId, d.log_date)
     res.status(201).json(rows[0])
@@ -299,13 +312,13 @@ router.post('/copy-day', requireAuth(), async (req, res, next) => {
         const { rows } = await client.query(
           `INSERT INTO meals (
              user_id, meal_name, photo_url, calories, protein, carbs, fat, fiber, sugar, portion_notes,
-             meal_slot, log_date, serving_size, serving_unit, source_type, source_label, is_verified, micronutrients
+             meal_slot, log_date, serving_size, serving_unit, source_type, source_label, is_verified, micronutrients, org_id
            )
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::date,$13,$14,$15,$16,$17,$18)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::date,$13,$14,$15,$16,$17,$18,$19)
            RETURNING *`,
           [dbUserId, m.meal_name, m.photo_url, m.calories, m.protein, m.carbs, m.fat,
            m.fiber, m.sugar, m.portion_notes, m.meal_slot, to_date,
-           m.serving_size, m.serving_unit, m.source_type, m.source_label, m.is_verified, m.micronutrients],
+           m.serving_size, m.serving_unit, m.source_type, m.source_label, m.is_verified, m.micronutrients, req.orgId],
         )
         inserted.push(rows[0])
       }
@@ -371,13 +384,13 @@ router.post('/copy-meal', requireAuth(), async (req, res, next) => {
         const { rows } = await client.query(
           `INSERT INTO meals (
              user_id, meal_name, photo_url, calories, protein, carbs, fat, fiber, sugar, portion_notes,
-             meal_slot, log_date, serving_size, serving_unit, source_type, source_label, is_verified, micronutrients
+             meal_slot, log_date, serving_size, serving_unit, source_type, source_label, is_verified, micronutrients, org_id
            )
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::date,$13,$14,$15,$16,$17,$18)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::date,$13,$14,$15,$16,$17,$18,$19)
            RETURNING *`,
           [dbUserId, m.meal_name, m.photo_url, m.calories, m.protein, m.carbs, m.fat,
            m.fiber, m.sugar, m.portion_notes, to_slot, to_date,
-           m.serving_size, m.serving_unit, m.source_type, m.source_label, m.is_verified, m.micronutrients],
+           m.serving_size, m.serving_unit, m.source_type, m.source_label, m.is_verified, m.micronutrients, req.orgId],
         )
         inserted.push(rows[0])
       }
@@ -412,14 +425,14 @@ router.post('/:id/copy', requireAuth(), async (req, res, next) => {
     const { rows } = await pool.query(
       `INSERT INTO meals (
          user_id, meal_name, photo_url, calories, protein, carbs, fat, fiber, portion_notes,
-         meal_slot, log_date, serving_size, serving_unit, source_type, source_label, is_verified, micronutrients
+         meal_slot, log_date, serving_size, serving_unit, source_type, source_label, is_verified, micronutrients, org_id
        )
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-               COALESCE($11::date, CURRENT_DATE), $12, $13, $14, $15, $16, $17)
+               COALESCE($11::date, CURRENT_DATE), $12, $13, $14, $15, $16, $17, $18)
        RETURNING *`,
       [dbUserId, m.meal_name, m.photo_url, m.calories, m.protein, m.carbs, m.fat, m.fiber,
        m.portion_notes, slot ?? m.meal_slot, date ?? null, m.serving_size, m.serving_unit,
-       m.source_type, m.source_label, m.is_verified, m.micronutrients],
+       m.source_type, m.source_label, m.is_verified, m.micronutrients, req.orgId],
     )
     res.status(201).json(rows[0])
   } catch (err) {
@@ -449,15 +462,15 @@ router.post('/', requireAuth(), upload.single('photo'), async (req, res, next) =
     const { rows } = await pool.query(
       `INSERT INTO meals (
          user_id, meal_name, photo_url, calories, protein, carbs, fat, fiber, sugar, meal_slot, log_date,
-         serving_size, serving_unit, source_type, source_label, is_verified, micronutrients
+         serving_size, serving_unit, source_type, source_label, is_verified, micronutrients, org_id
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
        RETURNING *`,
       [dbUserId, d.meal_name, photo_url, d.calories, d.protein, d.carbs, d.fat,
        d.fiber, d.sugar, d.meal_slot, d.log_date,
        d.serving_size ?? null, d.serving_unit ?? null,
        d.source_type ?? null, d.source_label ?? null,
-       d.is_verified ?? false, d.micronutrients ?? null],
+       d.is_verified ?? false, d.micronutrients ?? null, req.orgId],
     )
     fireGamification(pool, dbUserId, d.log_date)
     res.status(201).json(rows[0])
@@ -597,6 +610,9 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
     if (!v.ok) return res.status(400).json({ error: v.error })
     const d = v.data
 
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const orgFilter = isSuperAdmin(ctx) ? '' : ` AND org_id = $14`
+
     const { rows } = await pool.query(
       `UPDATE meals SET
          meal_name     = COALESCE($1, meal_name),
@@ -610,7 +626,7 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
          log_date      = COALESCE($9::date, log_date),
          serving_size  = COALESCE($10, serving_size),
          serving_unit  = COALESCE($11, serving_unit)
-       WHERE id = $12 AND user_id = $13
+       WHERE id = $12 AND user_id = $13${orgFilter}
        RETURNING *`,
       [
         d.meal_name ?? null, d.calories ?? null, d.protein ?? null,
@@ -619,6 +635,7 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
         d.meal_slot ?? null, d.log_date ?? null,
         d.serving_size ?? null, d.serving_unit ?? null,
         mealId, dbUserId,
+        ...(isSuperAdmin(ctx) ? [] : [ctx.orgId]),
       ],
     )
     if (!rows.length) return res.status(404).json({ error: 'Meal not found' })
@@ -635,9 +652,12 @@ router.delete('/:id', requireAuth(), async (req, res, next) => {
     const dbUserId = await getOrCreateUser(userId)
     const mealId   = parseInt(req.params.id, 10)
 
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const orgFilter = isSuperAdmin(ctx) ? '' : ` AND org_id = $3`
+
     const { rowCount } = await pool.query(
-      'DELETE FROM meals WHERE id = $1 AND user_id = $2',
-      [mealId, dbUserId],
+      `DELETE FROM meals WHERE id = $1 AND user_id = $2${orgFilter}`,
+      isSuperAdmin(ctx) ? [mealId, dbUserId] : [mealId, dbUserId, ctx.orgId],
     )
     if (!rowCount) return res.status(404).json({ error: 'Meal not found' })
     res.json({ ok: true })
