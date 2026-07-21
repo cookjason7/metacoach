@@ -66,6 +66,7 @@ export default function Layout() {
   const mainRef            = useRef(null)
   const [isAdmin,      setIsAdmin]      = useState(false)
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  const [isOrgAdmin,   setIsOrgAdmin]   = useState(false)
   const [isStaff,      setIsStaff]      = useState(false)
   const [coachingType, setCoachingType] = useState(null) // 'vip' | 'ai' | 'hybrid' | 'basic' — null until loaded
   const [bloodworkEnabled, setBloodworkEnabled] = useState(false) // per-client flag from /api/users/me
@@ -301,9 +302,13 @@ export default function Layout() {
       const data = await res.json()
       const adminStatus = data.role === 'admin' || data.role === 'account_owner'
       const staffStatus = adminStatus || data.role === 'coach' || data.role === 'staff'
+      const superAdminStatus = SUPER_ADMIN_EMAILS.includes((data.email ?? '').toLowerCase())
       setIsAdmin(adminStatus)
-      setIsSuperAdmin(SUPER_ADMIN_EMAILS.includes((data.email ?? '').toLowerCase()))
+      setIsSuperAdmin(superAdminStatus)
       setIsStaff(staffStatus)
+      // Org-level admin/owner: the org's own 'admin' role, or the org's owner_user_id
+      // even when their role is 'coach' — never Jason (he has his own admin views).
+      setIsOrgAdmin(!superAdminStatus && (adminStatus || (data.role === 'coach' && data.is_org_owner === true)))
       setCoachingType(data.coaching_type ?? 'vip')
       setBloodworkEnabled(data.bloodwork_enabled === true)
     } catch (err) {
@@ -751,18 +756,30 @@ export default function Layout() {
     ? baseClientNav.map(item => item.label === 'Messages' ? { ...item, label: 'Support' } : item)
     : baseClientNav
 
+  // Org-level admins/owners (not Jason) get "Dashboard" -> /org/dashboard in place
+  // of "Coaching Dashboard" -> /dashboard, plus a "My Organization" -> /org/setup
+  // entry right after it.
+  const orgAdminNavItems = (() => {
+    const items = STAFF_NAV_ITEMS.map(item =>
+      item.label === 'Coaching Dashboard' ? { to: '/org/dashboard', label: 'Dashboard' } : item,
+    )
+    const dashboardIdx = items.findIndex(i => i.label === 'Dashboard')
+    items.splice(dashboardIdx + 1, 0, { to: '/org/setup', label: 'My Organization' })
+    return items
+  })()
+
   // Super-admin gets extra "Usage Analytics", "Katie Corrections", "Workout Builder Test",
   // and (Jason only, not org admins) "Organizations" nav entries.
   const navItems = isStaff
     ? isAdmin
       ? [
-          ...STAFF_NAV_ITEMS,
+          ...(isOrgAdmin ? orgAdminNavItems : STAFF_NAV_ITEMS),
           { to: '/admin/usage', label: 'Usage Analytics' },
           { to: '/admin/katie-corrections', label: 'Katie Corrections' },
           { to: '/admin/workout-builder-test', label: 'Workout Builder Test' },
           ...(isSuperAdmin ? [{ to: '/admin/organizations', label: 'Organizations' }] : []),
         ]
-      : STAFF_NAV_ITEMS
+      : (isOrgAdmin ? orgAdminNavItems : STAFF_NAV_ITEMS)
     : clientNavWithLabels
 
   // Mobile drawer hides items already in the client bottom nav.
