@@ -51,15 +51,25 @@ const SUPER_ADMIN_EMAILS = ['jason@lwcvip.com', 'jason@efcfit.com']
 let userStateCache = null
 
 function AuthStateWatcher() {
-  const { userId } = useAuth()
-  const prevUserId = useRef(userId)
+  const { userId, isSignedIn } = useAuth()
+  const prevUserId    = useRef(userId)
+  const prevSignedIn  = useRef(isSignedIn)
   useEffect(() => {
-    if (userId !== prevUserId.current) {
+    const userChanged = userId !== prevUserId.current
+    // A fresh sign-in — even by the SAME Clerk userId (e.g. sign out then back
+    // in with the same account, or a session silently resuming) — must also
+    // invalidate the cache. The server-side role for that userId may have
+    // changed since userStateCache was populated; only keying off userId
+    // change let a previous session's stale role (e.g. 'client') keep being
+    // served after the account was promoted to an org admin.
+    const freshSignIn = isSignedIn === true && prevSignedIn.current !== true
+    if (userChanged || freshSignIn) {
       userStateCache = null
       delete window.__userState
-      prevUserId.current = userId
     }
-  }, [userId])
+    prevUserId.current   = userId
+    prevSignedIn.current = isSignedIn
+  }, [userId, isSignedIn])
   return null
 }
 
