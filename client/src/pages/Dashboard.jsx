@@ -527,21 +527,16 @@ function TodayStatsStrip({ todayLog }) {
   const steps   = todayLog?.steps       != null ? todayLog.steps       : null
   const sleep   = todayLog?.sleep_minutes != null ? fmtSleepMins(todayLog.sleep_minutes) : null
   const water   = todayLog?.water_oz    != null ? `${todayLog.water_oz} oz` : null
-  const weight  = todayLog?.weight_lbs  != null ? `${todayLog.weight_lbs} lbs` : null
 
-  if (!steps && !sleep && !water && !weight) return null
+  if (!steps && !sleep && !water) return null
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-4">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-bold text-gray-900">Today's Stats</h2>
-        <Link to="/progress" className="text-xs text-[#f97316] font-medium hover:underline">View history</Link>
-      </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <h2 className="text-sm font-bold text-gray-900 mb-3">Today</h2>
+      <div className="flex gap-2">
         {steps  != null && <StatPill icon="👟" label="Steps"  value={steps.toLocaleString()} />}
-        {sleep  != null && <StatPill icon="😴" label="Sleep"  value={sleep} note={todayLog?.sleep_note} />}
         {water  != null && <StatPill icon="💧" label="Water"  value={water} note={todayLog?.water_note} />}
-        {weight != null && <StatPill icon="⚖️" label="Weight" value={weight} note={todayLog?.weight_note} />}
+        {sleep  != null && <StatPill icon="😴" label="Sleep"  value={sleep} note={todayLog?.sleep_note} />}
       </div>
     </div>
   )
@@ -666,12 +661,9 @@ export default function Dashboard() {
         loading={loading}
       />
 
-      {/* Steps / sleep / water / weight strip — visible when any metric has data.
+      {/* Steps / water / sleep strip — visible when any metric has data.
           Driven by todayLog, which is updated in real-time by Apple Health sync. */}
       <TodayStatsStrip todayLog={todayLog} />
-
-      {/* Today's habits — syncs with Calendar; progress habits auto-update */}
-      <TodayHabits getToken={getToken} todayLog={todayLog} todayMeals={todayMeals} />
 
     </div>
   )
