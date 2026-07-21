@@ -1,12 +1,26 @@
 import { Router } from 'express'
 import multer from 'multer'
 import { requireAuth, getAuth } from '@clerk/express'
-import { pool, getOrCreateUser } from '../db.js'
+import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
 import { parseLabelFromImageWithAI } from '../services/labelParser.js'
 import { labelScanLimit } from '../middleware/rateLimits.js'
 import { trackEvent } from '../services/usageTracker.js'
 
 const router = Router()
+
+// Super admin (platform owner accounts in ADMIN_EMAILS, e.g. Jason) bypasses org
+// scoping. Same pattern as coachAdmin.js / messages.js (commits bf7addf, dbc3f60).
+function isSuperAdmin(ctx) {
+  return isAdminEmail(ctx.email)
+}
+
+// Org-scoping note: GET / is deliberately left unfiltered — it already restricts to
+// `is_global = TRUE OR user_id = $1`, and is_global rows are intentionally shared
+// platform-wide (same design as the seeded USDA-style food catalog; see foods.js,
+// eefd525). The INSERT sets org_id = req.orgId. PATCH/DELETE previously let ANY
+// org-role admin (not just true super admin) edit/delete ANY user's private food
+// across ANY org — that's closed below with an org_id check, same distinction as
+// coachAdmin.js's canAccessClient (org-admin != super admin).
 
 const ALLOWED_LABEL_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp'])
 const uploadLabelImage = multer({
@@ -71,8 +85,8 @@ router.post('/', requireAuth(), async (req, res, next) => {
 
     const { rows } = await pool.query(
       `INSERT INTO custom_foods
-         (user_id, is_global, food_name, calories_per_serving, protein, carbs, fat, fiber, sugar, sodium_mg, serving_size, serving_unit, barcode, review_status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         (user_id, is_global, food_name, calories_per_serving, protein, carbs, fat, fiber, sugar, sodium_mg, serving_size, serving_unit, barcode, review_status, org_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        RETURNING *`,
       [
         is_global ? null : dbUserId,
@@ -89,6 +103,7 @@ router.post('/', requireAuth(), async (req, res, next) => {
         serving_unit  ?? 'g',
         cleanBarcode,
         reviewStatus,
+        req.orgId,
       ],
     )
     res.status(201).json(rows[0])
@@ -137,10 +152,15 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
     if (isNaN(foodId)) return res.status(400).json({ error: 'Invalid id' })
 
     const { rows: [food] } = await pool.query(
-      'SELECT id, user_id FROM custom_foods WHERE id = $1',
+      'SELECT id, user_id, org_id FROM custom_foods WHERE id = $1',
       [foodId],
     )
     if (!food) return res.status(404).json({ error: 'Food not found' })
+
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    if (!isSuperAdmin(ctx) && food.org_id !== ctx.orgId) {
+      return res.status(404).json({ error: 'Food not found' })
+    }
 
     const { rows: userRows } = await pool.query('SELECT role FROM users WHERE id = $1', [dbUserId])
     const isAdmin = userRows[0]?.role === 'admin'
@@ -155,6 +175,7 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
       return res.status(400).json({ error: 'Food name cannot be empty' })
     }
 
+    const orgFilter = isSuperAdmin(ctx) ? '' : ` AND org_id = $12`
     const { rows: [updated] } = await pool.query(
       `UPDATE custom_foods SET
          food_name            = COALESCE($1, food_name),
@@ -167,7 +188,7 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
          sodium_mg            = COALESCE($8, sodium_mg),
          serving_size         = COALESCE($9, serving_size),
          serving_unit         = COALESCE($10, serving_unit)
-       WHERE id = $11
+       WHERE id = $11${orgFilter}
        RETURNING *`,
       [
         food_name        != null ? String(food_name).trim() : null,
@@ -181,6 +202,7 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
         serving_size     != null ? Number(serving_size)  : null,
         serving_unit     != null ? String(serving_unit)  : null,
         foodId,
+        ...(isSuperAdmin(ctx) ? [] : [ctx.orgId]),
       ],
     )
     res.json(updated)
@@ -199,12 +221,19 @@ router.delete('/:id', requireAuth(), async (req, res, next) => {
     const { rows: userRows } = await pool.query('SELECT role FROM users WHERE id = $1', [dbUserId])
     const isAdmin = userRows[0]?.role === 'admin'
 
-    const { rowCount } = await pool.query(
-      isAdmin
-        ? 'DELETE FROM custom_foods WHERE id = $1'
-        : 'DELETE FROM custom_foods WHERE id = $1 AND user_id = $2',
-      isAdmin ? [foodId] : [foodId, dbUserId],
-    )
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(ctx)
+
+    let query, params
+    if (isAdmin) {
+      query  = bypassOrg ? 'DELETE FROM custom_foods WHERE id = $1' : 'DELETE FROM custom_foods WHERE id = $1 AND org_id = $2'
+      params = bypassOrg ? [foodId] : [foodId, ctx.orgId]
+    } else {
+      query  = bypassOrg ? 'DELETE FROM custom_foods WHERE id = $1 AND user_id = $2' : 'DELETE FROM custom_foods WHERE id = $1 AND user_id = $2 AND org_id = $3'
+      params = bypassOrg ? [foodId, dbUserId] : [foodId, dbUserId, ctx.orgId]
+    }
+
+    const { rowCount } = await pool.query(query, params)
     if (!rowCount) return res.status(404).json({ error: 'Food not found' })
     res.json({ ok: true })
   } catch (err) {

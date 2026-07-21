@@ -1,8 +1,20 @@
 import { Router } from 'express'
 import { requireAuth, getAuth } from '@clerk/express'
-import { pool, getOrCreateUser } from '../db.js'
+import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
 
 const router = Router()
+
+// Super admin (platform owner accounts in ADMIN_EMAILS, e.g. Jason) bypasses org
+// scoping. Same pattern as coachAdmin.js / messages.js (commits bf7addf, dbc3f60).
+function isSuperAdmin(ctx) {
+  return isAdminEmail(ctx.email)
+}
+
+// Org-scoping note: video_watch_progress has no org_id column, and /my-progress
+// is already self-scoped by user_id — left unfiltered. mindset_videos DOES have
+// org_id; GET / previously showed every org's videos to every client/staff, and
+// PUT/POST/DELETE had no org boundary at all (any org's staff could edit/delete
+// any other org's videos) — both closed below.
 
 async function requireStaff(req, res) {
   const { userId } = getAuth(req)
@@ -45,11 +57,14 @@ router.get('/', requireAuth(), async (req, res) => {
     const role = userRows[0]?.role
     const isStaff = role === 'admin' || role === 'coach'
 
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(ctx)
+    const orgFilter = bypassOrg ? '' : ` AND org_id = $2`
     const { rows } = await pool.query(
       `SELECT * FROM mindset_videos
-       WHERE ($1 OR published = TRUE)
+       WHERE ($1 OR published = TRUE)${orgFilter}
        ORDER BY created_at DESC`,
-      [isStaff],
+      bypassOrg ? [isStaff] : [isStaff, ctx.orgId],
     )
     res.json(rows)
   } catch (e) {
@@ -67,10 +82,10 @@ router.post('/', requireAuth(), async (req, res) => {
       return res.status(400).json({ error: 'title and youtube_url are required' })
     }
     const { rows } = await pool.query(
-      `INSERT INTO mindset_videos (title, description, youtube_url, published)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO mindset_videos (title, description, youtube_url, published, org_id)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [title.trim(), description?.trim() ?? null, youtube_url.trim(), published ?? false],
+      [title.trim(), description?.trim() ?? null, youtube_url.trim(), published ?? false, req.orgId],
     )
     res.status(201).json(rows[0])
   } catch (e) {
@@ -88,12 +103,17 @@ router.put('/:id', requireAuth(), async (req, res) => {
     if (!title?.trim() || !youtube_url?.trim()) {
       return res.status(400).json({ error: 'title and youtube_url are required' })
     }
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(ctx)
+    const orgFilter = bypassOrg ? '' : ` AND org_id = $6`
     const { rows } = await pool.query(
       `UPDATE mindset_videos
        SET title=$1, description=$2, youtube_url=$3, published=$4, updated_at=NOW()
-       WHERE id=$5
+       WHERE id=$5${orgFilter}
        RETURNING *`,
-      [title.trim(), description?.trim() ?? null, youtube_url.trim(), published ?? false, id],
+      bypassOrg
+        ? [title.trim(), description?.trim() ?? null, youtube_url.trim(), published ?? false, id]
+        : [title.trim(), description?.trim() ?? null, youtube_url.trim(), published ?? false, id, ctx.orgId],
     )
     if (!rows.length) return res.status(404).json({ error: 'Not found' })
     res.json(rows[0])
@@ -115,10 +135,12 @@ router.post('/:id/progress', requireAuth(), async (req, res) => {
       return res.status(400).json({ error: 'pct must be 0–100' })
     }
 
-    // Verify the video exists before upserting (avoids FK violation 500)
+    // Verify the video exists (and belongs to this org) before upserting (avoids FK violation 500)
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(ctx)
     const { rows: vidRows } = await pool.query(
-      'SELECT id FROM mindset_videos WHERE id = $1',
-      [videoId],
+      bypassOrg ? 'SELECT id FROM mindset_videos WHERE id = $1' : 'SELECT id FROM mindset_videos WHERE id = $1 AND org_id = $2',
+      bypassOrg ? [videoId] : [videoId, ctx.orgId],
     )
     if (!vidRows.length) return res.status(404).json({ error: 'Video not found' })
 
@@ -150,7 +172,12 @@ router.delete('/:id', requireAuth(), async (req, res) => {
   try {
     if (!await requireStaff(req, res)) return
     const { id } = req.params
-    const { rowCount } = await pool.query('DELETE FROM mindset_videos WHERE id = $1', [id])
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(ctx)
+    const { rowCount } = await pool.query(
+      bypassOrg ? 'DELETE FROM mindset_videos WHERE id = $1' : 'DELETE FROM mindset_videos WHERE id = $1 AND org_id = $2',
+      bypassOrg ? [id] : [id, ctx.orgId],
+    )
     if (!rowCount) return res.status(404).json({ error: 'Not found' })
     res.json({ success: true })
   } catch (e) {

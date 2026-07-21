@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { requireAuth, getAuth } from '@clerk/express'
-import { pool, getOrCreateUser } from '../db.js'
+import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
 
 const router = Router()
 
@@ -8,30 +8,55 @@ function isAdminRole(role) {
   return role === 'admin' || role === 'account_owner'
 }
 
-async function requireAdmin(req, res) {
-  const { userId } = getAuth(req)
-  const dbUserId = await getOrCreateUser(userId)
-  const { rows } = await pool.query('SELECT role FROM users WHERE id = $1', [dbUserId])
-  if (!isAdminRole(rows[0]?.role)) {
-    res.status(403).json({ error: 'Admin only' })
-    return null
-  }
-  return dbUserId
-}
-
 function isStaffRole(role) {
   return role === 'admin' || role === 'account_owner' || role === 'coach' || role === 'staff'
 }
 
-async function requireStaff(req, res) {
+// Reuses req.internalUser/req.orgId set by orgContext middleware (mounted before
+// this router in server/index.js) instead of re-querying, same as coachAdmin.js's
+// getCurrentStaff.
+async function getCallerCtx(req) {
+  if (req.internalUser) {
+    return {
+      dbUserId: req.internalUser.id,
+      role:     req.internalUser.role ?? 'client',
+      orgId:    req.orgId ?? req.internalUser.org_id ?? 1,
+      email:    req.internalUser.email ?? null,
+    }
+  }
   const { userId } = getAuth(req)
   const dbUserId = await getOrCreateUser(userId)
-  const { rows } = await pool.query('SELECT role FROM users WHERE id = $1', [dbUserId])
-  if (!isStaffRole(rows[0]?.role)) {
+  const { rows } = await pool.query('SELECT role, org_id, email FROM users WHERE id = $1', [dbUserId])
+  return {
+    dbUserId,
+    role:  rows[0]?.role ?? 'client',
+    orgId: rows[0]?.org_id ?? 1,
+    email: rows[0]?.email ?? null,
+  }
+}
+
+// Super admin (platform owner accounts in ADMIN_EMAILS, e.g. Jason) bypasses org
+// scoping. Same pattern as coachAdmin.js / messages.js (commits bf7addf, dbc3f60).
+function isSuperAdmin(ctx) {
+  return isAdminEmail(ctx.email)
+}
+
+async function requireAdmin(req, res) {
+  const ctx = await getCallerCtx(req)
+  if (!isAdminRole(ctx.role)) {
+    res.status(403).json({ error: 'Admin only' })
+    return null
+  }
+  return ctx
+}
+
+async function requireStaff(req, res) {
+  const ctx = await getCallerCtx(req)
+  if (!isStaffRole(ctx.role)) {
     res.status(403).json({ error: 'Staff only' })
     return null
   }
-  return dbUserId
+  return ctx
 }
 
 async function getCoachFood(id) {
@@ -52,15 +77,17 @@ async function getCoachFood(id) {
 // GET /api/admin/users
 router.get('/users', requireAuth(), async (req, res, next) => {
   try {
-    if (await requireAdmin(req, res) === null) return
+    const ctx = await requireAdmin(req, res); if (!ctx) return
+    const bypassOrg = isSuperAdmin(ctx)
+    const orgFilter = bypassOrg ? '' : ` AND org_id = $1`
     const { rows } = await pool.query(`
       SELECT id, first_name, email, goal_calories, goal_protein, goal_carbs, goal_fat,
              onboarding_complete, assessment_complete, paid, role,
              (SELECT MAX(logged_at) FROM meals WHERE user_id = users.id) AS last_meal_at
       FROM users
-      WHERE onboarding_complete = TRUE
+      WHERE onboarding_complete = TRUE${orgFilter}
       ORDER BY first_name ASC NULLS LAST
-    `)
+    `, bypassOrg ? [] : [ctx.orgId])
     res.json(rows)
   } catch (err) {
     next(err)
@@ -70,16 +97,19 @@ router.get('/users', requireAuth(), async (req, res, next) => {
 // PATCH /api/admin/users/:id/macros  (admin or assigned coach)
 router.patch('/users/:id/macros', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
-    const callerId = await getOrCreateUser(userId)
+    const ctx = await getCallerCtx(req)
     const targetId = parseInt(req.params.id, 10)
 
+    // Target must be in the caller's own org unless the caller is the true super admin.
+    const { rows: clientRows } = await pool.query('SELECT org_id, assigned_coach_id FROM users WHERE id = $1', [targetId])
+    if (!clientRows.length) return res.status(404).json({ error: 'User not found' })
+    if (!isSuperAdmin(ctx) && clientRows[0].org_id !== ctx.orgId) {
+      return res.status(404).json({ error: 'User not found' })
+    }
+
     // Allow admin, or the coach assigned to this specific client
-    const { rows: callerRows } = await pool.query('SELECT role FROM users WHERE id = $1', [callerId])
-    const callerRole = callerRows[0]?.role
-    if (!isAdminRole(callerRole)) {
-      const { rows: clientRows } = await pool.query('SELECT assigned_coach_id FROM users WHERE id = $1', [targetId])
-      if (clientRows[0]?.assigned_coach_id !== callerId) {
+    if (!isAdminRole(ctx.role)) {
+      if (clientRows[0].assigned_coach_id !== ctx.dbUserId) {
         return res.status(403).json({ error: 'Not authorized' })
       }
     }
@@ -132,8 +162,9 @@ router.get('/coach-foods', requireAuth(), async (req, res, next) => {
 // POST /api/admin/coach-foods — create a new coach food
 router.post('/coach-foods', requireAuth(), async (req, res, next) => {
   try {
-    const callerId = await requireStaff(req, res)
-    if (callerId === null) return
+    const ctx = await requireStaff(req, res)
+    if (!ctx) return
+    const callerId = ctx.dbUserId
     const { food_name, calories, protein, carbs, fat, fiber, sugar, sodium_mg, serving_size, serving_unit, notes } = req.body
     if (!food_name?.trim()) return res.status(400).json({ error: 'food_name required' })
 
@@ -226,11 +257,13 @@ router.delete('/coach-foods/:id', requireAuth(), async (req, res, next) => {
 // Returns private client-created foods filtered by review_status.
 router.get('/client-foods', requireAuth(), async (req, res, next) => {
   try {
-    if (await requireAdmin(req, res) === null) return
+    const ctx = await requireAdmin(req, res); if (!ctx) return
     const status = req.query.status ?? 'pending'
     if (!['pending', 'approved', 'dismissed'].includes(status)) {
       return res.status(400).json({ error: 'status must be pending, approved, or dismissed' })
     }
+    const bypassOrg = isSuperAdmin(ctx)
+    const orgFilter = bypassOrg ? '' : ` AND cf.org_id = $2`
     const { rows } = await pool.query(`
       SELECT cf.id, cf.food_name, cf.calories_per_serving, cf.protein, cf.carbs, cf.fat, cf.fiber,
              cf.serving_size, cf.serving_unit, cf.notes, cf.review_status,
@@ -246,8 +279,9 @@ router.get('/client-foods', requireAuth(), async (req, res, next) => {
         AND cf.is_coach_food = FALSE
         AND cf.user_id IS NOT NULL
         AND cf.review_status = $1
+        ${orgFilter}
       ORDER BY cf.created_at ASC
-    `, [status])
+    `, bypassOrg ? [status] : [status, ctx.orgId])
     res.json(rows)
   } catch (err) { next(err) }
 })
@@ -258,8 +292,9 @@ router.get('/client-foods', requireAuth(), async (req, res, next) => {
 // dismiss → keep private, set review_status='dismissed'
 router.patch('/client-foods/:id/review', requireAuth(), async (req, res, next) => {
   try {
-    const callerId = await requireAdmin(req, res)
-    if (callerId === null) return
+    const ctx = await requireAdmin(req, res)
+    if (!ctx) return
+    const callerId = ctx.dbUserId
 
     const id = parseInt(req.params.id, 10)
     if (isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
@@ -270,10 +305,13 @@ router.patch('/client-foods/:id/review', requireAuth(), async (req, res, next) =
     }
 
     const { rows: [food] } = await pool.query(
-      'SELECT id, user_id, is_global, review_status FROM custom_foods WHERE id = $1',
+      'SELECT id, user_id, is_global, review_status, org_id FROM custom_foods WHERE id = $1',
       [id],
     )
     if (!food) return res.status(404).json({ error: 'Food not found' })
+    if (!isSuperAdmin(ctx) && food.org_id !== ctx.orgId) {
+      return res.status(404).json({ error: 'Food not found' })
+    }
     if (food.is_global || !food.user_id) {
       return res.status(400).json({ error: 'Not a client-created private food' })
     }
@@ -320,7 +358,7 @@ router.patch('/client-foods/:id/review', requireAuth(), async (req, res, next) =
 // Body: { reset_onboarding?: boolean, reset_assessment?: boolean }
 router.patch('/users/:id/dev-reset', requireAuth(), async (req, res, next) => {
   try {
-    if (await requireAdmin(req, res) === null) return
+    const ctx = await requireAdmin(req, res); if (!ctx) return
     const targetId = parseInt(req.params.id, 10)
     const { reset_onboarding = false, reset_assessment = false } = req.body
 
@@ -333,11 +371,13 @@ router.patch('/users/:id/dev-reset', requireAuth(), async (req, res, next) => {
     if (reset_onboarding) setClauses.push('onboarding_complete = FALSE')
     if (reset_assessment)  setClauses.push('assessment_complete = FALSE')
 
+    const bypassOrg = isSuperAdmin(ctx)
+    const orgFilter = bypassOrg ? '' : ` AND org_id = $2`
     const { rows } = await pool.query(
       `UPDATE users SET ${setClauses.join(', ')}
-       WHERE id = $1
+       WHERE id = $1${orgFilter}
        RETURNING id, first_name, email, onboarding_complete, assessment_complete`,
-      [targetId],
+      bypassOrg ? [targetId] : [targetId, ctx.orgId],
     )
     if (!rows.length) return res.status(404).json({ error: 'User not found' })
 
@@ -353,15 +393,18 @@ router.patch('/users/:id/dev-reset', requireAuth(), async (req, res, next) => {
 // GET /api/admin/assessments — list all submitted assessments
 router.get('/assessments', requireAuth(), async (req, res, next) => {
   try {
-    if (await requireAdmin(req, res) === null) return
+    const ctx = await requireAdmin(req, res); if (!ctx) return
+    const bypassOrg = isSuperAdmin(ctx)
+    const orgFilter = bypassOrg ? '' : ` WHERE ha.org_id = $1`
     const { rows } = await pool.query(`
       SELECT ha.*,
              u.first_name AS user_first_name,
              u.email      AS user_email
       FROM health_assessments ha
       JOIN users u ON u.id = ha.user_id
+      ${orgFilter}
       ORDER BY ha.updated_at DESC
-    `)
+    `, bypassOrg ? [] : [ctx.orgId])
     res.json(rows)
   } catch (err) {
     next(err)
@@ -371,10 +414,12 @@ router.get('/assessments', requireAuth(), async (req, res, next) => {
 // GET /api/admin/assessments/:userId — get one user's assessment
 router.get('/assessments/:userId', requireAuth(), async (req, res, next) => {
   try {
-    if (await requireAdmin(req, res) === null) return
+    const ctx = await requireAdmin(req, res); if (!ctx) return
+    const bypassOrg = isSuperAdmin(ctx)
+    const orgFilter = bypassOrg ? '' : ` AND org_id = $2`
     const { rows } = await pool.query(
-      'SELECT * FROM health_assessments WHERE user_id = $1',
-      [parseInt(req.params.userId, 10)],
+      `SELECT * FROM health_assessments WHERE user_id = $1${orgFilter}`,
+      bypassOrg ? [parseInt(req.params.userId, 10)] : [parseInt(req.params.userId, 10), ctx.orgId],
     )
     res.json(rows[0] ?? null)
   } catch (err) {
@@ -385,16 +430,18 @@ router.get('/assessments/:userId', requireAuth(), async (req, res, next) => {
 // PATCH /api/admin/assessments/:userId — update coach_name or notes
 router.patch('/assessments/:userId', requireAuth(), async (req, res, next) => {
   try {
-    if (await requireAdmin(req, res) === null) return
+    const ctx = await requireAdmin(req, res); if (!ctx) return
     const targetId = parseInt(req.params.userId, 10)
     const { coach_name } = req.body
+    const bypassOrg = isSuperAdmin(ctx)
+    const orgFilter = bypassOrg ? '' : ` AND org_id = $3`
     const { rows } = await pool.query(`
       UPDATE health_assessments
       SET coach_name = COALESCE($1, coach_name),
           updated_at = NOW()
-      WHERE user_id = $2
+      WHERE user_id = $2${orgFilter}
       RETURNING *
-    `, [coach_name ?? null, targetId])
+    `, bypassOrg ? [coach_name ?? null, targetId] : [coach_name ?? null, targetId, ctx.orgId])
     if (!rows.length) return res.status(404).json({ error: 'Assessment not found' })
     res.json(rows[0])
   } catch (err) {
@@ -408,7 +455,12 @@ router.patch('/assessments/:userId', requireAuth(), async (req, res, next) => {
 
 router.get('/usage-analytics', requireAuth(), async (req, res, next) => {
   try {
-    if (await requireAdmin(req, res) === null) return
+    const ctx = await requireAdmin(req, res); if (!ctx) return
+    // usage_events has no org_id column — it can't be scoped per-org, so this
+    // endpoint (already documented above as "Super-admin only") is now actually
+    // restricted to the true platform-owner allowlist instead of any org's admin.
+    // Previously any org-role admin could see every other org's usage/cost data.
+    if (!isSuperAdmin(ctx)) return res.status(403).json({ error: 'Super admin only' })
 
     const now    = new Date()
     const defEnd = now.toISOString().slice(0, 10)

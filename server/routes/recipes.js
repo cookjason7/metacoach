@@ -1,12 +1,24 @@
 import { Router } from 'express'
 import multer from 'multer'
 import { requireAuth, getAuth } from '@clerk/express'
-import { pool, getOrCreateUser } from '../db.js'
+import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
 import { parseRecipeWithAI, parseRecipeFromImageWithAI } from '../services/recipeParser.js'
 import { recipeImportLimit } from '../middleware/rateLimits.js'
 import { trackEvent } from '../services/usageTracker.js'
 
 const router = Router()
+
+// Super admin (platform owner accounts in ADMIN_EMAILS, e.g. Jason) bypasses org
+// scoping. Same pattern as coachAdmin.js / messages.js (commits bf7addf, dbc3f60).
+function isSuperAdmin(ctx) {
+  return isAdminEmail(ctx.email)
+}
+
+// Org-scoping note: every read below is already scoped to the requesting client's
+// own rows via user_id = dbUserId — a strictly stronger boundary than org_id, so
+// those are deliberately left unfiltered. All INSERTs into recipes/recipe_ingredients/
+// meals now set org_id = req.orgId. UPDATE/DELETE additionally get an explicit
+// org_id filter (non-super-admin only), same as meals.js (eefd525).
 
 // Multer for recipe image imports — memory only, not stored anywhere
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp'])
@@ -73,24 +85,24 @@ router.post('/', requireAuth(), async (req, res, next) => {
     )
 
     const { rows: [recipe] } = await pool.query(
-      `INSERT INTO recipes (user_id, name, servings, calories, protein, carbs, fat, fiber, sugar, sodium_mg)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO recipes (user_id, name, servings, calories, protein, carbs, fat, fiber, sugar, sodium_mg, org_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
       [dbUserId, name.trim(), parseFloat(servings) || 1,
        totals.calories, totals.protein, totals.carbs, totals.fat, totals.fiber,
-       totals.sugar, totals.sodium_mg],
+       totals.sugar, totals.sodium_mg, req.orgId],
     )
 
     for (const ing of ingredients) {
       await pool.query(
-        `INSERT INTO recipe_ingredients (recipe_id, food_name, calories, protein, carbs, fat, fiber, sugar, sodium_mg, amount, unit)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        `INSERT INTO recipe_ingredients (recipe_id, food_name, calories, protein, carbs, fat, fiber, sugar, sodium_mg, amount, unit, org_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
         [recipe.id, ing.food_name || 'Ingredient',
          parseFloat(ing.calories)  || null, parseFloat(ing.protein)   || null,
          parseFloat(ing.carbs)     || null, parseFloat(ing.fat)       || null,
          parseFloat(ing.fiber)     || null, parseFloat(ing.sugar)     || null,
          parseFloat(ing.sodium_mg) || null, parseFloat(ing.amount)    || null,
-         ing.unit || null],
+         ing.unit || null, req.orgId],
       )
     }
 
@@ -190,27 +202,38 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
       { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium_mg: 0 },
     )
 
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(ctx)
+    const recipeOrgFilter = bypassOrg ? '' : ` AND org_id = $11`
+    const ingOrgFilter    = bypassOrg ? '' : ` AND org_id = $2`
+
     const client = await pool.connect()
     try {
       await client.query('BEGIN')
       await client.query(
-        `UPDATE recipes SET name=$1, servings=$2, calories=$3, protein=$4, carbs=$5, fat=$6, fiber=$7, sugar=$8, sodium_mg=$9 WHERE id=$10`,
-        [name.trim(), parseFloat(servings) || 1,
-         totals.calories, totals.protein, totals.carbs, totals.fat, totals.fiber,
-         totals.sugar, totals.sodium_mg,
-         recipeId],
+        `UPDATE recipes SET name=$1, servings=$2, calories=$3, protein=$4, carbs=$5, fat=$6, fiber=$7, sugar=$8, sodium_mg=$9 WHERE id=$10${recipeOrgFilter}`,
+        bypassOrg
+          ? [name.trim(), parseFloat(servings) || 1,
+             totals.calories, totals.protein, totals.carbs, totals.fat, totals.fiber,
+             totals.sugar, totals.sodium_mg, recipeId]
+          : [name.trim(), parseFloat(servings) || 1,
+             totals.calories, totals.protein, totals.carbs, totals.fat, totals.fiber,
+             totals.sugar, totals.sodium_mg, recipeId, ctx.orgId],
       )
-      await client.query('DELETE FROM recipe_ingredients WHERE recipe_id = $1', [recipeId])
+      await client.query(
+        `DELETE FROM recipe_ingredients WHERE recipe_id = $1${ingOrgFilter}`,
+        bypassOrg ? [recipeId] : [recipeId, ctx.orgId],
+      )
       for (const ing of ingredients) {
         await client.query(
-          `INSERT INTO recipe_ingredients (recipe_id, food_name, calories, protein, carbs, fat, fiber, sugar, sodium_mg, amount, unit)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          `INSERT INTO recipe_ingredients (recipe_id, food_name, calories, protein, carbs, fat, fiber, sugar, sodium_mg, amount, unit, org_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
           [recipeId, ing.food_name || 'Ingredient',
            parseFloat(ing.calories)  || null, parseFloat(ing.protein)   || null,
            parseFloat(ing.carbs)     || null, parseFloat(ing.fat)       || null,
            parseFloat(ing.fiber)     || null, parseFloat(ing.sugar)     || null,
            parseFloat(ing.sodium_mg) || null, parseFloat(ing.amount)    || null,
-           ing.unit || null],
+           ing.unit || null, ctx.orgId],
         )
       }
       await client.query('COMMIT')
@@ -262,8 +285,8 @@ router.post('/:id/log', requireAuth(), async (req, res, next) => {
     const micronutrients = scaledSodium != null ? JSON.stringify({ sodium_mg: scaledSodium }) : null
 
     const { rows: [meal] } = await pool.query(
-      `INSERT INTO meals (user_id, meal_name, calories, protein, carbs, fat, fiber, sugar, micronutrients, meal_slot, log_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO meals (user_id, meal_name, calories, protein, carbs, fat, fiber, sugar, micronutrients, meal_slot, log_date, org_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING *`,
       [
         dbUserId, r.name,
@@ -276,6 +299,7 @@ router.post('/:id/log', requireAuth(), async (req, res, next) => {
         micronutrients,
         meal_slot ?? null,
         log_date ?? null,
+        req.orgId,
       ],
     )
     res.status(201).json(meal)
@@ -291,9 +315,12 @@ router.delete('/:id', requireAuth(), async (req, res, next) => {
     const dbUserId = await getOrCreateUser(userId)
     const recipeId = parseInt(req.params.id, 10)
 
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const orgFilter = isSuperAdmin(ctx) ? '' : ` AND org_id = $3`
+
     const { rowCount } = await pool.query(
-      'DELETE FROM recipes WHERE id = $1 AND user_id = $2',
-      [recipeId, dbUserId],
+      `DELETE FROM recipes WHERE id = $1 AND user_id = $2${orgFilter}`,
+      isSuperAdmin(ctx) ? [recipeId, dbUserId] : [recipeId, dbUserId, ctx.orgId],
     )
     if (!rowCount) return res.status(404).json({ error: 'Recipe not found' })
     res.json({ ok: true })

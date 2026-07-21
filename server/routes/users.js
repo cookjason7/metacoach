@@ -70,14 +70,26 @@ router.get('/me', requireAuth(), async (req, res, next) => {
     // Debug logging — confirms admin status at runtime
     if (rows[0] && rows[0].coaching_type !== 'ai' && rows[0].coaching_type_source !== 'manual') {
       const normalizedEmail = (email ?? rows[0].email ?? '').trim().toLowerCase()
+      // client_invites has no org_id column — scope via a join to the invite's
+      // assigned coach/inviter org, same pattern as healthAssessment.js (bf7addf).
+      // Prevents this self-heal from matching an AI invite meant for a different
+      // org that happens to share this user's email. Super admin bypasses.
+      const bypassOrgFilter = isAdminEmail(normalizedEmail)
+      const orgFilter = bypassOrgFilter
+        ? ''
+        : ` AND COALESCE(invcoach.org_id, invstaff.org_id) = $2`
       const { rows: aiInviteByEmail } = await pool.query(
-        `SELECT id FROM client_invites
-         WHERE coaching_type = 'ai'
+        `SELECT ci.id
+         FROM client_invites ci
+         LEFT JOIN users invcoach ON invcoach.id = ci.assigned_coach_id
+         LEFT JOIN users invstaff ON invstaff.id = ci.invited_by
+         WHERE ci.coaching_type = 'ai'
            AND $1 != ''
-           AND LOWER(email) = $1
-         ORDER BY accepted_at DESC NULLS LAST, created_at DESC
+           AND LOWER(ci.email) = $1
+           ${orgFilter}
+         ORDER BY ci.accepted_at DESC NULLS LAST, ci.created_at DESC
          LIMIT 1`,
-        [normalizedEmail],
+        bypassOrgFilter ? [normalizedEmail] : [normalizedEmail, req.orgId],
       )
       if (aiInviteByEmail.length > 0) {
         await pool.query(
