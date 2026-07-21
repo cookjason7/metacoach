@@ -58,8 +58,8 @@ export default function Layout() {
     }).catch(() => {})
   } catch {}
 
-  const { user, isLoaded } = useUser()
-  const { getToken }       = useAuth()
+  const { user, isLoaded }        = useUser()
+  const { getToken, isSignedIn }  = useAuth()
   const { signOut }        = useClerk()
   const navigate           = useNavigate()
   const location           = useLocation()
@@ -371,6 +371,18 @@ export default function Layout() {
   useEffect(() => {
     fetchRole()
   }, [fetchRole])
+
+  // Defense-in-depth: if Layout ever persists across a sign-out/sign-in cycle
+  // by the same Clerk account (it currently doesn't — ProtectedLayout unmounts
+  // it whenever isSignedIn goes false), force a fresh /api/users/me fetch on
+  // the sign-in transition rather than trusting whatever role state is already
+  // in memory from the prior session.
+  const prevSignedInRef = useRef(isSignedIn)
+  useEffect(() => {
+    const freshSignIn = isSignedIn === true && prevSignedInRef.current !== true
+    prevSignedInRef.current = isSignedIn
+    if (freshSignIn) fetchRole()
+  }, [isSignedIn, fetchRole])
 
   // ── Unauthenticated app-load diagnostic — fires once on mount, no auth needed ──
   useEffect(() => {
