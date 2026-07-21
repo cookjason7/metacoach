@@ -289,14 +289,6 @@ router.post('/:id/invite-owner', requireAuth(), async (req, res, next) => {
       return res.status(400).json({ error: 'Please enter a valid email address.' })
     }
 
-    const { rows: existingUser } = await pool.query(
-      `SELECT id FROM users WHERE LOWER(email) = $1`,
-      [normalizedEmail],
-    )
-    if (existingUser.length > 0) {
-      return res.status(409).json({ error: 'A user with this email already exists in the system.' })
-    }
-
     await pool.query(
       `DELETE FROM staff_invites WHERE LOWER(email) = $1 AND accepted_at IS NULL`,
       [normalizedEmail],
