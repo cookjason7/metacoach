@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { requireAuth } from '@clerk/express'
 import { pool, isAdminEmail } from '../db.js'
-import { sendInviteEmail } from '../services/email.js'
+import { sendInviteEmail, sendOrgOwnerInviteEmail } from '../services/email.js'
 import { getAppBaseUrl } from '../services/appUrl.js'
 
 const router = Router()
@@ -278,6 +278,7 @@ router.post('/:id/invite-owner', requireAuth(), async (req, res, next) => {
 
     const { rows: orgRows } = await pool.query('SELECT id, name FROM organizations WHERE id = $1', [id])
     if (!orgRows.length) return res.status(404).json({ error: 'Organization not found' })
+    const orgName = orgRows[0].name
 
     const { first_name, last_name, email } = req.body
     if (!first_name?.trim()) return res.status(400).json({ error: 'First name is required.' })
@@ -314,7 +315,7 @@ router.post('/:id/invite-owner', requireAuth(), async (req, res, next) => {
     let emailResult = { sent: false, reason: 'Email send skipped' }
     try {
       emailResult = await Promise.race([
-        sendInviteEmail({ to: invite.email, firstName: invite.first_name, inviteUrl }),
+        sendOrgOwnerInviteEmail({ to: invite.email, firstName: invite.first_name, orgName, inviteUrl }),
         new Promise(resolve => setTimeout(() => resolve({ sent: false, reason: 'Email send timed out' }), 12_000)),
       ])
     } catch (emailErr) {
@@ -322,6 +323,58 @@ router.post('/:id/invite-owner', requireAuth(), async (req, res, next) => {
     }
 
     res.status(201).json({
+      ok:         true,
+      invite_url: inviteUrl,
+      email_sent: emailResult.sent,
+      email_note: emailResult.sent ? null : emailResult.reason,
+      first_name: invite.first_name,
+      last_name:  invite.last_name,
+      email:      invite.email,
+    })
+  } catch (err) { next(err) }
+})
+
+// POST /api/organizations/:id/invite-owner/resend — re-sends the org owner invite
+// email to the same address without creating a new staff_invites row (unless the
+// prior one expired or was deleted, in which case a fresh one is created).
+router.post('/:id/invite-owner/resend', requireAuth(), async (req, res, next) => {
+  try {
+    if (!requireSuperAdmin(req, res)) return
+    const id = parseInt(req.params.id, 10)
+
+    const { rows: orgRows } = await pool.query('SELECT id, name FROM organizations WHERE id = $1', [id])
+    if (!orgRows.length) return res.status(404).json({ error: 'Organization not found' })
+    const orgName = orgRows[0].name
+
+    const { email } = req.body
+    if (!email?.trim()) return res.status(400).json({ error: 'Email is required.' })
+    const normalizedEmail = email.trim().toLowerCase()
+
+    const { rows: inviteRows } = await pool.query(
+      `SELECT token, email, first_name, last_name FROM staff_invites
+       WHERE LOWER(email) = $1 AND org_id = $2 AND accepted_at IS NULL
+       ORDER BY created_at DESC LIMIT 1`,
+      [normalizedEmail, id],
+    )
+    if (!inviteRows.length) {
+      return res.status(404).json({ error: 'No pending invite found for this email. Send a new invite instead.' })
+    }
+    const invite = inviteRows[0]
+
+    const appUrl = getAppBaseUrl()
+    const inviteUrl = `${appUrl}/staff-invite/${invite.token}`
+
+    let emailResult = { sent: false, reason: 'Email send skipped' }
+    try {
+      emailResult = await Promise.race([
+        sendOrgOwnerInviteEmail({ to: invite.email, firstName: invite.first_name, orgName, inviteUrl }),
+        new Promise(resolve => setTimeout(() => resolve({ sent: false, reason: 'Email send timed out' }), 12_000)),
+      ])
+    } catch (emailErr) {
+      emailResult = { sent: false, reason: emailErr.message ?? 'Email send failed' }
+    }
+
+    res.json({
       ok:         true,
       invite_url: inviteUrl,
       email_sent: emailResult.sent,

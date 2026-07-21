@@ -5,6 +5,12 @@ import { API_URL } from '../config.js'
 
 // ── Option data ──────────────────────────────────────────────────────────────
 
+// Health assessment is a client-only onboarding flow — these roles must never
+// see it. Mirrors the isPrivileged list in App.jsx's ProtectedLayout.
+const STAFF_ROLES = ['admin', 'account_owner', 'staff', 'coach']
+// Mirrors SUPER_ADMIN_EMAILS in App.jsx — Jason lands on /dashboard, not /org/dashboard.
+const SUPER_ADMIN_EMAILS = ['jason@lwcvip.com', 'jason@efcfit.com']
+
 const SHIRT_SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL']
 
 const SLEEP_HOURS_OPTIONS = [
@@ -400,6 +406,18 @@ export default function HealthAssessment() {
         let assessData = null
         if (meRes.ok)    meData     = await meRes.json()
         if (assessRes.ok) assessData = await assessRes.json()
+
+        // Defense-in-depth: staff/org-admin roles should never see this flow, even on
+        // a cold direct navigation to /health-assessment before App.jsx's route guard
+        // has a cached role to check. Bounce them to their dashboard instead.
+        if (meData && STAFF_ROLES.includes(meData.role)) {
+          const email = (meData.email ?? '').toLowerCase()
+          const isSuperAdmin = SUPER_ADMIN_EMAILS.includes(email)
+          const isOrgAdmin = !isSuperAdmin
+            && (meData.role === 'admin' || meData.role === 'account_owner' || (meData.role === 'coach' && meData.is_org_owner === true))
+          navigate(isOrgAdmin ? '/org/dashboard' : '/dashboard', { replace: true })
+          return
+        }
 
         if (meData) {
           setCoachingType(meData.coaching_type ?? null)

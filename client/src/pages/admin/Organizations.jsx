@@ -342,10 +342,11 @@ function StatsModal({ org, onClose, getToken }) {
 // ── Invite Owner modal ───────────────────────────────────────────────────────
 
 function InviteOwnerModal({ org, onClose, getToken }) {
-  const [form, setForm]     = useState(EMPTY_INVITE)
-  const [saving, setSaving] = useState(false)
-  const [error, setError]   = useState(null)
-  const [result, setResult] = useState(null)
+  const [form, setForm]         = useState(EMPTY_INVITE)
+  const [saving, setSaving]     = useState(false)
+  const [resending, setResending] = useState(false)
+  const [error, setError]       = useState(null)
+  const [result, setResult]     = useState(null)
 
   async function submit(e) {
     e.preventDefault()
@@ -365,6 +366,22 @@ function InviteOwnerModal({ org, onClose, getToken }) {
     } catch (err) { setError(err.message) } finally { setSaving(false) }
   }
 
+  async function resend() {
+    if (!result) return
+    setResending(true); setError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/organizations/${org.id}/invite-owner/resend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ email: result.email }),
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error || 'Failed to resend invite')
+      setResult(body)
+    } catch (err) { setError(err.message) } finally { setResending(false) }
+  }
+
   return (
     <ModalShell title={`Invite Owner — ${org.name}`} onClose={onClose}>
       {result ? (
@@ -376,10 +393,17 @@ function InviteOwnerModal({ org, onClose, getToken }) {
           <div className="border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 text-xs font-mono break-all">
             {result.invite_url}
           </div>
-          <button onClick={onClose}
-            className="min-h-11 w-full bg-[#E8670A] text-white rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors">
-            Done
-          </button>
+          {error && <p className="text-xs text-red-500">{error}</p>}
+          <div className="flex gap-2">
+            <button onClick={resend} disabled={resending}
+              className="min-h-11 flex-1 border border-orange-200 text-[#E8670A] rounded-lg text-sm font-semibold hover:bg-orange-50 disabled:opacity-60 transition-colors">
+              {resending ? 'Resending…' : 'Resend Invite'}
+            </button>
+            <button onClick={onClose}
+              className="min-h-11 flex-1 bg-[#E8670A] text-white rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors">
+              Done
+            </button>
+          </div>
         </div>
       ) : (
         <form onSubmit={submit} className="space-y-4">

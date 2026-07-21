@@ -106,6 +106,104 @@ export async function sendAiSetupEmail({ to, firstName, setupUrl }) {
   }
 }
 
+// Org owner invite — sent when a super admin invites someone to manage their
+// own organization (as opposed to sendInviteEmail, which is the generic
+// client/VIP invite). Same Resend send pattern, org-specific copy.
+export async function sendOrgOwnerInviteEmail({ to, firstName, orgName, inviteUrl }) {
+  const apiKey   = process.env.RESEND_API_KEY
+  const fromAddr = process.env.INVITE_EMAIL_FROM
+
+  if (!apiKey || !fromAddr) {
+    console.warn('[email] RESEND_API_KEY or INVITE_EMAIL_FROM not set — org owner invite email skipped')
+    return { sent: false, reason: 'Email not configured on server. Copy the invite link below.' }
+  }
+
+  const resend = new Resend(apiKey)
+
+  // Derive logo URL from the invite URL origin so it always points to the right environment
+  const logoUrl = new URL(inviteUrl).origin + '/logo.png'
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f9fafb;font-family:sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="100%" style="max-width:520px;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;">
+        <tr>
+          <td style="background:#1e2a3a;padding:24px 32px;text-align:center;">
+            <img src="${logoUrl}" alt="WarriorFIT AI"
+                 style="height:48px;width:auto;display:inline-block;" />
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:32px;">
+            <h1 style="margin:0 0 12px;font-size:22px;font-weight:700;color:#111827;">
+              Hi ${firstName},
+            </h1>
+            <p style="margin:0 0 8px;font-size:15px;color:#4b5563;line-height:1.6;">
+              <strong>${orgName}</strong> has been set up for you on WarriorFit AI.
+            </p>
+            <p style="margin:0 0 24px;font-size:15px;color:#4b5563;line-height:1.6;">
+              Click below to accept your invitation and set up your account.
+            </p>
+            <table cellpadding="0" cellspacing="0" style="margin:0 0 28px;">
+              <tr>
+                <td style="background:#f97316;border-radius:8px;">
+                  <a href="${inviteUrl}"
+                     style="display:inline-block;padding:14px 32px;color:#ffffff;
+                            font-size:15px;font-weight:700;text-decoration:none;">
+                    Accept Invitation →
+                  </a>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:0 0 24px;font-size:14px;color:#6b7280;line-height:1.6;">
+              Once you log in, you'll be able to manage your organization, invite clients, and configure your AI coach.
+            </p>
+            <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.6;">
+              If the button doesn't work, copy this link:<br>
+              <a href="${inviteUrl}" style="color:#f97316;word-break:break-all;">${inviteUrl}</a>
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background:#f9fafb;padding:16px 32px;border-top:1px solid #e5e7eb;">
+            <p style="margin:0;font-size:11px;color:#9ca3af;">
+              Questions? Reply to this email or contact jason@lwcvip.com
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`
+
+  const text = `Hi ${firstName},\n\n${orgName} has been set up for you on WarriorFit AI.\n\nClick below to accept your invitation and set up your account:\n${inviteUrl}\n\nOnce you log in, you'll be able to manage your organization, invite clients, and configure your AI coach.\n\nQuestions? Reply to this email or contact jason@lwcvip.com`
+
+  try {
+    const { error } = await resend.emails.send({
+      from:    fromAddr,
+      to:      [to],
+      subject: `You've been invited to manage ${orgName} on WarriorFit AI`,
+      html,
+      text,
+    })
+
+    if (error) {
+      console.error('[email] Resend error (org owner invite):', error.message ?? JSON.stringify(error))
+      return { sent: false, reason: error.message ?? 'Resend returned an error.' }
+    }
+
+    console.log(`[email] Org owner invite sent via Resend to ${to}`)
+    return { sent: true }
+  } catch (err) {
+    console.error('[email] Resend exception (org owner invite):', err.message)
+    return { sent: false, reason: err.message ?? 'Unexpected email error.' }
+  }
+}
+
 export async function sendInviteEmail({ to, firstName, inviteUrl }) {
   const apiKey   = process.env.RESEND_API_KEY
   const fromAddr = process.env.INVITE_EMAIL_FROM

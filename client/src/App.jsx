@@ -200,10 +200,18 @@ function PaymentRoute() {
   return <Payment />
 }
 
+// Health assessment is a client-only onboarding flow. Staff/org-admin roles are
+// never shown it — if userStateCache is already populated (the common case,
+// since this route is normally reached via ProtectedLayout's redirect) bounce
+// them straight to their dashboard instead. HealthAssessment.jsx itself has a
+// second check for the cold-navigation case where the cache isn't populated yet.
 function HealthAssessmentRoute() {
   const { isSignedIn, isLoaded } = useAuth()
   if (!isLoaded) return <LoadingScreen />
   if (!isSignedIn) return <Navigate to="/sign-in" replace />
+  if (userStateCache && userStateCache.role !== 'client') {
+    return <Navigate to={userStateCache.isOrgAdmin ? '/org/dashboard' : '/dashboard'} replace />
+  }
   return <HealthAssessment />
 }
 
