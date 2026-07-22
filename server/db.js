@@ -1887,6 +1887,32 @@ export async function runMigrations() {
   } catch (err) {
     console.error('[migrations] 001_multi_tenancy failed:', err.message)
   }
+
+  // One-time backfill: orgs that predate the owner_user_id column (or whose
+  // owner invite was accepted before that write path existed) are left with
+  // owner_user_id = NULL, which locks branding/settings saves to super admin
+  // only (see isOrgOwnerOrAdmin in organizations.js). Picks the earliest
+  // 'admin'-role user in that org as a reasonable stand-in for "the owner".
+  // Idempotent — WHERE owner_user_id IS NULL means it only ever touches rows
+  // still missing one.
+  try {
+    const { rowCount } = await pool.query(`
+      UPDATE organizations o
+      SET owner_user_id = admin_user.id
+      FROM (
+        SELECT DISTINCT ON (org_id) org_id, id
+        FROM users
+        WHERE role = 'admin' AND org_id IS NOT NULL
+        ORDER BY org_id, id ASC
+      ) admin_user
+      WHERE o.id = admin_user.org_id AND o.owner_user_id IS NULL
+    `)
+    if (rowCount > 0) {
+      console.log(`[migrations] backfilled owner_user_id for ${rowCount} organization(s)`)
+    }
+  } catch (err) {
+    console.error('[migrations] owner_user_id backfill failed:', err.message)
+  }
 }
 
 // Resolves the organization an internal user id belongs to. Falls back to 1

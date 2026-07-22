@@ -235,6 +235,17 @@ router.post('/staff/:token/accept', requireAuth(), async (req, res, next) => {
       [dbUserId, invite.id],
     )
 
+    // Org owner invites (invite.org_id set, from organizations.js's
+    // /:id/invite-owner) are the only path that creates the owning user for a
+    // brand-new org — claim ownership here if the org doesn't already have
+    // one. Never overwrites an existing owner_user_id.
+    if (invite.org_id) {
+      await pool.query(
+        `UPDATE organizations SET owner_user_id = $1 WHERE id = $2 AND owner_user_id IS NULL`,
+        [dbUserId, invite.org_id],
+      )
+    }
+
     // Org owners land on /org/dashboard, everyone else on /admin/clients
     const redirectTo = invite.org_id ? '/org/dashboard' : '/admin/clients'
     res.json({ ok: true, redirect_to: redirectTo })
