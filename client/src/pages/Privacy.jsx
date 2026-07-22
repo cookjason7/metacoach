@@ -52,7 +52,16 @@ export default function Privacy() {
           <p>
             If you connect a third-party health app (such as Google Health), we receive data from that service
             in accordance with its own privacy policies and the permissions you grant. You can disconnect these
-            integrations at any time from Settings.
+            integrations at any time from Settings. Our use of information received from Google APIs adheres to
+            the{' '}
+            <a
+              href="https://developers.google.com/terms/api-services-user-data-policy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[#E8670A] hover:text-[#c45e09]"
+            >
+              Google API Services User Data Policy
+            </a>, including the Limited Use requirements.
           </p>
         </section>
 
