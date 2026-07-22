@@ -476,6 +476,15 @@ export async function migrate() {
   await pool.query(`ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS image_url TEXT`)
   await pool.query(`ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS instructions TEXT`)
 
+  // Manual workout builder: sections (Warm-Up / Strength / Conditioning / Cool
+  // Down / custom) and groups (single exercise / superset / circuit) within a
+  // day. group_id ties 2+ exercise rows into one superset/circuit; group_label
+  // is the display tag ('A'/'B' for supersets, '1'/'2'/'3'… for circuits).
+  await pool.query(`ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS section_name TEXT`)
+  await pool.query(`ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS group_id TEXT`)
+  await pool.query(`ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS group_type TEXT NOT NULL DEFAULT 'exercise'`)
+  await pool.query(`ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS group_label TEXT`)
+
   // ── Workout scheduling ───────────────────────────────────────────────────────
   // Mirrors the coach_assigned_habits / habit_completions pattern, but assigns a
   // saved workout program's individual "day" onto the client's calendar. One row

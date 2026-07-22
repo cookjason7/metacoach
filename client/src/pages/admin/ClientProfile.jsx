@@ -7,6 +7,7 @@ import { API_URL } from '../../config.js'
 import BloodworkIntakeForm from '../../components/BloodworkIntakeForm.jsx'
 import LinkifiedText from '../../components/LinkifiedText.jsx'
 import ExerciseThumb from '../../components/ExerciseThumb.jsx'
+import { SECTION_PRESETS, buildGroups, sectionOrderFor, groupLabelFor, GROUP_TYPE_META } from '../../utils/workoutGrouping.js'
 
 // Display-only: "Day 1" -> "Day 1 Workout". Sequential day labels are the stored
 // identifier (used to match exercises/schedules); this never touches that value.
@@ -5534,20 +5535,6 @@ const WO_EMPTY_FORM = {
   program_direction: '',
 }
 
-// Movement patterns for the exercise-library search filter (mirrors the DB CHECK constraint)
-const MOVEMENT_PATTERNS = [
-  { id: 'squat_bilateral',  label: 'Squat' },
-  { id: 'squat_unilateral', label: 'Squat (Unilateral)' },
-  { id: 'hinge_bilateral',  label: 'Hinge' },
-  { id: 'hinge_unilateral', label: 'Hinge (Unilateral)' },
-  { id: 'upper_push',       label: 'Upper Push' },
-  { id: 'upper_pull',       label: 'Upper Pull' },
-  { id: 'core',             label: 'Core' },
-  { id: 'carry',            label: 'Carry' },
-  { id: 'conditioning',     label: 'Conditioning' },
-  { id: 'mobility',         label: 'Mobility' },
-]
-
 // ── Workout-scheduling date helpers (YYYY-MM-DD, local, no TZ shifts) ─────────
 function schedIsoToday() {
   const d = new Date()
@@ -5889,6 +5876,305 @@ function ScheduleWorkoutModal({ clientId, workout, dayLabels, getToken, onClose,
   )
 }
 
+// ── Manual builder: one exercise row within a group ────────────────────────────
+// 44px-min tap targets throughout per mobile requirements; up/down arrows (not
+// drag) so reordering works identically on touch and desktop.
+function ExerciseRow({ ex, label, isFirst, isLast, onMoveUp, onMoveDown, ctx }) {
+  function cell(field, val, type = 'text', placeholder = '—') {
+    const isEditing = ctx.editCell?.exId === ex.id && ctx.editCell?.field === field
+    return isEditing ? (
+      <input
+        autoFocus type={type} value={ctx.editVal}
+        onChange={e => ctx.setEditVal(e.target.value)}
+        onBlur={() => ctx.saveEdit(ex.id, field)}
+        onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') ctx.cancelEdit() }}
+        className="w-full border border-[#E8670A] rounded px-1.5 py-1 text-xs focus:outline-none bg-orange-50"
+        placeholder={placeholder}
+      />
+    ) : (
+      <span onClick={() => ctx.startEdit(ex.id, field, val)} title="Click to edit"
+        className="cursor-pointer hover:text-[#E8670A] transition-colors">
+        {val ?? <span className="text-gray-300">—</span>}
+      </span>
+    )
+  }
+  return (
+    <div className="bg-white border border-gray-100 rounded-lg px-3 py-2.5">
+      <div className="flex items-start gap-2">
+        {label && (
+          <span className="shrink-0 w-6 h-6 mt-0.5 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-[11px] font-bold text-gray-600">
+            {label}
+          </span>
+        )}
+        <span onClick={() => ex.image_url && ctx.setLightboxSrc(ex.image_url)} className={`shrink-0 ${ex.image_url ? 'cursor-zoom-in' : ''}`}>
+          <ExerciseThumb src={ex.image_url} alt={ex.exercise_name} />
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-900">{cell('exercise_name', ex.exercise_name)}</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 mt-1.5 text-xs text-gray-600">
+            <div><span className="text-[10px] text-gray-400 uppercase mr-1">Sets</span>{cell('sets', ex.sets, 'number', '3')}</div>
+            <div><span className="text-[10px] text-gray-400 uppercase mr-1">Reps</span>{cell('reps', ex.reps, 'text', '8-10')}</div>
+            <div><span className="text-[10px] text-gray-400 uppercase mr-1">Weight</span>{cell('weight', ex.weight, 'text', '135 lbs')}</div>
+            <div><span className="text-[10px] text-gray-400 uppercase mr-1">Rest</span>{cell('rest_seconds', ex.rest_seconds, 'number', '90')}</div>
+          </div>
+          <div className="mt-1.5 text-xs text-gray-500">{cell('notes', ex.notes, 'text', 'Instructions…')}</div>
+        </div>
+        <div className="shrink-0 flex flex-col items-center gap-0.5">
+          <button onClick={onMoveUp} disabled={isFirst} title="Move up"
+            className="w-11 h-11 flex items-center justify-center text-gray-300 hover:text-[#E8670A] disabled:opacity-20 disabled:cursor-not-allowed transition-colors">▲</button>
+          <button onClick={onMoveDown} disabled={isLast} title="Move down"
+            className="w-11 h-11 flex items-center justify-center text-gray-300 hover:text-[#E8670A] disabled:opacity-20 disabled:cursor-not-allowed transition-colors">▼</button>
+          <button onClick={() => ctx.deleteExercise(ex.id, ex.exercise_name)} title="Remove exercise"
+            className="w-11 h-11 flex items-center justify-center text-gray-300 hover:text-red-400 transition-colors font-bold">✕</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Manual builder: one group (single exercise / superset / circuit) ──────────
+function GroupBlock({ day, dayExs, sectionName, group, gIdx, isFirst, isLast, ctx }) {
+  const meta      = GROUP_TYPE_META[group.type] ?? GROUP_TYPE_META.exercise
+  const isGrouped = group.exercises.length > 1
+  return (
+    <div className={`rounded-lg ${isGrouped ? `border ${meta.tintCls} p-2` : ''}`}>
+      <div className="flex items-start gap-1">
+        <div className="flex flex-col items-center gap-0.5 pt-1 shrink-0">
+          <button onClick={() => ctx.moveGroup(day, dayExs, sectionName, gIdx, 'up')} disabled={isFirst} title="Move group up"
+            className="w-11 h-11 flex items-center justify-center text-gray-300 hover:text-[#E8670A] disabled:opacity-20 disabled:cursor-not-allowed">▲</button>
+          <button onClick={() => ctx.moveGroup(day, dayExs, sectionName, gIdx, 'down')} disabled={isLast} title="Move group down"
+            className="w-11 h-11 flex items-center justify-center text-gray-300 hover:text-[#E8670A] disabled:opacity-20 disabled:cursor-not-allowed">▼</button>
+        </div>
+        <div className="flex-1 min-w-0 space-y-1.5">
+          {isGrouped && (
+            <span className={`inline-block text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${meta.badgeCls}`}>
+              {meta.label} · {group.exercises.length} exercises
+            </span>
+          )}
+          {group.exercises.map((ex, exIdx) => (
+            <ExerciseRow
+              key={ex.id} ex={ex}
+              label={isGrouped ? groupLabelFor(group.type, exIdx) : null}
+              isFirst={exIdx === 0} isLast={exIdx === group.exercises.length - 1}
+              onMoveUp={() => ctx.moveExerciseInGroup(day, dayExs, sectionName, gIdx, exIdx, 'up')}
+              onMoveDown={() => ctx.moveExerciseInGroup(day, dayExs, sectionName, gIdx, exIdx, 'down')}
+              ctx={ctx}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Manual builder: inline "add exercise" form scoped to one section/group slot ─
+function AddExerciseForm({ ctx }) {
+  const t = ctx.addTarget
+  const headerLabel = t.groupType === 'exercise' ? 'Add Exercise'
+    : `${t.groupType === 'superset' ? 'Superset' : 'Circuit'} — Exercise ${t.label}`
+  return (
+    <form onSubmit={ctx.addExercise} className="bg-orange-50 border border-orange-200 rounded-xl p-3 space-y-2.5">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">{headerLabel}</p>
+        <button type="button" onClick={ctx.cancelAdd} title="Cancel"
+          className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 text-sm">✕</button>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="col-span-2 relative">
+          <label className="block text-[10px] font-medium text-gray-500 mb-0.5">
+            Exercise Name * <span className="text-gray-400 font-normal normal-case">(search library or type custom)</span>
+          </label>
+          <input
+            value={ctx.exForm.exercise_name}
+            onChange={e => {
+              const val = e.target.value
+              ctx.setExForm(f => ({ ...f, exercise_name: val, exercise_id: null }))
+              ctx.setExSuggestOpen(true)
+              ctx.searchExercises(val, '')
+            }}
+            onFocus={() => { if (ctx.exSuggestions.length) ctx.setExSuggestOpen(true) }}
+            onBlur={() => setTimeout(() => ctx.setExSuggestOpen(false), 150)}
+            required placeholder="e.g. Barbell Back Squat" className={ctx.inputCls} autoComplete="off"
+          />
+          {ctx.exForm.exercise_id && (
+            <span className="text-[10px] text-green-600 font-medium">✓ Linked to exercise library</span>
+          )}
+          {ctx.exSuggestOpen && ctx.exSuggestions.length > 0 && (
+            <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+              {ctx.exSuggestions.map(sug => (
+                <button key={sug.id} type="button" onMouseDown={() => ctx.pickSuggestedExercise(sug)}
+                  className="w-full text-left px-3 py-2.5 min-h-[44px] text-xs hover:bg-orange-50 transition-colors flex items-center gap-2 border-b border-gray-50 last:border-0">
+                  <span className="font-medium text-gray-800">{sug.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div>
+          <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Sets</label>
+          <input type="number" min="0" value={ctx.exForm.sets} onChange={e => ctx.setExForm(f => ({ ...f, sets: e.target.value }))}
+            placeholder="3" className={ctx.inputCls} />
+        </div>
+        <div>
+          <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Reps</label>
+          <input value={ctx.exForm.reps} onChange={e => ctx.setExForm(f => ({ ...f, reps: e.target.value }))}
+            placeholder="8-10" className={ctx.inputCls} />
+        </div>
+        <div>
+          <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Weight / Load</label>
+          <input value={ctx.exForm.weight} onChange={e => ctx.setExForm(f => ({ ...f, weight: e.target.value }))}
+            placeholder="135 lbs" className={ctx.inputCls} />
+        </div>
+        <div>
+          <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Rest (seconds)</label>
+          <input type="number" min="0" value={ctx.exForm.rest_seconds} onChange={e => ctx.setExForm(f => ({ ...f, rest_seconds: e.target.value }))}
+            placeholder="90" className={ctx.inputCls} />
+        </div>
+        <div className="col-span-2">
+          <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Instructions / Notes</label>
+          <input value={ctx.exForm.notes} onChange={e => ctx.setExForm(f => ({ ...f, notes: e.target.value }))}
+            placeholder="Focus on chest-to-bar, pause 1s at bottom…" className={ctx.inputCls} />
+        </div>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <button type="submit" disabled={ctx.addingEx || !ctx.exForm.exercise_name.trim()}
+          className="min-h-[44px] bg-[#E8670A] text-white px-5 rounded-lg text-xs font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
+          {ctx.addingEx ? 'Adding…' : t.groupType === 'circuit' ? `Add Exercise ${t.label}` : 'Add Exercise'}
+        </button>
+        {t.groupType === 'circuit' && t.slotIndex >= 2 && (
+          <button type="button" onClick={ctx.finishGroupAdd}
+            className="min-h-[44px] px-4 rounded-lg text-xs font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
+            Done — {t.slotIndex + 1} exercises
+          </button>
+        )}
+      </div>
+    </form>
+  )
+}
+
+// ── Manual builder: one section (Warm-Up / Strength / …) within a day ─────────
+function SectionBlock({ day, dayExs, section, isFirst, isLast, ctx }) {
+  const [collapsed, setCollapsed] = useState(false)
+  const isEditingName = ctx.editingSectionName?.day === day && ctx.editingSectionName?.name === section.name
+  const showPicker    = ctx.groupPicker?.day === day && ctx.groupPicker?.section === section.name
+  const showAddForm   = ctx.addTarget?.day === day && ctx.addTarget?.section === section.name
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 border-l-4 border-l-[#E8670A]/50 overflow-hidden">
+      <div className="flex items-center justify-between gap-2 px-3 py-2 bg-gray-50 border-b border-gray-100">
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          <button onClick={() => setCollapsed(c => !c)} title={collapsed ? 'Expand section' : 'Collapse section'}
+            className="w-9 h-9 shrink-0 flex items-center justify-center text-gray-400 hover:text-gray-600">
+            {collapsed ? '▸' : '▾'}
+          </button>
+          {isEditingName ? (
+            <input autoFocus value={ctx.editingSectionVal} onChange={e => ctx.setEditingSectionVal(e.target.value)}
+              onBlur={() => ctx.renameSection(day, dayExs, section.name, ctx.editingSectionVal)}
+              onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') ctx.setEditingSectionName(null) }}
+              className="text-sm font-semibold border border-[#E8670A] rounded px-2 py-1 min-h-[36px] focus:outline-none bg-orange-50 min-w-0 flex-1" />
+          ) : (
+            <button onClick={() => { ctx.setEditingSectionName({ day, name: section.name }); ctx.setEditingSectionVal(section.name) }}
+              title="Click to rename" className="text-sm font-semibold text-gray-800 hover:text-[#E8670A] transition-colors truncate text-left min-h-[36px]">
+              {section.name}
+            </button>
+          )}
+          <span className="text-[10px] text-gray-400 shrink-0">{section.exercises.length}</span>
+        </div>
+        <div className="flex items-center gap-0.5 shrink-0">
+          <button onClick={() => ctx.moveSection(day, dayExs, section.name, 'up')} disabled={isFirst} title="Move section up"
+            className="w-9 h-9 flex items-center justify-center text-gray-300 hover:text-[#E8670A] disabled:opacity-20 disabled:cursor-not-allowed">▲</button>
+          <button onClick={() => ctx.moveSection(day, dayExs, section.name, 'down')} disabled={isLast} title="Move section down"
+            className="w-9 h-9 flex items-center justify-center text-gray-300 hover:text-[#E8670A] disabled:opacity-20 disabled:cursor-not-allowed">▼</button>
+          {section.exercises.length === 0 && (
+            <button onClick={() => ctx.deleteSection(day, dayExs, section.name)} title="Delete empty section"
+              className="w-9 h-9 flex items-center justify-center text-gray-300 hover:text-red-400">✕</button>
+          )}
+        </div>
+      </div>
+
+      {!collapsed && (
+        <div className="p-2.5 space-y-2">
+          {section.groups.map((group, gIdx) => (
+            <GroupBlock
+              key={group.id} day={day} dayExs={dayExs} sectionName={section.name}
+              group={group} gIdx={gIdx}
+              isFirst={gIdx === 0} isLast={gIdx === section.groups.length - 1}
+              ctx={ctx}
+            />
+          ))}
+
+          {section.exercises.length === 0 && !showAddForm && !showPicker && (
+            <p className="text-xs text-gray-300 text-center py-2">No exercises yet</p>
+          )}
+
+          {showAddForm && <AddExerciseForm ctx={ctx} />}
+
+          {!showAddForm && (
+            <div className="flex items-center gap-2 flex-wrap pt-0.5">
+              <button onClick={() => ctx.startAddSingle(day, section.name)}
+                className="min-h-[44px] px-3 rounded-lg text-xs font-semibold text-[#E8670A] border border-[#E8670A]/40 hover:bg-orange-50 transition-colors">
+                + Add Exercise
+              </button>
+              <button onClick={() => ctx.setGroupPicker(showPicker ? null : { day, section: section.name })}
+                className="min-h-[44px] px-3 rounded-lg text-xs font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
+                + Add Group
+              </button>
+              {showPicker && (
+                <div className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-lg p-1">
+                  <button onClick={() => ctx.startAddGroup(day, section.name, 'superset')}
+                    className="min-h-[40px] px-2.5 rounded-md text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors">Superset</button>
+                  <button onClick={() => ctx.startAddGroup(day, section.name, 'circuit')}
+                    className="min-h-[40px] px-2.5 rounded-md text-xs font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 transition-colors">Circuit</button>
+                  <button onClick={() => ctx.setGroupPicker(null)}
+                    className="min-h-[40px] px-2 text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Manual builder: "+ Add Section" control (preset dropdown + custom name) ───
+function AddSectionControl({ day, dayExs, open, onOpen, onClose, customName, setCustomName, onAdd }) {
+  const order = sectionOrderFor(dayExs, null)
+  if (!open) {
+    return (
+      <button onClick={onOpen}
+        className="min-h-[44px] px-3 rounded-lg text-xs font-semibold text-gray-500 border border-dashed border-gray-300 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors">
+        + Add Section
+      </button>
+    )
+  }
+  return (
+    <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Add Section</p>
+        <button onClick={onClose} className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 text-sm">✕</button>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {SECTION_PRESETS.map(name => (
+          <button key={name} onClick={() => onAdd(name)}
+            className="min-h-[40px] px-3 rounded-full text-xs font-medium border border-gray-200 bg-white text-gray-600 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors">
+            {name}
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center gap-2">
+        <input value={customName} onChange={e => setCustomName(e.target.value)}
+          placeholder="Custom section name…"
+          className="flex-1 min-h-[40px] border border-gray-300 rounded-lg px-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30" />
+        <button onClick={() => onAdd(customName)} disabled={!customName.trim()}
+          className="min-h-[40px] px-4 rounded-lg text-xs font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] disabled:opacity-40 transition-colors">
+          Add
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function WorkoutsTab({ clientId, clientFirstName, getToken }) {
   const BASE = `${API_URL}/api/coach-admin/clients/${clientId}/workouts`
 
@@ -5920,15 +6206,25 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
   const [createDesc,   setCreateDesc]   = useState('')
   const [creating,     setCreating]     = useState(false)
 
-  // Add exercise form
-  const [showAddEx,    setShowAddEx]    = useState(false)
-  const [exForm,       setExForm]       = useState({ day: 'Day 1', exercise_name: '', exercise_id: null, sets: '', reps: '', weight: '', rest_seconds: '', notes: '' })
+  // Add exercise form — target is which day/section/group slot is being filled:
+  // { day, section, groupType: 'exercise'|'superset'|'circuit', groupId, label, slotIndex }
+  const [addTarget,    setAddTarget]    = useState(null)
+  const [exForm,       setExForm]       = useState({ exercise_name: '', exercise_id: null, sets: '', reps: '', weight: '', rest_seconds: '', notes: '' })
   const [addingEx,     setAddingEx]     = useState(false)
+  const [groupPicker,  setGroupPicker]  = useState(null)   // { day, section } — showing Single/Superset/Circuit choice
+
+  // Section management (manual builder): explicit per-day section order once the
+  // coach reorders/adds/renames/deletes — otherwise computed from defaults + data
+  const [sectionOverrides,   setSectionOverrides]   = useState({})   // { [day]: string[] }
+  const [editingSectionName, setEditingSectionName] = useState(null) // { day, name }
+  const [editingSectionVal,  setEditingSectionVal]  = useState('')
+  const [addingSectionFor,   setAddingSectionFor]   = useState(null) // day currently showing "+ Add Section"
+  const [customSectionName,  setCustomSectionName]  = useState('')
+  const [extraDays,          setExtraDays]          = useState([])   // day names created but with no exercises yet
 
   // Exercise library autocomplete (search-as-you-type + movement pattern filter)
   const [exSuggestions,   setExSuggestions]   = useState([])
   const [exSuggestOpen,   setExSuggestOpen]   = useState(false)
-  const [exPatternFilter, setExPatternFilter] = useState('')
   const exSearchTimer = useRef(null)
 
   function searchExercises(term, pattern) {
@@ -5979,6 +6275,11 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
   // ── Open a workout ─────────────────────────────────────────────────────────
   async function openWorkout(w) {
     setSelected(w); setDetailLoad(true); setExercises([]); setLogs([]); setError(null)
+    // Manual-builder UI state is scoped to whichever workout is open — reset it
+    // so leftovers (an empty placeholder day, an in-progress add) from the
+    // previously open workout don't leak into this one.
+    setExtraDays([]); setSectionOverrides({}); setAddTarget(null); setGroupPicker(null)
+    setAddingSectionFor(null); setCustomSectionName(''); setEditingSectionName(null)
     try {
       const token = await getToken()
       const res   = await fetch(`${BASE}/${w.id}`, { headers: { Authorization: `Bearer ${token}` } })
@@ -6145,15 +6446,178 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
     setSelected(null)
   }
 
+  // ── Section/group builder helpers ──────────────────────────────────────────
+  // A "day" here is a training day (Day 1, Day 2…); each day is now organized
+  // into named sections (Warm-Up/Strength/…), and each section into groups
+  // (single exercise / superset / circuit). Structure is derived from the flat
+  // `exercises` array (section_name/group_id/group_type/group_label columns)
+  // rather than held as separate nested state, so it can never drift from what
+  // was actually saved.
+  const blankExForm = { exercise_name: '', exercise_id: null, sets: '', reps: '', weight: '', rest_seconds: '', notes: '' }
+
+  function getDaySections(day, dayExs) {
+    const order = sectionOrderFor(dayExs, sectionOverrides[day])
+    return order.map(name => {
+      const secExs = dayExs.filter(e => (e.section_name || 'Strength') === name)
+      return { name, exercises: secExs, groups: buildGroups(secExs) }
+    })
+  }
+
+  function swapAdjacent(arr, idx, direction) {
+    const target = direction === 'up' ? idx - 1 : idx + 1
+    if (target < 0 || target >= arr.length) return null
+    const copy = [...arr]
+    ;[copy[idx], copy[target]] = [copy[target], copy[idx]]
+    return copy
+  }
+
+  // Flattens a day's section/group structure into fresh sort_order/section_name/
+  // group_id/group_type/group_label values, optimistically updates local state,
+  // then persists only the rows that actually changed.
+  async function persistDayStructure(day, sections) {
+    const patchMap = new Map()
+    let order = 0
+    for (const section of sections) {
+      for (const group of section.groups) {
+        const grouped = group.exercises.length > 1
+        group.exercises.forEach((ex, i) => {
+          patchMap.set(ex.id, {
+            sort_order:   order++,
+            section_name: section.name,
+            group_id:     grouped ? group.id : null,
+            group_type:   grouped ? group.type : 'exercise',
+            group_label:  grouped ? groupLabelFor(group.type, i) : null,
+          })
+        })
+      }
+    }
+    setExercises(prev => prev.map(e => {
+      const p = patchMap.get(e.id)
+      return p ? { ...e, ...p } : e
+    }))
+    const token = await getToken()
+    const jobs = []
+    for (const [exId, patch] of patchMap) {
+      const orig = exercises.find(e => e.id === exId)
+      if (!orig) continue
+      const changed = Object.entries(patch).some(([k, v]) => orig[k] !== v)
+      if (changed) {
+        jobs.push(fetch(`${BASE}/exercises/${exId}`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch),
+        }))
+      }
+    }
+    await Promise.all(jobs)
+  }
+
+  function moveSection(day, dayExs, sectionName, direction) {
+    const order    = sectionOrderFor(dayExs, sectionOverrides[day])
+    const sIdx     = order.indexOf(sectionName)
+    const newOrder = swapAdjacent(order, sIdx, direction)
+    if (!newOrder) return
+    setSectionOverrides(prev => ({ ...prev, [day]: newOrder }))
+    persistDayStructure(day, newOrder.map(name => {
+      const secExs = dayExs.filter(e => (e.section_name || 'Strength') === name)
+      return { name, groups: buildGroups(secExs) }
+    }))
+  }
+
+  function moveGroup(day, dayExs, sectionName, gIdx, direction) {
+    const sections  = getDaySections(day, dayExs)
+    const secIdx    = sections.findIndex(s => s.name === sectionName)
+    const newGroups = swapAdjacent(sections[secIdx].groups, gIdx, direction)
+    if (!newGroups) return
+    sections[secIdx] = { ...sections[secIdx], groups: newGroups }
+    persistDayStructure(day, sections)
+  }
+
+  function moveExerciseInGroup(day, dayExs, sectionName, gIdx, exIdx, direction) {
+    const sections = getDaySections(day, dayExs)
+    const secIdx   = sections.findIndex(s => s.name === sectionName)
+    const group    = sections[secIdx].groups[gIdx]
+    const newExs   = swapAdjacent(group.exercises, exIdx, direction)
+    if (!newExs) return
+    const newGroups = sections[secIdx].groups.map((g, i) => i === gIdx ? { ...g, exercises: newExs } : g)
+    sections[secIdx] = { ...sections[secIdx], groups: newGroups }
+    persistDayStructure(day, sections)
+  }
+
+  function renameSection(day, dayExs, oldName, newVal) {
+    setEditingSectionName(null)
+    const trimmed = newVal.trim()
+    if (!trimmed || trimmed === oldName) return
+    const order = sectionOrderFor(dayExs, sectionOverrides[day])
+    if (order.includes(trimmed)) { setError('A section with that name already exists on this day.'); return }
+    const sections = order.map(name => {
+      const secExs = dayExs.filter(e => (e.section_name || 'Strength') === name)
+      return { name: name === oldName ? trimmed : name, groups: buildGroups(secExs) }
+    })
+    setSectionOverrides(prev => ({ ...prev, [day]: order.map(n => n === oldName ? trimmed : n) }))
+    persistDayStructure(day, sections)
+  }
+
+  function addSection(day, dayExs, name) {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    const order = sectionOrderFor(dayExs, sectionOverrides[day])
+    if (order.includes(trimmed)) { setError('A section with that name already exists on this day.'); return }
+    setSectionOverrides(prev => ({ ...prev, [day]: [...order, trimmed] }))
+    setAddingSectionFor(null); setCustomSectionName('')
+  }
+
+  function deleteSection(day, dayExs, name) {
+    const secExs = dayExs.filter(e => (e.section_name || 'Strength') === name)
+    if (secExs.length > 0) return
+    const order = sectionOrderFor(dayExs, sectionOverrides[day]).filter(n => n !== name)
+    setSectionOverrides(prev => ({ ...prev, [day]: order }))
+  }
+
+  function addDay() {
+    const existing = new Set([...Object.keys(days), ...extraDays])
+    let n = 1
+    while (existing.has(`Day ${n}`)) n++
+    setExtraDays(prev => [...prev, `Day ${n}`])
+  }
+
+  function startAddSingle(day, section) {
+    setGroupPicker(null)
+    setExForm(blankExForm)
+    setAddTarget({ day, section, groupType: 'exercise', groupId: null, label: null, slotIndex: 0 })
+  }
+
+  function startAddGroup(day, section, groupType) {
+    setGroupPicker(null)
+    setExForm(blankExForm)
+    setAddTarget({
+      day, section, groupType,
+      groupId: crypto.randomUUID(),
+      label: groupLabelFor(groupType, 0),
+      slotIndex: 0,
+    })
+  }
+
+  function cancelAdd() {
+    setAddTarget(null)
+    setExSuggestions([]); setExSuggestOpen(false)
+  }
+
+  function finishGroupAdd() {
+    setAddTarget(null)
+    setExSuggestions([]); setExSuggestOpen(false)
+  }
+
   // ── Add exercise ───────────────────────────────────────────────────────────
   async function addExercise(e) {
     e.preventDefault()
-    if (!exForm.exercise_name.trim()) return
+    if (!exForm.exercise_name.trim() || !addTarget) return
     setAddingEx(true); setError(null)
     try {
       const token = await getToken()
+      const isGrouped = addTarget.groupType !== 'exercise'
       const body  = {
-        day:           exForm.day || 'Day 1',
+        day:           addTarget.day,
         exercise_name: exForm.exercise_name.trim(),
         exercise_id:   exForm.exercise_id ?? null,
         sets:          exForm.sets !== '' ? Number(exForm.sets) : null,
@@ -6162,6 +6626,10 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
         rest_seconds:  exForm.rest_seconds !== '' ? Number(exForm.rest_seconds) : null,
         notes:         exForm.notes || null,
         sort_order:    exercises.length,
+        section_name:  addTarget.section,
+        group_id:      isGrouped ? addTarget.groupId : null,
+        group_type:    isGrouped ? addTarget.groupType : 'exercise',
+        group_label:   isGrouped ? addTarget.label : null,
       }
       const res = await fetch(`${BASE}/${selected.id}/exercises`, {
         method: 'POST',
@@ -6171,9 +6639,20 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
       if (!res.ok) throw new Error('Failed to add exercise')
       const ex = await res.json()
       setExercises(prev => [...prev, ex])
-      setExForm({ day: exForm.day, exercise_name: '', exercise_id: null, sets: '', reps: '', weight: '', rest_seconds: '', notes: '' })
+      setExForm(blankExForm)
       setExSuggestions([]); setExSuggestOpen(false)
-      setShowAddEx(false)
+      // Once this day has at least one real exercise it no longer needs the
+      // placeholder entry that kept it visible while empty.
+      setExtraDays(prev => prev.filter(d => d !== addTarget.day))
+
+      if (addTarget.groupType === 'circuit') {
+        // Circuits keep the form open — coach adds as many as needed, then hits Done.
+        setAddTarget(t => ({ ...t, slotIndex: t.slotIndex + 1, label: groupLabelFor('circuit', t.slotIndex + 1) }))
+      } else if (addTarget.groupType === 'superset' && addTarget.slotIndex + 1 < 2) {
+        setAddTarget(t => ({ ...t, slotIndex: t.slotIndex + 1, label: groupLabelFor('superset', t.slotIndex + 1) }))
+      } else {
+        setAddTarget(null)
+      }
     } catch (err) { setError(err.message) } finally { setAddingEx(false) }
   }
 
@@ -6211,39 +6690,6 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
     if (res.ok) setExercises(prev => prev.filter(e => e.id !== exId))
   }
 
-  // ── Move exercise up / down within its day ─────────────────────────────────
-  async function moveExercise(exId, direction) {
-    const ex = exercises.find(e => e.id === exId)
-    if (!ex) return
-    // Get this day's exercises in current display order
-    const dayExs = exercises
-      .filter(e => e.day === ex.day)
-      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id)
-    const idx = dayExs.findIndex(e => e.id === exId)
-    const targetIdx = direction === 'up' ? idx - 1 : idx + 1
-    if (targetIdx < 0 || targetIdx >= dayExs.length) return
-    // Swap positions and assign clean sequential sort_orders
-    const reordered = [...dayExs]
-    ;[reordered[idx], reordered[targetIdx]] = [reordered[targetIdx], reordered[idx]]
-    const updates = reordered.map((e, i) => ({ id: e.id, sort_order: i }))
-    // Update locally for instant feedback
-    setExercises(prev => prev.map(e => {
-      const u = updates.find(u => u.id === e.id)
-      return u ? { ...e, sort_order: u.sort_order } : e
-    }))
-    // Persist the two swapped exercises to the server
-    const token = await getToken()
-    await Promise.all(
-      updates
-        .filter(u => u.id === exId || u.id === dayExs[targetIdx].id)
-        .map(u => fetch(`${BASE}/exercises/${u.id}`, {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sort_order: u.sort_order }),
-        }))
-    )
-  }
-
   // ── Group exercises by day, sorted by sort_order then id ──────────────────
   const days = exercises.reduce((acc, ex) => {
     if (!acc[ex.day]) acc[ex.day] = []
@@ -6253,6 +6699,14 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
   Object.values(days).forEach(exs =>
     exs.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id)
   )
+  // Days created via "+ Add Day" that have no exercises yet still need a slot
+  // to render (they don't exist in `exercises`, so `days` alone won't have them).
+  for (const d of extraDays) if (!days[d]) days[d] = []
+  const dayNames = Object.keys(days).sort((a, b) => {
+    const na = parseInt(String(a).match(/\d+/)?.[0] ?? '0', 10)
+    const nb = parseInt(String(b).match(/\d+/)?.[0] ?? '0', 10)
+    return na - nb
+  })
 
   const inputCls = 'w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30'
 
@@ -6751,6 +7205,17 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
   }
 
   // ── Workout detail / edit view ─────────────────────────────────────────────
+  const sectionCtx = {
+    inputCls, editCell, editVal, setEditVal, startEdit, cancelEdit, saveEdit, cellSaving,
+    moveSection, moveGroup, moveExerciseInGroup, renameSection, deleteSection,
+    deleteExercise, setLightboxSrc,
+    editingSectionName, setEditingSectionName, editingSectionVal, setEditingSectionVal,
+    groupPicker, setGroupPicker, addTarget,
+    startAddSingle, startAddGroup, cancelAdd, finishGroupAdd,
+    exForm, setExForm, exSuggestions, exSuggestOpen, setExSuggestOpen, searchExercises, pickSuggestedExercise,
+    addExercise, addingEx,
+  }
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -6782,7 +7247,7 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
                 {assigningDraft ? 'Assigning…' : 'Assign to Client'}
               </button>
             )}
-            {Object.keys(days).length > 0 && (
+            {dayNames.length > 0 && (
               <button
                 onClick={() => setScheduling(true)}
                 className="bg-[#0F1E35] text-white px-3 py-2 rounded-lg text-xs font-semibold hover:bg-[#1b2f52] transition-colors min-h-[36px] flex items-center gap-1"
@@ -6791,10 +7256,10 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
               </button>
             )}
             <button
-              onClick={() => setShowAddEx(a => !a)}
+              onClick={addDay}
               className="bg-[#E8670A] text-white px-3 py-2 rounded-lg text-xs font-semibold hover:bg-[#c45e09] transition-colors min-h-[36px]"
             >
-              {showAddEx ? 'Cancel' : '+ Add Exercise'}
+              + Add Day
             </button>
             <button
               onClick={deleteWorkout}
@@ -6820,7 +7285,7 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
         <ScheduleWorkoutModal
           clientId={clientId}
           workout={selected}
-          dayLabels={Object.keys(days)}
+          dayLabels={dayNames}
           getToken={getToken}
           onClose={() => setScheduling(false)}
           onScheduled={(count) => {
@@ -6831,216 +7296,48 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
         />
       )}
 
-      {/* Add exercise form */}
-      {showAddEx && (
-        <form onSubmit={addExercise} className="bg-orange-50 border border-orange-200 rounded-xl p-4 space-y-3">
-          <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Add Exercise</p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            <div className="col-span-2 sm:col-span-1">
-              <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Day / Session</label>
-              {(() => {
-                const dayKeys = Object.keys(days)
-                const nextDay = `Day ${dayKeys.length + 1}`
-                const dayOptions = dayKeys.includes(nextDay) ? dayKeys : [...dayKeys, nextDay]
-                return (
-                  <select value={exForm.day || nextDay} onChange={e => setExForm(f => ({ ...f, day: e.target.value }))}
-                    className={inputCls}>
-                    {dayOptions.map(d => (
-                      <option key={d} value={d}>{formatDayLabel(d)}{!dayKeys.includes(d) ? ' (new)' : ''}</option>
-                    ))}
-                  </select>
-                )
-              })()}
-            </div>
-            <div className="col-span-2 sm:col-span-1 relative">
-              <label className="block text-[10px] font-medium text-gray-500 mb-0.5">
-                Exercise Name * <span className="text-gray-400 font-normal normal-case">(search library or type custom)</span>
-              </label>
-              <input
-                value={exForm.exercise_name}
-                onChange={e => {
-                  const val = e.target.value
-                  setExForm(f => ({ ...f, exercise_name: val, exercise_id: null }))
-                  setExSuggestOpen(true)
-                  searchExercises(val, exPatternFilter)
-                }}
-                onFocus={() => { if (exSuggestions.length) setExSuggestOpen(true) }}
-                onBlur={() => setTimeout(() => setExSuggestOpen(false), 150)}
-                required placeholder="e.g. Barbell Back Squat" className={inputCls} autoComplete="off"
-              />
-              {exForm.exercise_id && (
-                <span className="text-[10px] text-green-600 font-medium">✓ Linked to exercise library</span>
-              )}
-              {exSuggestOpen && exSuggestions.length > 0 && (
-                <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
-                  {exSuggestions.map(sug => (
-                    <button key={sug.id} type="button" onMouseDown={() => pickSuggestedExercise(sug)}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-orange-50 transition-colors flex items-center justify-between gap-2 border-b border-gray-50 last:border-0">
-                      <span className="font-medium text-gray-800">{sug.name}</span>
-                      <span className="shrink-0 text-[10px] text-gray-400">
-                        {MOVEMENT_PATTERNS.find(p => p.id === sug.movement_pattern)?.label ?? sug.movement_pattern}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div>
-              <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Filter by Pattern</label>
-              <select value={exPatternFilter}
-                onChange={e => { setExPatternFilter(e.target.value); searchExercises(exForm.exercise_name, e.target.value); setExSuggestOpen(true) }}
-                className={inputCls}>
-                <option value="">All patterns</option>
-                {MOVEMENT_PATTERNS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Sets</label>
-              <input type="number" min="0" value={exForm.sets} onChange={e => setExForm(f => ({ ...f, sets: e.target.value }))}
-                placeholder="3" className={inputCls} />
-            </div>
-            <div>
-              <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Reps</label>
-              <input value={exForm.reps} onChange={e => setExForm(f => ({ ...f, reps: e.target.value }))}
-                placeholder="8-10" className={inputCls} />
-            </div>
-            <div>
-              <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Weight / Load</label>
-              <input value={exForm.weight} onChange={e => setExForm(f => ({ ...f, weight: e.target.value }))}
-                placeholder="135 lbs" className={inputCls} />
-            </div>
-            <div>
-              <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Rest (seconds)</label>
-              <input type="number" min="0" value={exForm.rest_seconds} onChange={e => setExForm(f => ({ ...f, rest_seconds: e.target.value }))}
-                placeholder="90" className={inputCls} />
-            </div>
-            <div className="col-span-2 sm:col-span-3">
-              <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Exercise Instructions / Notes</label>
-              <input value={exForm.notes} onChange={e => setExForm(f => ({ ...f, notes: e.target.value }))}
-                placeholder="Focus on chest-to-bar, pause 1s at bottom…" className={inputCls} />
-            </div>
-          </div>
-          <button type="submit" disabled={addingEx || !exForm.exercise_name.trim()}
-            className="bg-[#E8670A] text-white px-5 py-2 rounded-lg text-xs font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
-            {addingEx ? 'Adding…' : 'Add Exercise'}
-          </button>
-        </form>
-      )}
-
       {detailLoad && <p className="text-sm text-gray-400 text-center py-6">Loading…</p>}
 
-      {/* Exercise table grouped by day */}
-      {!detailLoad && Object.entries(days).map(([dayName, exs]) => (
-        <div key={dayName} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="bg-[#0F1E35] px-4 py-2.5 flex items-center justify-between">
-            <p className="text-sm font-semibold text-white">{formatDayLabel(dayName)}</p>
-            <span className="text-[10px] text-white/50">{exs.length} exercise{exs.length !== 1 ? 's' : ''}</span>
+      {/* Days → sections → groups (single / superset / circuit) */}
+      {!detailLoad && dayNames.map(dayName => {
+        const dayExs  = days[dayName]
+        const sections = getDaySections(dayName, dayExs)
+        return (
+          <div key={dayName} className="space-y-2">
+            <div className="bg-[#0F1E35] px-4 py-2.5 rounded-xl flex items-center justify-between">
+              <p className="text-sm font-semibold text-white">{formatDayLabel(dayName)}</p>
+              <span className="text-[10px] text-white/50">{dayExs.length} exercise{dayExs.length !== 1 ? 's' : ''}</span>
+            </div>
+            {sections.map((section, sIdx) => (
+              <SectionBlock
+                key={section.name}
+                day={dayName}
+                dayExs={dayExs}
+                section={section}
+                isFirst={sIdx === 0}
+                isLast={sIdx === sections.length - 1}
+                ctx={sectionCtx}
+              />
+            ))}
+            <AddSectionControl
+              day={dayName} dayExs={dayExs}
+              open={addingSectionFor === dayName}
+              onOpen={() => setAddingSectionFor(dayName)}
+              onClose={() => { setAddingSectionFor(null); setCustomSectionName('') }}
+              customName={customSectionName}
+              setCustomName={setCustomSectionName}
+              onAdd={(name) => addSection(dayName, dayExs, name)}
+            />
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs min-w-[580px]">
-              <thead className="bg-gray-50 border-b border-gray-100">
-                <tr>
-                  <th className="text-left px-3 py-2 font-semibold text-gray-500">Exercise</th>
-                  <th className="text-center px-2 py-2 font-semibold text-gray-500 w-14">Sets</th>
-                  <th className="text-center px-2 py-2 font-semibold text-gray-500 w-20">Reps</th>
-                  <th className="text-center px-2 py-2 font-semibold text-gray-500 w-24">Weight</th>
-                  <th className="text-center px-2 py-2 font-semibold text-gray-500 w-16">Rest</th>
-                  <th className="text-left px-3 py-2 font-semibold text-gray-500">Instructions</th>
-                  <th className="w-12 text-center px-1 py-2 font-semibold text-gray-400 text-[10px]">Order</th>
-                  <th className="w-8" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {exs.map((ex, exIdx) => {
-                  const isFirst = exIdx === 0
-                  const isLast  = exIdx === exs.length - 1
-                  function cell(field, val, type = 'text', placeholder = '—') {
-                    const isEditing = editCell?.exId === ex.id && editCell?.field === field
-                    return isEditing ? (
-                      <input
-                        autoFocus
-                        type={type}
-                        value={editVal}
-                        onChange={e => setEditVal(e.target.value)}
-                        onBlur={() => saveEdit(ex.id, field)}
-                        onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') cancelEdit() }}
-                        className="w-full border border-[#E8670A] rounded px-1.5 py-0.5 text-xs focus:outline-none bg-orange-50"
-                        placeholder={placeholder}
-                      />
-                    ) : (
-                      <span
-                        onClick={() => startEdit(ex.id, field, val)}
-                        title="Click to edit"
-                        className="cursor-pointer hover:text-[#E8670A] transition-colors"
-                      >
-                        {val ?? <span className="text-gray-300">—</span>}
-                      </span>
-                    )
-                  }
-                  return (
-                    <tr key={ex.id} className="hover:bg-gray-50/40">
-                      <td className="px-3 py-2.5 font-medium text-gray-900">
-                        <div className="flex items-center gap-2">
-                          <span onClick={() => ex.image_url && setLightboxSrc(ex.image_url)} className={ex.image_url ? 'cursor-zoom-in' : ''}>
-                            <ExerciseThumb src={ex.image_url} alt={ex.exercise_name} />
-                          </span>
-                          {cell('exercise_name', ex.exercise_name)}
-                        </div>
-                      </td>
-                      <td className="px-2 py-2.5 text-center text-gray-600">
-                        {cell('sets', ex.sets, 'number', '3')}
-                      </td>
-                      <td className="px-2 py-2.5 text-center text-gray-600">
-                        {cell('reps', ex.reps, 'text', '8-10')}
-                      </td>
-                      <td className="px-2 py-2.5 text-center text-gray-600">
-                        {cell('weight', ex.weight, 'text', '135 lbs')}
-                      </td>
-                      <td className="px-2 py-2.5 text-center text-gray-500">
-                        {cell('rest_seconds', ex.rest_seconds, 'number', '90')}
-                      </td>
-                      <td className="px-3 py-2.5 text-gray-500 max-w-[200px]">
-                        {cell('notes', ex.notes, 'text', 'Instructions…')}
-                      </td>
-                      {/* ↑ / ↓ reorder buttons */}
-                      <td className="px-1 py-2.5 text-center w-12">
-                        <div className="flex flex-col items-center gap-0.5">
-                          <button
-                            onClick={() => moveExercise(ex.id, 'up')}
-                            disabled={isFirst}
-                            title="Move up"
-                            className="text-gray-300 hover:text-[#E8670A] disabled:opacity-20 disabled:cursor-not-allowed transition-colors text-xs leading-none px-1 py-0.5 min-h-[20px]"
-                          >▲</button>
-                          <button
-                            onClick={() => moveExercise(ex.id, 'down')}
-                            disabled={isLast}
-                            title="Move down"
-                            className="text-gray-300 hover:text-[#E8670A] disabled:opacity-20 disabled:cursor-not-allowed transition-colors text-xs leading-none px-1 py-0.5 min-h-[20px]"
-                          >▼</button>
-                        </div>
-                      </td>
-                      <td className="px-2 py-2.5 text-center">
-                        <button
-                          onClick={() => deleteExercise(ex.id, ex.exercise_name)}
-                          className="text-gray-300 hover:text-red-400 transition-colors font-bold text-sm"
-                          title="Remove exercise"
-                        >✕</button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-          {cellSaving && <p className="text-[10px] text-gray-400 px-3 py-1">Saving…</p>}
-        </div>
-      ))}
+        )
+      })}
 
-      {!detailLoad && exercises.length === 0 && (
+      {!detailLoad && dayNames.length === 0 && (
         <p className="text-sm text-gray-400 text-center py-6 bg-white rounded-xl border border-gray-200">
-          No exercises yet. Click "+ Add Exercise" to build this program.
+          No days yet. Click "+ Add Day" to build this program.
         </p>
       )}
+      {cellSaving && <p className="text-[10px] text-gray-400 px-1">Saving…</p>}
 
       {/* Recent logs */}
       {logs.length > 0 && (
