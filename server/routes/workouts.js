@@ -122,7 +122,7 @@ router.get('/:id', requireAuth(), async (req, res, next) => {
                    ORDER BY id LIMIT 1)
               ) AS image_url
        FROM workout_exercises we
-       WHERE we.workout_id = $1 ORDER BY we.id`,
+       WHERE we.workout_id = $1 ORDER BY we.sort_order, we.id`,
       [workoutId],
     )
 

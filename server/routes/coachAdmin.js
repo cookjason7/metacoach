@@ -3906,11 +3906,19 @@ router.post('/clients/:id/workouts/:wid/exercises', requireAuth(), async (req, r
     const { rows: [w] } = await pool.query(
       'SELECT id FROM workouts WHERE id=$1 AND user_id=$2', [workoutId, clientId])
     if (!w) return res.status(404).json({ error: 'Workout not found' })
-    const { day, exercise_name, exercise_id, sets, reps, weight, rest_seconds, notes, sort_order } = req.body
+    const {
+      day, exercise_name, exercise_id, sets, reps, weight, rest_seconds, notes, sort_order,
+      section_name, group_id, group_type, group_label,
+    } = req.body
     if (!exercise_name?.trim()) return res.status(400).json({ error: 'exercise_name required' })
+    if (group_type && !['exercise', 'superset', 'circuit'].includes(group_type)) {
+      return res.status(400).json({ error: 'group_type must be exercise, superset, or circuit' })
+    }
     const { rows: [ex] } = await pool.query(
-      `INSERT INTO workout_exercises (workout_id, day, exercise_name, exercise_id, sets, reps, weight, rest_seconds, notes, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      `INSERT INTO workout_exercises
+         (workout_id, day, exercise_name, exercise_id, sets, reps, weight, rest_seconds, notes, sort_order,
+          section_name, group_id, group_type, group_label)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING *, COALESCE(
          (SELECT image_url FROM exercises WHERE id = workout_exercises.exercise_id),
          (SELECT image_url FROM exercises
@@ -3919,7 +3927,8 @@ router.post('/clients/:id/workouts/:wid/exercises', requireAuth(), async (req, r
             ORDER BY id LIMIT 1)
        ) AS image_url`,
       [workoutId, day ?? 'Day 1', exercise_name.trim(), exercise_id ?? null, sets ?? null, reps ?? null,
-       weight ?? null, rest_seconds ?? null, notes ?? null, sort_order ?? 0],
+       weight ?? null, rest_seconds ?? null, notes ?? null, sort_order ?? 0,
+       section_name ?? null, group_id ?? null, group_type ?? 'exercise', group_label ?? null],
     )
     res.status(201).json(ex)
   } catch (err) { next(err) }
@@ -3937,9 +3946,15 @@ router.put('/clients/:id/workouts/exercises/:eid', requireAuth(), async (req, re
       `SELECT we.* FROM workout_exercises we JOIN workouts w ON w.id=we.workout_id
        WHERE we.id=$1 AND w.user_id=$2`, [exId, clientId])
     if (!ex) return res.status(404).json({ error: 'Exercise not found' })
-    const allowed = ['exercise_name', 'exercise_id', 'sets', 'reps', 'weight', 'rest_seconds', 'notes', 'day', 'sort_order']
+    const allowed = [
+      'exercise_name', 'exercise_id', 'sets', 'reps', 'weight', 'rest_seconds', 'notes', 'day', 'sort_order',
+      'section_name', 'group_id', 'group_type', 'group_label',
+    ]
     const entries = Object.entries(req.body).filter(([k]) => allowed.includes(k))
     if (!entries.length) return res.status(400).json({ error: 'No valid fields' })
+    if (entries.some(([k, v]) => k === 'group_type' && !['exercise', 'superset', 'circuit'].includes(v))) {
+      return res.status(400).json({ error: 'group_type must be exercise, superset, or circuit' })
+    }
     const setClauses = entries.map(([k], i) => `${k}=$${i + 2}`).join(', ')
     const { rows: [updated] } = await pool.query(
       `UPDATE workout_exercises SET ${setClauses} WHERE id=$1

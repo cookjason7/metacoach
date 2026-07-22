@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 import ExerciseThumb from '../components/ExerciseThumb.jsx'
+import { buildSections, groupLabelFor, GROUP_TYPE_META } from '../utils/workoutGrouping.js'
 
 // Display-only: "Day 1" -> "Day 1 Workout". Sequential day labels are the stored
 // identifier (used to match exercises/schedules); this never touches that value.
@@ -462,6 +463,121 @@ function ProgramDescription({ text }) {
   )
 }
 
+// ── Read-only section/group block (client view) ───────────────────────────────
+// Renders one named section (Warm-Up / Strength / …) of a day, with its
+// exercises grouped into supersets/circuits where applicable. Coaches build
+// this structure in the admin editor; clients see it here but can't edit it.
+
+function ReadOnlyGroupBadge({ type }) {
+  const meta = GROUP_TYPE_META[type]
+  if (!meta?.label) return null
+  return (
+    <span className={`inline-block text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${meta.badgeCls}`}>
+      {meta.label}
+    </span>
+  )
+}
+
+function ReadOnlySectionBlock({ section }) {
+  if (section.exercises.length === 0) return null
+  return (
+    <div>
+      <div className="px-5 py-2 bg-gray-50 border-b border-gray-100">
+        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{section.name}</span>
+      </div>
+      {section.groups.map(group => {
+        const isGroup = group.exercises.length > 1
+        const tintCls = isGroup ? GROUP_TYPE_META[group.type]?.tintCls : ''
+        return (
+          <div key={group.id} className={tintCls}>
+            {isGroup && (
+              <div className="px-5 pt-2.5 pb-1">
+                <ReadOnlyGroupBadge type={group.type} />
+              </div>
+            )}
+            {/* Mobile cards */}
+            <div className="lg:hidden divide-y divide-gray-100">
+              {group.exercises.map((ex, i) => (
+                <div key={ex.id} className="p-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    {isGroup && (
+                      <span className="shrink-0 w-6 h-6 rounded-full bg-white border border-gray-300 flex items-center justify-center text-[11px] font-bold text-gray-600">
+                        {groupLabelFor(group.type, i)}
+                      </span>
+                    )}
+                    <ExerciseThumb src={ex.image_url} alt={ex.exercise_name} />
+                    <p className="text-sm font-semibold text-gray-900">{ex.exercise_name}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[['Sets', ex.sets], ['Reps', ex.reps], ['Weight', ex.weight], ['Rest', ex.rest_seconds ? `${ex.rest_seconds}s` : null]].map(([label, val]) => (
+                      <div key={label} className="bg-gray-50 rounded-lg py-2 px-3 text-center">
+                        <p className="text-[10px] text-gray-400 uppercase tracking-wide">{label}</p>
+                        <p className="text-sm font-medium text-gray-700 mt-0.5">{val ?? '—'}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {ex.notes && (
+                    <p className="text-xs text-gray-500 mt-2 italic">
+                      <span className="font-medium text-gray-600 not-italic">Coach note: </span>
+                      {ex.notes}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop table */}
+            <div className="hidden lg:block overflow-x-auto">
+              <table className="w-full text-sm">
+                {isGroup && (
+                  <colgroup><col className="w-10" /></colgroup>
+                )}
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    {isGroup && <th className="w-10" />}
+                    <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500">Exercise</th>
+                    <th className="text-center px-3 py-2 text-xs font-semibold text-gray-500 w-16">Sets</th>
+                    <th className="text-center px-3 py-2 text-xs font-semibold text-gray-500 w-24">Reps</th>
+                    <th className="text-center px-3 py-2 text-xs font-semibold text-gray-500 w-24">Weight</th>
+                    <th className="text-center px-3 py-2 text-xs font-semibold text-gray-500 w-16">Rest</th>
+                    <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500">Coach Notes</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {group.exercises.map((ex, i) => (
+                    <tr key={ex.id} className="hover:bg-gray-50/30">
+                      {isGroup && (
+                        <td className="text-center">
+                          <span className="inline-flex w-6 h-6 rounded-full bg-white border border-gray-300 items-center justify-center text-[11px] font-bold text-gray-600">
+                            {groupLabelFor(group.type, i)}
+                          </span>
+                        </td>
+                      )}
+                      <td className="px-4 py-3 font-medium text-gray-900">
+                        <div className="flex items-center gap-3">
+                          <ExerciseThumb src={ex.image_url} alt={ex.exercise_name} />
+                          <span>{ex.exercise_name}</span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-3 text-center text-gray-600">{ex.sets ?? '—'}</td>
+                      <td className="px-3 py-3 text-center text-gray-600">{ex.reps ?? '—'}</td>
+                      <td className="px-3 py-3 text-center text-gray-600">{ex.weight ?? '—'}</td>
+                      <td className="px-3 py-3 text-center text-gray-400 text-xs">
+                        {ex.rest_seconds ? `${ex.rest_seconds}s` : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-400 italic">{ex.notes ?? ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── Program Detail — read-only client view ────────────────────────────────────
 
 function ProgramDetail({ program, onBack }) {
@@ -538,74 +654,19 @@ function ProgramDetail({ program, onBack }) {
 
       {loading && <p className="text-sm text-gray-400 py-10 text-center">Loading…</p>}
 
-      {!loading && Object.entries(days).map(([dayName, exs]) => (
-        <div key={dayName} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="bg-[#0F1E35] px-5 py-3">
-            <p className="text-sm font-semibold text-white">{formatDayLabel(dayName)}</p>
-          </div>
-
-          {/* Mobile cards — read-only */}
-          <div className="lg:hidden divide-y divide-gray-100">
-            {exs.map(ex => (
-              <div key={ex.id} className="p-4">
-                <div className="flex items-center gap-3 mb-3">
-                  <ExerciseThumb src={ex.image_url} alt={ex.exercise_name} />
-                  <p className="text-sm font-semibold text-gray-900">{ex.exercise_name}</p>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {[['Sets', ex.sets], ['Reps', ex.reps], ['Weight', ex.weight], ['Rest', ex.rest_seconds ? `${ex.rest_seconds}s` : null]].map(([label, val]) => (
-                    <div key={label} className="bg-gray-50 rounded-lg py-2 px-3 text-center">
-                      <p className="text-[10px] text-gray-400 uppercase tracking-wide">{label}</p>
-                      <p className="text-sm font-medium text-gray-700 mt-0.5">{val ?? '—'}</p>
-                    </div>
-                  ))}
-                </div>
-                {ex.notes && (
-                  <p className="text-xs text-gray-500 mt-2 italic">
-                    <span className="font-medium text-gray-600 not-italic">Coach note: </span>
-                    {ex.notes}
-                  </p>
-                )}
-              </div>
+      {!loading && Object.entries(days).map(([dayName, exs]) => {
+        const sections = buildSections(exs)
+        return (
+          <div key={dayName} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="bg-[#0F1E35] px-5 py-3">
+              <p className="text-sm font-semibold text-white">{formatDayLabel(dayName)}</p>
+            </div>
+            {sections.map(section => (
+              <ReadOnlySectionBlock key={section.name} section={section} />
             ))}
           </div>
-
-          {/* Desktop table — read-only */}
-          <div className="hidden lg:block overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-100">
-                <tr>
-                  <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500">Exercise</th>
-                  <th className="text-center px-3 py-2 text-xs font-semibold text-gray-500 w-16">Sets</th>
-                  <th className="text-center px-3 py-2 text-xs font-semibold text-gray-500 w-24">Reps</th>
-                  <th className="text-center px-3 py-2 text-xs font-semibold text-gray-500 w-24">Weight</th>
-                  <th className="text-center px-3 py-2 text-xs font-semibold text-gray-500 w-16">Rest</th>
-                  <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500">Coach Notes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {exs.map(ex => (
-                  <tr key={ex.id} className="hover:bg-gray-50/30">
-                    <td className="px-4 py-3 font-medium text-gray-900">
-                      <div className="flex items-center gap-3">
-                        <ExerciseThumb src={ex.image_url} alt={ex.exercise_name} />
-                        <span>{ex.exercise_name}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 text-center text-gray-600">{ex.sets ?? '—'}</td>
-                    <td className="px-3 py-3 text-center text-gray-600">{ex.reps ?? '—'}</td>
-                    <td className="px-3 py-3 text-center text-gray-600">{ex.weight ?? '—'}</td>
-                    <td className="px-3 py-3 text-center text-gray-400 text-xs">
-                      {ex.rest_seconds ? `${ex.rest_seconds}s` : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-400 italic">{ex.notes ?? ''}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ))}
+        )
+      })}
 
       {!loading && logs.length > 0 && (
         <div>
