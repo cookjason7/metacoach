@@ -1,8 +1,32 @@
 import { Router } from 'express'
 import { requireAuth } from '@clerk/express'
+import multer from 'multer'
+import { v2 as cloudinary } from 'cloudinary'
 import { pool, isAdminEmail } from '../db.js'
 import { sendInviteEmail, sendOrgOwnerInviteEmail } from '../services/email.js'
 import { getAppBaseUrl } from '../services/appUrl.js'
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key:    process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+})
+
+const uploadLogoMulter = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => cb(null, !!file.mimetype?.startsWith('image/')),
+})
+
+function uploadLogoToCloudinary(buffer) {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: 'metacoach/org-logos' },
+      (err, result) => (err ? reject(err) : resolve(result)),
+    )
+    stream.end(buffer)
+  })
+}
 
 const router = Router()
 
@@ -403,6 +427,18 @@ router.get('/mine', requireAuth(), async (req, res, next) => {
     `, [orgId])
     if (!rows.length) return res.status(404).json({ error: 'Organization not found' })
     res.json(rows[0])
+  } catch (err) { next(err) }
+})
+
+// POST /api/organizations/mine/logo — org owner/admin only. Uploads a logo
+// image to Cloudinary and returns its URL; the client then PATCHes /mine with
+// logo_url separately, mirroring the upload-then-save pattern in staffChat.js.
+router.post('/mine/logo', requireAuth(), uploadLogoMulter.single('logo'), async (req, res, next) => {
+  try {
+    if (!await isOrgOwnerOrAdmin(req)) return res.status(403).json({ error: 'Admin only' })
+    if (!req.file) return res.status(400).json({ error: 'No image file received' })
+    const result = await uploadLogoToCloudinary(req.file.buffer)
+    res.json({ url: result.secure_url })
   } catch (err) { next(err) }
 })
 

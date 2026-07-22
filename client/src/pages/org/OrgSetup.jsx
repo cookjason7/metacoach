@@ -59,23 +59,49 @@ function Field({ label, hint, children }) {
 const inputCls = 'w-full min-h-11 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]'
 const textareaCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] min-h-[88px]'
 
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
+const DEFAULT_COLOR = '#f97316'
+
 // ── Branding tab ──────────────────────────────────────────────────────────────
 
 function BrandingTab({ org, onSaved, getToken }) {
   const [form, setForm] = useState({
     name:          org.name ?? '',
     brand_name:    org.brand_name ?? '',
-    primary_color: org.primary_color ?? '#f97316',
+    primary_color: org.primary_color ?? DEFAULT_COLOR,
     logo_url:      org.logo_url ?? '',
   })
-  const [saving, setSaving] = useState(false)
-  const [error,  setError]  = useState(null)
-  const [saved,  setSaved]  = useState(false)
+  const [saving,    setSaving]    = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [error,     setError]     = useState(null)
+  const [saved,     setSaved]     = useState(false)
 
   function set(field, val) { setForm(f => ({ ...f, [field]: val })); setSaved(false) }
 
+  async function uploadLogo(file) {
+    setUploading(true); setError(null)
+    try {
+      const token = await getToken()
+      const fd = new FormData()
+      fd.append('logo', file)
+      const res = await fetch(`${API_URL}/api/organizations/mine/logo`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error || 'Failed to upload logo')
+      set('logo_url', body.url)
+    } catch (err) { setError(err.message) } finally { setUploading(false) }
+  }
+
   async function save() {
     if (!form.name.trim()) { setError('Organization name is required.'); return }
+    const color = form.primary_color.trim() || DEFAULT_COLOR
+    if (!HEX_COLOR_RE.test(color)) {
+      setError('Primary color must be a hex value like #f97316.')
+      return
+    }
     setSaving(true); setError(null)
     try {
       const token = await getToken()
@@ -85,7 +111,7 @@ function BrandingTab({ org, onSaved, getToken }) {
         body: JSON.stringify({
           name:          form.name.trim(),
           brand_name:    form.brand_name.trim() || null,
-          primary_color: form.primary_color,
+          primary_color: color,
           logo_url:      form.logo_url.trim() || null,
         }),
       })
@@ -105,21 +131,38 @@ function BrandingTab({ org, onSaved, getToken }) {
         <input type="text" value={form.brand_name} onChange={e => set('brand_name', e.target.value)}
           placeholder="e.g. Peak Performance" className={inputCls} />
       </Field>
-      <Field label="Primary Color">
+      <Field label="Primary Color" hint="Pick a color or enter a hex value like #f97316">
         <div className="flex items-center gap-3">
           <input
-            type="color" value={form.primary_color} onChange={e => set('primary_color', e.target.value)}
+            type="color" value={HEX_COLOR_RE.test(form.primary_color) ? form.primary_color : DEFAULT_COLOR}
+            onChange={e => set('primary_color', e.target.value)}
             className="w-11 h-11 rounded-lg border border-gray-300 cursor-pointer shrink-0"
           />
           <input
             type="text" value={form.primary_color} onChange={e => set('primary_color', e.target.value)}
             placeholder="#f97316" className={`${inputCls} font-mono`}
           />
+          <div
+            className="w-11 h-11 rounded-lg border border-gray-300 shrink-0"
+            style={{ backgroundColor: HEX_COLOR_RE.test(form.primary_color) ? form.primary_color : DEFAULT_COLOR }}
+          />
         </div>
       </Field>
-      <Field label="Logo URL" hint="Cloudinary upload coming soon — paste an image URL for now">
-        <input type="text" value={form.logo_url} onChange={e => set('logo_url', e.target.value)}
-          placeholder="https://…" className={inputCls} />
+      <Field label="Logo">
+        <div className="flex items-center gap-3">
+          {form.logo_url ? (
+            <img src={form.logo_url} alt="Logo" className="w-11 h-11 rounded-lg object-cover border border-gray-200 shrink-0" />
+          ) : (
+            <div className="w-11 h-11 rounded-lg border border-dashed border-gray-300 shrink-0" />
+          )}
+          <label className="min-h-11 flex-1 flex items-center justify-center border border-gray-300 rounded-lg text-sm font-medium text-gray-600 cursor-pointer hover:bg-gray-50 transition-colors">
+            {uploading ? 'Uploading…' : 'Upload image'}
+            <input
+              type="file" accept="image/*" className="hidden" disabled={uploading}
+              onChange={e => { const file = e.target.files?.[0]; if (file) uploadLogo(file); e.target.value = '' }}
+            />
+          </label>
+        </div>
       </Field>
 
       {/* Preview */}
@@ -132,7 +175,7 @@ function BrandingTab({ org, onSaved, getToken }) {
             ) : (
               <div
                 className="w-8 h-8 rounded shrink-0 flex items-center justify-center text-xs font-bold text-white"
-                style={{ backgroundColor: form.primary_color }}
+                style={{ backgroundColor: HEX_COLOR_RE.test(form.primary_color) ? form.primary_color : DEFAULT_COLOR }}
               >
                 {(form.brand_name || form.name || '?').charAt(0).toUpperCase()}
               </div>
@@ -142,7 +185,7 @@ function BrandingTab({ org, onSaved, getToken }) {
           <button
             type="button"
             className="w-full px-4 py-2 text-sm font-semibold text-white"
-            style={{ backgroundColor: form.primary_color }}
+            style={{ backgroundColor: HEX_COLOR_RE.test(form.primary_color) ? form.primary_color : DEFAULT_COLOR }}
           >
             Sample Button
           </button>
@@ -151,7 +194,7 @@ function BrandingTab({ org, onSaved, getToken }) {
 
       {error && <p className="text-xs text-red-500">{error}</p>}
       {saved && !error && <p className="text-xs text-emerald-600">Saved.</p>}
-      <button onClick={save} disabled={saving}
+      <button onClick={save} disabled={saving || uploading}
         className="min-h-11 w-full sm:w-auto bg-[#E8670A] text-white px-6 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors">
         {saving ? 'Saving…' : 'Save'}
       </button>
