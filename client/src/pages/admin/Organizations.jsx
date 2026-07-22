@@ -197,6 +197,7 @@ function EditOrgModal({ org, onClose, onSaved, getToken }) {
     subscription_tier: org.subscription_tier,
     subscription_status: org.subscription_status,
     trial_ends_at: org.trial_ends_at ? org.trial_ends_at.slice(0, 10) : '',
+    owner_email: '',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState(null)
@@ -219,6 +220,7 @@ function EditOrgModal({ org, onClose, onSaved, getToken }) {
           subscription_tier: form.subscription_tier,
           subscription_status: form.subscription_status,
           trial_ends_at: form.trial_ends_at || null,
+          ...(form.owner_email.trim() ? { owner_email: form.owner_email.trim() } : {}),
         }),
       })
       const body = await res.json()
@@ -284,6 +286,16 @@ function EditOrgModal({ org, onClose, onSaved, getToken }) {
               className="w-full min-h-11 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
             />
           </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Owner Email</label>
+          <input
+            type="email" value={form.owner_email}
+            onChange={e => setForm(f => ({ ...f, owner_email: e.target.value }))}
+            placeholder="owner@example.com"
+            className="w-full min-h-11 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+          />
+          <p className="text-[11px] text-gray-400 mt-1">Optional — leave blank to leave the current owner unchanged.</p>
         </div>
         {error && <p className="text-xs text-red-500">{error}</p>}
         <div className="flex gap-2 pt-1">
