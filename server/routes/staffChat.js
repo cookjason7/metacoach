@@ -141,9 +141,9 @@ router.get('/channels', async (req, res, next) => {
           FROM staff_messages WHERE channel_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message_body
       FROM staff_channels c
       JOIN staff_channel_members cm ON cm.channel_id = c.id AND cm.user_id = $1
-      WHERE ($2::boolean OR c.org_id = $3)
+      WHERE c.org_id = $2
       ORDER BY c.name
-    `, [ctx.dbUserId, isSuperAdmin(ctx), ctx.orgId])
+    `, [ctx.dbUserId, ctx.orgId])
     res.json(rows)
   } catch (err) { next(err) }
 })
@@ -471,9 +471,9 @@ router.get('/dms', async (req, res, next) => {
       WHERE u.id != $1
         AND u.role = ANY($2::text[])
         AND (u.staff_status IS NULL OR u.staff_status != 'archived')
-        AND ($3::boolean OR u.org_id = $4)
+        AND u.org_id = $3
       ORDER BY u.first_name
-    `, [ctx.dbUserId, STAFF_ROLES, isSuperAdmin(ctx), ctx.orgId])
+    `, [ctx.dbUserId, STAFF_ROLES, ctx.orgId])
     res.json(rows)
   } catch (err) { next(err) }
 })
