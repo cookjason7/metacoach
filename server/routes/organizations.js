@@ -206,6 +206,15 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
       params.push(body.trial_ends_at || null)
       setClauses.push(`trial_ends_at = $${params.length}`)
     }
+    if ('owner_email' in body && body.owner_email?.trim()) {
+      const { rows: ownerRows } = await pool.query(
+        'SELECT id FROM users WHERE LOWER(email) = LOWER($1)',
+        [body.owner_email.trim()],
+      )
+      if (!ownerRows.length) return res.status(404).json({ error: 'No user found with that email' })
+      params.push(ownerRows[0].id)
+      setClauses.push(`owner_user_id = $${params.length}`)
+    }
 
     if (!setClauses.length) {
       const { rows } = await pool.query('SELECT * FROM organizations WHERE id = $1', [id])
