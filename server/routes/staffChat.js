@@ -86,6 +86,21 @@ async function isChannelMember(channelId, userId) {
   return rows.length > 0
 }
 
+// True when the given channel belongs to ctx's org, or ctx is a platform
+// super admin (who manages channels across every org). Every route that
+// deletes a channel, changes its membership, or pins its messages must gate
+// on this — channel_id alone is guessable, and none of those actions were
+// previously scoped, letting an org admin who knew another org's channel id
+// add themselves as a member (or delete/pin in it) with no isolation check.
+async function channelInOrg(channelId, ctx) {
+  if (isSuperAdmin(ctx)) return true
+  const { rows } = await pool.query(
+    'SELECT 1 FROM staff_channels WHERE id = $1 AND org_id = $2',
+    [channelId, ctx.orgId],
+  )
+  return rows.length > 0
+}
+
 // First 80 chars of the text body, or a generic label for audio/attachment-only messages.
 function teamMessagePreview(messageBody, audioUrl, attachmentUrl) {
   if (messageBody?.trim()) return messageBody.trim().slice(0, 80)
@@ -119,8 +134,9 @@ router.get('/channels', async (req, res, next) => {
           FROM staff_messages WHERE channel_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message_body
       FROM staff_channels c
       JOIN staff_channel_members cm ON cm.channel_id = c.id AND cm.user_id = $1
+      WHERE ($2::boolean OR c.org_id = $3)
       ORDER BY c.name
-    `, [ctx.dbUserId])
+    `, [ctx.dbUserId, isSuperAdmin(ctx), ctx.orgId])
     res.json(rows)
   } catch (err) { next(err) }
 })
@@ -135,9 +151,9 @@ router.post('/channels', async (req, res, next) => {
     if (!name?.trim()) return res.status(400).json({ error: 'name is required' })
 
     const { rows } = await pool.query(
-      `INSERT INTO staff_channels (name, description, is_private, created_by)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [name.trim(), description ?? null, !!is_private, ctx.dbUserId],
+      `INSERT INTO staff_channels (name, description, is_private, created_by, org_id)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [name.trim(), description ?? null, !!is_private, ctx.dbUserId, ctx.orgId],
     )
     const channel = rows[0]
     await pool.query(
@@ -179,10 +195,20 @@ router.delete('/channels/:id', async (req, res, next) => {
     const channelId = parseInt(req.params.id, 10)
     if (!Number.isInteger(channelId)) return res.status(400).json({ error: 'Invalid channel id' })
 
-    const { rows } = await pool.query('SELECT id FROM staff_channels WHERE id = $1', [channelId])
+    const { rows } = await pool.query('SELECT id, org_id FROM staff_channels WHERE id = $1', [channelId])
     if (!rows.length) return res.status(404).json({ error: 'Channel not found' })
+    if (!isSuperAdmin(ctx) && rows[0].org_id !== ctx.orgId) {
+      return res.status(403).json({ error: 'Cannot delete a channel from another organization' })
+    }
 
-    const { rows: [{ cnt }] } = await pool.query('SELECT COUNT(*)::int AS cnt FROM staff_channels')
+    // Scoped to the channel's own org — a global count would let an org with
+    // few channels get blocked by every other org's channel total instead of
+    // their own, or (worse) let them delete their last channel unblocked
+    // whenever some other org happens to have more than one.
+    const { rows: [{ cnt }] } = await pool.query(
+      'SELECT COUNT(*)::int AS cnt FROM staff_channels WHERE org_id = $1',
+      [rows[0].org_id],
+    )
     if (cnt <= 1) return res.status(400).json({ error: 'Cannot delete the only channel' })
 
     await pool.query('DELETE FROM staff_channels WHERE id = $1', [channelId])
@@ -221,8 +247,11 @@ router.post('/channels/:id/members', async (req, res, next) => {
     const { user_ids } = req.body
     if (!Array.isArray(user_ids) || !user_ids.length) return res.status(400).json({ error: 'user_ids is required' })
 
-    const { rows: channelRows } = await pool.query('SELECT id FROM staff_channels WHERE id = $1', [channelId])
+    const { rows: channelRows } = await pool.query('SELECT id, org_id FROM staff_channels WHERE id = $1', [channelId])
     if (!channelRows.length) return res.status(404).json({ error: 'Channel not found' })
+    if (!isSuperAdmin(ctx) && channelRows[0].org_id !== ctx.orgId) {
+      return res.status(403).json({ error: 'Cannot modify a channel from another organization' })
+    }
 
     const ids = [...new Set(user_ids.map(id => parseInt(id, 10)).filter(Number.isInteger))]
     const { rows: validUsers } = await pool.query(
@@ -253,6 +282,9 @@ router.delete('/channels/:id/members/:userId', async (req, res, next) => {
     if (!Number.isInteger(channelId) || !Number.isInteger(userId)) {
       return res.status(400).json({ error: 'Invalid channel or user id' })
     }
+    if (!(await channelInOrg(channelId, ctx))) {
+      return res.status(403).json({ error: 'Cannot modify a channel from another organization' })
+    }
     await pool.query(
       'DELETE FROM staff_channel_members WHERE channel_id = $1 AND user_id = $2',
       [channelId, userId],
@@ -270,8 +302,11 @@ router.post('/channels/:id/join', async (req, res, next) => {
     const { user_id } = req.body
     if (!Number.isInteger(channelId) || !user_id) return res.status(400).json({ error: 'user_id is required' })
 
-    const { rows: channelRows } = await pool.query('SELECT id FROM staff_channels WHERE id = $1', [channelId])
+    const { rows: channelRows } = await pool.query('SELECT id, org_id FROM staff_channels WHERE id = $1', [channelId])
     if (!channelRows.length) return res.status(404).json({ error: 'Channel not found' })
+    if (!isSuperAdmin(ctx) && channelRows[0].org_id !== ctx.orgId) {
+      return res.status(403).json({ error: 'Cannot modify a channel from another organization' })
+    }
 
     const { rows: userRows } = await pool.query('SELECT id, role, org_id FROM users WHERE id = $1', [user_id])
     const target = userRows[0]
@@ -367,6 +402,10 @@ router.post('/channels/:id/messages/:msgId/pin', async (req, res, next) => {
     if (!isAdminRole(ctx.role)) return res.status(403).json({ error: 'Admin only' })
     const channelId = parseInt(req.params.id, 10)
     const msgId     = parseInt(req.params.msgId, 10)
+
+    if (!(await channelInOrg(channelId, ctx))) {
+      return res.status(403).json({ error: 'Cannot modify a channel from another organization' })
+    }
 
     const { rows } = await pool.query(
       'SELECT is_pinned FROM staff_messages WHERE id = $1 AND channel_id = $2',
