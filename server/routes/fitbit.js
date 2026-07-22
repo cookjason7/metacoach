@@ -4,6 +4,7 @@ import crypto from 'crypto'
 import { pool, getOrCreateUser } from '../db.js'
 import { syncUser, exchangeToken, fetchGoogleAccountEmail, OAUTH_SCOPES } from '../services/googleHealthSync.js'
 import { getAppBaseUrl } from '../services/appUrl.js'
+import { encryptToken } from '../utils/tokenEncryption.js'
 
 const router = Router()
 
@@ -233,7 +234,7 @@ router.get('/callback', async (req, res, next) => {
          expires_at=EXCLUDED.expires_at,
          google_email=EXCLUDED.google_email,
          updated_at=NOW()`,
-      [dbUserId, null, data.access_token, data.refresh_token,
+      [dbUserId, null, encryptToken(data.access_token), encryptToken(data.refresh_token),
        grantedScope, addSeconds(data.expires_in), googleEmail],
     )
 
