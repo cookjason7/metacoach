@@ -1,4 +1,5 @@
 import { pool } from '../db.js'
+import { encryptToken, decryptToken } from '../utils/tokenEncryption.js'
 
 const GOOGLE_TOKEN_URL       = 'https://oauth2.googleapis.com/token'
 const GOOGLE_HEALTH_API_URL  = 'https://health.googleapis.com'
@@ -111,11 +112,13 @@ async function refreshTokenIfNeeded(tokenRow) {
     return tokenRow
   }
 
+  // tokenRow carries PLAINTEXT tokens (decrypted by the caller after SELECT).
   const data = await exchangeToken({
     grant_type:    'refresh_token',
     refresh_token: tokenRow.refresh_token,
   })
 
+  const newRefreshToken = data.refresh_token || tokenRow.refresh_token
   const { rows } = await pool.query(
     `UPDATE fitbit_tokens
      SET access_token=$1,
@@ -126,14 +129,19 @@ async function refreshTokenIfNeeded(tokenRow) {
      WHERE user_id=$5
      RETURNING *`,
     [
-      data.access_token,
-      data.refresh_token || tokenRow.refresh_token,
+      encryptToken(data.access_token),
+      encryptToken(newRefreshToken),
       addSeconds(data.expires_in),
       data.scope || tokenRow.scope,
       tokenRow.user_id,
     ],
   )
-  return rows[0]
+  // RETURNING gives back the encrypted columns — hand the caller plaintext so
+  // downstream API calls work against a consistent (decrypted) row shape.
+  const updated = rows[0]
+  updated.access_token = decryptToken(updated.access_token)
+  updated.refresh_token = decryptToken(updated.refresh_token)
+  return updated
 }
 
 async function googleHealthRequest(path, accessToken, options = {}) {
@@ -237,6 +245,11 @@ export async function syncUser(dbUserId) {
     err.status = 404
     throw err
   }
+
+  // Decrypt tokens in place immediately after read, so all downstream code
+  // (refresh, Google API calls) works with plaintext values.
+  rows[0].access_token = decryptToken(rows[0].access_token)
+  rows[0].refresh_token = decryptToken(rows[0].refresh_token)
 
   console.log('[healthSync] starting sync', {
     user_id:        dbUserId,
