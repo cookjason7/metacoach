@@ -78,10 +78,17 @@ function isSuperAdmin(ctx) {
 
 const STAFF_ROLES = ['admin', 'coach', 'staff', 'account_owner']
 
-async function isChannelMember(channelId, userId) {
+// Membership alone isn't enough to gate access — the org_id seed bug fixed in
+// db.js's migrate() could (and did, on staging) leave staff_channel_members
+// rows pointing at another org's channel. Requiring the channel's org_id to
+// match ctx here means messages/read stay locked out even if a stale (or
+// future) bad membership row exists.
+async function isChannelMember(channelId, userId, ctx) {
   const { rows } = await pool.query(
-    'SELECT 1 FROM staff_channel_members WHERE channel_id = $1 AND user_id = $2',
-    [channelId, userId],
+    `SELECT 1 FROM staff_channel_members cm
+     JOIN staff_channels c ON c.id = cm.channel_id
+     WHERE cm.channel_id = $1 AND cm.user_id = $2 AND ($3::boolean OR c.org_id = $4)`,
+    [channelId, userId, isSuperAdmin(ctx), ctx.orgId],
   )
   return rows.length > 0
 }
@@ -222,7 +229,7 @@ router.get('/channels/:id/members', async (req, res, next) => {
     const ctx = getCtx(req)
     const channelId = parseInt(req.params.id, 10)
     if (!Number.isInteger(channelId)) return res.status(400).json({ error: 'Invalid channel id' })
-    if (!(await isChannelMember(channelId, ctx.dbUserId))) {
+    if (!(await isChannelMember(channelId, ctx.dbUserId, ctx))) {
       return res.status(403).json({ error: 'Not a member of this channel' })
     }
 
@@ -330,7 +337,7 @@ router.get('/channels/:id/messages', async (req, res, next) => {
     const ctx = getCtx(req)
     const channelId = parseInt(req.params.id, 10)
     if (!Number.isInteger(channelId)) return res.status(400).json({ error: 'Invalid channel id' })
-    if (!(await isChannelMember(channelId, ctx.dbUserId))) {
+    if (!(await isChannelMember(channelId, ctx.dbUserId, ctx))) {
       return res.status(403).json({ error: 'Not a member of this channel' })
     }
 
@@ -356,7 +363,7 @@ router.post('/channels/:id/messages', async (req, res, next) => {
     const ctx = getCtx(req)
     const channelId = parseInt(req.params.id, 10)
     if (!Number.isInteger(channelId)) return res.status(400).json({ error: 'Invalid channel id' })
-    if (!(await isChannelMember(channelId, ctx.dbUserId))) {
+    if (!(await isChannelMember(channelId, ctx.dbUserId, ctx))) {
       return res.status(403).json({ error: 'Not a member of this channel' })
     }
 
@@ -429,7 +436,7 @@ router.post('/channels/:id/read', async (req, res, next) => {
   try {
     const ctx = getCtx(req)
     const channelId = parseInt(req.params.id, 10)
-    if (!(await isChannelMember(channelId, ctx.dbUserId))) {
+    if (!(await isChannelMember(channelId, ctx.dbUserId, ctx))) {
       return res.status(403).json({ error: 'Not a member of this channel' })
     }
     await pool.query(`
