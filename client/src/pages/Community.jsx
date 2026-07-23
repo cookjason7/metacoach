@@ -915,7 +915,10 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
   const [groups,          setGroups]        = useState([]) // org's community_groups — backs both dropdowns below
   const [manageGroupsOpen, setManageGroupsOpen] = useState(false)
   const [myGroups,        setMyGroups]      = useState([MAIN_FEED]) // pill row: Main Feed + groups the caller belongs to
+  const [myGroupsLoaded,  setMyGroupsLoaded]= useState(false)       // gates deep-link group resolution below
   const [activeGroupId,   setActiveGroupId] = useState(null)        // null = Main Feed
+  const [deepLinkGroupId, setDeepLinkGroupId] = useState(undefined) // undefined = unresolved, null = main feed, number = group id
+  const [deepLinkError,   setDeepLinkError]   = useState(null)
 
   const activeGroup = myGroups.find(g => g.id === activeGroupId) ?? MAIN_FEED
   const inGroup     = activeGroupId !== null
@@ -947,6 +950,10 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
       setMyGroups(Array.isArray(data) && data.length ? data : [MAIN_FEED])
     } catch {
       setMyGroups([MAIN_FEED])
+    } finally {
+      // Gates the deep-link group lookup below — that check needs the real
+      // membership list, not the [MAIN_FEED] placeholder this state starts as.
+      setMyGroupsLoaded(true)
     }
   }, [getToken])
 
@@ -988,12 +995,69 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
 
   // Deep link from a community post push notification: /community?post_id=POST_ID
   // (see notifyNewCommunityPost in server/services/pushService.js and the
-  // pushNotificationActionPerformed listener in Layout.jsx). Waits for posts to
-  // load, scrolls the matching post into view, briefly highlights it, then
-  // cleans the URL so the back button and refresh don't retrigger it.
+  // pushNotificationActionPerformed listener in Layout.jsx).
+  //
+  // The page always opens on Main Feed, but the post may live in a group the
+  // feed hasn't loaded (or the caller isn't a member of), so the post_id alone
+  // isn't enough — first resolve which feed the post belongs to via
+  // GET /posts/:id/group, then switch the pill row to that group before the
+  // highlight effect below can find it. Runs once per post_id: guarded on
+  // deepLinkGroupId still being undefined so it doesn't refire as myGroups
+  // changes for unrelated reasons (e.g. after a Manage Members edit).
   useEffect(() => {
     const postId = searchParams.get('post_id')
-    if (!postId || posts.length === 0) return
+    if (!postId || !myGroupsLoaded || deepLinkGroupId !== undefined) return
+    let cancelled = false
+    async function resolve() {
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/community/posts/${postId}/group`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (cancelled) return
+        if (!res.ok) {
+          setDeepLinkError('That post could not be found.')
+          setDeepLinkGroupId(null)
+          return
+        }
+        const { group_id } = await res.json()
+        if (group_id === null) {
+          setDeepLinkGroupId(null) // already on Main Feed by default
+          return
+        }
+        if (myGroups.some(g => g.id === group_id)) {
+          setActiveGroupId(group_id)
+          setDeepLinkGroupId(group_id)
+        } else {
+          setDeepLinkError("You don't have access to that post.")
+          setDeepLinkGroupId(group_id)
+        }
+      } catch {
+        if (!cancelled) {
+          setDeepLinkError('That post could not be found.')
+          setDeepLinkGroupId(null)
+        }
+      }
+    }
+    resolve()
+    return () => { cancelled = true }
+  }, [searchParams, myGroupsLoaded, myGroups, getToken, deepLinkGroupId])
+
+  // Scrolls the matching post into view and briefly highlights it, then cleans
+  // the URL so the back button and refresh don't retrigger it. Waits for the
+  // group resolution above (deepLinkGroupId !== undefined) and for that
+  // group's feed to actually finish loading, so it never searches the wrong
+  // (pre-switch) posts array. On an access/lookup error, just cleans the URL —
+  // the error banner below is the user-facing signal, this effect has nothing
+  // to highlight.
+  useEffect(() => {
+    const postId = searchParams.get('post_id')
+    if (!postId) return
+    if (deepLinkError) {
+      window.history.replaceState({}, '', '/community')
+      return
+    }
+    if (deepLinkGroupId === undefined || loading || posts.length === 0) return
     const numericId = Number(postId)
     if (!posts.some(p => p.id === numericId)) return
 
@@ -1003,7 +1067,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
 
     const t = setTimeout(() => setHighlightPostId(null), 2000)
     return () => clearTimeout(t)
-  }, [searchParams, posts])
+  }, [searchParams, posts, loading, deepLinkGroupId, deepLinkError])
 
   const visiblePosts = posts.filter(p => {
     const matchSearch = !search.trim() || p.content.toLowerCase().includes(search.toLowerCase())
@@ -1182,6 +1246,24 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
             })}
           </div>
         </div>
+
+        {/* Deep-link resolution failed — post not found, or not accessible
+            (not a member of the group it lives in). The URL is already cleaned
+            by the highlight effect above; this just surfaces why nothing
+            scrolled/highlighted. */}
+        {deepLinkError && (
+          <div className="flex items-center justify-between gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-3">
+            <p className="text-sm text-amber-800">{deepLinkError}</p>
+            <button
+              type="button"
+              onClick={() => setDeepLinkError(null)}
+              aria-label="Dismiss"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center text-amber-500 hover:text-amber-700 text-lg leading-none shrink-0"
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         {/* Search */}
         <div className="relative mb-3">

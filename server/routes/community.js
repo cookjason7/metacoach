@@ -539,6 +539,25 @@ router.get('/posts', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// GET /api/community/posts/:id/group — resolves which feed a post lives in, for
+// push-notification deep links (/community?post_id=X). The client needs this
+// before it knows which group_id to pass to GET /posts, so it can't reuse the
+// membership-gated sub-resource pattern here — this route is deliberately
+// org-scoped only, no group membership check. It leaks nothing a non-member
+// doesn't already learn from a 403 on the group feed itself, and the frontend
+// still can't read the post's content without passing that membership check.
+router.get('/posts/:id/group', requireAuth(), async (req, res, next) => {
+  try {
+    const postId = parseInt(req.params.id, 10)
+    const { rows } = await pool.query(
+      'SELECT id, group_id FROM community_posts WHERE id = $1 AND org_id = $2',
+      [postId, req.orgId],
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Not found' })
+    res.json({ post_id: rows[0].id, group_id: rows[0].group_id })
+  } catch (err) { next(err) }
+})
+
 router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
