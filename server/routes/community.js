@@ -128,6 +128,47 @@ function isAdminRole(role) {
   return role === 'admin' || role === 'account_owner'
 }
 
+// Membership gate for group-scoped content. Super admin (ADMIN_EMAILS) always
+// passes — same bypass as isSuperAdmin above, resolved from the users row since
+// callers here have a db user id rather than a req. Reuses isAdminEmail instead
+// of re-parsing process.env so the allowlist can't drift between the two.
+async function isGroupMember(groupId, userId, orgId) {
+  const { rows } = await pool.query('SELECT email FROM users WHERE id = $1', [userId])
+  if (isAdminEmail(rows[0]?.email)) return true
+
+  const { rows: member } = await pool.query(
+    'SELECT id FROM group_members WHERE group_id = $1 AND user_id = $2 AND org_id = $3',
+    [groupId, userId, orgId],
+  )
+  return member.length > 0
+}
+
+// Post-level gate used by every sub-resource route (likes, reactions, comments,
+// polls). Main-feed posts (group_id IS NULL) stay open to the whole org exactly
+// as before; only group posts require membership. Returns true when the caller
+// may proceed, and has already sent the 403 when it returns false.
+async function checkPostGroupAccess(req, res, postId, dbUserId) {
+  const { rows } = await pool.query('SELECT group_id FROM community_posts WHERE id = $1', [postId])
+  const groupId = rows[0]?.group_id
+  if (!groupId) return true
+  if (await isGroupMember(groupId, dbUserId, req.orgId)) return true
+  res.status(403).json({ error: 'Not a member of this group' })
+  return false
+}
+
+// Same gate, reached via a comment's parent post.
+async function checkCommentGroupAccess(req, res, commentId, dbUserId) {
+  const { rows } = await pool.query(
+    `SELECT cp.group_id FROM post_comments pc JOIN community_posts cp ON cp.id = pc.post_id WHERE pc.id = $1`,
+    [commentId],
+  )
+  const groupId = rows[0]?.group_id
+  if (!groupId) return true
+  if (await isGroupMember(groupId, dbUserId, req.orgId)) return true
+  res.status(403).json({ error: 'Not a member of this group' })
+  return false
+}
+
 // Org admin/owner, or the platform super admin (writes still land in
 // req.orgId only — see isSuperAdmin above). Mirrors isOrgOwnerOrAdmin in
 // server/routes/organizations.js.
@@ -151,13 +192,19 @@ async function requireOrgAdminOrOwner(req, res) {
 // orgId scopes the @mention lookup to the poster's own org — without it, a name
 // match in a different org would both leak that user's existence and misdirect
 // a notification cross-tenant.
-async function createMentionNotifications(content, postId, fromUserId, orgId) {
+// groupId (when the post lives in a group) further restricts matches to that
+// group's members — otherwise a mention would notify someone who then gets a
+// 403 opening the post, and would leak that the post exists at all.
+async function createMentionNotifications(content, postId, fromUserId, orgId, groupId = null) {
   const names = [...new Set((content.match(/(?<!\w)@([A-Za-z]\w*)/g) ?? []).map(m => m.slice(1)))]
+  const memberFilter = groupId
+    ? ` AND EXISTS (SELECT 1 FROM group_members gm WHERE gm.user_id = users.id AND gm.group_id = $4)`
+    : ''
   for (const name of names) {
     try {
       const { rows } = await pool.query(
-        `SELECT id FROM users WHERE first_name ILIKE $1 AND id != $2 AND org_id = $3 LIMIT 1`,
-        [name, fromUserId, orgId],
+        `SELECT id FROM users WHERE first_name ILIKE $1 AND id != $2 AND org_id = $3${memberFilter} LIMIT 1`,
+        groupId ? [name, fromUserId, orgId, groupId] : [name, fromUserId, orgId],
       )
       if (rows.length) {
         await pool.query(
@@ -186,6 +233,37 @@ async function createNewPostNotifications(postId, fromUserId, orgId) {
     }
   } catch {}
 }
+// Group posts notify only that group's members — the whole point of a private
+// feed is that non-members never learn it was posted in. Direction mirrors the
+// main feed's intent: a client's post reaches the staff in the group, a staff
+// post reaches the group's clients. Handles both the in-app badge row and the
+// push, since the audience query is the same for both.
+async function notifyGroupPost({ postId, groupId, authorUserId, authorIsStaff, orgId }) {
+  try {
+    const audienceFilter = authorIsStaff
+      ? `u.role = 'client' AND COALESCE(u.coaching_type, '') != 'basic'`
+      : `u.role IN ('admin', 'account_owner', 'coach', 'staff')`
+
+    const { rows } = await pool.query(
+      `SELECT u.id
+       FROM group_members gm
+       JOIN users u ON u.id = gm.user_id
+       WHERE gm.group_id = $1 AND gm.org_id = $2 AND u.id != $3 AND ${audienceFilter}`,
+      [groupId, orgId, authorUserId],
+    )
+
+    for (const u of rows) {
+      await pool.query(
+        `INSERT INTO notifications (user_id, type, post_id, from_user_id, org_id) VALUES ($1, 'new_post', $2, $3, $4)`,
+        [u.id, postId, authorUserId, orgId],
+      ).catch(() => {})
+      await notifyNewCommunityPost(u.id, postId).catch(() => {})
+    }
+  } catch (err) {
+    console.warn('[push] notifyGroupPost error:', err.message)
+  }
+}
+
 async function notifyTopLevelCommunityPost({ authorUserId, authorIsStaff, postChannel, postId, orgId }) {
   try {
     if (authorIsStaff) {
@@ -388,8 +466,27 @@ router.get('/posts', requireAuth(), async (req, res, next) => {
     // member-facing surface; an unscoped feed interleaves every tenant's posts
     // into one timeline. Moderation actions (delete/pin/edit) keep their
     // super-admin bypass further down this file.
+    // Group feeds are membership-scoped. No group_id (or the literal 'main')
+    // means the main feed — every ungrouped post in the org — which keeps this
+    // endpoint's shape for callers that predate groups.
+    const rawGroup = req.query.group_id
+    let groupId = null
+    if (rawGroup !== undefined && rawGroup !== '' && rawGroup !== 'main') {
+      groupId = parseInt(rawGroup, 10)
+      if (!Number.isInteger(groupId)) return res.status(400).json({ error: 'Invalid group_id' })
+      if (!await isGroupMember(groupId, dbUserId, ctx.orgId)) {
+        return res.status(403).json({ error: 'Not a member of this group' })
+      }
+    }
+
     const qParams = [dbUserId, filterChannel, ctx.orgId]
     let extraWhere = ' AND cp.org_id = $3'
+    if (groupId === null) {
+      extraWhere += ' AND cp.group_id IS NULL'
+    } else {
+      qParams.push(groupId)
+      extraWhere += ` AND cp.group_id = $${qParams.length}`
+    }
     if (beforeId) {
       qParams.push(beforeId)
       extraWhere += ` AND cp.id < $${qParams.length}`
@@ -406,6 +503,7 @@ router.get('/posts', requireAuth(), async (req, res, next) => {
          cp.category,
          cp.channel,
          cp.pinned,
+         cp.group_id,
          u.first_name,
          COUNT(DISTINCT pl.id)::int AS like_count,
          COUNT(DISTINCT pc.id)::int AS comment_count,
@@ -450,8 +548,29 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
 
     if (!content?.trim()) return res.status(400).json({ error: 'Content required' })
 
-    // Clients may only post into an active, public group in their own org
-    if (!isStaff && !(await isClientPostableCategory(req.orgId, category))) category = 'General Discussion'
+    // A group post is membership-gated and takes its category label from the
+    // group itself, so the label can't drift from the group the post lives in.
+    // No group_id => main feed (group_id NULL) and the category rules below.
+    const rawGroup = req.body?.group_id
+    let groupId = null
+    if (rawGroup !== undefined && rawGroup !== null && rawGroup !== '' && rawGroup !== 'main') {
+      groupId = parseInt(rawGroup, 10)
+      if (!Number.isInteger(groupId)) return res.status(400).json({ error: 'Invalid group_id' })
+
+      const { rows: g } = await pool.query(
+        'SELECT name, org_id, is_active FROM community_groups WHERE id = $1',
+        [groupId],
+      )
+      if (!g.length || g[0].org_id !== req.orgId) return res.status(404).json({ error: 'Not found' })
+      if (!g[0].is_active) return res.status(400).json({ error: 'This group is no longer active.' })
+      if (!await isGroupMember(groupId, dbUserId, req.orgId)) {
+        return res.status(403).json({ error: 'Not a member of this group' })
+      }
+      category = g[0].name
+    } else if (!isStaff && !(await isClientPostableCategory(req.orgId, category))) {
+      // Clients may only post into an active, public group in their own org
+      category = 'General Discussion'
+    }
 
     // Clients always post into their own channel; staff may specify a channel in body
     const postChannel = isStaff
@@ -465,10 +584,10 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO community_posts (user_id, content, photo_url, category, channel, org_id)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, user_id, content, photo_url, created_at, category, channel, pinned`,
-      [dbUserId, content.trim(), photo_url, category, postChannel, req.orgId],
+      `INSERT INTO community_posts (user_id, content, photo_url, category, channel, org_id, group_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, user_id, content, photo_url, created_at, category, channel, pinned, group_id`,
+      [dbUserId, content.trim(), photo_url, category, postChannel, req.orgId, groupId],
     )
     const post = rows[0]
 
@@ -494,19 +613,31 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
       } catch {}
     }
 
-    await createMentionNotifications(content.trim(), post.id, dbUserId, req.orgId)
+    await createMentionNotifications(content.trim(), post.id, dbUserId, req.orgId, groupId)
 
-    // Staff post -> clients get an in-app badge notification too (fire-and-forget)
-    if (isStaff) createNewPostNotifications(post.id, dbUserId, req.orgId).catch(() => {})
+    if (groupId) {
+      // Group post: one membership-scoped pass covers both badge and push.
+      notifyGroupPost({
+        postId: post.id,
+        groupId,
+        authorUserId: dbUserId,
+        authorIsStaff: isStaff,
+        orgId: req.orgId,
+      }).catch(() => {})
+    } else {
+      // Main feed — unchanged.
+      // Staff post -> clients get an in-app badge notification too (fire-and-forget)
+      if (isStaff) createNewPostNotifications(post.id, dbUserId, req.orgId).catch(() => {})
 
-    // Push only for top-level post creation. Comments intentionally do not dispatch push.
-    notifyTopLevelCommunityPost({
-      authorUserId: dbUserId,
-      authorIsStaff: isStaff,
-      postChannel,
-      postId: post.id,
-      orgId: req.orgId,
-    }).catch(() => {})
+      // Push only for top-level post creation. Comments intentionally do not dispatch push.
+      notifyTopLevelCommunityPost({
+        authorUserId: dbUserId,
+        authorIsStaff: isStaff,
+        postChannel,
+        postId: post.id,
+        orgId: req.orgId,
+      }).catch(() => {})
+    }
     const { rows: userRows } = await pool.query(
       'SELECT first_name FROM users WHERE id = $1', [dbUserId],
     )
@@ -592,6 +723,7 @@ router.post('/posts/:id/like', requireAuth(), async (req, res, next) => {
     const { userId } = getAuth(req)
     const dbUserId = await getOrCreateUser(userId)
     const postId   = parseInt(req.params.id, 10)
+    if (await checkPostGroupAccess(req, res, postId, dbUserId) === false) return
 
     const { rows: existing } = await pool.query(
       'SELECT id FROM post_likes WHERE post_id = $1 AND user_id = $2',
@@ -620,6 +752,7 @@ router.get('/posts/:id/likers', requireAuth(), async (req, res, next) => {
   try {
     const postId = parseInt(req.params.id, 10)
     if (await checkPostOrgAccess(req, res, postId) === false) return
+    if (await checkPostGroupAccess(req, res, postId, await getOrCreateUser(getAuth(req).userId)) === false) return
     const { rows } = await pool.query(
       `SELECT u.id, u.first_name, u.last_name
        FROM post_likes pl
@@ -639,6 +772,7 @@ router.get('/posts/:id/reactions', requireAuth(), async (req, res, next) => {
     const dbUserId = await getOrCreateUser(userId)
     const postId   = parseInt(req.params.id, 10)
     if (await checkPostOrgAccess(req, res, postId) === false) return
+    if (await checkPostGroupAccess(req, res, postId, dbUserId) === false) return
 
     const { rows } = await pool.query(
       `SELECT
@@ -664,6 +798,7 @@ router.post('/posts/:id/reactions', requireAuth(), async (req, res, next) => {
     if (!['like', 'love', 'laugh', 'care'].includes(reaction_type)) {
       return res.status(400).json({ error: 'Invalid reaction_type' })
     }
+    if (await checkPostGroupAccess(req, res, postId, dbUserId) === false) return
 
     const { rows: existing } = await pool.query(
       'SELECT id FROM post_reactions WHERE post_id = $1 AND user_id = $2 AND reaction_type = $3',
@@ -704,6 +839,7 @@ router.get('/posts/:id/reactors', requireAuth(), async (req, res, next) => {
   try {
     const postId = parseInt(req.params.id, 10)
     if (await checkPostOrgAccess(req, res, postId) === false) return
+    if (await checkPostGroupAccess(req, res, postId, await getOrCreateUser(getAuth(req).userId)) === false) return
     const { rows } = await pool.query(
       `SELECT pr.reaction_type, u.id, u.first_name, u.last_name
        FROM post_reactions pr
@@ -727,6 +863,7 @@ router.get('/posts/:id/comments', requireAuth(), async (req, res, next) => {
     const dbUserId = await getOrCreateUser(userId)
     const postId   = parseInt(req.params.id, 10)
     if (await checkPostOrgAccess(req, res, postId) === false) return
+    if (await checkPostGroupAccess(req, res, postId, dbUserId) === false) return
 
     const { rows } = await pool.query(
       `SELECT pc.id, pc.content, pc.created_at, u.first_name,
@@ -756,6 +893,7 @@ router.post('/posts/:id/comments', requireAuth(), async (req, res, next) => {
     const postId   = parseInt(req.params.id, 10)
     const { content } = req.body
     if (!content?.trim()) return res.status(400).json({ error: 'Content required' })
+    if (await checkPostGroupAccess(req, res, postId, dbUserId) === false) return
 
     const { rows } = await pool.query(
       `INSERT INTO post_comments (post_id, user_id, content, org_id)
@@ -766,7 +904,7 @@ router.post('/posts/:id/comments', requireAuth(), async (req, res, next) => {
 
     // Notify post owner (unless commenting on own post)
     const { rows: postOwner } = await pool.query(
-      'SELECT user_id FROM community_posts WHERE id = $1', [postId],
+      'SELECT user_id, group_id FROM community_posts WHERE id = $1', [postId],
     )
     if (postOwner[0]?.user_id && postOwner[0].user_id !== dbUserId) {
       await pool.query(
@@ -775,7 +913,7 @@ router.post('/posts/:id/comments', requireAuth(), async (req, res, next) => {
       ).catch(() => {})
     }
 
-    await createMentionNotifications(content.trim(), postId, dbUserId, req.orgId)
+    await createMentionNotifications(content.trim(), postId, dbUserId, req.orgId, postOwner[0]?.group_id ?? null)
 
     const { rows: userRows } = await pool.query(
       'SELECT first_name FROM users WHERE id = $1', [dbUserId],
@@ -792,6 +930,7 @@ router.get('/posts/:id/poll', requireAuth(), async (req, res, next) => {
     const dbUserId = await getOrCreateUser(userId)
     const postId   = parseInt(req.params.id, 10)
     if (await checkPostOrgAccess(req, res, postId) === false) return
+    if (await checkPostGroupAccess(req, res, postId, dbUserId) === false) return
 
     const { rows: polls } = await pool.query(
       'SELECT id, question FROM community_polls WHERE post_id = $1', [postId],
@@ -832,6 +971,15 @@ router.post('/polls/:id/vote', requireAuth(), async (req, res, next) => {
     const pollId   = parseInt(req.params.id, 10)
     const { option_id } = req.body
 
+    // Reached by poll id rather than post id, so the post is resolved first to
+    // apply the same group gate as every other sub-resource.
+    const { rows: pollPost } = await pool.query(
+      'SELECT post_id FROM community_polls WHERE id = $1', [pollId],
+    )
+    if (!pollPost.length) return res.status(404).json({ error: 'Not found' })
+    if (await checkPostOrgAccess(req, res, pollPost[0].post_id) === false) return
+    if (await checkPostGroupAccess(req, res, pollPost[0].post_id, dbUserId) === false) return
+
     await pool.query(
       `INSERT INTO poll_votes (poll_id, option_id, user_id, org_id)
        VALUES ($1, $2, $3, $4)
@@ -866,6 +1014,7 @@ router.get('/comments/:id/reactions', requireAuth(), async (req, res, next) => {
     const dbUserId  = await getOrCreateUser(userId)
     const commentId = parseInt(req.params.id, 10)
     if (await checkCommentOrgAccess(req, res, commentId) === false) return
+    if (await checkCommentGroupAccess(req, res, commentId, dbUserId) === false) return
 
     const { rows } = await pool.query(
       `SELECT
@@ -891,6 +1040,7 @@ router.post('/comments/:id/reactions', requireAuth(), async (req, res, next) => 
     if (!['like', 'love', 'laugh', 'care'].includes(reaction_type)) {
       return res.status(400).json({ error: 'Invalid reaction_type' })
     }
+    if (await checkCommentGroupAccess(req, res, commentId, dbUserId) === false) return
 
     const { rows: existing } = await pool.query(
       'SELECT id FROM comment_reactions WHERE comment_id = $1 AND user_id = $2 AND reaction_type = $3',
@@ -1008,6 +1158,152 @@ router.delete('/groups/:id', requireAuth(), async (req, res, next) => {
 
     await pool.query('UPDATE community_groups SET is_active = FALSE, updated_at = NOW() WHERE id = $1', [groupId])
     res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
+// ── Group membership ──────────────────────────────────────────────────────────
+
+// Loads a group and confirms it belongs to the caller's org. 404 (not 403) for
+// another org's group, matching checkPostOrgAccess — callers can't probe which
+// group ids exist elsewhere. Returns null after responding when not found.
+async function loadOrgGroup(req, res, groupId) {
+  const { rows } = await pool.query(
+    'SELECT id, org_id, name, description, type, is_active FROM community_groups WHERE id = $1',
+    [groupId],
+  )
+  if (!rows.length || rows[0].org_id !== req.orgId) {
+    res.status(404).json({ error: 'Not found' })
+    return null
+  }
+  return rows[0]
+}
+
+// GET /api/community/groups/:id/members — roster for one group.
+// Readable by any member of the group, plus org admins/owners (and the super
+// admin, via requireOrgAdminOrOwner) so the manage-members UI works for an
+// admin who isn't themselves a member of the group they administer.
+router.get('/groups/:id/members', requireAuth(), async (req, res, next) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId = await getOrCreateUser(userId)
+    const groupId  = parseInt(req.params.id, 10)
+    if (!await loadOrgGroup(req, res, groupId)) return
+
+    const allowed = await isGroupMember(groupId, dbUserId, req.orgId) || await isOrgOwnerOrAdmin(req)
+    if (!allowed) return res.status(403).json({ error: 'Not a member of this group' })
+
+    const { rows } = await pool.query(
+      `SELECT gm.user_id, u.first_name, u.last_name, u.email, u.role, gm.created_at AS added_at
+       FROM group_members gm
+       JOIN users u ON u.id = gm.user_id
+       WHERE gm.group_id = $1 AND gm.org_id = $2
+       ORDER BY u.first_name ASC NULLS LAST`,
+      [groupId, req.orgId],
+    )
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
+// POST /api/community/groups/:id/members — add one user to a group.
+router.post('/groups/:id/members', requireAuth(), async (req, res, next) => {
+  try {
+    if (!await requireOrgAdminOrOwner(req, res)) return
+    const groupId = parseInt(req.params.id, 10)
+    if (!await loadOrgGroup(req, res, groupId)) return
+
+    const targetId = parseInt(req.body?.user_id, 10)
+    if (!Number.isInteger(targetId)) return res.status(400).json({ error: 'user_id is required' })
+
+    // The target must live in the caller's own org — without this an admin could
+    // pull another tenant's user into their group and expose the feed to them.
+    const { rows: target } = await pool.query('SELECT id, org_id FROM users WHERE id = $1', [targetId])
+    if (!target.length || target[0].org_id !== req.orgId) {
+      return res.status(404).json({ error: 'User not found in this organization' })
+    }
+
+    await pool.query(
+      `INSERT INTO group_members (group_id, user_id, org_id, added_by)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (group_id, user_id) DO NOTHING`,
+      [groupId, targetId, req.orgId, req.internalUser?.id ?? null],
+    )
+
+    // Re-selected rather than RETURNINGed: ON CONFLICT DO NOTHING returns no row
+    // when the user was already a member, and that case should still be a 200.
+    const { rows } = await pool.query(
+      `SELECT gm.user_id, u.first_name, u.last_name, u.email, u.role, gm.created_at AS added_at
+       FROM group_members gm
+       JOIN users u ON u.id = gm.user_id
+       WHERE gm.group_id = $1 AND gm.user_id = $2`,
+      [groupId, targetId],
+    )
+    res.json(rows[0] ?? null)
+  } catch (err) { next(err) }
+})
+
+// DELETE /api/community/groups/:id/members/:userId — remove one user from a group.
+router.delete('/groups/:id/members/:userId', requireAuth(), async (req, res, next) => {
+  try {
+    if (!await requireOrgAdminOrOwner(req, res)) return
+    const groupId  = parseInt(req.params.id, 10)
+    const targetId = parseInt(req.params.userId, 10)
+    if (!await loadOrgGroup(req, res, groupId)) return
+
+    await pool.query(
+      'DELETE FROM group_members WHERE group_id = $1 AND user_id = $2 AND org_id = $3',
+      [groupId, targetId, req.orgId],
+    )
+    res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
+// GET /api/community/groups/:id/eligible-members — active org users not yet in
+// the group, for the "add member" picker.
+router.get('/groups/:id/eligible-members', requireAuth(), async (req, res, next) => {
+  try {
+    if (!await requireOrgAdminOrOwner(req, res)) return
+    const groupId = parseInt(req.params.id, 10)
+    if (!await loadOrgGroup(req, res, groupId)) return
+
+    // client_status only gates clients — staff rows carry their own lifecycle
+    // column, so filtering them on it would hide every coach from the picker.
+    const { rows } = await pool.query(
+      `SELECT u.id AS user_id, u.first_name, u.last_name, u.email, u.role
+       FROM users u
+       WHERE u.org_id = $1
+         AND (u.role != 'client' OR COALESCE(u.client_status, 'active') = 'active')
+         AND NOT EXISTS (
+           SELECT 1 FROM group_members gm
+           WHERE gm.group_id = $2 AND gm.user_id = u.id
+         )
+       ORDER BY u.first_name ASC NULLS LAST`,
+      [req.orgId, groupId],
+    )
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
+// GET /api/community/my-groups — the group switcher for the caller. Main Feed is
+// a virtual entry (id: null) always pinned first; it maps to posts with
+// group_id IS NULL and needs no membership.
+router.get('/my-groups', requireAuth(), async (req, res, next) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId = await getOrCreateUser(userId)
+
+    const { rows } = await pool.query(
+      `SELECT cg.id, cg.name, cg.description, cg.type, cg.org_id
+       FROM group_members gm
+       JOIN community_groups cg ON cg.id = gm.group_id
+       WHERE gm.user_id = $1 AND gm.org_id = $2 AND cg.is_active = TRUE
+       ORDER BY cg.display_order ASC, cg.name ASC`,
+      [dbUserId, req.orgId],
+    )
+
+    res.json([
+      { id: null, name: 'Main Feed', description: null, type: 'main', org_id: req.orgId },
+      ...rows,
+    ])
   } catch (err) { next(err) }
 })
 
