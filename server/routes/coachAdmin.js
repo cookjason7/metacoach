@@ -3851,8 +3851,13 @@ router.post('/clients/:id/workouts', requireAuth(), async (req, res, next) => {
     if (status && !['draft', 'assigned'].includes(status)) {
       return res.status(400).json({ error: 'status must be draft or assigned' })
     }
+    // org_id is derived from the CLIENT's row, not ctx.orgId: a super admin
+    // building a program for another org's client would otherwise stamp their
+    // own org (1) onto it. canAccessClient() above already guarantees the
+    // client is in ctx's org for everyone except super admin.
     const { rows: [workout] } = await pool.query(
-      'INSERT INTO workouts (user_id, name, description, status) VALUES ($1,$2,$3,$4) RETURNING *',
+      `INSERT INTO workouts (user_id, name, description, status, org_id)
+       VALUES ($1,$2,$3,$4,(SELECT org_id FROM users WHERE id = $1)) RETURNING *`,
       [clientId, name.trim(), description ?? null, status === 'draft' ? 'draft' : 'assigned'],
     )
     // If a full plan with days was provided (e.g. from Katie generation), save exercises too
@@ -3866,8 +3871,8 @@ router.post('/clients/:id/workouts', requireAuth(), async (req, res, next) => {
           // attachLegacyMedia()); no re-querying or re-matching here.
           await pool.query(
             `INSERT INTO workout_exercises
-               (workout_id, day, exercise_name, exercise_id, day_focus, sets, reps, rest_seconds, notes, sort_order, image_url, instructions)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+               (workout_id, day, exercise_name, exercise_id, day_focus, sets, reps, rest_seconds, notes, sort_order, image_url, instructions, org_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,(SELECT org_id FROM workouts WHERE id = $1))`,
             [workout.id, day.day_name, ex.name, ex.exercise_id ?? null, day.focus ?? null,
              ex.sets ?? null, ex.reps ?? null, ex.rest_seconds ?? null, ex.notes ?? null, dayOrder++,
              ex.image_url ?? null, ex.instructions ?? null],
@@ -3893,7 +3898,8 @@ router.put('/clients/:id/workouts/:wid', requireAuth(), async (req, res, next) =
     const { rows: [w] } = await pool.query(
       `UPDATE workouts SET name=COALESCE($3, name), description=COALESCE($4, description),
                             status=COALESCE($5, status)
-       WHERE id=$1 AND user_id=$2 RETURNING *`,
+       WHERE id=$1 AND user_id=$2
+         AND org_id = (SELECT org_id FROM users WHERE id = $2) RETURNING *`,
       [workoutId, clientId, name?.trim() ?? null, description ?? null, status ?? null],
     )
     if (!w) return res.status(404).json({ error: 'Workout not found' })
@@ -3922,8 +3928,9 @@ router.post('/clients/:id/workouts/:wid/exercises', requireAuth(), async (req, r
     const { rows: [ex] } = await pool.query(
       `INSERT INTO workout_exercises
          (workout_id, day, exercise_name, exercise_id, sets, reps, weight, rest_seconds, notes, sort_order,
-          section_name, group_id, group_type, group_label)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+          section_name, group_id, group_type, group_label, org_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
+               (SELECT org_id FROM workouts WHERE id = $1))
        RETURNING *, COALESCE(
          (SELECT image_url FROM exercises WHERE id = workout_exercises.exercise_id),
          (SELECT image_url FROM exercises
@@ -3961,8 +3968,13 @@ router.put('/clients/:id/workouts/exercises/:eid', requireAuth(), async (req, re
       return res.status(400).json({ error: 'group_type must be exercise, superset, or circuit' })
     }
     const setClauses = entries.map(([k], i) => `${k}=$${i + 2}`).join(', ')
+    // org_id predicate is defence in depth on top of the ownership check above.
+    // Compared against the CLIENT's org rather than ctx.orgId so the super-admin
+    // console still works cross-org; for everyone else canAccessClient() has
+    // already proven client.org_id === ctx.orgId.
     const { rows: [updated] } = await pool.query(
-      `UPDATE workout_exercises SET ${setClauses} WHERE id=$1
+      `UPDATE workout_exercises SET ${setClauses}
+       WHERE id=$1 AND org_id = (SELECT org_id FROM users WHERE id = $${entries.length + 2})
        RETURNING *, COALESCE(
          (SELECT image_url FROM exercises WHERE id = workout_exercises.exercise_id),
          (SELECT image_url FROM exercises
@@ -3970,8 +3982,9 @@ router.put('/clients/:id/workouts/exercises/:eid', requireAuth(), async (req, re
               AND image_url IS NOT NULL
             ORDER BY id LIMIT 1)
        ) AS image_url`,
-      [exId, ...entries.map(([, v]) => v)],
+      [exId, ...entries.map(([, v]) => v), clientId],
     )
+    if (!updated) return res.status(404).json({ error: 'Exercise not found' })
     res.json(updated)
   } catch (err) { next(err) }
 })
@@ -3985,7 +3998,8 @@ router.delete('/clients/:id/workouts/exercises/:eid', requireAuth(), async (req,
     if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
     const { rowCount } = await pool.query(
       `DELETE FROM workout_exercises we USING workouts w
-       WHERE we.workout_id=w.id AND we.id=$1 AND w.user_id=$2`, [exId, clientId])
+       WHERE we.workout_id=w.id AND we.id=$1 AND w.user_id=$2
+         AND we.org_id = (SELECT org_id FROM users WHERE id = $2)`, [exId, clientId])
     if (!rowCount) return res.status(404).json({ error: 'Exercise not found' })
     res.json({ ok: true })
   } catch (err) { next(err) }
@@ -3999,7 +4013,8 @@ router.delete('/clients/:id/workouts/:wid', requireAuth(), async (req, res, next
     const workoutId = parseInt(req.params.wid, 10)
     if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
     const { rowCount } = await pool.query(
-      'DELETE FROM workouts WHERE id=$1 AND user_id=$2', [workoutId, clientId])
+      `DELETE FROM workouts WHERE id=$1 AND user_id=$2
+         AND org_id = (SELECT org_id FROM users WHERE id = $2)`, [workoutId, clientId])
     if (!rowCount) return res.status(404).json({ error: 'Workout not found' })
     res.json({ ok: true })
   } catch (err) { next(err) }

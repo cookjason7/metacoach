@@ -234,17 +234,18 @@ router.delete('/comments/:id', requireAuth(), async (req, res, next) => {
 router.get('/leaderboard', requireAuth(), async (req, res, next) => {
   try {
     const ctx = { orgId: req.orgId, email: req.internalUser?.email }
-    const bypassOrg = isSuperAdmin(ctx)
-    const orgFilter = bypassOrg ? '' : ` AND u.org_id = $1`
+    // Always org-scoped, super admin included. This is a member-facing surface,
+    // not a console — an unscoped leaderboard blends every tenant's clients into
+    // one ranked list with no org label.
     const { rows } = await pool.query(`
       SELECT u.id, u.first_name, COUNT(DISTINCT DATE(m.logged_at))::int AS streak
       FROM users u
       JOIN meals m ON m.user_id = u.id
-      WHERE m.logged_at >= DATE_TRUNC('week', NOW())${orgFilter}
+      WHERE m.logged_at >= DATE_TRUNC('week', NOW()) AND u.org_id = $1
       GROUP BY u.id, u.first_name
       ORDER BY streak DESC, u.first_name ASC
       LIMIT 10
-    `, bypassOrg ? [] : [ctx.orgId])
+    `, [ctx.orgId])
     res.json(rows)
   } catch (err) { next(err) }
 })
@@ -254,8 +255,7 @@ router.get('/leaderboard', requireAuth(), async (req, res, next) => {
 router.get('/members', requireAuth(), async (req, res, next) => {
   try {
     const ctx = { orgId: req.orgId, email: req.internalUser?.email }
-    const bypassOrg = isSuperAdmin(ctx)
-    const orgFilter = bypassOrg ? '' : ` AND u.org_id = $1`
+    // Always org-scoped, super admin included — see the leaderboard note above.
     const { rows } = await pool.query(`
       SELECT u.id, u.first_name, u.identity_anchors, u.created_at,
              ARRAY_REMOVE(
@@ -266,10 +266,10 @@ router.get('/members', requireAuth(), async (req, res, next) => {
              ) AS log_dates
       FROM users u
       LEFT JOIN meals m ON m.user_id = u.id
-      WHERE u.onboarding_complete = TRUE${orgFilter}
+      WHERE u.onboarding_complete = TRUE AND u.org_id = $1
       GROUP BY u.id, u.first_name, u.identity_anchors, u.created_at
       ORDER BY u.first_name ASC NULLS LAST
-    `, bypassOrg ? [] : [ctx.orgId])
+    `, [ctx.orgId])
 
     function computeStreak(logDates) {
       if (!logDates?.length) return 0
@@ -338,7 +338,6 @@ router.get('/posts', requireAuth(), async (req, res, next) => {
     const { userId } = getAuth(req)
     const { dbUserId, isStaff, channel } = await getUserContext(userId)
     const ctx = { orgId: req.orgId, email: req.internalUser?.email }
-    const bypassOrg = isSuperAdmin(ctx)
 
     // Clients always see their own channel; staff filter by ?channel= param when provided
     const requested   = ['vip', 'ai'].includes(req.query.channel) ? req.query.channel : null
@@ -347,12 +346,12 @@ router.get('/posts', requireAuth(), async (req, res, next) => {
     const limit = Math.min(parseInt(req.query.limit) || 30, 100)
     const beforeId = req.query.before_id ? parseInt(req.query.before_id) : null
 
-    const qParams = [dbUserId, filterChannel]
-    let extraWhere = ''
-    if (!bypassOrg) {
-      qParams.push(ctx.orgId)
-      extraWhere += ` AND cp.org_id = $${qParams.length}`
-    }
+    // The org filter is unconditional — super admin included. The feed is a
+    // member-facing surface; an unscoped feed interleaves every tenant's posts
+    // into one timeline. Moderation actions (delete/pin/edit) keep their
+    // super-admin bypass further down this file.
+    const qParams = [dbUserId, filterChannel, ctx.orgId]
+    let extraWhere = ' AND cp.org_id = $3'
     if (beforeId) {
       qParams.push(beforeId)
       extraWhere += ` AND cp.id < $${qParams.length}`

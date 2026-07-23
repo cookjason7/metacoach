@@ -485,6 +485,21 @@ export async function migrate() {
   await pool.query(`ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS group_type TEXT NOT NULL DEFAULT 'exercise'`)
   await pool.query(`ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS group_label TEXT`)
 
+  // Backfill org_id on workout rows. Required, not cosmetic: coachAdmin.js's
+  // INSERTs used to omit org_id entirely, so every coach-built program and
+  // exercise carries org_id IS NULL. Now that the UPDATE/DELETE routes there
+  // filter on org_id, those legacy rows would be uneditable and undeletable
+  // without this. Derived from the owning user (workouts.user_id), which is the
+  // same source the INSERTs now use. Idempotent — only touches NULL rows.
+  await pool.query(`
+    UPDATE workouts w SET org_id = u.org_id
+    FROM users u WHERE u.id = w.user_id AND w.org_id IS NULL AND u.org_id IS NOT NULL
+  `)
+  await pool.query(`
+    UPDATE workout_exercises we SET org_id = w.org_id
+    FROM workouts w WHERE w.id = we.workout_id AND we.org_id IS NULL AND w.org_id IS NOT NULL
+  `)
+
   // ── Workout scheduling ───────────────────────────────────────────────────────
   // Mirrors the coach_assigned_habits / habit_completions pattern, but assigns a
   // saved workout program's individual "day" onto the client's calendar. One row
