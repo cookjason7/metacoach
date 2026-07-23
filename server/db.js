@@ -1916,6 +1916,45 @@ export async function runMigrations() {
     console.error('[migrations] 001_multi_tenancy failed:', err.message)
   }
 
+  // community_groups: org-manageable categories/channels backing the community
+  // post "category" field (server/routes/community.js, client Community.jsx).
+  // Previously this was a hardcoded 2-item list in both files that no one but a
+  // developer could change. Must run after runMultiTenancyMigration —
+  // organizations doesn't exist before that.
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS community_groups (
+        id             SERIAL PRIMARY KEY,
+        org_id         INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        name           TEXT NOT NULL,
+        description    TEXT,
+        type           TEXT NOT NULL DEFAULT 'public' CHECK (type IN ('public', 'private')),
+        display_order  INTEGER NOT NULL DEFAULT 0,
+        is_active      BOOLEAN NOT NULL DEFAULT TRUE,
+        created_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at     TIMESTAMPTZ DEFAULT NOW(),
+        updated_at     TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(org_id, name)
+      )
+    `)
+    // Seed every org with the two categories the app used to hardcode, so
+    // existing behavior (and existing posts' category labels) is unchanged
+    // for orgs that haven't customized anything yet. WHERE NOT EXISTS makes
+    // this idempotent — only orgs with zero rows ever get seeded.
+    await pool.query(`
+      INSERT INTO community_groups (org_id, name, description, type, display_order)
+      SELECT o.id, g.name, g.description, 'public', g.ord
+      FROM organizations o
+      CROSS JOIN (VALUES
+        ('General Discussion',  'Everyday check-ins and conversation', 0),
+        ('Non-Scale Victories', 'Wins that aren''t on the scale',       1)
+      ) AS g(name, description, ord)
+      WHERE NOT EXISTS (SELECT 1 FROM community_groups cg WHERE cg.org_id = o.id)
+    `)
+  } catch (err) {
+    console.error('[migrations] community_groups setup failed:', err.message)
+  }
+
   // One-time backfill: orgs that predate the owner_user_id column (or whose
   // owner invite was accepted before that write path existed) are left with
   // owner_user_id = NULL, which locks branding/settings saves to super admin

@@ -108,7 +108,40 @@ router.use(async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-const CLIENT_CATEGORIES = new Set(['General Discussion', 'Non-Scale Victories'])
+// Whether a client (non-staff) may post into this category. Backed by
+// community_groups so org admins can add/rename/retire categories without a
+// code deploy — 'private' groups are staff-only (e.g. an Announcements group).
+async function isClientPostableCategory(orgId, category) {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM community_groups WHERE org_id = $1 AND name = $2 AND is_active = TRUE AND type = 'public' LIMIT 1`,
+    [orgId, category],
+  )
+  return rows.length > 0
+}
+
+function isAdminRole(role) {
+  return role === 'admin' || role === 'account_owner'
+}
+
+// Org admin/owner, or the platform super admin (writes still land in
+// req.orgId only — see isSuperAdmin above). Mirrors isOrgOwnerOrAdmin in
+// server/routes/organizations.js.
+async function isOrgOwnerOrAdmin(req) {
+  const u = req.internalUser
+  if (!u) return false
+  if (isSuperAdmin({ email: u.email })) return true
+  if (isAdminRole(u.role)) return true
+  const { rows } = await pool.query('SELECT owner_user_id FROM organizations WHERE id = $1', [req.orgId])
+  return rows.length > 0 && rows[0].owner_user_id === u.id
+}
+
+async function requireOrgAdminOrOwner(req, res) {
+  if (!await isOrgOwnerOrAdmin(req)) {
+    res.status(403).json({ error: 'Admin only' })
+    return false
+  }
+  return true
+}
 
 // orgId scopes the @mention lookup to the poster's own org — without it, a name
 // match in a different org would both leak that user's existence and misdirect
@@ -412,8 +445,8 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
 
     if (!content?.trim()) return res.status(400).json({ error: 'Content required' })
 
-    // Clients may only post in General Discussion or Non-Scale Victories
-    if (!isStaff && !CLIENT_CATEGORIES.has(category)) category = 'General Discussion'
+    // Clients may only post into an active, public group in their own org
+    if (!isStaff && !(await isClientPostableCategory(req.orgId, category))) category = 'General Discussion'
 
     // Clients always post into their own channel; staff may specify a channel in body
     const postChannel = isStaff
@@ -884,6 +917,92 @@ router.post('/comments/:id/reactions', requireAuth(), async (req, res, next) => 
       [commentId],
     )
     res.json({ reaction_type, active, ...rows[0] })
+  } catch (err) { next(err) }
+})
+
+// ── Groups (org-manageable post categories/channels) ───────────────────────────
+
+// GET /api/community/groups — active groups for the caller's org. Admins/owners
+// may pass ?all=true to also see deactivated groups (for the manage-groups panel).
+router.get('/groups', requireAuth(), async (req, res, next) => {
+  try {
+    const wantAll = req.query.all === 'true' && await isOrgOwnerOrAdmin(req)
+    const { rows } = await pool.query(
+      `SELECT cg.id, cg.name, cg.description, cg.type, cg.display_order, cg.is_active, cg.created_at,
+              (SELECT COUNT(*)::int FROM community_posts cp
+               WHERE cp.org_id = cg.org_id AND cp.category = cg.name) AS post_count
+       FROM community_groups cg
+       WHERE cg.org_id = $1 AND ($2::boolean OR cg.is_active = TRUE)
+       ORDER BY cg.display_order ASC, cg.name ASC`,
+      [req.orgId, wantAll],
+    )
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
+// POST /api/community/groups — create a group/category for the caller's org.
+router.post('/groups', requireAuth(), async (req, res, next) => {
+  try {
+    if (!await requireOrgAdminOrOwner(req, res)) return
+    const name        = req.body?.name?.trim()
+    const description = req.body?.description?.trim() || null
+    const type         = req.body?.type === 'private' ? 'private' : 'public'
+    if (!name) return res.status(400).json({ error: 'Name is required' })
+
+    const { rows } = await pool.query(
+      `INSERT INTO community_groups (org_id, name, description, type, created_by)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, name, description, type, display_order, is_active, created_at`,
+      [req.orgId, name, description, type, req.internalUser?.id ?? null],
+    )
+    res.status(201).json({ ...rows[0], post_count: 0 })
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'A group with that name already exists.' })
+    next(err)
+  }
+})
+
+// PATCH /api/community/groups/:id — rename / edit description, type, or active state.
+router.patch('/groups/:id', requireAuth(), async (req, res, next) => {
+  try {
+    if (!await requireOrgAdminOrOwner(req, res)) return
+    const groupId = parseInt(req.params.id, 10)
+
+    const { rows: cur } = await pool.query('SELECT org_id FROM community_groups WHERE id = $1', [groupId])
+    if (!cur.length || cur[0].org_id !== req.orgId) return res.status(404).json({ error: 'Not found' })
+
+    const name = req.body?.name?.trim()
+    if (!name) return res.status(400).json({ error: 'Name is required' })
+    const description = req.body?.description?.trim() || null
+    const type       = req.body?.type === 'private' ? 'private' : 'public'
+    const is_active  = req.body?.is_active === undefined ? true : !!req.body.is_active
+
+    const { rows } = await pool.query(
+      `UPDATE community_groups
+       SET name = $1, description = $2, type = $3, is_active = $4, updated_at = NOW()
+       WHERE id = $5
+       RETURNING id, name, description, type, display_order, is_active, created_at`,
+      [name, description, type, is_active, groupId],
+    )
+    res.json(rows[0])
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'A group with that name already exists.' })
+    next(err)
+  }
+})
+
+// DELETE /api/community/groups/:id — soft delete (deactivate). Existing posts
+// keep their category label; the group just stops appearing as a choice.
+router.delete('/groups/:id', requireAuth(), async (req, res, next) => {
+  try {
+    if (!await requireOrgAdminOrOwner(req, res)) return
+    const groupId = parseInt(req.params.id, 10)
+
+    const { rows: cur } = await pool.query('SELECT org_id FROM community_groups WHERE id = $1', [groupId])
+    if (!cur.length || cur[0].org_id !== req.orgId) return res.status(404).json({ error: 'Not found' })
+
+    await pool.query('UPDATE community_groups SET is_active = FALSE, updated_at = NOW() WHERE id = $1', [groupId])
+    res.json({ ok: true })
   } catch (err) { next(err) }
 })
 
