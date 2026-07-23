@@ -4,6 +4,7 @@ import { useUser } from '@clerk/clerk-react'
 import { Link, useLocation } from 'react-router-dom'
 import { API_URL } from '../config.js'
 import BloodworkIntakeForm from '../components/BloodworkIntakeForm.jsx'
+import { Eye, EyeOff } from 'lucide-react'
 import { Capacitor } from '@capacitor/core'
 import { Browser } from '@capacitor/browser'
 import { requestAppleHealthPermissions, syncAppleHealthToday } from '../hooks/useAppleHealth.js'
@@ -429,6 +430,7 @@ export default function Settings() {
   const [pwSaving, setPwSaving] = useState(false)
   const [pwSaved, setPwSaved] = useState(false)
   const [pwError, setPwError] = useState(null)
+  const [pwVisible, setPwVisible] = useState({ currentPassword: false, newPassword: false, confirmPassword: false })
   const [team, setTeam] = useState([])
   const [teamLoading, setTeamLoading] = useState(false)
   const [teamError, setTeamError] = useState(null)
@@ -689,6 +691,7 @@ export default function Settings() {
       })
       setPwSaved(true)
       setPwForm({ currentPassword: '', newPassword: '', confirmPassword: '' })
+      setPwVisible({ currentPassword: false, newPassword: false, confirmPassword: false })
       setTimeout(() => { setPwSaved(false); setPwOpen(false) }, 1500)
     } catch (err) {
       setPwError(err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || err?.message || 'Failed to change password')
@@ -1290,34 +1293,64 @@ export default function Settings() {
               ) : (
                 <div className="border border-gray-200 rounded-lg p-4 space-y-3 bg-gray-50">
                   <Field label="Current Password">
-                    <input
-                      type="password"
-                      name="currentPassword"
-                      value={pwForm.currentPassword}
-                      onChange={setPwField}
-                      autoComplete="current-password"
-                      className="w-full min-h-[44px] border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A] bg-white"
-                    />
+                    <div className="relative">
+                      <input
+                        type={pwVisible.currentPassword ? 'text' : 'password'}
+                        name="currentPassword"
+                        value={pwForm.currentPassword}
+                        onChange={setPwField}
+                        autoComplete="current-password"
+                        className="w-full min-h-[44px] border border-gray-200 rounded-lg pl-3 pr-11 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A] bg-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setPwVisible(prev => ({ ...prev, currentPassword: !prev.currentPassword }))}
+                        aria-label={pwVisible.currentPassword ? 'Hide password' : 'Show password'}
+                        className="absolute right-0 top-0 h-11 w-11 flex items-center justify-center text-gray-400 hover:text-gray-600"
+                      >
+                        {pwVisible.currentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </Field>
                   <Field label="New Password">
-                    <input
-                      type="password"
-                      name="newPassword"
-                      value={pwForm.newPassword}
-                      onChange={setPwField}
-                      autoComplete="new-password"
-                      className="w-full min-h-[44px] border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A] bg-white"
-                    />
+                    <div className="relative">
+                      <input
+                        type={pwVisible.newPassword ? 'text' : 'password'}
+                        name="newPassword"
+                        value={pwForm.newPassword}
+                        onChange={setPwField}
+                        autoComplete="new-password"
+                        className="w-full min-h-[44px] border border-gray-200 rounded-lg pl-3 pr-11 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A] bg-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setPwVisible(prev => ({ ...prev, newPassword: !prev.newPassword }))}
+                        aria-label={pwVisible.newPassword ? 'Hide password' : 'Show password'}
+                        className="absolute right-0 top-0 h-11 w-11 flex items-center justify-center text-gray-400 hover:text-gray-600"
+                      >
+                        {pwVisible.newPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </Field>
                   <Field label="Confirm New Password">
-                    <input
-                      type="password"
-                      name="confirmPassword"
-                      value={pwForm.confirmPassword}
-                      onChange={setPwField}
-                      autoComplete="new-password"
-                      className="w-full min-h-[44px] border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A] bg-white"
-                    />
+                    <div className="relative">
+                      <input
+                        type={pwVisible.confirmPassword ? 'text' : 'password'}
+                        name="confirmPassword"
+                        value={pwForm.confirmPassword}
+                        onChange={setPwField}
+                        autoComplete="new-password"
+                        className="w-full min-h-[44px] border border-gray-200 rounded-lg pl-3 pr-11 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A] bg-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setPwVisible(prev => ({ ...prev, confirmPassword: !prev.confirmPassword }))}
+                        aria-label={pwVisible.confirmPassword ? 'Hide password' : 'Show password'}
+                        className="absolute right-0 top-0 h-11 w-11 flex items-center justify-center text-gray-400 hover:text-gray-600"
+                      >
+                        {pwVisible.confirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </Field>
                   {pwError && <p className="text-xs text-red-500">{pwError}</p>}
                   {pwSaved && <p className="text-xs font-medium text-emerald-600">Password updated!</p>}
@@ -1332,7 +1365,7 @@ export default function Settings() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => { setPwOpen(false); setPwError(null); setPwForm({ currentPassword: '', newPassword: '', confirmPassword: '' }) }}
+                      onClick={() => { setPwOpen(false); setPwError(null); setPwForm({ currentPassword: '', newPassword: '', confirmPassword: '' }); setPwVisible({ currentPassword: false, newPassword: false, confirmPassword: false }) }}
                       disabled={pwSaving}
                       className="flex-1 min-h-[44px] py-2.5 rounded-lg text-sm font-semibold text-gray-600 border border-gray-200 hover:bg-gray-100 transition-colors"
                     >
