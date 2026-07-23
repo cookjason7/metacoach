@@ -1799,37 +1799,20 @@ export async function migrate() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_staff_dm_participants      ON staff_direct_messages (sender_id, recipient_id, created_at)`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_staff_dm_recipient_unread ON staff_direct_messages (recipient_id, read_at)`)
 
-  // Seed a default #coachingteam channel per org and auto-join that org's
-  // staff. Re-running is a no-op for channel rows (per-org name-guarded) and
-  // idempotent for membership (ON CONFLICT DO NOTHING) — newly-promoted staff
-  // pick up membership on the next server restart.
+  // NOTE: this used to auto-seed a default #coachingteam channel per org (and
+  // auto-join that org's staff into it) on every startup. Removed — org
+  // owners now set up their own channels manually after onboarding. Any
+  // #coachingteam channel already in the DB (e.g. LWC/org_id 1) is untouched;
+  // this just stops the seed from running for orgs that don't have one.
   //
-  // Previously this CROSS JOINed every staff user against a single globally
+  // The cleanup below is unrelated and stays: it's a one-time (self-healing)
+  // fix for stray cross-org membership rows left over from a past bug where
+  // the seed above CROSS JOINed every staff user against a single globally
   // name-guarded channel, so every org's admins got auto-joined into
   // whichever org created "coachingteam" first — confirmed exploited on
-  // staging (org 2 admins were members of org 1's private channel). Both the
-  // channel and the membership join must be scoped to org_id.
-  await pool.query(`
-    INSERT INTO staff_channels (name, description, is_private, org_id)
-    SELECT 'coachingteam', 'Default team channel', TRUE, o.id
-    FROM organizations o
-    WHERE NOT EXISTS (
-      SELECT 1 FROM staff_channels c WHERE c.name = 'coachingteam' AND c.org_id = o.id
-    )
-  `)
-  await pool.query(`
-    INSERT INTO staff_channel_members (channel_id, user_id)
-    SELECT c.id, u.id
-    FROM staff_channels c
-    JOIN users u ON u.org_id = c.org_id
-    WHERE c.name = 'coachingteam'
-      AND u.role IN ('admin', 'coach', 'staff', 'account_owner')
-    ON CONFLICT (channel_id, user_id) DO NOTHING
-  `)
-  // One-time (self-healing) cleanup of membership rows left over from the
-  // cross-org seed bug above — a staff user belonging to another org than
-  // the channel. Platform super admins are allowed cross-org membership
-  // (they manage channels across every org via the app), so they're exempt.
+  // staging (org 2 admins were members of org 1's private channel). Platform
+  // super admins are allowed cross-org membership (they manage channels
+  // across every org via the app), so they're exempt.
   if (ADMIN_EMAILS.length > 0) {
     const placeholders = ADMIN_EMAILS.map((_, i) => `$${i + 1}`).join(', ')
     await pool.query(
