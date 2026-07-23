@@ -1938,6 +1938,65 @@ export async function runMigrations() {
     console.error('[migrations] community_groups setup failed:', err.message)
   }
 
+  // group_members + community_posts.group_id: turns community_groups from a
+  // pure label (posts matched a group only by string-equal category name) into
+  // a real membership-scoped feed. group_id is the authoritative link; category
+  // is kept in sync as a display label so existing feed/badge rendering and the
+  // group post_count query keep working unchanged.
+  // Must run after the community_groups block above — both FKs depend on it.
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS group_members (
+        id         SERIAL PRIMARY KEY,
+        group_id   INTEGER NOT NULL REFERENCES community_groups(id) ON DELETE CASCADE,
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        org_id     INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        added_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(group_id, user_id)
+      )
+    `)
+    // ON DELETE SET NULL, not CASCADE — deactivating/removing a group must never
+    // delete the posts written in it; they fall back to the main feed instead.
+    await pool.query(`
+      ALTER TABLE community_posts
+      ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES community_groups(id) ON DELETE SET NULL
+    `)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_group_members_user_org ON group_members (user_id, org_id)`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_group_members_group    ON group_members (group_id)`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_community_posts_group  ON community_posts (group_id, created_at DESC)`)
+
+    // Backfill group_id from the old category-name link. Org-scoped so two orgs
+    // with a same-named group never cross-assign. Idempotent via group_id IS NULL.
+    await pool.query(`
+      UPDATE community_posts cp
+      SET group_id = cg.id
+      FROM community_groups cg
+      WHERE cp.org_id = cg.org_id
+        AND cp.category = cg.name
+        AND cp.group_id IS NULL
+    `)
+
+    // Backfill membership: every active client lands in every active public
+    // group in their own org, so the migration preserves today's "everyone sees
+    // everything public" behavior. Staff are deliberately excluded here — they
+    // reach group content through the super-admin/admin paths, and auto-adding
+    // them would make the members list unusable as an audience picker.
+    await pool.query(`
+      INSERT INTO group_members (group_id, user_id, org_id, added_by)
+      SELECT cg.id, u.id, u.org_id, NULL
+      FROM community_groups cg
+      JOIN users u ON u.org_id = cg.org_id
+      WHERE cg.is_active = TRUE
+        AND cg.type = 'public'
+        AND u.client_status = 'active'
+        AND u.role = 'client'
+      ON CONFLICT (group_id, user_id) DO NOTHING
+    `)
+  } catch (err) {
+    console.error('[migrations] group_members setup failed:', err.message)
+  }
+
   // One-time backfill: orgs that predate the owner_user_id column (or whose
   // owner invite was accepted before that write path existed) are left with
   // owner_user_id = NULL, which locks branding/settings saves to super admin
