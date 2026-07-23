@@ -51,9 +51,14 @@ async function checkAdmin(req, res) {
 // Verifies the post belongs to the requester's org before a sub-resource (likers,
 // reactions, comments, poll) is returned. 404 (not 403) so cross-org callers can't
 // distinguish "not your org" from "doesn't exist".
+//
+// No super-admin bypass here, deliberately — this gates reads of another org's
+// content (who liked/reacted, comment threads, poll results), not a moderation
+// action. The platform super admin should only read their own org's community,
+// same as every other org. (The mutation-side bypasses further down this file —
+// delete post/comment, pin — are intentional moderation actions and untouched.)
 async function checkPostOrgAccess(req, res, postId) {
   const ctx = { orgId: req.orgId, email: req.internalUser?.email }
-  if (isSuperAdmin(ctx)) return true
   const { rows } = await pool.query('SELECT org_id FROM community_posts WHERE id = $1', [postId])
   if (!rows.length || rows[0].org_id !== ctx.orgId) {
     res.status(404).json({ error: 'Not found' })
@@ -63,9 +68,9 @@ async function checkPostOrgAccess(req, res, postId) {
 }
 
 // Same as checkPostOrgAccess but for a comment, via its parent post's org.
+// Also no super-admin bypass — see note above.
 async function checkCommentOrgAccess(req, res, commentId) {
   const ctx = { orgId: req.orgId, email: req.internalUser?.email }
-  if (isSuperAdmin(ctx)) return true
   const { rows } = await pool.query(
     `SELECT cp.org_id FROM post_comments pc JOIN community_posts cp ON cp.id = pc.post_id WHERE pc.id = $1`,
     [commentId],
