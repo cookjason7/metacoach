@@ -1122,19 +1122,38 @@ export default function Layout() {
             {/* ── Meal picker (shown after tapping a food action) ───────── */}
             {quickFoodMode && !quickAction && !quickDone && (
               <div className="px-4 pb-10 pt-2 space-y-4">
-                {/* Date selector — lets users log to a past date */}
+                {/* Date selector — lets users log to today, tomorrow, or a past date */}
                 <div>
                   <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">
                     Log date
                   </label>
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    {[
+                      { label: 'Today',    value: getLocalDateString() },
+                      { label: 'Tomorrow', value: getLocalDateString(new Date(Date.now() + 24 * 60 * 60 * 1000)) },
+                    ].map(({ label, value }) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setQuickLogDate(value)}
+                        className={`min-h-[44px] rounded-xl text-sm font-semibold transition-colors border ${
+                          quickLogDate === value
+                            ? 'bg-[#E8670A] text-white border-[#E8670A]'
+                            : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-orange-50'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                   <div className="flex items-center gap-2">
                     <input
                       type="date"
                       value={quickLogDate}
-                      max={getLocalDateString()}
+                      max={getLocalDateString(new Date(Date.now() + 24 * 60 * 60 * 1000))}
                       min={getLocalDateString(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000))}
                       onChange={e => setQuickLogDate(e.target.value || getLocalDateString())}
-                      className="flex-1 border border-gray-300 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
+                      className="flex-1 min-h-[44px] border border-gray-300 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
                     />
                     {quickLogDate !== getLocalDateString() && (
                       <button
