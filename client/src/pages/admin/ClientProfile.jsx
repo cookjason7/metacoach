@@ -6460,6 +6460,10 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
   }
 
   function swapAdjacent(arr, idx, direction) {
+    // Guard idx itself, not just the target. A -1 from a failed indexOf/findIndex
+    // paired with direction 'down' yields target 0, which passes a target-only
+    // bounds check and silently swaps in an `undefined` at index 0.
+    if (!Array.isArray(arr) || idx < 0 || idx >= arr.length) return null
     const target = direction === 'up' ? idx - 1 : idx + 1
     if (target < 0 || target >= arr.length) return null
     const copy = [...arr]
@@ -6523,6 +6527,9 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
   function moveGroup(day, dayExs, sectionName, gIdx, direction) {
     const sections  = getDaySections(day, dayExs)
     const secIdx    = sections.findIndex(s => s.name === sectionName)
+    // findIndex returns -1 when a stale click lands after a rename/delete —
+    // sections[-1].groups would throw. Bail before any index access.
+    if (secIdx < 0) return
     const newGroups = swapAdjacent(sections[secIdx].groups, gIdx, direction)
     if (!newGroups) return
     sections[secIdx] = { ...sections[secIdx], groups: newGroups }
@@ -6532,10 +6539,12 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
   function moveExerciseInGroup(day, dayExs, sectionName, gIdx, exIdx, direction) {
     const sections = getDaySections(day, dayExs)
     const secIdx   = sections.findIndex(s => s.name === sectionName)
-    const group    = sections[secIdx].groups[gIdx]
-    const newExs   = swapAdjacent(group.exercises, exIdx, direction)
+    if (secIdx < 0) return
+    const groups = sections[secIdx].groups
+    if (gIdx < 0 || gIdx >= groups.length) return
+    const newExs = swapAdjacent(groups[gIdx].exercises, exIdx, direction)
     if (!newExs) return
-    const newGroups = sections[secIdx].groups.map((g, i) => i === gIdx ? { ...g, exercises: newExs } : g)
+    const newGroups = groups.map((g, i) => i === gIdx ? { ...g, exercises: newExs } : g)
     sections[secIdx] = { ...sections[secIdx], groups: newGroups }
     persistDayStructure(day, sections)
   }

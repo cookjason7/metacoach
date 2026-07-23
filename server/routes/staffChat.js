@@ -16,9 +16,29 @@ const uploadAudioMulter = multer({
   fileFilter: (_req, file, cb) => cb(null, !!file.mimetype?.startsWith('audio/')),
 })
 
+// Allowlist, not a blocklist. Notably excludes image/svg+xml: Cloudinary serves
+// uploads from a real origin, so a stored SVG is a stored-XSS vector.
+const ALLOWED_ATTACHMENT_MIMETYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'application/pdf',
+  'video/mp4',
+  'video/quicktime',
+])
+
 const uploadAttachmentMulter = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_ATTACHMENT_MIMETYPES.has(file.mimetype)) return cb(null, true)
+    // status 400 so the global error handler in index.js surfaces this as a
+    // client error with the message intact, rather than a bare 500.
+    const err = new Error('File type not allowed.')
+    err.status = 400
+    cb(err)
+  },
 })
 
 function uploadAudioToCloudinary(buffer) {
@@ -588,15 +608,21 @@ router.post('/dms/:userId/read', async (req, res, next) => {
 router.get('/unread', async (req, res, next) => {
   try {
     const ctx = getCtx(req)
+    // Joined to staff_channels and filtered on org_id for the same reason
+    // isChannelMember() re-checks it: a stale cross-org staff_channel_members
+    // row (the org_id seed bug fixed in db.js's migrate()) would otherwise
+    // inflate this badge with another org's message count.
     const { rows: [chanRow] } = await pool.query(`
       SELECT COUNT(*)::int AS cnt
       FROM staff_messages sm
       JOIN staff_channel_members cm ON cm.channel_id = sm.channel_id AND cm.user_id = $1
+      JOIN staff_channels c ON c.id = sm.channel_id
       WHERE sm.sender_id != $1
+        AND c.org_id = $2
         AND NOT EXISTS (
           SELECT 1 FROM staff_message_reads r WHERE r.message_id = sm.id AND r.user_id = $1
         )
-    `, [ctx.dbUserId])
+    `, [ctx.dbUserId, ctx.orgId])
     const { rows: [dmRow] } = await pool.query(
       'SELECT COUNT(*)::int AS cnt FROM staff_direct_messages WHERE recipient_id = $1 AND read_at IS NULL',
       [ctx.dbUserId],
