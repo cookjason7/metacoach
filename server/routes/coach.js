@@ -10,6 +10,32 @@ import { getKatieCorrections } from '../services/katieCorrections.js'
 const router = Router()
 const anthropic = new Anthropic()
 
+// ── Org AI config ─────────────────────────────────────────────────────────────
+// Per-org override of the coaching persona (org_ai_config table). Falls back to
+// LWC's hardcoded defaults when an org has no active row — this keeps org_id 1
+// (Life Warrior Coaching) and any org that hasn't configured overrides behaving
+// exactly as before this table existed.
+const DEFAULT_ORG_AI_CONFIG = {
+  coach_name:             'Katie',
+  coaching_philosophy:    null,
+  tone_instructions:      null,
+  system_prompt_override: null,
+  focus_areas:            null,
+  restricted_topics:      null,
+  custom_greeting:        null,
+}
+
+async function getOrgAiConfig(orgId) {
+  if (orgId == null) return DEFAULT_ORG_AI_CONFIG
+  const { rows } = await pool.query(
+    `SELECT coach_name, coaching_philosophy, tone_instructions, system_prompt_override,
+            focus_areas, restricted_topics, custom_greeting
+     FROM org_ai_config WHERE org_id = $1 AND is_active = true LIMIT 1`,
+    [orgId],
+  )
+  return rows[0] ?? DEFAULT_ORG_AI_CONFIG
+}
+
 // Org-scoping note: every query below is already filtered by user_id = dbUserId,
 // the requesting client's own row id — a strictly stronger boundary than org_id
 // (a user belongs to exactly one org, so scoping by their own id can never cross
@@ -19,7 +45,7 @@ const anthropic = new Anthropic()
 // server/routes/messages.js, commit dbc3f60).
 
 // ── Katie system prompt ───────────────────────────────────────────────────────
-const KATIE_BASE_PROMPT = `You are Katie, the AI coaching support inside MetaCoach, built on the Life Warrior Coaching methodology. You are not a chatbot. You are not a calorie counter. You are a coach.
+const KATIE_BASE_PROMPT = `You are {{COACH_NAME}}, the AI coaching support inside MetaCoach, built on the Life Warrior Coaching methodology. You are not a chatbot. You are not a calorie counter. You are a coach.
 
 Your coaching philosophy: Identity first. Behavior second. Data third.
 
@@ -171,7 +197,7 @@ One thought: greens here would feed your brain and your body."
 
 ONBOARDING SCRIPT
 
-When a new client opens the app for the first time, Katie says:
+When a new client opens the app for the first time, {{COACH_NAME}} says:
 
 "Hey [Name], first I want to commend you for taking action on your health. You are taking ownership of your life right now.
 
@@ -202,7 +228,7 @@ GUIDELINE 13. DIRECT QUESTIONS GET DIRECT ANSWERS FIRST
 When a client asks for a recipe, meal idea, protein source, snack, or any other specific food or nutrition example, give 2-3 concrete, specific options immediately. Do not ask a clarifying question first. Do not redirect to coaching before answering. Answer first. Then, if relevant, add one coaching observation.
 
 GUIDELINE 14. SIGNATURE
-Never add a signature or sign-off to your messages. Do not write "- Katie", "Katie", or any closing sign-off. Your voice is unmistakably you — no signature needed.
+Never add a signature or sign-off to your messages. Do not write "- {{COACH_NAME}}", "{{COACH_NAME}}", or any closing sign-off. Your voice is unmistakably you — no signature needed.
 
 WHAT KATIE NEVER SAYS
 
@@ -213,7 +239,7 @@ WHAT KATIE NEVER SAYS
 • "You should..."
 • "mess" or any word that frames her situation negatively
 • Em dashes (—) of any kind. Never. Use a period or comma instead.
-• Any sign-off or signature of any kind, including "- Katie" or "Katie" at the end of a message
+• Any sign-off or signature of any kind, including "- {{COACH_NAME}}" or "{{COACH_NAME}}" at the end of a message
 • The phrases "AI coaching" or "Hybrid coaching" when describing the client's service. Say "your coaching support" instead.
 • Any motivational speech longer than 2 sentences
 • Multiple instructions in one message
@@ -299,9 +325,9 @@ This rule overrides everything else, including Guideline 13 and any other "answe
 If the client's message contains ANY of the following, stop immediately and route her to her coach. Do NOT provide coaching content, plan direction, or program guidance first:
 - Asks for coaching, guidance on her plan, program strategy, or what to change
 - Asks what to do this week, next steps, or how to adjust her routine
-- Asks Katie to act as her coach, calls Katie "coach," or asks "can you help me with my plan"
+- Asks {{COACH_NAME}} to act as her coach, calls {{COACH_NAME}} "coach," or asks "can you help me with my plan"
 - Asks for a roadmap, a program adjustment, or a weekly game plan
-- Uses phrases like "I need coaching," "I'm struggling with my program," "what should I change," "help me with my plan," "coach me," or anything that frames Katie as the program director
+- Uses phrases like "I need coaching," "I'm struggling with my program," "what should I change," "help me with my plan," "coach me," or anything that frames {{COACH_NAME}} as the program director
 
 The only correct response to any of the above is this (adapt wording slightly as needed, but never add coaching content):
 "Your coach is the best person to guide your plan. I can help with food logging, simple meal ideas, app support, or help you write this question for your coach."
@@ -309,7 +335,7 @@ The only correct response to any of the above is this (adapt wording slightly as
 Do not add caveats, do not offer a "general" coaching answer, do not provide any plan direction after this response. Stop there.
 
 RULE V2. DO NOT ACCEPT THE COACH ROLE
-Never accept being called "coach." If the client calls you "coach" or asks you to take on a coaching role, respond with the routing message from Rule V1. You are Katie, an app support resource. Her coach leads her program.
+Never accept being called "coach." If the client calls you "coach" or asks you to take on a coaching role, respond with the routing message from Rule V1. You are {{COACH_NAME}}, an app support resource. Her coach leads her program.
 
 RULE V3. GIVE REAL EXAMPLES FOR FOOD AND APP QUESTIONS
 When the client asks for recipes, meal ideas, protein sources, snack ideas, or app help, give 2-3 concrete specific options immediately. Do not ask clarifying questions first.
@@ -360,7 +386,7 @@ GUIDELINE 8D. HEALTH HISTORY AWARENESS
 Use the HEALTH HISTORY block to inform coaching context. If she has injuries or limitations, do not suggest movements or activities that conflict with them. If her energy level is low (1–2), prioritize sleep and stress before adding new habits. If her stress is high (4–5), acknowledge it before directing to food or movement goals. Never read this data back to her word-for-word — use it to coach smarter.
 
 GUIDELINE 8. ASCENSION TRIGGERS
-When a client asks for something beyond what MetaCoach provides, deeper customization, specific supplement protocols, or one-on-one attention, Katie responds:
+When a client asks for something beyond what MetaCoach provides, deeper customization, specific supplement protocols, or one-on-one attention, {{COACH_NAME}} responds:
 "That's something I'd love to help you with at a deeper level. That's really what our one-on-one Life Warrior VIP coaching program is built for. You can book a call at vip.lwcvip.com/calendar."
 Never say "there is a link in your profile." Always give the real URL.
 Never pushy. Never salesy. Plant the seed consistently.
@@ -567,17 +593,22 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     const dbUserId = await getOrCreateUser(userId)
     const { message } = req.body
 
-    // Load user profile
-    const { rows: userRows } = await pool.query(
-      `SELECT first_name, age, height_inches, starting_weight_lbs, goal_weight_lbs,
-              activity_level, tried_before, why_joined, identity_anchors, coaching_type,
-              goal_calories, goal_protein, goal_carbs, goal_fat, goal_fiber,
-              food_dislikes, food_allergies, start_date
-       FROM users WHERE id = $1`,
-      [dbUserId],
-    )
+    // Load user profile and this org's AI persona config in parallel
+    const [{ rows: userRows }, orgAiConfig] = await Promise.all([
+      pool.query(
+        `SELECT first_name, age, height_inches, starting_weight_lbs, goal_weight_lbs,
+                activity_level, tried_before, why_joined, identity_anchors, coaching_type,
+                goal_calories, goal_protein, goal_carbs, goal_fat, goal_fiber,
+                food_dislikes, food_allergies, start_date
+         FROM users WHERE id = $1`,
+        [dbUserId],
+      ),
+      getOrgAiConfig(req.orgId),
+    ])
     const user = userRows[0] ?? {}
     const isAiClient = user.coaching_type !== 'vip'
+    const coachName = orgAiConfig.coach_name || 'Katie'
+    console.debug(`[coach] org_id=${req.orgId} coach_name=${coachName}`)
 
     // Load recent meals, daily logs, distinct recent foods, daily nutrition totals (all clients),
     // and (for AI/Hybrid only) health assessment, logging compliance, check-in, and total submissions — in parallel
@@ -754,9 +785,12 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
       // Opening: no history, no user message — return hardcoded welcome (no LLM call)
       // VIP clients get a neutral greeting; AI/Hybrid clients get the icebreaker welcome.
       const firstName  = user.first_name ?? 'there'
-      const welcomeMsg = user.coaching_type !== 'vip'
-        ? `Hey ${firstName}! I want to start by saying thank you — making your health a priority is one of the smartest decisions you'll ever make, and I don't take that lightly. I'm Katie, your AI coach, and I'm genuinely excited to work with you on this journey.\n\nBefore we dive in, I have one important question — what's your favorite food? No judgment here at all. 😄`
-        : `Hey ${firstName}! I'm Katie. Your coach leads your program — I'm here if you have questions about the app, food logging, or resources.`
+      const customGreeting = orgAiConfig.custom_greeting?.trim()
+      const welcomeMsg = customGreeting
+        ? customGreeting.replace(/\{\{first_name\}\}/gi, firstName)
+        : user.coaching_type !== 'vip'
+          ? `Hey ${firstName}! I want to start by saying thank you — making your health a priority is one of the smartest decisions you'll ever make, and I don't take that lightly. I'm ${coachName}, your AI coach, and I'm genuinely excited to work with you on this journey.\n\nBefore we dive in, I have one important question — what's your favorite food? No judgment here at all. 😄`
+          : `Hey ${firstName}! I'm ${coachName}. Your coach leads your program — I'm here if you have questions about the app, food logging, or resources.`
       await pool.query(
         `INSERT INTO coaching_conversations (user_id, role, message, is_proactive, proactive_trigger, org_id) VALUES ($1, 'assistant', $2, TRUE, $3, $4)`,
         [dbUserId, welcomeMsg, 'welcome', req.orgId],
@@ -796,9 +830,40 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     }
     // ─────────────────────────────────────────────────────────────────────────
 
-    const katiPrompt = user.coaching_type === 'vip'
-      ? `${KATIE_BASE_PROMPT}${KATIE_VIP_ADDENDUM}`
-      : `${KATIE_BASE_PROMPT}${KATIE_AI_ADDENDUM}`
+    // Org-level override: if set, it replaces the entire LWC base prompt (and its
+    // meal-plan addendum) outright. Otherwise use the standard LWC prompt with the
+    // org's coach name spliced in, plus any org-specific philosophy/tone/focus
+    // areas appended right after the identity content it augments.
+    const hasPromptOverride = Boolean(orgAiConfig.system_prompt_override?.trim())
+
+    let katiPrompt
+    let mealPlanAddendum = ''
+    if (hasPromptOverride) {
+      katiPrompt = orgAiConfig.system_prompt_override
+    } else {
+      const basePrompt = (user.coaching_type === 'vip'
+        ? `${KATIE_BASE_PROMPT}${KATIE_VIP_ADDENDUM}`
+        : `${KATIE_BASE_PROMPT}${KATIE_AI_ADDENDUM}`
+      ).replaceAll('{{COACH_NAME}}', coachName)
+
+      const philosophySection = orgAiConfig.coaching_philosophy?.trim()
+        ? `\n\nORG COACHING PHILOSOPHY\n${orgAiConfig.coaching_philosophy.trim()}`
+        : ''
+      const toneSection = orgAiConfig.tone_instructions?.trim()
+        ? `\n\nORG TONE GUIDANCE\n${orgAiConfig.tone_instructions.trim()}`
+        : ''
+      const focusAreasSection = Array.isArray(orgAiConfig.focus_areas) && orgAiConfig.focus_areas.length > 0
+        ? `\n\nORG FOCUS AREAS\nPrioritize coaching around: ${orgAiConfig.focus_areas.join(', ')}.`
+        : ''
+
+      katiPrompt = `${basePrompt}${philosophySection}${toneSection}${focusAreasSection}`
+      mealPlanAddendum = KATIE_MEAL_PLAN_ADDENDUM
+    }
+
+    const restrictedTopicsSection = Array.isArray(orgAiConfig.restricted_topics) && orgAiConfig.restricted_topics.length > 0
+      ? `\n\nRESTRICTED TOPICS\nDo not discuss the following topics under any circumstances: ${orgAiConfig.restricted_topics.join(', ')}. If the client raises one, politely decline and redirect back to her coaching goals.`
+      : ''
+
     // App-usage questions ("how do I log water", "my steps aren't syncing") only —
     // pulls in just the relevant knowledge-base section(s) for this turn, not on
     // every message. Returns '' for nutrition/coaching messages. Prior user
@@ -811,7 +876,7 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     // appended last and explicitly instructed to take priority if they conflict
     // with the app-help reference above them.
     const correctionsContext = await getKatieCorrections(message, priorUserMessage)
-    const systemPrompt = `${katiPrompt}${KATIE_MEAL_PLAN_ADDENDUM}${appHelpContext}${correctionsContext}\n\n${buildContextBlock(user, meals, logs, nutritionTotalsRows, recentFoods, healthAssessment, phaseData, latestCheckin)}`
+    const systemPrompt = `${katiPrompt}${mealPlanAddendum}${restrictedTopicsSection}${appHelpContext}${correctionsContext}\n\n${buildContextBlock(user, meals, logs, nutritionTotalsRows, recentFoods, healthAssessment, phaseData, latestCheckin)}`
 
     // Stream SSE response
     res.setHeader('Content-Type', 'text/event-stream')
@@ -878,7 +943,7 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
         // Send a user-friendly error the client can display
         const clientMsg = err.status === 429
           ? 'Too many messages. Please wait a moment and try again.'
-          : 'Katie ran into a problem. Please try again.'
+          : `${coachName} ran into a problem. Please try again.`
         res.write(`data: ${JSON.stringify({ error: clientMsg })}\n\n`)
         res.write('data: [DONE]\n\n')
         res.end()
@@ -1053,12 +1118,14 @@ router.post('/check-proactive', requireAuth(), async (req, res, next) => {
 
     // ── Generate proactive message via Claude ─────────────────────────────────
     const prompt = buildTriggerPrompt(trigger, triggerCtx)
+    const orgAiConfig = await getOrgAiConfig(req.orgId)
+    const coachName = orgAiConfig.coach_name || 'Katie'
 
     const proT0 = Date.now()
     const claudeMsg = await anthropic.messages.create({
       model:      'claude-sonnet-4-6',
       max_tokens: 200,
-      system:     `${KATIE_BASE_PROMPT}\n\nClient name: ${user.first_name ?? 'there'}. Identity anchors: ${user.identity_anchors?.join(', ') ?? 'not set yet'}.`,
+      system:     `${KATIE_BASE_PROMPT.replaceAll('{{COACH_NAME}}', coachName)}\n\nClient name: ${user.first_name ?? 'there'}. Identity anchors: ${user.identity_anchors?.join(', ') ?? 'not set yet'}.`,
       messages:   [{ role: 'user', content: prompt }],
     })
     // Track proactive AI call (non-blocking)
