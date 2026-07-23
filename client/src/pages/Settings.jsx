@@ -424,6 +424,11 @@ export default function Settings() {
   const [nameSaved,  setNameSaved]  = useState(false)
   const [nameError,  setNameError]  = useState(null)
   const [nameEditing, setNameEditing] = useState(false)
+  const [pwOpen, setPwOpen] = useState(false)
+  const [pwForm, setPwForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' })
+  const [pwSaving, setPwSaving] = useState(false)
+  const [pwSaved, setPwSaved] = useState(false)
+  const [pwError, setPwError] = useState(null)
   const [team, setTeam] = useState([])
   const [teamLoading, setTeamLoading] = useState(false)
   const [teamError, setTeamError] = useState(null)
@@ -657,6 +662,38 @@ export default function Settings() {
       setNameError(err.message)
     } finally {
       setNameSaving(false)
+    }
+  }
+
+  function setPwField(e) {
+    const { name, value } = e.target
+    setPwForm(prev => ({ ...prev, [name]: value }))
+  }
+
+  async function changePassword(e) {
+    e.preventDefault()
+    setPwError(null)
+    if (!pwForm.currentPassword || !pwForm.newPassword || !pwForm.confirmPassword) {
+      setPwError('Please fill in all fields.')
+      return
+    }
+    if (pwForm.newPassword !== pwForm.confirmPassword) {
+      setPwError('New password and confirmation do not match.')
+      return
+    }
+    setPwSaving(true)
+    try {
+      await user.updatePassword({
+        currentPassword: pwForm.currentPassword,
+        newPassword: pwForm.newPassword,
+      })
+      setPwSaved(true)
+      setPwForm({ currentPassword: '', newPassword: '', confirmPassword: '' })
+      setTimeout(() => { setPwSaved(false); setPwOpen(false) }, 1500)
+    } catch (err) {
+      setPwError(err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || err?.message || 'Failed to change password')
+    } finally {
+      setPwSaving(false)
     }
   }
 
@@ -1240,6 +1277,72 @@ export default function Settings() {
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500 cursor-not-allowed"
             />
           </Field>
+          {!isStaff && (
+            <div className="pt-1">
+              {!pwOpen ? (
+                <button
+                  type="button"
+                  onClick={() => { setPwOpen(true); setPwError(null); setPwSaved(false) }}
+                  className="w-full sm:w-auto min-h-[44px] px-4 py-2.5 rounded-lg text-sm font-semibold text-[#E8670A] border border-[#E8670A]/40 hover:bg-orange-50 transition-colors"
+                >
+                  Change Password
+                </button>
+              ) : (
+                <div className="border border-gray-200 rounded-lg p-4 space-y-3 bg-gray-50">
+                  <Field label="Current Password">
+                    <input
+                      type="password"
+                      name="currentPassword"
+                      value={pwForm.currentPassword}
+                      onChange={setPwField}
+                      autoComplete="current-password"
+                      className="w-full min-h-[44px] border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A] bg-white"
+                    />
+                  </Field>
+                  <Field label="New Password">
+                    <input
+                      type="password"
+                      name="newPassword"
+                      value={pwForm.newPassword}
+                      onChange={setPwField}
+                      autoComplete="new-password"
+                      className="w-full min-h-[44px] border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A] bg-white"
+                    />
+                  </Field>
+                  <Field label="Confirm New Password">
+                    <input
+                      type="password"
+                      name="confirmPassword"
+                      value={pwForm.confirmPassword}
+                      onChange={setPwField}
+                      autoComplete="new-password"
+                      className="w-full min-h-[44px] border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 focus:border-[#E8670A] bg-white"
+                    />
+                  </Field>
+                  {pwError && <p className="text-xs text-red-500">{pwError}</p>}
+                  {pwSaved && <p className="text-xs font-medium text-emerald-600">Password updated!</p>}
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <button
+                      type="button"
+                      onClick={changePassword}
+                      disabled={pwSaving}
+                      className="flex-1 min-h-[44px] py-2.5 rounded-lg text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] transition-colors disabled:opacity-60"
+                    >
+                      {pwSaving ? 'Updating…' : 'Update Password'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setPwOpen(false); setPwError(null); setPwForm({ currentPassword: '', newPassword: '', confirmPassword: '' }) }}
+                      disabled={pwSaving}
+                      className="flex-1 min-h-[44px] py-2.5 rounded-lg text-sm font-semibold text-gray-600 border border-gray-200 hover:bg-gray-100 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {nameError && <p className="text-xs text-red-500">{nameError}</p>}
           {nameEditing ? (
             <button
