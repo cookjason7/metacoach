@@ -1127,30 +1127,32 @@ export default function Layout() {
                   <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">
                     Log date
                   </label>
-                  <div className="grid grid-cols-2 gap-2 mb-2">
-                    {[
-                      { label: 'Today',    value: getLocalDateString() },
-                      { label: 'Tomorrow', value: getLocalDateString(new Date(Date.now() + 24 * 60 * 60 * 1000)) },
-                    ].map(({ label, value }) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => setQuickLogDate(value)}
-                        className={`min-h-[44px] rounded-xl text-sm font-semibold transition-colors border ${
-                          quickLogDate === value
-                            ? 'bg-[#E8670A] text-white border-[#E8670A]'
-                            : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-orange-50'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
+                  <div className="flex gap-2 mb-2 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0" style={{ WebkitOverflowScrolling: 'touch' }}>
+                    {Array.from({ length: 7 }, (_, i) => {
+                      const d = new Date(Date.now() + i * 24 * 60 * 60 * 1000)
+                      const value = getLocalDateString(d)
+                      const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : d.toLocaleDateString('en-US', { weekday: 'short' })
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setQuickLogDate(value)}
+                          className={`shrink-0 min-w-[44px] min-h-[44px] px-3.5 rounded-xl text-sm font-semibold transition-colors border whitespace-nowrap ${
+                            quickLogDate === value
+                              ? 'bg-[#E8670A] text-white border-[#E8670A]'
+                              : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-orange-50'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      )
+                    })}
                   </div>
                   <div className="flex items-center gap-2">
                     <input
                       type="date"
                       value={quickLogDate}
-                      max={getLocalDateString(new Date(Date.now() + 24 * 60 * 60 * 1000))}
+                      max={getLocalDateString(new Date(Date.now() + 6 * 24 * 60 * 60 * 1000))}
                       min={getLocalDateString(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000))}
                       onChange={e => setQuickLogDate(e.target.value || getLocalDateString())}
                       className="flex-1 min-h-[44px] border border-gray-300 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
