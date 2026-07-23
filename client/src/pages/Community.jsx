@@ -367,7 +367,7 @@ function CommentItem({ comment, getToken, isAdmin, onDelete, members }) {
 
 // ── PostCard ──────────────────────────────────────────────────────────────────
 
-function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate, getToken, isAdmin, isStaff, currentUserId, members, highlighted = false }) {
+function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate, getToken, isAdmin, isStaff, currentUserId, members, categories = CATEGORIES, highlighted = false }) {
   const [expanded,       setExpanded]       = useState(false)
   const [comments,       setComments]       = useState(null)
   const [loadingComments,setLoadingComments]= useState(false)
@@ -380,7 +380,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
   })
   const [isEditing,      setIsEditing]      = useState(false)
   const [editContent,    setEditContent]    = useState(post.content)
-  const [editCategory,   setEditCategory]   = useState(post.category ?? CATEGORIES[0])
+  const [editCategory,   setEditCategory]   = useState(post.category ?? categories[0])
   const [saving,         setSaving]         = useState(false)
   const [showLikers,     setShowLikers]     = useState(false)
   const [showReactors,   setShowReactors]   = useState(false)
@@ -532,7 +532,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
             <div className="flex items-center gap-3 shrink-0">
               {canEdit && (
                 <button
-                  onClick={() => { setIsEditing(e => !e); setEditContent(post.content); setEditCategory(post.category ?? CATEGORIES[0]) }}
+                  onClick={() => { setIsEditing(e => !e); setEditContent(post.content); setEditCategory(post.category ?? categories[0]) }}
                   className="text-sm text-gray-400 hover:text-gray-700 transition-colors"
                 >
                   {isEditing ? 'Cancel' : 'Edit'}
@@ -576,7 +576,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
                 onChange={e => setEditCategory(e.target.value)}
                 className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
               >
-                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                {categories.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div className="flex gap-2">
@@ -907,6 +907,22 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
   const [activeCategory, setActiveCategory]= useState(initialCategory)
   const [searchParams]                     = useSearchParams()
   const [highlightPostId, setHighlightPostId] = useState(null) // post_id deep link target, briefly highlighted
+  const [groups,          setGroups]        = useState([]) // org's community_groups — backs both dropdowns below
+  const [manageGroupsOpen, setManageGroupsOpen] = useState(false)
+
+  // Falls back to the old hardcoded list until groups load (or if the fetch
+  // fails) so the composer/filter dropdowns are never empty.
+  const groupNames = groups.length ? groups.map(g => g.name) : CATEGORIES
+
+  const loadGroups = useCallback(async () => {
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/community/groups`, { headers: { Authorization: `Bearer ${token}` } })
+      if (res.ok) setGroups(await res.json())
+    } catch {}
+  }, [getToken])
+
+  useEffect(() => { loadGroups() }, [loadGroups])
 
   useEffect(() => {
     setLoading(true)
@@ -1109,8 +1125,20 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
             className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
           >
             <option value="All">All Posts</option>
-            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            {groupNames.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setManageGroupsOpen(true)}
+              className="ml-auto min-h-[44px] inline-flex items-center gap-1.5 border border-gray-200 text-gray-600 hover:text-[#E8670A] hover:border-[#E8670A] px-3 py-2 rounded-lg text-sm font-semibold transition-colors shrink-0"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              Manage Groups
+            </button>
+          )}
         </div>
 
         {/* Compose */}
@@ -1131,7 +1159,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
               onChange={e => setCategory(e.target.value)}
               className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white flex-1"
             >
-              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              {groupNames.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
 
@@ -1220,6 +1248,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
               isStaff={isStaff}
               currentUserId={currentUserId}
               members={members}
+              categories={groupNames}
               highlighted={post.id === highlightPostId}
             />
           ))}
@@ -1237,6 +1266,288 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
         )}
       </div>
 
+      {manageGroupsOpen && (
+        <ManageGroupsModal getToken={getToken} onClose={() => setManageGroupsOpen(false)} onGroupsChanged={loadGroups} />
+      )}
+    </div>
+  )
+}
+
+// ── Group management (admin/owner only) ─────────────────────────────────────────
+
+const EMPTY_GROUP = { name: '', description: '', type: 'public' }
+
+// Create/edit form — reused for both via the `initial` prop, same pattern as
+// ResourceModal below.
+function GroupFormModal({ initial, onSave, onClose, saving }) {
+  const [form, setForm] = useState(initial ?? EMPTY_GROUP)
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const isEdit  = !!initial?.id
+  const canSave = !saving && form.name.trim()
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h2 className="text-base font-bold text-gray-900">{isEdit ? 'Edit Group' : 'New Group'}</h2>
+          <button onClick={onClose} className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="px-6 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Name *</label>
+            <input
+              value={form.name}
+              onChange={e => set('name', e.target.value)}
+              placeholder="e.g. Recipe Swap"
+              maxLength={100}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#E8670A] min-h-[44px]"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Description</label>
+            <textarea
+              value={form.description ?? ''}
+              onChange={e => set('description', e.target.value)}
+              rows={3}
+              placeholder="What is this group for? (optional)"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#E8670A] resize-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Visibility</label>
+            <div className="flex gap-2">
+              {[
+                { id: 'public',  label: 'Public',  hint: 'Clients can post here' },
+                { id: 'private', label: 'Private', hint: 'Staff only' },
+              ].map(t => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => set('type', t.id)}
+                  className={`flex-1 min-h-[44px] px-3 py-2 rounded-xl text-sm font-semibold border-2 transition-colors ${
+                    form.type === t.id
+                      ? 'bg-[#E8670A] border-[#E8670A] text-white'
+                      : 'border-gray-200 text-gray-600 hover:border-[#E8670A]'
+                  }`}
+                  title={t.hint}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
+          <button onClick={onClose} className="min-h-[44px] px-4 py-2 text-sm text-gray-600 hover:text-gray-800 font-medium">Cancel</button>
+          <button
+            onClick={() => onSave(form)}
+            disabled={!canSave}
+            className="min-h-[44px] px-5 py-2 bg-[#E8670A] text-white text-sm font-bold rounded-xl hover:bg-[#c45e09] disabled:opacity-50 transition-colors"
+          >
+            {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Group'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Full manage-groups panel: list with edit/deactivate, opened from HybridTab's
+// "Manage Groups" button (admin/account_owner only — button itself is gated by
+// isAdmin, and every mutation is re-checked server-side by requireOrgAdminOrOwner).
+function ManageGroupsModal({ getToken, onClose, onGroupsChanged }) {
+  const [groups,       setGroups]       = useState([])
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState(null)
+  const [formTarget,   setFormTarget]   = useState(null) // null closed | 'new' | group object
+  const [saving,       setSaving]       = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleting,     setDeleting]     = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/community/groups?all=true`, { headers: { Authorization: `Bearer ${token}` } })
+      if (!res.ok) throw new Error(`Server error ${res.status}`)
+      setGroups(await res.json())
+    } catch (e) { setError(e.message) }
+    finally { setLoading(false) }
+  }, [getToken])
+
+  useEffect(() => { load() }, [load])
+
+  async function handleSave(form) {
+    setSaving(true)
+    try {
+      const token = await getToken()
+      const isEdit = !!formTarget?.id
+      const res = await fetch(
+        isEdit ? `${API_URL}/api/community/groups/${formTarget.id}` : `${API_URL}/api/community/groups`,
+        {
+          method: isEdit ? 'PATCH' : 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: form.name.trim(), description: form.description, type: form.type }),
+        },
+      )
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Save failed') }
+      setFormTarget(null)
+      await load()
+      onGroupsChanged?.()
+    } catch (e) { alert(e.message) }
+    finally { setSaving(false) }
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/community/groups/${deleteTarget.id}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error('Delete failed')
+      setDeleteTarget(null)
+      await load()
+      onGroupsChanged?.()
+    } catch (e) { alert(e.message) }
+    finally { setDeleting(false) }
+  }
+
+  async function handleReactivate(group) {
+    try {
+      const token = await getToken()
+      await fetch(`${API_URL}/api/community/groups/${group.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: group.name, description: group.description, type: group.type, is_active: true }),
+      })
+      await load()
+      onGroupsChanged?.()
+    } catch {}
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+          <div>
+            <h2 className="text-base font-bold text-gray-900">Manage Groups</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Categories your community can post into</p>
+          </div>
+          <button onClick={onClose} className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-gray-600 text-xl leading-none shrink-0">×</button>
+        </div>
+
+        <div className="px-6 py-4 overflow-y-auto flex-1">
+          <button
+            type="button"
+            onClick={() => setFormTarget('new')}
+            className="w-full min-h-[44px] mb-4 inline-flex items-center justify-center gap-2 bg-[#E8670A] text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-[#c45e09] transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            New Group
+          </button>
+
+          {loading && <p className="text-sm text-gray-400 text-center py-8">Loading…</p>}
+          {error   && <p className="text-sm text-red-500 text-center py-4">{error}</p>}
+
+          {!loading && !error && (
+            <div className="space-y-2">
+              {groups.map(g => (
+                <div key={g.id} className={`border rounded-xl p-3 ${g.is_active ? 'border-gray-200' : 'border-gray-100 bg-gray-50 opacity-60'}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-gray-900 truncate">{g.name}</span>
+                        {g.type === 'private' && (
+                          <span className="text-[10px] font-bold uppercase tracking-wide bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">Staff only</span>
+                        )}
+                        {!g.is_active && (
+                          <span className="text-[10px] font-bold uppercase tracking-wide bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded">Deactivated</span>
+                        )}
+                      </div>
+                      {g.description && <p className="text-xs text-gray-500 mt-0.5">{g.description}</p>}
+                      <p className="text-xs text-gray-400 mt-1">{g.post_count} post{g.post_count === 1 ? '' : 's'}</p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {g.is_active ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setFormTarget(g)}
+                            className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-[#E8670A] transition-colors"
+                            title="Edit"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(g)}
+                            className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-red-500 transition-colors"
+                            title="Deactivate"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleReactivate(g)}
+                          className="min-h-[44px] px-3 text-xs font-semibold text-[#E8670A] hover:text-[#c45e09]"
+                        >
+                          Reactivate
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {groups.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-8">No groups yet. Create one above.</p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {formTarget !== null && (
+        <GroupFormModal
+          initial={formTarget === 'new' ? null : formTarget}
+          onSave={handleSave}
+          onClose={() => setFormTarget(null)}
+          saving={saving}
+        />
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" onClick={() => setDeleteTarget(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl" onClick={e => e.stopPropagation()}>
+            <h2 className="text-base font-bold text-gray-900 mb-2">Deactivate "{deleteTarget.name}"?</h2>
+            <p className="text-sm text-gray-500 mb-5">
+              {deleteTarget.post_count > 0
+                ? `${deleteTarget.post_count} existing post${deleteTarget.post_count === 1 ? '' : 's'} will keep this category label, but no one will be able to post here anymore. You can reactivate it later.`
+                : 'No one will be able to post here anymore. You can reactivate it later.'}
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setDeleteTarget(null)} className="min-h-[44px] px-4 py-2 text-sm text-gray-600 hover:text-gray-800 font-medium">Cancel</button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="min-h-[44px] px-5 py-2 bg-red-500 text-white text-sm font-bold rounded-xl hover:bg-red-600 disabled:opacity-50 transition-colors"
+              >
+                {deleting ? 'Deactivating…' : 'Deactivate'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
