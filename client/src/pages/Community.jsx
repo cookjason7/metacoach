@@ -48,6 +48,11 @@ const REACTIONS = [
 
 const CATEGORIES = ['General Discussion', 'Non-Scale Victories']
 
+// Virtual first entry of GET /my-groups — the ungrouped feed (posts with
+// group_id IS NULL). Kept client-side too so the pill row still renders if that
+// request fails.
+const MAIN_FEED = { id: null, name: 'Main Feed', description: null, type: 'main' }
+
 function normalizeChannel(_ct) {
   return 'vip'  // one shared community for all coaching types
 }
@@ -909,6 +914,13 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
   const [highlightPostId, setHighlightPostId] = useState(null) // post_id deep link target, briefly highlighted
   const [groups,          setGroups]        = useState([]) // org's community_groups — backs both dropdowns below
   const [manageGroupsOpen, setManageGroupsOpen] = useState(false)
+  const [myGroups,        setMyGroups]      = useState([MAIN_FEED]) // pill row: Main Feed + groups the caller belongs to
+  const [activeGroupId,   setActiveGroupId] = useState(null)        // null = Main Feed
+
+  const activeGroup = myGroups.find(g => g.id === activeGroupId) ?? MAIN_FEED
+  const inGroup     = activeGroupId !== null
+  // 'main' selects the ungrouped feed server-side; a numeric id selects a group.
+  const groupParam  = inGroup ? String(activeGroupId) : 'main'
 
   // Falls back to the old hardcoded list until groups load (or if the fetch
   // fails) so the composer/filter dropdowns are never empty.
@@ -924,13 +936,45 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
 
   useEffect(() => { loadGroups() }, [loadGroups])
 
+  // Pill row source. Falls back to a Main-Feed-only row on failure rather than
+  // hiding the nav — the main feed still works without this call succeeding.
+  const loadMyGroups = useCallback(async () => {
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/community/my-groups`, { headers: { Authorization: `Bearer ${token}` } })
+      if (!res.ok) throw new Error(`Server error ${res.status}`)
+      const data = await res.json()
+      setMyGroups(Array.isArray(data) && data.length ? data : [MAIN_FEED])
+    } catch {
+      setMyGroups([MAIN_FEED])
+    }
+  }, [getToken])
+
+  useEffect(() => { loadMyGroups() }, [loadMyGroups])
+
+  // If the selected group disappears (removed from the group, or it was
+  // deactivated), fall back to Main Feed instead of polling a 403/empty feed.
+  useEffect(() => {
+    if (activeGroupId !== null && !myGroups.some(g => g.id === activeGroupId)) {
+      setActiveGroupId(null)
+    }
+  }, [myGroups, activeGroupId])
+
+  // Re-runs on group switch, which clears the feed and resets the before_id
+  // cursor — posts from the previous group must never bleed into the new one.
   useEffect(() => {
     setLoading(true)
     setError(null)
+    setPosts([])
+    setHasMore(false)
+    setNextBeforeId(null)
     async function load() {
       try {
         const token = await getToken()
-        const res   = await fetch(`${API_URL}/api/community/posts?channel=${channel}&limit=30`, { headers: { Authorization: `Bearer ${token}` } })
+        const res   = await fetch(
+          `${API_URL}/api/community/posts?channel=${channel}&group_id=${groupParam}&limit=30`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        )
         if (!res.ok) throw new Error(`Server error ${res.status}`)
         const data = await res.json()
         setPosts(data.posts ?? [])
@@ -940,7 +984,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
       finally { setLoading(false) }
     }
     load()
-  }, [getToken, channel, retryKey])
+  }, [getToken, channel, retryKey, groupParam])
 
   // Deep link from a community post push notification: /community?post_id=POST_ID
   // (see notifyNewCommunityPost in server/services/pushService.js and the
@@ -963,7 +1007,9 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
 
   const visiblePosts = posts.filter(p => {
     const matchSearch = !search.trim() || p.content.toLowerCase().includes(search.toLowerCase())
-    const matchCat    = activeCategory === 'All' || p.category === activeCategory
+    // The category filter is main-feed only — inside a group every post shares
+    // the group's category, so applying a stale selection would blank the feed.
+    const matchCat    = inGroup || activeCategory === 'All' || p.category === activeCategory
     return matchSearch && matchCat
   })
 
@@ -986,8 +1032,12 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
       const token = await getToken()
       const body  = new FormData()
       body.append('content', newPost.trim())
-      body.append('category', category)
+      // Inside a group the group is the category, so the label comes from the
+      // group rather than the (hidden) dropdown. The server re-derives it from
+      // group_id anyway; sending it keeps the optimistic post card correct.
+      body.append('category', inGroup ? activeGroup.name : category)
       body.append('channel', channel)
+      if (inGroup) body.append('group_id', String(activeGroupId))
       if (photo) body.append('photo', photo)
       if (poll?.question?.trim() && poll.options.filter(o => o.trim()).length >= 2) {
         body.append('poll_question', poll.question.trim())
@@ -1086,7 +1136,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
     try {
       const token = await getToken()
       const res = await fetch(
-        `${API_URL}/api/community/posts?channel=${channel}&limit=30&before_id=${nextBeforeId}`,
+        `${API_URL}/api/community/posts?channel=${channel}&group_id=${groupParam}&limit=30&before_id=${nextBeforeId}`,
         { headers: { Authorization: `Bearer ${token}` } },
       )
       if (res.ok) {
@@ -1100,11 +1150,39 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
       }
     } catch {}
     finally { setLoadingOlder(false) }
-  }, [channel, nextBeforeId, loadingOlder, getToken])
+  }, [channel, groupParam, nextBeforeId, loadingOlder, getToken])
 
   return (
     <div className="flex flex-col lg:flex-row gap-6 items-start">
       <div className="flex-1 min-w-0 w-full">
+        {/* Group pills — Main Feed first, then the groups this user belongs to.
+            Scrolls horizontally on mobile, wraps on desktop. Negative margin
+            lets the row bleed to the screen edge on mobile while keeping the
+            tap targets inside the normal padding. */}
+        <div className="-mx-4 px-4 sm:mx-0 sm:px-0 mb-3 overflow-x-auto sm:overflow-x-visible">
+          <div className="flex sm:flex-wrap gap-2 w-max sm:w-auto">
+            {myGroups.map(g => {
+              const active = g.id === activeGroupId
+              return (
+                <button
+                  key={g.id ?? 'main'}
+                  type="button"
+                  onClick={() => setActiveGroupId(g.id)}
+                  aria-current={active ? 'true' : undefined}
+                  title={g.description ?? undefined}
+                  className={`min-h-[44px] px-4 rounded-full text-sm font-medium whitespace-nowrap shrink-0 transition-colors ${
+                    active
+                      ? 'bg-[#f97316] text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  {g.name}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
         {/* Search */}
         <div className="relative mb-3">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">🔍</span>
@@ -1117,16 +1195,19 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
           />
         </div>
 
-        {/* Feed filter */}
+        {/* Feed filter — category is a main-feed concept only; inside a group
+            every post carries the group's own name, so the filter is hidden. */}
         <div className="flex items-center gap-2 mb-4">
-          <select
-            value={activeCategory}
-            onChange={e => setActiveCategory(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
-          >
-            <option value="All">All Posts</option>
-            {groupNames.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
+          {!inGroup && (
+            <select
+              value={activeCategory}
+              onChange={e => setActiveCategory(e.target.value)}
+              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
+            >
+              <option value="All">All Posts</option>
+              {groupNames.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          )}
           {isAdmin && (
             <button
               type="button"
@@ -1152,7 +1233,13 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
             textareaClassName="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#E8670A] min-h-[96px]"
           />
 
-          {/* Category dropdown */}
+          {/* Category dropdown — main feed only; in a group the group IS the
+              category, so this is replaced by a plain destination label. */}
+          {inGroup ? (
+            <p className="mt-3 text-xs text-gray-500">
+              Posting to <span className="font-semibold text-gray-700">{activeGroup.name}</span>
+            </p>
+          ) : (
           <div className="flex items-center gap-3 mt-3">
             <select
               value={category}
@@ -1162,6 +1249,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
               {groupNames.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
+          )}
 
           {poll && <PollCreator poll={poll} onChange={setPoll} />}
 
@@ -1220,7 +1308,9 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
             {posts.length === 0 ? (
               <>
                 <p className="text-2xl mb-3">👋</p>
-                <p className="text-sm font-semibold text-gray-700 mb-1">Be the first to post</p>
+                <p className="text-sm font-semibold text-gray-700 mb-1">
+                  No posts yet. Be the first to post in {activeGroup.name}.
+                </p>
                 <p className="text-sm text-gray-400">Share a win, a question, or just say hello.</p>
               </>
             ) : (
@@ -1267,7 +1357,12 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
       </div>
 
       {manageGroupsOpen && (
-        <ManageGroupsModal getToken={getToken} onClose={() => setManageGroupsOpen(false)} onGroupsChanged={loadGroups} />
+        <ManageGroupsModal
+          getToken={getToken}
+          currentUserId={currentUserId}
+          onClose={() => setManageGroupsOpen(false)}
+          onGroupsChanged={() => { loadGroups(); loadMyGroups() }}
+        />
       )}
     </div>
   )
@@ -1352,10 +1447,232 @@ function GroupFormModal({ initial, onSave, onClose, saving }) {
   )
 }
 
+const ROLE_BADGES = {
+  admin:         'bg-amber-50 text-amber-700 border-amber-200',
+  account_owner: 'bg-amber-50 text-amber-700 border-amber-200',
+  coach:         'bg-blue-50 text-blue-700 border-blue-200',
+  staff:         'bg-blue-50 text-blue-700 border-blue-200',
+  client:        'bg-gray-100 text-gray-600 border-gray-200',
+}
+function roleLabel(role) {
+  return role === 'account_owner' ? 'owner' : (role ?? 'client')
+}
+function fullName(u) {
+  return [u.first_name, u.last_name].filter(Boolean).join(' ') || 'Member'
+}
+
+// Roster editor for one group. Opened per-group from ManageGroupsModal; every
+// mutation is re-checked server-side by requireOrgAdminOrOwner, so this is a
+// convenience gate, not the security boundary.
+// Full-screen on mobile, centered card from sm: up.
+function MemberManagementModal({ group, getToken, currentUserId, onClose, onMembershipChanged }) {
+  const [members,   setMembers]   = useState(null)
+  const [eligible,  setEligible]  = useState(null)
+  const [error,     setError]     = useState(null)
+  const [query,     setQuery]     = useState('')
+  const [selectedId, setSelectedId] = useState('')
+  const [busyId,    setBusyId]    = useState(null)  // user_id mid-remove
+  const [adding,    setAdding]    = useState(false)
+  const changedRef = useRef(false)
+
+  const load = useCallback(async () => {
+    setError(null)
+    try {
+      const token = await getToken()
+      const headers = { Authorization: `Bearer ${token}` }
+      const [mRes, eRes] = await Promise.all([
+        fetch(`${API_URL}/api/community/groups/${group.id}/members`,          { headers }),
+        fetch(`${API_URL}/api/community/groups/${group.id}/eligible-members`, { headers }),
+      ])
+      if (!mRes.ok) throw new Error(`Could not load members (${mRes.status})`)
+      if (!eRes.ok) throw new Error(`Could not load eligible members (${eRes.status})`)
+      setMembers(await mRes.json())
+      setEligible(await eRes.json())
+    } catch (e) {
+      setError(e.message)
+      setMembers(m => m ?? [])
+      setEligible(e2 => e2 ?? [])
+    }
+  }, [getToken, group.id])
+
+  useEffect(() => { load() }, [load])
+
+  function close() {
+    if (changedRef.current) onMembershipChanged?.()
+    onClose()
+  }
+
+  async function addMember() {
+    const userId = parseInt(selectedId, 10)
+    if (!Number.isInteger(userId) || adding) return
+    setAdding(true)
+    setError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/community/groups/${group.id}/members`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error ?? 'Could not add member')
+      }
+      changedRef.current = true
+      setSelectedId('')
+      setQuery('')
+      await load()
+    } catch (e) { setError(e.message) }
+    finally { setAdding(false) }
+  }
+
+  async function removeMember(userId) {
+    setBusyId(userId)
+    setError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/community/groups/${group.id}/members/${userId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error('Could not remove member')
+      changedRef.current = true
+      await load()
+    } catch (e) { setError(e.message) }
+    finally { setBusyId(null) }
+  }
+
+  const q = query.trim().toLowerCase()
+  const filteredEligible = (eligible ?? []).filter(u =>
+    !q || fullName(u).toLowerCase().includes(q) || (u.email ?? '').toLowerCase().includes(q)
+  )
+  const loading = members === null || eligible === null
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-stretch sm:items-center justify-center bg-black/50 sm:px-4" onClick={close}>
+      <div
+        className="bg-white w-full h-full sm:h-auto sm:rounded-2xl sm:max-w-lg shadow-xl overflow-hidden flex flex-col sm:max-h-[85vh]"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="px-5 sm:px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+          <div className="min-w-0">
+            <h2 className="text-base font-bold text-gray-900 truncate">Members — {group.name}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {loading ? 'Loading…' : `${members.length} member${members.length === 1 ? '' : 's'}`}
+            </p>
+          </div>
+          <button
+            onClick={close}
+            aria-label="Close"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-gray-600 text-xl leading-none shrink-0"
+          >
+            ×
+          </button>
+        </div>
+
+        {error && (
+          <div className="mx-5 sm:mx-6 mt-3 bg-red-50 border border-red-200 rounded-xl px-3 py-2 shrink-0">
+            <p className="text-xs text-red-600">{error}</p>
+          </div>
+        )}
+
+        <div className="px-5 sm:px-6 py-4 overflow-y-auto flex-1">
+          {loading && <p className="text-sm text-gray-400 text-center py-8">Loading…</p>}
+
+          {!loading && (
+            <>
+              {/* Add member */}
+              <div className="mb-5">
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Add a member</label>
+                <input
+                  type="text"
+                  value={query}
+                  onChange={e => { setQuery(e.target.value); setSelectedId('') }}
+                  placeholder="Search by name or email…"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#E8670A] min-h-[44px] mb-2"
+                />
+                <div className="flex gap-2">
+                  <select
+                    value={selectedId}
+                    onChange={e => setSelectedId(e.target.value)}
+                    className="flex-1 min-w-0 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#E8670A] bg-white min-h-[44px]"
+                  >
+                    <option value="">
+                      {filteredEligible.length ? 'Select a person…' : 'No one available to add'}
+                    </option>
+                    {filteredEligible.map(u => (
+                      <option key={u.user_id} value={u.user_id}>
+                        {fullName(u)}{u.email ? ` — ${u.email}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={addMember}
+                    disabled={!selectedId || adding}
+                    className="min-h-[44px] px-5 bg-[#E8670A] text-white text-sm font-bold rounded-xl hover:bg-[#c45e09] disabled:opacity-40 transition-colors shrink-0"
+                  >
+                    {adding ? 'Adding…' : 'Add'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Current members */}
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Current members</p>
+              {members.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-6">No members yet. Add someone above.</p>
+              )}
+              <div className="space-y-1">
+                {members.map(m => {
+                  const isSelf = m.user_id === currentUserId
+                  return (
+                    <div key={m.user_id} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
+                      <Avatar name={m.first_name} size="sm" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-medium text-gray-900 truncate">{fullName(m)}</span>
+                          <span className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${ROLE_BADGES[m.role] ?? ROLE_BADGES.client}`}>
+                            {roleLabel(m.role)}
+                          </span>
+                          {isSelf && <span className="text-[10px] text-gray-400">(you)</span>}
+                        </div>
+                        {m.email && <p className="text-xs text-gray-400 truncate">{m.email}</p>}
+                      </div>
+                      {/* Removing yourself would drop the group from your own
+                          pill row mid-edit, so it's blocked here. */}
+                      {!isSelf && (
+                        <button
+                          type="button"
+                          onClick={() => removeMember(m.user_id)}
+                          disabled={busyId === m.user_id}
+                          aria-label={`Remove ${fullName(m)}`}
+                          className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-red-500 disabled:opacity-40 text-lg leading-none shrink-0"
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="px-5 sm:px-6 py-4 border-t border-gray-100 flex justify-end shrink-0">
+          <button onClick={close} className="min-h-[44px] px-5 py-2 text-sm font-semibold text-gray-600 hover:text-gray-800">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Full manage-groups panel: list with edit/deactivate, opened from HybridTab's
 // "Manage Groups" button (admin/account_owner only — button itself is gated by
 // isAdmin, and every mutation is re-checked server-side by requireOrgAdminOrOwner).
-function ManageGroupsModal({ getToken, onClose, onGroupsChanged }) {
+function ManageGroupsModal({ getToken, currentUserId, onClose, onGroupsChanged }) {
   const [groups,       setGroups]       = useState([])
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState(null)
@@ -1363,6 +1680,7 @@ function ManageGroupsModal({ getToken, onClose, onGroupsChanged }) {
   const [saving,       setSaving]       = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting,     setDeleting]     = useState(false)
+  const [membersTarget, setMembersTarget] = useState(null) // group whose roster is open
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1471,6 +1789,16 @@ function ManageGroupsModal({ getToken, onClose, onGroupsChanged }) {
                       </div>
                       {g.description && <p className="text-xs text-gray-500 mt-0.5">{g.description}</p>}
                       <p className="text-xs text-gray-400 mt-1">{g.post_count} post{g.post_count === 1 ? '' : 's'}</p>
+                      <button
+                        type="button"
+                        onClick={() => setMembersTarget(g)}
+                        className="mt-1 min-h-[44px] inline-flex items-center gap-1.5 text-xs font-semibold text-[#E8670A] hover:text-[#c45e09]"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                        </svg>
+                        Manage Members
+                      </button>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       {g.is_active ? (
@@ -1523,6 +1851,18 @@ function ManageGroupsModal({ getToken, onClose, onGroupsChanged }) {
           onSave={handleSave}
           onClose={() => setFormTarget(null)}
           saving={saving}
+        />
+      )}
+
+      {membersTarget && (
+        <MemberManagementModal
+          group={membersTarget}
+          getToken={getToken}
+          currentUserId={currentUserId}
+          onClose={() => setMembersTarget(null)}
+          // Membership changes can add/remove the admin themselves, which
+          // changes their own pill row — refresh it on close.
+          onMembershipChanged={onGroupsChanged}
         />
       )}
 
