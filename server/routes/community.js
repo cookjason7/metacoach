@@ -1158,6 +1158,14 @@ router.patch('/groups/:id', requireAuth(), async (req, res, next) => {
        RETURNING id, name, description, type, display_order, is_active, created_at`,
       [name, description, type, is_active, groupId],
     )
+
+    await pool.query(
+      `UPDATE community_posts
+       SET category = $1
+       WHERE group_id = $2 AND org_id = $3`,
+      [name, groupId, req.orgId],
+    )
+
     res.json(rows[0])
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'A group with that name already exists.' })
