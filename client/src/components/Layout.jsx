@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+﻿import { useState, useEffect, useCallback, useRef } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { UserButton, useUser, useAuth, useClerk } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 import { Capacitor } from '@capacitor/core'
 import { syncAppleHealthToday } from '../hooks/useAppleHealth.js'
 import { getLocalDateString } from '../utils/date.js'
+import { useOrgBranding } from '../context/OrgBrandingContext.jsx'
 
 // Client-facing sidebar nav
 const CLIENT_NAV_ITEMS = [
@@ -20,7 +21,7 @@ const CLIENT_NAV_ITEMS = [
   { to: '/settings',     label: 'Settings' },
 ]
 
-// Coach / admin sidebar nav — no personal food/fitness items
+// Coach / admin sidebar nav â€” no personal food/fitness items
 const STAFF_NAV_ITEMS = [
   { to: '/dashboard',     label: 'Coaching Dashboard' },
   { to: '/admin/forms',   label: 'Forms' },
@@ -30,17 +31,15 @@ const STAFF_NAV_ITEMS = [
   { to: '/settings',      label: 'Settings' },
 ]
 
-const SIDEBAR_BG = '#0F1E35'
-
-// Mirrors ADMIN_EMAILS in server/db.js — nav visibility only, the real gate is
+// Mirrors ADMIN_EMAILS in server/db.js â€” nav visibility only, the real gate is
 // isAdminEmail() on every /api/organizations route.
 const SUPER_ADMIN_EMAILS = ['jason@lwcvip.com', 'jason@efcfit.com']
 
-// Progress photo angle sequence — must match this order: Front → Side → Back
+// Progress photo angle sequence â€” must match this order: Front â†’ Side â†’ Back
 const PHOTO_ANGLE_SEQUENCE = ['front', 'side', 'back']
 
 export default function Layout() {
-  // ── Blunter diagnostic: fires synchronously during Layout's render body,
+  // â”€â”€ Blunter diagnostic: fires synchronously during Layout's render body,
   // before any hook is declared. Confirms whether Layout's function is
   // executing fresh code on the device under test at all, independent of
   // any specific effect/hook ordering or timing further down.
@@ -58,6 +57,7 @@ export default function Layout() {
     }).catch(() => {})
   } catch {}
 
+  const { primaryColor, sidebarColor, logoUrl, brandName, aiCoachName } = useOrgBranding()
   const { user, isLoaded }        = useUser()
   const { getToken, isSignedIn }  = useAuth()
   const { signOut }        = useClerk()
@@ -68,7 +68,7 @@ export default function Layout() {
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const [isOrgAdmin,   setIsOrgAdmin]   = useState(false)
   const [isStaff,      setIsStaff]      = useState(false)
-  const [coachingType, setCoachingType] = useState(null) // 'vip' | 'ai' | 'hybrid' | 'basic' — null until loaded
+  const [coachingType, setCoachingType] = useState(null) // 'vip' | 'ai' | 'hybrid' | 'basic' â€” null until loaded
   const [bloodworkEnabled, setBloodworkEnabled] = useState(false) // per-client flag from /api/users/me
   const [notifCount,   setNotifCount]   = useState(0)
   const [katieUnread,  setKatieUnread]  = useState(0)
@@ -123,8 +123,8 @@ export default function Layout() {
 
   // Backdrop tap-to-close. We only close when a pointer press actually STARTED
   // on the backdrop. The tap that opens the sheet presses on the plus button
-  // (the backdrop doesn't exist yet), so its trailing synthetic/"ghost" click —
-  // which lands on the freshly-mounted backdrop — has no matching pointerdown
+  // (the backdrop doesn't exist yet), so its trailing synthetic/"ghost" click â€”
+  // which lands on the freshly-mounted backdrop â€” has no matching pointerdown
   // here and is ignored. This removes the open/close flicker without relying on
   // a fragile timing guard.
   function handleOverlayPointerDown(e) {
@@ -166,7 +166,7 @@ export default function Layout() {
           const delta = Math.abs(parseFloat(quickValue) || 0)
           body.water_oz = Math.max(0, waterMode === 'subtract' ? currentWater - delta : currentWater + delta)
         } else {
-          // Past date — set total directly
+          // Past date â€” set total directly
           body.water_oz = Math.max(0, Math.abs(parseFloat(quickValue) || 0))
         }
       } else if (quickAction === 'weight') {
@@ -271,16 +271,16 @@ export default function Layout() {
       setQuickPhotoPreview(null)
       if (quickPhotoInputRef.current)    quickPhotoInputRef.current.value    = ''
       if (quickPhotoGalleryRef.current)  quickPhotoGalleryRef.current.value  = ''
-      // Advance through Front → Side → Back; only close after the last angle
+      // Advance through Front â†’ Side â†’ Back; only close after the last angle
       const savedAngle = quickPhotoAngle
       const nextIdx    = PHOTO_ANGLE_SEQUENCE.indexOf(savedAngle) + 1
       if (nextIdx < PHOTO_ANGLE_SEQUENCE.length) {
-        // More angles remain — show banner, advance to next angle, stay open
+        // More angles remain â€” show banner, advance to next angle, stay open
         setQuickPhotoSaved(savedAngle)
         setQuickPhotoAngle(PHOTO_ANGLE_SEQUENCE[nextIdx])
         setTimeout(() => setQuickPhotoSaved(null), 900)
       } else {
-        // Last angle (back) saved — show done and close
+        // Last angle (back) saved â€” show done and close
         setQuickDone(true)
         setTimeout(() => closeQuickMenu(), 1200)
       }
@@ -307,7 +307,7 @@ export default function Layout() {
       setIsSuperAdmin(superAdminStatus)
       setIsStaff(staffStatus)
       // Org-level admin/owner: the org's own 'admin' role, or the org's owner_user_id
-      // even when their role is 'coach' — never Jason (he has his own admin views).
+      // even when their role is 'coach' â€” never Jason (he has his own admin views).
       setIsOrgAdmin(!superAdminStatus && (adminStatus || (data.role === 'coach' && data.is_org_owner === true)))
       setCoachingType(data.coaching_type ?? 'vip')
       setBloodworkEnabled(data.bloodwork_enabled === true)
@@ -373,7 +373,7 @@ export default function Layout() {
   }, [fetchRole])
 
   // Defense-in-depth: if Layout ever persists across a sign-out/sign-in cycle
-  // by the same Clerk account (it currently doesn't — ProtectedLayout unmounts
+  // by the same Clerk account (it currently doesn't â€” ProtectedLayout unmounts
   // it whenever isSignedIn goes false), force a fresh /api/users/me fetch on
   // the sign-in transition rather than trusting whatever role state is already
   // in memory from the prior session.
@@ -384,7 +384,7 @@ export default function Layout() {
     if (freshSignIn) fetchRole()
   }, [isSignedIn, fetchRole])
 
-  // ── Unauthenticated app-load diagnostic — fires once on mount, no auth needed ──
+  // â”€â”€ Unauthenticated app-load diagnostic â€” fires once on mount, no auth needed â”€â”€
   useEffect(() => {
     try {
       const payload = {
@@ -402,19 +402,19 @@ export default function Layout() {
     } catch {}
   }, [])
 
-  // ── Android/iOS push notification registration ─────────────────────────────
-  // Runs once the user is authenticated. Non-blocking — all errors are warnings.
+  // â”€â”€ Android/iOS push notification registration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Runs once the user is authenticated. Non-blocking â€” all errors are warnings.
   //
   // @capacitor/push-notifications is imported dynamically (not at module top
   // level) and only after Capacitor.isPluginAvailable('PushNotifications')
   // confirms the native bridge has finished injecting. registerPlugin() inside
   // @capacitor/core captures the platform/native-headers state ONCE, synchronously,
-  // at the moment the plugin module is first imported — if that happens before the
+  // at the moment the plugin module is first imported â€” if that happens before the
   // native bridge has injected into the WebView (a real race in this app's
   // server.url remote-content mode, since the web bundle is fetched over the
   // network rather than loaded from a bundled local asset), the plugin proxy is
   // permanently stuck treating the device as "web" for the rest of that page
-  // load, and every later call throws "plugin is not implemented" — no amount
+  // load, and every later call throws "plugin is not implemented" â€” no amount
   // of retrying checkPermissions()/register() afterwards fixes it. Deferring the
   // import itself until isPluginAvailable() (which re-checks live on every call)
   // confirms readiness avoids the race entirely.
@@ -422,7 +422,7 @@ export default function Layout() {
   useEffect(() => {
     // getToken() needs a live Clerk token, which POST /api/push/debug requires
     // (requireAuth()). Clerk can genuinely need a beat to initialize in the
-    // WebView right at effect-mount — one retry after a short delay gives it
+    // WebView right at effect-mount â€” one retry after a short delay gives it
     // that beat instead of giving up on the very first attempt.
     const getTokenRetried = async () => {
       try {
@@ -438,7 +438,7 @@ export default function Layout() {
       }
     }
 
-    // Fire-and-forget diagnostic ping — never includes the FCM token value.
+    // Fire-and-forget diagnostic ping â€” never includes the FCM token value.
     // Every failure mode is logged to console rather than swallowed: a fetch()
     // call resolving with a non-ok status (e.g. a 401 from an expired/missing
     // Clerk token) does NOT throw, so a bare `catch {}` here would silently
@@ -449,7 +449,7 @@ export default function Layout() {
 
       const clerkToken = await getTokenRetried()
       if (!clerkToken) {
-        console.warn('[push] sendDebug has no Clerk token after retry — step not reported', step)
+        console.warn('[push] sendDebug has no Clerk token after retry â€” step not reported', step)
         return
       }
 
@@ -467,10 +467,10 @@ export default function Layout() {
       }
     }
 
-    // Unconditional — fires on every run of this effect, before the isLoaded/user
+    // Unconditional â€” fires on every run of this effect, before the isLoaded/user
     // gate below, so we can tell "effect never ran" apart from "effect ran but
     // bailed because auth wasn't ready yet." Uses the unauthenticated
-    // /api/push/app-load-debug endpoint rather than sendDebug()/api/push/debug —
+    // /api/push/app-load-debug endpoint rather than sendDebug()/api/push/debug â€”
     // this is the single most critical log point (confirming the effect runs
     // at all), and it must not depend on getToken() having already resolved at
     // this exact instant, which is the one thing we can't guarantee this early.
@@ -497,7 +497,7 @@ export default function Layout() {
     let platform = null // set once the plugin is confirmed available, below
 
     // Poll the live Capacitor bridge state rather than trusting a one-shot
-    // check — isPluginAvailable() re-reads window.Capacitor.PluginHeaders on
+    // check â€” isPluginAvailable() re-reads window.Capacitor.PluginHeaders on
     // every call, so it correctly reflects the bridge finishing injection
     // after this effect has already started running.
     const waitForPushPlugin = async (timeoutMs = 5000, intervalMs = 100) => {
@@ -583,18 +583,18 @@ export default function Layout() {
       if (cancelled) return
 
       if (!pluginReady) {
-        // Always log the timeout, regardless of what platform is detected —
+        // Always log the timeout, regardless of what platform is detected â€”
         // a false 'web' reading on a real native device is exactly the kind
         // of thing this is meant to catch, not silently swallow.
         const platformNow = Capacitor.getPlatform()
         sendDebug('bridge-ready-timeout', `platform=${platformNow}`)
 
         if (platformNow === 'web') {
-          // Expected — plain browser tab, not the native app. No push support here.
+          // Expected â€” plain browser tab, not the native app. No push support here.
           return
         }
-        // Native platform, but the bridge never confirmed the plugin — worth tracing.
-        console.warn('[push] native bridge never became ready — push unavailable this session')
+        // Native platform, but the bridge never confirmed the plugin â€” worth tracing.
+        console.warn('[push] native bridge never became ready â€” push unavailable this session')
         return
       }
 
@@ -602,7 +602,7 @@ export default function Layout() {
       sendDebug('native-detected', `platform=${platform}`)
 
       try {
-        // Import only now — importing at module load time registers the plugin's
+        // Import only now â€” importing at module load time registers the plugin's
         // Capacitor proxy before we can guarantee the bridge is ready (see comment
         // above this effect). isPluginAvailable() having just returned true means
         // this import resolves against a bridge that's already live.
@@ -631,7 +631,7 @@ export default function Layout() {
         // The server attaches a deep-link url on whichever notification type sent
         // it (see notifyNewDirectMessage / notifyNewCommunityPost in
         // pushService.js) so tapping opens the specific thread or post instead of
-        // just landing on the Dashboard. Routed generically — no per-type cases.
+        // just landing on the Dashboard. Routed generically â€” no per-type cases.
         actionListener = await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
           const url = action?.notification?.data?.url
           if (url) navigate(url)
@@ -643,7 +643,7 @@ export default function Layout() {
         console.log('[push] permission result', { receive, platform })
         sendDebug('permission', receive)
         if (receive !== 'granted') {
-          console.log('[push] permission not granted — skipping registration')
+          console.log('[push] permission not granted â€” skipping registration')
           return
         }
 
@@ -674,11 +674,11 @@ export default function Layout() {
     }
   }, [isLoaded, user, getToken, navigate])
 
-  // ── Apple Health auto-sync on foreground ──────────────────────────────────
+  // â”€â”€ Apple Health auto-sync on foreground â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Fires silently when the iOS app returns from background (visibilitychange
   // fires in Capacitor WebViews just like a browser tab becoming visible).
   // A 5-minute cooldown prevents hammering the server if the user multi-tasks.
-  // No UI shown — the 'daily-log-updated' event from syncAppleHealthToday()
+  // No UI shown â€” the 'daily-log-updated' event from syncAppleHealthToday()
   // updates the Dashboard in real-time when it fires.
   useEffect(() => {
     if (!isLoaded || !user) return
@@ -697,7 +697,7 @@ export default function Layout() {
           try { localStorage.setItem('ah_last_synced', new Date().toISOString()) } catch {}
         }
       } catch {
-        // Silent — auto-sync failures must never surface an error to the user
+        // Silent â€” auto-sync failures must never surface an error to the user
       }
     }
 
@@ -745,7 +745,7 @@ export default function Layout() {
 
   // Scroll desktop main content to top on every route change.
   // The <main> element persists across navigations (Layout never unmounts),
-  // so its scrollTop is preserved without this — leaving a blank space above
+  // so its scrollTop is preserved without this â€” leaving a blank space above
   // the content when the user navigates to /dashboard from a scrolled page.
   useEffect(() => {
     if (mainRef.current) mainRef.current.scrollTop = 0
@@ -764,11 +764,12 @@ export default function Layout() {
   })
 
   // Non-VIP clients (ai, hybrid, basic) see "Support" instead of "Messages".
-  const clientNavWithLabels = isNonVipClient
+  const clientNavWithLabels = (isNonVipClient
     ? baseClientNav.map(item => item.label === 'Messages' ? { ...item, label: 'Support' } : item)
     : baseClientNav
+  ).map(item => item.label.includes('Katie') ? { ...item, label: item.label.replace('Katie', aiCoachName) } : item)
 
-  // Org-level admins/owners (not Jason) get their own fixed nav — no LWC-internal
+  // Org-level admins/owners (not Jason) get their own fixed nav â€” no LWC-internal
   // tools (Usage Analytics, Workout Builder Test), but Katie Corrections stays
   // since org owners do need to review their own AI coach's corrections.
   const orgAdminNavItems = [
@@ -778,12 +779,12 @@ export default function Layout() {
     { to: '/admin/forms',             label: 'Forms' },
     { to: '/staff-chat',              label: 'Team Communication' },
     { to: '/community',               label: 'Community' },
-    { to: '/admin/katie-corrections', label: 'Katie Corrections' },
+    { to: '/admin/katie-corrections', label: `${aiCoachName} Corrections` },
     { to: '/settings',                label: 'Settings' },
   ]
 
   // Super-admin gets extra "Usage Analytics", "Workout Builder Test", and
-  // "Organizations" nav entries — LWC-internal tools, never shown to org admins.
+  // "Organizations" nav entries â€” LWC-internal tools, never shown to org admins.
   const navItems = isStaff
     ? isAdmin
       ? (isOrgAdmin
@@ -791,28 +792,30 @@ export default function Layout() {
           : [
               ...STAFF_NAV_ITEMS,
               { to: '/admin/usage', label: 'Usage Analytics' },
-              { to: '/admin/katie-corrections', label: 'Katie Corrections' },
+              { to: '/admin/katie-corrections', label: `${aiCoachName} Corrections` },
               { to: '/admin/workout-builder-test', label: 'Workout Builder Test' },
               ...(isSuperAdmin ? [{ to: '/admin/organizations', label: 'Organizations' }] : []),
             ])
       : (isOrgAdmin ? orgAdminNavItems : STAFF_NAV_ITEMS)
     : clientNavWithLabels
 
-  // Mobile drawer hides items already in the client bottom nav.
-  const mobileBottomNavLabels = isBasicClient
-    ? new Set(['Dashboard', 'Coach Katie', 'Food Log', 'Support'])
+  // Mobile drawer hides items already in the client bottom nav. Matched by
+  // route path rather than label text since the "Coach Katie" label text
+  // varies with the org's configured AI coach name.
+  const mobileBottomNavPaths = isBasicClient
+    ? new Set(['/dashboard', '/ai-coach', '/journal', '/messages'])
     : isNonVipClient
-      ? new Set(['Dashboard', 'Coach Katie', 'Food Log', 'Community'])
-      : new Set(['Dashboard', 'Food Log', 'Messages', 'Community', 'Calendar'])
-  const mobileNavItems = isStaff ? navItems : navItems.filter(i => !mobileBottomNavLabels.has(i.label))
+      ? new Set(['/dashboard', '/ai-coach', '/journal', '/community'])
+      : new Set(['/dashboard', '/journal', '/messages', '/community', '/calendar'])
+  const mobileNavItems = isStaff ? navItems : navItems.filter(i => !mobileBottomNavPaths.has(i.to))
 
   function buildSidebarContent(items, isMobile = false) { return (
     <>
       {/* Logo */}
       <div className="flex justify-center mt-6 mb-5 px-3">
         <img
-          src="/brand/warriorfit-logo-full-sidebar.png"
-          alt="WarriorFIT AI"
+          src={logoUrl}
+          alt={brandName}
           className={isMobile ? "w-[59px] h-auto block" : "w-[102px] h-auto block"}
         />
       </div>
@@ -843,7 +846,7 @@ export default function Layout() {
                   : isActive && !(matchPath === undefined && label === 'Community' && location.search.includes('tab=mindset'))
                 return `flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   active
-                    ? 'bg-[#E8670A] text-white'
+                    ? 'bg-[var(--color-accent)] text-white'
                     : 'text-white/70 hover:bg-white/10 hover:text-white'
                 }`
               }}
@@ -852,18 +855,18 @@ export default function Layout() {
               {label === 'Community' && notifCount > 0 && (
                 <span className="ml-auto w-2 h-2 bg-red-500 rounded-full" />
               )}
-              {label === 'Coach Katie' && katieUnread > 0 && (
-                <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-[#E8670A] text-white text-[10px] font-bold px-1">
+              {to === '/ai-coach' && katieUnread > 0 && (
+                <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-[var(--color-accent)] text-white text-[10px] font-bold px-1">
                   {katieUnread}
                 </span>
               )}
               {(label === 'Messages' || label === 'Support') && msgUnread > 0 && (
-                <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-[#E8670A] text-white text-[10px] font-bold px-1">
+                <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-[var(--color-accent)] text-white text-[10px] font-bold px-1">
                   {msgUnread}
                 </span>
               )}
               {label === 'Team Communication' && staffUnread > 0 && (
-                <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-[#E8670A] text-white text-[10px] font-bold px-1">
+                <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-[var(--color-accent)] text-white text-[10px] font-bold px-1">
                   {staffUnread}
                 </span>
               )}
@@ -885,7 +888,7 @@ export default function Layout() {
         </div>
       </div>
 
-      {/* Logout — always visible, pinned to bottom */}
+      {/* Logout â€” always visible, pinned to bottom */}
       <div className="px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] lg:pb-4">
         <button
           onClick={async () => {
@@ -917,7 +920,7 @@ export default function Layout() {
     <div className="flex h-screen bg-gray-50">
 
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex w-60 flex-shrink-0 flex-col" style={{ backgroundColor: SIDEBAR_BG }}>
+      <aside className="hidden lg:flex w-60 flex-shrink-0 flex-col" style={{ background: 'var(--color-sidebar)' }}>
         {buildSidebarContent(navItems)}
       </aside>
 
@@ -928,7 +931,7 @@ export default function Layout() {
             className="fixed inset-0 bg-black/50"
             onClick={() => setSidebarOpen(false)}
           />
-          <aside className="relative z-[61] h-[100dvh] max-h-[100dvh] w-60 flex flex-col flex-shrink-0" style={{ backgroundColor: SIDEBAR_BG }}>
+          <aside className="relative z-[61] h-[100dvh] max-h-[100dvh] w-60 flex flex-col flex-shrink-0" style={{ background: 'var(--color-sidebar)' }}>
             {buildSidebarContent(mobileNavItems, true)}
           </aside>
         </div>
@@ -964,13 +967,13 @@ export default function Layout() {
           // Basic client bottom nav: Home | Food Log | Katie | Support  (no Community)
           { to: '/dashboard', label: 'Home',     badge: false,             icon: <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /> },
           { to: '/journal',   label: 'Food Log', badge: false,             icon: <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /> },
-          { to: '/ai-coach',  label: 'Katie',    badge: katieUnread > 0,   icon: <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" /> },
+          { to: '/ai-coach',  label: aiCoachName,    badge: katieUnread > 0,   icon: <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" /> },
           { to: '/messages',  label: 'Support',  badge: msgUnread > 0,     icon: <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /> },
         ] : isNonVipClient ? [
           // AI / Hybrid client bottom nav: Home | Food Log | Katie | Community
           { to: '/dashboard', label: 'Home',      badge: false,            icon: <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /> },
           { to: '/journal',   label: 'Food Log',  badge: false,            icon: <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /> },
-          { to: '/ai-coach',  label: 'Katie',     badge: katieUnread > 0,  icon: <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" /> },
+          { to: '/ai-coach',  label: aiCoachName,     badge: katieUnread > 0,  icon: <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" /> },
           { to: '/community', label: 'Community', badge: notifCount > 0,   icon: <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /> },
         ] : [
           // VIP client bottom nav: Home | Calendar | Food Log | Messages | Community  (unchanged)
@@ -985,7 +988,7 @@ export default function Layout() {
             to={to}
             className={({ isActive }) =>
               `flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-[11px] font-medium transition-colors min-w-0 ${
-                isActive ? 'text-[#E8670A]' : 'text-gray-400'
+                isActive ? 'text-[var(--color-accent)]' : 'text-gray-400'
               }`
             }
           >
@@ -994,7 +997,7 @@ export default function Layout() {
                 {icon}
               </svg>
               {badge && (
-                <span className="absolute -top-1 -right-1 w-2 h-2 bg-[#E8670A] rounded-full" />
+                <span className="absolute -top-1 -right-1 w-2 h-2 bg-[var(--color-accent)] rounded-full" />
               )}
             </div>
             <span className="max-w-full truncate">{label}</span>
@@ -1002,19 +1005,19 @@ export default function Layout() {
         ))}
       </nav>
 
-      {/* Floating quick-log button — client only, above bottom nav on the right */}
+      {/* Floating quick-log button â€” client only, above bottom nav on the right */}
       {!isStaff && !quickMenuOpen && (
         <button
           className="lg:hidden fixed right-4 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 flex flex-col items-center gap-1 active:scale-95 transition-transform"
           onClick={openQuickMenu}
           aria-label="Quick log"
         >
-          <div className="w-14 h-14 rounded-full bg-[#E8670A] shadow-lg flex items-center justify-center">
+          <div className="w-14 h-14 rounded-full bg-[var(--color-accent)] shadow-lg flex items-center justify-center">
             <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
             </svg>
           </div>
-          <span className="text-[11px] font-semibold text-[#E8670A] leading-none drop-shadow-sm">Log</span>
+          <span className="text-[11px] font-semibold text-[var(--color-accent)] leading-none drop-shadow-sm">Log</span>
         </button>
       )}
       {/* Quick-log bottom sheet */}
@@ -1049,18 +1052,18 @@ export default function Layout() {
                 <h2 className="text-base font-bold text-gray-900">Quick Log</h2>
               )}
               <button onClick={closeQuickMenu} className="w-11 h-11 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 text-lg leading-none">
-                ×
+                Ã—
               </button>
             </div>
 
-            {/* Error feedback — shown when a save fails */}
+            {/* Error feedback â€” shown when a save fails */}
             {quickError && !quickDone && (
               <div className="mx-5 mb-1 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-medium">
                 {quickError}
               </div>
             )}
 
-            {/* ── Main tile grid (food + quick logs) ───────────────────── */}
+            {/* â”€â”€ Main tile grid (food + quick logs) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
             {!quickAction && !quickFoodMode && (
               <div className="px-4 pb-10 pt-1 space-y-4">
                 {/* Food section */}
@@ -1068,10 +1071,10 @@ export default function Layout() {
                   <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2 px-0.5">Food</p>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     {[
-                      { id: 'text',    emoji: '💬', label: 'Text Entry'   },
-                      { id: 'search',  emoji: '🔍', label: 'Search Food'  },
-                      { id: 'barcode', emoji: '🏷️', label: 'Scan Barcode' },
-                      { id: 'photo',   emoji: '📷', label: 'Food Photo'   },
+                      { id: 'text',    emoji: 'ðŸ’¬', label: 'Text Entry'   },
+                      { id: 'search',  emoji: 'ðŸ”', label: 'Search Food'  },
+                      { id: 'barcode', emoji: 'ðŸ·ï¸', label: 'Scan Barcode' },
+                      { id: 'photo',   emoji: 'ðŸ“·', label: 'Food Photo'   },
                     ].map(({ id, emoji, label }) => (
                       <button
                         key={id}
@@ -1090,13 +1093,13 @@ export default function Layout() {
                   <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2 px-0.5">Quick Logs</p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     {[
-                      { id: 'weight',   emoji: '⚖️', label: 'Log Weight'     },
-                      { id: 'water',    emoji: '💧', label: 'Log Water'      },
-                      { id: 'steps',    emoji: '👟', label: 'Log Steps'      },
-                      { id: 'photo',    emoji: '📸', label: 'Progress Photo' },
-                      { id: 'sleep',    emoji: '😴', label: 'Sleep'          },
-                      { id: 'activity', emoji: '🏃', label: 'Activity'       },
-                      ...(bloodworkEnabled ? [{ id: 'bloodwork', emoji: '🩸', label: 'Upload Bloodwork' }] : []),
+                      { id: 'weight',   emoji: 'âš–ï¸', label: 'Log Weight'     },
+                      { id: 'water',    emoji: 'ðŸ’§', label: 'Log Water'      },
+                      { id: 'steps',    emoji: 'ðŸ‘Ÿ', label: 'Log Steps'      },
+                      { id: 'photo',    emoji: 'ðŸ“¸', label: 'Progress Photo' },
+                      { id: 'sleep',    emoji: 'ðŸ˜´', label: 'Sleep'          },
+                      { id: 'activity', emoji: 'ðŸƒ', label: 'Activity'       },
+                      ...(bloodworkEnabled ? [{ id: 'bloodwork', emoji: 'ðŸ©¸', label: 'Upload Bloodwork' }] : []),
                     ].map(({ id, emoji, label }) => (
                       <button
                         key={id}
@@ -1119,10 +1122,10 @@ export default function Layout() {
               </div>
             )}
 
-            {/* ── Meal picker (shown after tapping a food action) ───────── */}
+            {/* â”€â”€ Meal picker (shown after tapping a food action) â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
             {quickFoodMode && !quickAction && !quickDone && (
               <div className="px-4 pb-10 pt-2 space-y-4">
-                {/* Date selector — lets users log to today, tomorrow, or a past date */}
+                {/* Date selector â€” lets users log to today, tomorrow, or a past date */}
                 <div>
                   <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">
                     Log date
@@ -1139,7 +1142,7 @@ export default function Layout() {
                           onClick={() => setQuickLogDate(value)}
                           className={`shrink-0 min-w-[44px] min-h-[44px] px-3.5 rounded-xl text-sm font-semibold transition-colors border whitespace-nowrap ${
                             quickLogDate === value
-                              ? 'bg-[#E8670A] text-white border-[#E8670A]'
+                              ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)]'
                               : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-orange-50'
                           }`}
                         >
@@ -1155,12 +1158,12 @@ export default function Layout() {
                       max={getLocalDateString(new Date(Date.now() + 6 * 24 * 60 * 60 * 1000))}
                       min={getLocalDateString(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000))}
                       onChange={e => setQuickLogDate(e.target.value || getLocalDateString())}
-                      className="flex-1 min-h-[44px] border border-gray-300 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
+                      className="flex-1 min-h-[44px] border border-gray-300 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] bg-white"
                     />
                     {quickLogDate !== getLocalDateString() && (
                       <button
                         onClick={() => setQuickLogDate(getLocalDateString())}
-                        className="shrink-0 text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] transition-colors px-2"
+                        className="shrink-0 text-xs font-semibold text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] transition-colors px-2"
                       >
                         Today
                       </button>
@@ -1172,10 +1175,10 @@ export default function Layout() {
                   <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Which meal?</p>
                   <div className="grid grid-cols-2 gap-3">
                     {[
-                      { slot: 'Breakfast', emoji: '🌅', label: 'Breakfast' },
-                      { slot: 'Lunch',     emoji: '☀️', label: 'Lunch'     },
-                      { slot: 'Dinner',    emoji: '🌙', label: 'Dinner'    },
-                      { slot: 'Snack',     emoji: '🍎', label: 'Snack'     },
+                      { slot: 'Breakfast', emoji: 'ðŸŒ…', label: 'Breakfast' },
+                      { slot: 'Lunch',     emoji: 'â˜€ï¸', label: 'Lunch'     },
+                      { slot: 'Dinner',    emoji: 'ðŸŒ™', label: 'Dinner'    },
+                      { slot: 'Snack',     emoji: 'ðŸŽ', label: 'Snack'     },
                     ].map(({ slot, emoji, label }) => (
                       <button
                         key={slot}
@@ -1183,7 +1186,7 @@ export default function Layout() {
                           closeQuickMenu()
                           navigate('/journal', { state: { openSlot: slot, openMode: quickFoodMode, logDate: quickLogDate } })
                         }}
-                        className="flex items-center gap-3 bg-gray-50 hover:bg-orange-50 hover:border-[#E8670A] border border-gray-200 rounded-2xl px-4 py-4 transition-all min-h-[60px]"
+                        className="flex items-center gap-3 bg-gray-50 hover:bg-orange-50 hover:border-[var(--color-accent)] border border-gray-200 rounded-2xl px-4 py-4 transition-all min-h-[60px]"
                       >
                         <span className="text-2xl">{emoji}</span>
                         <span className="text-sm font-semibold text-gray-700">{label}</span>
@@ -1197,7 +1200,7 @@ export default function Layout() {
             {/* success state */}
             {quickAction && quickDone && (
               <div className="px-5 pb-12 pt-4 text-center">
-                <p className="text-3xl mb-2">✅</p>
+                <p className="text-3xl mb-2">âœ…</p>
                 <p className="text-sm font-semibold text-gray-700">Saved!</p>
               </div>
             )}
@@ -1205,7 +1208,7 @@ export default function Layout() {
             {/* mini-form */}
             {quickAction && !quickDone && (
               <div className="px-5 pb-10 pt-2">
-                {/* ── Shared date picker — shown for all quick-log actions ── */}
+                {/* â”€â”€ Shared date picker â€” shown for all quick-log actions â”€â”€ */}
                 {(() => {
                   const todayStr = getLocalDateString()
                   const minStr   = getLocalDateString(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000))
@@ -1218,12 +1221,12 @@ export default function Layout() {
                         min={minStr}
                         max={todayStr}
                         onChange={e => setQuickActionDate(e.target.value || todayStr)}
-                        className="flex-1 border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#E8670A] bg-white"
+                        className="flex-1 border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] bg-white"
                       />
                       {quickActionDate !== todayStr && (
                         <button
                           onClick={() => setQuickActionDate(todayStr)}
-                          className="shrink-0 text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] transition-colors"
+                          className="shrink-0 text-xs font-semibold text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] transition-colors"
                         >
                           Today
                         </button>
@@ -1245,8 +1248,8 @@ export default function Layout() {
                             onClick={() => setQuickValue(oz)}
                             className={`flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-colors ${
                               quickValue === oz
-                                ? 'bg-[#E8670A] border-[#E8670A] text-white'
-                                : 'border-gray-200 text-gray-600 hover:border-[#E8670A]'
+                                ? 'bg-[var(--color-accent)] border-[var(--color-accent)] text-white'
+                                : 'border-gray-200 text-gray-600 hover:border-[var(--color-accent)]'
                             }`}
                           >
                             +{oz} oz
@@ -1261,21 +1264,21 @@ export default function Layout() {
                       value={quickValue}
                       onChange={e => setQuickValue(e.target.value)}
                       placeholder={quickActionDate === getLocalDateString() ? 'Custom amount (oz)' : 'Total oz for this day'}
-                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-3"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[var(--color-accent)] mb-3"
                     />
                     <input
                       type="text"
                       value={quickNote}
                       onChange={e => setQuickNote(e.target.value)}
                       placeholder="Note (optional)"
-                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-3"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[var(--color-accent)] mb-3"
                     />
                     {quickActionDate === getLocalDateString() ? (
                       <div className="grid grid-cols-2 gap-2">
                         <button
                           onClick={() => { setQuickWaterMode('add'); submitQuickLog('add') }}
                           disabled={!quickValue || quickSaving}
-                          className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors"
+                          className="w-full bg-[var(--color-accent)] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
                         >
                           {quickSaving && quickWaterMode === 'add' ? 'Saving...' : 'Add'}
                         </button>
@@ -1291,7 +1294,7 @@ export default function Layout() {
                       <button
                         onClick={() => submitQuickLog('add')}
                         disabled={!quickValue || quickSaving}
-                        className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors"
+                        className="w-full bg-[var(--color-accent)] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
                       >
                         {quickSaving ? 'Saving...' : 'Save Water'}
                       </button>
@@ -1306,18 +1309,18 @@ export default function Layout() {
                     <input type="number" step="0.1" value={quickValue}
                       onChange={e => setQuickValue(e.target.value)}
                       placeholder="e.g. 145.5"
-                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-3"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[var(--color-accent)] mb-3"
                     />
                     <input
                       type="text"
                       value={quickNote}
                       onChange={e => setQuickNote(e.target.value)}
                       placeholder="Note (optional)"
-                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-4"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[var(--color-accent)] mb-4"
                     />
                     <button onClick={submitQuickLog} disabled={!quickValue || quickSaving}
-                      className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
-                      {quickSaving ? 'Saving…' : 'Log Weight'}
+                      className="w-full bg-[var(--color-accent)] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors">
+                      {quickSaving ? 'Savingâ€¦' : 'Log Weight'}
                     </button>
                   </>
                 )}
@@ -1329,11 +1332,11 @@ export default function Layout() {
                     <input type="number" value={quickValue}
                       onChange={e => setQuickValue(e.target.value)}
                       placeholder="e.g. 8500"
-                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-4"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[var(--color-accent)] mb-4"
                     />
                     <button onClick={submitQuickLog} disabled={!quickValue || quickSaving}
-                      className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
-                      {quickSaving ? 'Saving…' : 'Log Steps'}
+                      className="w-full bg-[var(--color-accent)] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors">
+                      {quickSaving ? 'Savingâ€¦' : 'Log Steps'}
                     </button>
                     <button onClick={clearQuickLog} disabled={quickSaving}
                       className="w-full mt-2 border-2 border-gray-200 text-gray-500 text-sm font-medium py-3 rounded-2xl hover:border-gray-300 hover:text-gray-700 disabled:opacity-50 transition-colors min-h-[44px]">
@@ -1353,8 +1356,8 @@ export default function Layout() {
                           onClick={() => setQuickValue(h)}
                           className={`flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-colors ${
                             quickValue === h
-                              ? 'bg-[#E8670A] border-[#E8670A] text-white'
-                              : 'border-gray-200 text-gray-600 hover:border-[#E8670A]'
+                              ? 'bg-[var(--color-accent)] border-[var(--color-accent)] text-white'
+                              : 'border-gray-200 text-gray-600 hover:border-[var(--color-accent)]'
                           }`}
                         >
                           {h}h
@@ -1367,18 +1370,18 @@ export default function Layout() {
                       value={quickValue}
                       onChange={e => setQuickValue(e.target.value)}
                       placeholder="Custom hours (e.g. 7.5)"
-                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-3"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[var(--color-accent)] mb-3"
                     />
                     <input
                       type="text"
                       value={quickNote}
                       onChange={e => setQuickNote(e.target.value)}
                       placeholder="Note (optional)"
-                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#E8670A] mb-4"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[var(--color-accent)] mb-4"
                     />
                     <button onClick={submitQuickLog} disabled={!quickValue || quickSaving}
-                      className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
-                      {quickSaving ? 'Saving…' : 'Log Sleep'}
+                      className="w-full bg-[var(--color-accent)] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors">
+                      {quickSaving ? 'Savingâ€¦' : 'Log Sleep'}
                     </button>
                     <button onClick={clearQuickLog} disabled={quickSaving}
                       className="w-full mt-2 border-2 border-gray-200 text-gray-500 text-sm font-medium py-3 rounded-2xl hover:border-gray-300 hover:text-gray-700 disabled:opacity-50 transition-colors min-h-[44px]">
@@ -1398,8 +1401,8 @@ export default function Layout() {
                           onClick={() => setQuickActivityType(t)}
                           className={`px-3 py-1.5 rounded-full text-xs font-semibold border-2 transition-colors ${
                             quickActivityType === t
-                              ? 'bg-[#E8670A] border-[#E8670A] text-white'
-                              : 'border-gray-200 text-gray-600 hover:border-[#E8670A]'
+                              ? 'bg-[var(--color-accent)] border-[var(--color-accent)] text-white'
+                              : 'border-gray-200 text-gray-600 hover:border-[var(--color-accent)]'
                           }`}
                         >
                           {t}
@@ -1410,16 +1413,16 @@ export default function Layout() {
                     <input type="number" value={quickActivityDur}
                       onChange={e => setQuickActivityDur(e.target.value)}
                       placeholder="e.g. 30"
-                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#E8670A] mb-3"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[var(--color-accent)] mb-3"
                     />
                     <textarea value={quickActivityNotes}
                       onChange={e => setQuickActivityNotes(e.target.value)}
                       placeholder="Notes (optional)" rows={2}
-                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#E8670A] resize-none mb-4"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[var(--color-accent)] resize-none mb-4"
                     />
                     <button onClick={submitQuickActivity} disabled={!quickActivityType || quickSaving}
-                      className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
-                      {quickSaving ? 'Saving…' : 'Log Activity'}
+                      className="w-full bg-[var(--color-accent)] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors">
+                      {quickSaving ? 'Savingâ€¦' : 'Log Activity'}
                     </button>
                   </>
                 )}
@@ -1432,14 +1435,14 @@ export default function Layout() {
                       const stepIdx = PHOTO_ANGLE_SEQUENCE.indexOf(quickPhotoAngle)
                       return (
                         <p className="text-sm text-gray-500 mb-3">
-                          Step {stepIdx + 1} of {PHOTO_ANGLE_SEQUENCE.length} — <span className="font-semibold capitalize">{quickPhotoAngle}</span>
+                          Step {stepIdx + 1} of {PHOTO_ANGLE_SEQUENCE.length} â€” <span className="font-semibold capitalize">{quickPhotoAngle}</span>
                         </p>
                       )
                     })()}
                     {/* Success banner for most-recently saved angle */}
                     {quickPhotoSaved && (
                       <div className="mb-3 px-3 py-2 bg-green-50 border border-green-200 rounded-xl text-xs font-semibold text-green-700 flex items-center gap-1.5">
-                        <span>✓</span>
+                        <span>âœ“</span>
                         <span className="capitalize">{quickPhotoSaved}</span> photo saved!
                       </div>
                     )}
@@ -1448,8 +1451,8 @@ export default function Layout() {
                         <button key={a} onClick={() => setQuickPhotoAngle(a)}
                           className={`flex-1 py-2 rounded-xl text-sm font-bold border-2 transition-colors capitalize ${
                             quickPhotoAngle === a
-                              ? 'bg-[#E8670A] border-[#E8670A] text-white'
-                              : 'border-gray-200 text-gray-600 hover:border-[#E8670A]'
+                              ? 'bg-[var(--color-accent)] border-[var(--color-accent)] text-white'
+                              : 'border-gray-200 text-gray-600 hover:border-[var(--color-accent)]'
                           }`}
                         >
                           {a}
@@ -1462,13 +1465,13 @@ export default function Layout() {
                         <button
                           onClick={() => { URL.revokeObjectURL(quickPhotoPreview); setQuickPhotoPreview(null); setQuickPhotoFile(null) }}
                           className="absolute top-2 right-2 w-7 h-7 bg-white rounded-full flex items-center justify-center shadow text-gray-600 font-bold"
-                        >×</button>
+                        >Ã—</button>
                       </div>
                     ) : (
                       <div className="flex gap-2 mb-4">
                         <button
                           onClick={() => quickPhotoInputRef.current?.click()}
-                          className="flex-1 flex flex-col items-center justify-center gap-1.5 border-2 border-gray-200 rounded-xl py-5 text-sm text-gray-600 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors"
+                          className="flex-1 flex flex-col items-center justify-center gap-1.5 border-2 border-gray-200 rounded-xl py-5 text-sm text-gray-600 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
                         >
                           <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
@@ -1478,7 +1481,7 @@ export default function Layout() {
                         </button>
                         <button
                           onClick={() => quickPhotoGalleryRef.current?.click()}
-                          className="flex-1 flex flex-col items-center justify-center gap-1.5 border-2 border-gray-200 rounded-xl py-5 text-sm text-gray-600 hover:border-[#E8670A] hover:text-[#E8670A] transition-colors"
+                          className="flex-1 flex flex-col items-center justify-center gap-1.5 border-2 border-gray-200 rounded-xl py-5 text-sm text-gray-600 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
                         >
                           <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -1517,10 +1520,10 @@ export default function Layout() {
                       }}
                     />
                     <button onClick={submitQuickPhoto} disabled={!quickPhotoFile || quickSaving}
-                      className="w-full bg-[#E8670A] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[#c45e09] disabled:opacity-50 transition-colors">
-                      {quickSaving ? 'Uploading…'
+                      className="w-full bg-[var(--color-accent)] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors">
+                      {quickSaving ? 'Uploadingâ€¦'
                         : PHOTO_ANGLE_SEQUENCE.indexOf(quickPhotoAngle) < PHOTO_ANGLE_SEQUENCE.length - 1
-                          ? 'Save & Continue →'
+                          ? 'Save & Continue â†’'
                           : 'Save & Finish'}
                     </button>
                   </>

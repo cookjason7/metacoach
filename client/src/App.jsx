@@ -40,6 +40,7 @@ import StaffChat from './pages/StaffChat'
 import Organizations from './pages/admin/Organizations'
 import OrgDashboard from './pages/org/OrgDashboard'
 import OrgSetup from './pages/org/OrgSetup'
+import { OrgBrandingProvider } from './context/OrgBrandingContext'
 import { API_URL } from './config.js'
 
 // Mirrors ADMIN_EMAILS in server/db.js — route gating only, the real gate is
@@ -167,7 +168,11 @@ function ProtectedLayout() {
   if (!isPrivileged && !userState?.assessmentComplete) return <Navigate to="/health-assessment" replace />
   // Payment gate disabled — open access
   // if (!userState?.paid) return <Navigate to="/payment" replace />
-  return <Layout />
+  return (
+    <OrgBrandingProvider>
+      <Layout />
+    </OrgBrandingProvider>
+  )
 }
 
 function AdminRoute() {
