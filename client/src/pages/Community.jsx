@@ -20,7 +20,7 @@ function timeAgo(isoString) {
 }
 
 const AVATAR_COLORS = [
-  'bg-[#fde8c8] text-[var(--color-accent-hover)]',
+  'bg-[#fde8c8]',
   'bg-purple-100 text-purple-700',
   'bg-emerald-100 text-emerald-700',
   'bg-amber-100 text-amber-700',
@@ -29,10 +29,15 @@ const AVATAR_COLORS = [
 function avatarColor(name) {
   return AVATAR_COLORS[(name?.charCodeAt(0) ?? 0) % AVATAR_COLORS.length]
 }
+// AVATAR_COLORS[0] has no text-color utility (it used the brand accent, which
+// can't be a purged Tailwind arbitrary var() class) — style it inline instead.
+function avatarStyle(name) {
+  return (name?.charCodeAt(0) ?? 0) % AVATAR_COLORS.length === 0 ? { color: 'var(--color-accent-hover)' } : undefined
+}
 function Avatar({ name, size = 'md' }) {
   const cls = size === 'sm' ? 'w-7 h-7 text-xs' : 'w-9 h-9 text-sm'
   return (
-    <div className={`${cls} ${avatarColor(name)} rounded-full flex items-center justify-center font-bold shrink-0`}>
+    <div className={`${cls} ${avatarColor(name)} rounded-full flex items-center justify-center font-bold shrink-0`} style={avatarStyle(name)}>
       {name?.[0]?.toUpperCase() ?? '?'}
     </div>
   )
@@ -112,6 +117,8 @@ function MentionInput({ value, onChange, members, placeholder, rows = 3, inputCl
           onChange={handleChange}
           placeholder={placeholder}
           className={textareaClassName}
+          onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--color-accent)' }}
+          onBlur={e => { e.currentTarget.style.boxShadow = 'none' }}
         />
       ) : (
         <input
@@ -121,6 +128,8 @@ function MentionInput({ value, onChange, members, placeholder, rows = 3, inputCl
           onChange={handleChange}
           placeholder={placeholder}
           className={inputClassName}
+          onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--color-accent)' }}
+          onBlur={e => { e.currentTarget.style.boxShadow = 'none' }}
         />
       )}
       {suggestions.length > 0 && (
@@ -132,7 +141,7 @@ function MentionInput({ value, onChange, members, placeholder, rows = 3, inputCl
               onMouseDown={e => { e.preventDefault(); pick(m.first_name) }}
               className="flex items-center gap-2 w-full px-3 py-2 text-xs hover:bg-gray-50 text-left"
             >
-              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${avatarColor(m.first_name)}`}>
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${avatarColor(m.first_name)}`} style={avatarStyle(m.first_name)}>
                 {m.first_name?.[0]?.toUpperCase()}
               </div>
               {m.first_name}
@@ -246,11 +255,12 @@ function PollDisplay({ postId, getToken }) {
               onClick={() => vote(opt.id)}
               disabled={voted}
               className={`w-full text-left rounded-lg border px-3 py-2 text-sm transition-colors ${
-                isMyVote ? 'border-[var(--color-accent)] bg-orange-50' : 'border-gray-200'
+                isMyVote ? 'bg-orange-50' : 'border-gray-200'
               } ${!voted ? 'hover:border-gray-300 cursor-pointer' : 'cursor-default'}`}
+              style={isMyVote ? { borderColor: 'var(--color-accent)' } : undefined}
             >
               <div className="flex justify-between mb-1">
-                <span className={isMyVote ? 'text-[var(--color-accent)] font-medium' : 'text-gray-800'}>
+                <span className={isMyVote ? 'font-medium' : 'text-gray-800'} style={isMyVote ? { color: 'var(--color-accent)' } : undefined}>
                   {opt.option_text}{isMyVote ? ' âœ“' : ''}
                 </span>
                 {voted && <span className="text-xs text-gray-500">{pct}%</span>}
@@ -258,8 +268,8 @@ function PollDisplay({ postId, getToken }) {
               {voted && (
                 <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
                   <div
-                    className={`h-full rounded-full ${isMyVote ? 'bg-[var(--color-accent)]' : 'bg-gray-400'}`}
-                    style={{ width: `${pct}%` }}
+                    className={`h-full rounded-full ${isMyVote ? '' : 'bg-gray-400'}`}
+                    style={{ width: `${pct}%`, background: isMyVote ? 'var(--color-accent)' : undefined }}
                   />
                 </div>
               )}
@@ -358,8 +368,9 @@ function CommentItem({ comment, getToken, isAdmin, onDelete, members }) {
               key={type}
               onClick={() => toggleReaction(type)}
               className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded transition-colors ${
-                reactions[myKey] ? 'text-[var(--color-accent)] font-semibold' : 'text-gray-500 hover:text-gray-700'
+                reactions[myKey] ? 'font-semibold' : 'text-gray-500 hover:text-gray-700'
               }`}
+              style={reactions[myKey] ? { color: 'var(--color-accent)' } : undefined}
             >
               <span>{emoji}</span>
               <span>{reactions[countKey]}</span>
@@ -515,8 +526,9 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
     <div
       id={`post-${post.id}`}
       className={`bg-white rounded-xl border overflow-hidden transition-shadow duration-500 ${
-        highlighted ? 'ring-2 ring-[var(--color-accent)] ring-offset-2' : post.pinned ? 'border-amber-300' : 'border-gray-200'
+        highlighted ? '' : post.pinned ? 'border-amber-300' : 'border-gray-200'
       }`}
+      style={highlighted ? { boxShadow: '0 0 0 2px var(--color-accent), 0 0 0 4px white' } : undefined}
     >
       {post.pinned && (
         <div className="flex items-center gap-1.5 px-5 py-2 bg-amber-50 border-b border-amber-200">
@@ -574,13 +586,17 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
               rows={3}
               value={editContent}
               onChange={e => setEditContent(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] resize-none mb-2"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none resize-none mb-2"
+              onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--color-accent)' }}
+              onBlur={e => { e.currentTarget.style.boxShadow = 'none' }}
             />
             <div className="flex items-center gap-2 flex-wrap mb-2">
               <select
                 value={editCategory}
                 onChange={e => setEditCategory(e.target.value)}
-                className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] bg-white"
+                className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none bg-white"
+                onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--color-accent)' }}
+                onBlur={e => { e.currentTarget.style.boxShadow = 'none' }}
               >
                 {categories.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
@@ -589,7 +605,10 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
               <button
                 onClick={saveEdit}
                 disabled={saving || !editContent.trim()}
-                className="bg-[var(--color-accent)] text-white px-4 py-1.5 rounded-lg text-xs font-semibold hover:bg-[var(--color-accent-hover)] disabled:opacity-40 transition-colors"
+                className="text-white px-4 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-40 transition-colors"
+                style={{ background: 'var(--color-accent)' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
               >
                 {saving ? 'Savingâ€¦' : 'Save'}
               </button>
@@ -618,8 +637,9 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
             <div
               key={type}
               className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded transition-colors ${
-                postReactions[myKey] ? 'text-[var(--color-accent)] font-semibold' : 'text-gray-500'
+                postReactions[myKey] ? 'font-semibold' : 'text-gray-500'
               }`}
+              style={postReactions[myKey] ? { color: 'var(--color-accent)' } : undefined}
             >
               <button
                 onClick={() => togglePostReaction(type)}
@@ -665,7 +685,9 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
           </div>
           <button
             onClick={toggleComments}
-            className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-[var(--color-accent-hover)] transition-colors"
+            className="flex items-center gap-1.5 text-sm text-gray-400 transition-colors"
+            onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent-hover)' }}
+            onMouseLeave={e => { e.currentTarget.style.color = '' }}
           >
             <span>ðŸ’¬</span>
             <span>{localCount}</span>
@@ -689,12 +711,15 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
                 members={members}
                 placeholder="Add a commentâ€¦"
                 rows={1}
-                inputClassName="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
+                inputClassName="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none"
               />
               <button
                 type="submit"
                 disabled={!commentText.trim() || submitting}
-                className="bg-[var(--color-accent)] text-white px-3 py-2 rounded-lg text-xs font-semibold hover:bg-[var(--color-accent-hover)] disabled:opacity-40 transition-colors shrink-0"
+                className="text-white px-3 py-2 rounded-lg text-xs font-semibold disabled:opacity-40 transition-colors shrink-0"
+                style={{ background: 'var(--color-accent)' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
               >
                 Post
               </button>
@@ -884,7 +909,7 @@ function Leaderboard({ getToken }) {
             </span>
             <Avatar name={entry.first_name} size="sm" />
             <span className="text-xs text-gray-800 flex-1 truncate font-medium">{entry.first_name ?? 'Member'}</span>
-            <span className="text-xs font-semibold text-[var(--color-accent)] shrink-0">{entry.streak}d</span>
+            <span className="text-xs font-semibold shrink-0" style={{ color: 'var(--color-accent)' }}>{entry.streak}d</span>
           </div>
         ))}
       </div>
@@ -1237,9 +1262,10 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
                   title={g.description ?? undefined}
                   className={`min-h-[44px] px-4 rounded-full text-sm font-medium whitespace-nowrap shrink-0 transition-colors ${
                     active
-                      ? 'bg-[var(--color-accent)] text-white'
+                      ? 'text-white'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
+                  style={active ? { background: 'var(--color-accent)' } : undefined}
                 >
                   {g.name}
                 </button>
@@ -1274,7 +1300,9 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search postsâ€¦"
-            className="w-full border border-gray-200 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] bg-white"
+            className="w-full border border-gray-200 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none bg-white"
+            onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--color-accent)' }}
+            onBlur={e => { e.currentTarget.style.boxShadow = 'none' }}
           />
         </div>
 
@@ -1285,7 +1313,9 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
             <select
               value={activeCategory}
               onChange={e => setActiveCategory(e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] bg-white"
+              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none bg-white"
+              onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--color-accent)' }}
+              onBlur={e => { e.currentTarget.style.boxShadow = 'none' }}
             >
               <option value="All">All Posts</option>
               {groupNames.map(c => <option key={c} value={c}>{c}</option>)}
@@ -1295,7 +1325,9 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
             <button
               type="button"
               onClick={() => setManageGroupsOpen(true)}
-              className="ml-auto min-h-[44px] inline-flex items-center gap-1.5 border border-gray-200 text-gray-600 hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] px-3 py-2 rounded-lg text-sm font-semibold transition-colors shrink-0"
+              className="ml-auto min-h-[44px] inline-flex items-center gap-1.5 border border-gray-200 text-gray-600 px-3 py-2 rounded-lg text-sm font-semibold transition-colors shrink-0"
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent)'; e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+              onMouseLeave={e => { e.currentTarget.style.color = ''; e.currentTarget.style.borderColor = '' }}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -1313,7 +1345,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
             members={members}
             placeholder="Share a win, ask a question, or check in with the groupâ€¦"
             rows={3}
-            textareaClassName="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] min-h-[96px]"
+            textareaClassName="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm resize-none focus:outline-none min-h-[96px]"
           />
 
           {/* Category dropdown â€” main feed only; in a group the group IS the
@@ -1327,7 +1359,9 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
             <select
               value={category}
               onChange={e => setCategory(e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] bg-white flex-1"
+              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none bg-white flex-1"
+              onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--color-accent)' }}
+              onBlur={e => { e.currentTarget.style.boxShadow = 'none' }}
             >
               {groupNames.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
@@ -1351,7 +1385,10 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
 
           <div className="flex items-center justify-between gap-3 mt-3">
             <div className="flex items-center gap-3">
-              <button type="button" onClick={() => photoInputRef.current?.click()} className="text-gray-400 hover:text-[var(--color-accent-hover)] transition-colors text-sm" title="Photo">
+              <button type="button" onClick={() => photoInputRef.current?.click()} className="text-gray-400 transition-colors text-sm" title="Photo"
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent-hover)' }}
+                onMouseLeave={e => { e.currentTarget.style.color = '' }}
+              >
                 ðŸ“·
               </button>
               <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={e => handlePhotoSelect(e.target.files[0])} />
@@ -1364,7 +1401,10 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
             <button
               type="submit"
               disabled={!newPost.trim() || posting}
-              className="bg-[var(--color-accent)] text-white px-5 py-2.5 rounded-lg text-sm font-semibold hover:bg-[var(--color-accent-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0 min-w-[88px]"
+              className="text-white px-5 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0 min-w-[88px]"
+              style={{ background: 'var(--color-accent)' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
             >
               {posting ? 'Postingâ€¦' : 'Post'}
             </button>
@@ -1378,7 +1418,10 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
             <p className="text-xs text-gray-500 mb-4">There was a problem connecting to the community. Check your connection and try again.</p>
             <button
               onClick={() => setRetryKey(k => k + 1)}
-              className="inline-flex items-center gap-1.5 bg-[var(--color-accent)] text-white text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-[var(--color-accent-hover)] transition-colors"
+              className="inline-flex items-center gap-1.5 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-colors"
+              style={{ background: 'var(--color-accent)' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
             >
               Try again
             </button>
@@ -1431,7 +1474,9 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
             <button
               onClick={loadOlderPosts}
               disabled={loadingOlder}
-              className="text-sm text-gray-500 hover:text-[var(--color-accent)] disabled:opacity-40 underline"
+              className="text-sm text-gray-500 disabled:opacity-40 underline"
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent)' }}
+              onMouseLeave={e => { e.currentTarget.style.color = '' }}
             >
               {loadingOlder ? 'Loadingâ€¦' : 'Load more posts'}
             </button>
@@ -1478,7 +1523,9 @@ function GroupFormModal({ initial, onSave, onClose, saving }) {
               onChange={e => set('name', e.target.value)}
               placeholder="e.g. Recipe Swap"
               maxLength={100}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--color-accent)] min-h-[44px]"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none min-h-[44px]"
+              onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+              onBlur={e => { e.currentTarget.style.borderColor = '' }}
             />
           </div>
           <div>
@@ -1488,7 +1535,9 @@ function GroupFormModal({ initial, onSave, onClose, saving }) {
               onChange={e => set('description', e.target.value)}
               rows={3}
               placeholder="What is this group for? (optional)"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-accent)] resize-none"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none resize-none"
+              onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+              onBlur={e => { e.currentTarget.style.borderColor = '' }}
             />
           </div>
           <div>
@@ -1504,9 +1553,12 @@ function GroupFormModal({ initial, onSave, onClose, saving }) {
                   onClick={() => set('type', t.id)}
                   className={`flex-1 min-h-[44px] px-3 py-2 rounded-xl text-sm font-semibold border-2 transition-colors ${
                     form.type === t.id
-                      ? 'bg-[var(--color-accent)] border-[var(--color-accent)] text-white'
-                      : 'border-gray-200 text-gray-600 hover:border-[var(--color-accent)]'
+                      ? 'text-white'
+                      : 'border-gray-200 text-gray-600'
                   }`}
+                  style={form.type === t.id ? { background: 'var(--color-accent)', borderColor: 'var(--color-accent)' } : undefined}
+                  onMouseEnter={e => { if (form.type !== t.id) e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                  onMouseLeave={e => { if (form.type !== t.id) e.currentTarget.style.borderColor = '' }}
                   title={t.hint}
                 >
                   {t.label}
@@ -1520,7 +1572,10 @@ function GroupFormModal({ initial, onSave, onClose, saving }) {
           <button
             onClick={() => onSave(form)}
             disabled={!canSave}
-            className="min-h-[44px] px-5 py-2 bg-[var(--color-accent)] text-white text-sm font-bold rounded-xl hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
+            className="min-h-[44px] px-5 py-2 text-white text-sm font-bold rounded-xl disabled:opacity-50 transition-colors"
+            style={{ background: 'var(--color-accent)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
           >
             {saving ? 'Savingâ€¦' : isEdit ? 'Save Changes' : 'Create Group'}
           </button>
@@ -1672,13 +1727,17 @@ function MemberManagementModal({ group, getToken, currentUserId, onClose, onMemb
                   value={query}
                   onChange={e => { setQuery(e.target.value); setSelectedId('') }}
                   placeholder="Search by name or emailâ€¦"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--color-accent)] min-h-[44px] mb-2"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none min-h-[44px] mb-2"
+                  onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                  onBlur={e => { e.currentTarget.style.borderColor = '' }}
                 />
                 <div className="flex gap-2">
                   <select
                     value={selectedId}
                     onChange={e => setSelectedId(e.target.value)}
-                    className="flex-1 min-w-0 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[var(--color-accent)] bg-white min-h-[44px]"
+                    className="flex-1 min-w-0 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none bg-white min-h-[44px]"
+                    onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                    onBlur={e => { e.currentTarget.style.borderColor = '' }}
                   >
                     <option value="">
                       {error ? 'Unavailable' : filteredEligible.length ? 'Select a personâ€¦' : 'No one available to add'}
@@ -1693,7 +1752,10 @@ function MemberManagementModal({ group, getToken, currentUserId, onClose, onMemb
                     type="button"
                     onClick={addMember}
                     disabled={!selectedId || adding}
-                    className="min-h-[44px] px-5 bg-[var(--color-accent)] text-white text-sm font-bold rounded-xl hover:bg-[var(--color-accent-hover)] disabled:opacity-40 transition-colors shrink-0"
+                    className="min-h-[44px] px-5 text-white text-sm font-bold rounded-xl disabled:opacity-40 transition-colors shrink-0"
+                    style={{ background: 'var(--color-accent)' }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
                   >
                     {adding ? 'Addingâ€¦' : 'Add'}
                   </button>
@@ -1844,7 +1906,10 @@ function ManageGroupsModal({ getToken, currentUserId, onClose, onGroupsChanged }
           <button
             type="button"
             onClick={() => setFormTarget('new')}
-            className="w-full min-h-[44px] mb-4 inline-flex items-center justify-center gap-2 bg-[var(--color-accent)] text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-[var(--color-accent-hover)] transition-colors"
+            className="w-full min-h-[44px] mb-4 inline-flex items-center justify-center gap-2 text-white px-4 py-2 rounded-xl text-sm font-bold transition-colors"
+            style={{ background: 'var(--color-accent)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -1875,7 +1940,10 @@ function ManageGroupsModal({ getToken, currentUserId, onClose, onGroupsChanged }
                       <button
                         type="button"
                         onClick={() => setMembersTarget(g)}
-                        className="mt-1 min-h-[44px] inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--color-accent)] hover:text-[var(--color-accent-hover)]"
+                        className="mt-1 min-h-[44px] inline-flex items-center gap-1.5 text-xs font-semibold"
+                        style={{ color: 'var(--color-accent)' }}
+                        onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent-hover)' }}
+                        onMouseLeave={e => { e.currentTarget.style.color = 'var(--color-accent)' }}
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -1889,7 +1957,9 @@ function ManageGroupsModal({ getToken, currentUserId, onClose, onGroupsChanged }
                           <button
                             type="button"
                             onClick={() => setFormTarget(g)}
-                            className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-[var(--color-accent)] transition-colors"
+                            className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 transition-colors"
+                            onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent)' }}
+                            onMouseLeave={e => { e.currentTarget.style.color = '' }}
                             title="Edit"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -1911,7 +1981,10 @@ function ManageGroupsModal({ getToken, currentUserId, onClose, onGroupsChanged }
                         <button
                           type="button"
                           onClick={() => handleReactivate(g)}
-                          className="min-h-[44px] px-3 text-xs font-semibold text-[var(--color-accent)] hover:text-[var(--color-accent-hover)]"
+                          className="min-h-[44px] px-3 text-xs font-semibold"
+                          style={{ color: 'var(--color-accent)' }}
+                          onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent-hover)' }}
+                          onMouseLeave={e => { e.currentTarget.style.color = 'var(--color-accent)' }}
                         >
                           Reactivate
                         </button>
@@ -1996,7 +2069,7 @@ function MembersTab({ members, loading }) {
               {m.identity_anchors?.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-2">
                   {m.identity_anchors.map((anchor, i) => (
-                    <span key={i} className="text-xs bg-[#fde8c8] text-[var(--color-accent-hover)] px-2 py-0.5 rounded-full max-w-xs truncate">
+                    <span key={i} className="text-xs bg-[#fde8c8] px-2 py-0.5 rounded-full max-w-xs truncate" style={{ color: 'var(--color-accent-hover)' }}>
                       {anchor}
                     </span>
                   ))}
@@ -2064,7 +2137,9 @@ function VideoModal({ initial, onSave, onClose, saving }) {
               value={form.title}
               onChange={e => set('title', e.target.value)}
               placeholder="Video title"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-accent)]"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+              onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+              onBlur={e => { e.currentTarget.style.borderColor = '' }}
             />
           </div>
           <div>
@@ -2073,7 +2148,9 @@ function VideoModal({ initial, onSave, onClose, saving }) {
               value={form.youtube_url}
               onChange={e => set('youtube_url', e.target.value)}
               placeholder="https://www.youtube.com/watch?v=..."
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-accent)]"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+              onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+              onBlur={e => { e.currentTarget.style.borderColor = '' }}
             />
             {form.youtube_url && !vid && (
               <p className="text-xs text-red-500 mt-1">Unrecognised YouTube URL</p>
@@ -2093,7 +2170,9 @@ function VideoModal({ initial, onSave, onClose, saving }) {
               onChange={e => set('description', e.target.value)}
               rows={3}
               placeholder="Short description (optional)"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-accent)] resize-none"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none resize-none"
+              onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+              onBlur={e => { e.currentTarget.style.borderColor = '' }}
             />
           </div>
           <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -2101,7 +2180,8 @@ function VideoModal({ initial, onSave, onClose, saving }) {
               type="checkbox"
               checked={form.published}
               onChange={e => set('published', e.target.checked)}
-              className="w-4 h-4 accent-[var(--color-accent)]"
+              className="w-4 h-4"
+              style={{ accentColor: 'var(--color-accent)' }}
             />
             <span className="text-sm font-medium text-gray-700">Published (visible to clients)</span>
           </label>
@@ -2111,7 +2191,10 @@ function VideoModal({ initial, onSave, onClose, saving }) {
           <button
             onClick={() => onSave(form)}
             disabled={saving || !form.title.trim() || !form.youtube_url.trim() || (form.youtube_url && !ytVideoId(form.youtube_url))}
-            className="px-5 py-2 bg-[var(--color-accent)] text-white text-sm font-bold rounded-xl hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
+            className="px-5 py-2 text-white text-sm font-bold rounded-xl disabled:opacity-50 transition-colors"
+            style={{ background: 'var(--color-accent)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
           >
             {saving ? 'Savingâ€¦' : isEdit ? 'Save Changes' : 'Add Video'}
           </button>
@@ -2258,7 +2341,7 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
     ? progress?.completed
       ? { text: 'âœ“ Completed', cls: 'bg-emerald-100 text-emerald-700' }
       : progress?.started
-        ? { text: `In progress Â· ${Math.round(progress.highest_pct ?? 0)}%`, cls: 'bg-[#fde8c8] text-[var(--color-accent-hover)]' }
+        ? { text: `In progress Â· ${Math.round(progress.highest_pct ?? 0)}%`, cls: 'bg-[#fde8c8]', style: { color: 'var(--color-accent-hover)' } }
         : { text: 'Not started', cls: 'bg-gray-100 text-gray-400' }
     : null
 
@@ -2311,7 +2394,7 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
             {/* Play button (hidden when completed) */}
             {!((!isStaff) && progress?.completed) && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/30 transition-colors">
-                <div className="w-14 h-14 bg-[var(--color-accent)] rounded-full flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                <div className="w-14 h-14 rounded-full flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform" style={{ background: 'var(--color-accent)' }}>
                   <svg className="w-6 h-6 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M8 5v14l11-7z" />
                   </svg>
@@ -2337,7 +2420,7 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
                 </span>
               )}
               {statusLabel && (
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusLabel.cls}`}>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusLabel.cls}`} style={statusLabel.style}>
                   {statusLabel.text}
                 </span>
               )}
@@ -2373,7 +2456,9 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
               <button
                 onClick={() => onEdit(video)}
                 title="Edit"
-                className="p-2 rounded-lg text-gray-400 hover:text-[var(--color-accent)] hover:bg-[#fde8c8] transition-colors"
+                className="p-2 rounded-lg text-gray-400 hover:bg-[#fde8c8] transition-colors"
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent)' }}
+                onMouseLeave={e => { e.currentTarget.style.color = '' }}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -2396,7 +2481,10 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
           <div className="mt-3 flex items-center justify-between gap-2">
             <button
               onClick={onToggleExpand}
-              className="inline-flex items-center gap-1.5 bg-[var(--color-accent)] text-white text-xs font-bold px-4 py-2 rounded-xl hover:bg-[var(--color-accent-hover)] transition-colors min-h-[36px]"
+              className="inline-flex items-center gap-1.5 text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors min-h-[36px]"
+              style={{ background: 'var(--color-accent)' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
             >
               {expanded
                 ? 'Close'
@@ -2436,7 +2524,7 @@ function FeaturedVideoCard({ video, progress, label, onWatch }) {
               className="w-full h-full object-cover"
             />
             <div className="absolute inset-0 flex items-center justify-center bg-black/25 group-hover:bg-black/35 transition-colors">
-              <div className="w-9 h-9 bg-[var(--color-accent)] rounded-full flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
+              <div className="w-9 h-9 rounded-full flex items-center justify-center shadow-md group-hover:scale-110 transition-transform" style={{ background: 'var(--color-accent)' }}>
                 <svg className="w-4 h-4 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M8 5v14l11-7z" />
                 </svg>
@@ -2447,13 +2535,13 @@ function FeaturedVideoCard({ video, progress, label, onWatch }) {
 
         {/* Info */}
         <div className="flex-1 min-w-0">
-          <p className="text-[10px] font-bold text-[var(--color-accent)] uppercase tracking-widest mb-0.5">{label}</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest mb-0.5" style={{ color: 'var(--color-accent)' }}>{label}</p>
           <p className="text-sm font-bold text-gray-900 leading-snug line-clamp-2">{video.title}</p>
 
           {pct > 0 && (
             <div className="mt-2 mb-1">
               <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                <div className="h-full bg-[var(--color-accent)] rounded-full" style={{ width: `${pct}%` }} />
+                <div className="h-full rounded-full" style={{ width: `${pct}%`, background: 'var(--color-accent)' }} />
               </div>
               <p className="text-[10px] text-gray-400 mt-0.5">{pct}% watched</p>
             </div>
@@ -2461,7 +2549,10 @@ function FeaturedVideoCard({ video, progress, label, onWatch }) {
 
           <button
             onClick={onWatch}
-            className="mt-2 inline-flex items-center gap-1.5 bg-[var(--color-accent)] text-white text-xs font-bold px-4 py-2 rounded-xl hover:bg-[var(--color-accent-hover)] transition-colors min-h-[36px]"
+            className="mt-2 inline-flex items-center gap-1.5 text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors min-h-[36px]"
+            style={{ background: 'var(--color-accent)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
           >
             {label === 'Continue Watching' ? 'Continue' : 'Start watching'}
             <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
@@ -2630,7 +2721,10 @@ function MindsetTab({ getToken, isStaff }) {
             </div>
             <button
               onClick={() => setModal('add')}
-              className="inline-flex items-center justify-center gap-2 bg-[var(--color-accent)] text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-[var(--color-accent-hover)] transition-colors"
+              className="inline-flex items-center justify-center gap-2 text-white px-4 py-2 rounded-xl text-sm font-bold transition-colors"
+              style={{ background: 'var(--color-accent)' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -2701,12 +2795,12 @@ function MindsetTab({ getToken, isStaff }) {
                       <span className="font-bold text-gray-900">{totalCount}</span>
                       {' '}completed
                     </span>
-                    <span className="text-sm font-bold text-[var(--color-accent)]">{progressPct}%</span>
+                    <span className="text-sm font-bold" style={{ color: 'var(--color-accent)' }}>{progressPct}%</span>
                   </div>
                   <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-[var(--color-accent)] rounded-full transition-all duration-500"
-                      style={{ width: `${progressPct}%` }}
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{ width: `${progressPct}%`, background: 'var(--color-accent)' }}
                     />
                   </div>
                 </div>
@@ -2744,7 +2838,7 @@ function MindsetTab({ getToken, isStaff }) {
 
               {/* Full training library card */}
               <div className="mt-4 bg-gray-100 rounded-xl p-6 flex flex-col sm:flex-row items-center gap-4">
-                <div className="w-14 h-14 rounded-xl bg-[var(--color-sidebar)] flex items-center justify-center shrink-0">
+                <div className="w-14 h-14 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'var(--color-sidebar)' }}>
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7">
                     <path d="M12 7v14" />
                     <path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z" />
@@ -2758,7 +2852,8 @@ function MindsetTab({ getToken, isStaff }) {
                   href="https://docs.google.com/document/d/1DxlaTB5tL5TCgpGad2uJLi55NkOsIH2ePKNH67m7IcQ/edit?tab=t.0#heading=h.h552ng7uhtbb"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="bg-[var(--color-accent)] text-white px-5 py-2.5 rounded-lg font-semibold flex items-center justify-center gap-2 shrink-0 min-h-[44px] w-full sm:w-auto"
+                  className="text-white px-5 py-2.5 rounded-lg font-semibold flex items-center justify-center gap-2 shrink-0 min-h-[44px] w-full sm:w-auto"
+                  style={{ background: 'var(--color-accent)' }}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
                     <path d="M12 7v14" />
@@ -2838,7 +2933,9 @@ function ResourceModal({ initial, onSave, onClose, saving }) {
           <div>
             <label className="block text-xs font-semibold text-gray-700 mb-1">Title *</label>
             <input value={form.title} onChange={e => set('title', e.target.value)} placeholder="Resource title"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-accent)]" />
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+              onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+              onBlur={e => { e.currentTarget.style.borderColor = '' }} />
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-700 mb-1">Type</label>
@@ -2848,9 +2945,12 @@ function ResourceModal({ initial, onSave, onClose, saving }) {
                   onClick={() => { set('resource_type', t.id); setFile(null) }}
                   className={`px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-colors ${
                     form.resource_type === t.id
-                      ? 'bg-[var(--color-accent)] border-[var(--color-accent)] text-white'
-                      : 'border-gray-200 text-gray-600 hover:border-[var(--color-accent)]'
-                  }`}>
+                      ? 'text-white'
+                      : 'border-gray-200 text-gray-600'
+                  }`}
+                  style={form.resource_type === t.id ? { background: 'var(--color-accent)', borderColor: 'var(--color-accent)' } : undefined}
+                  onMouseEnter={e => { if (form.resource_type !== t.id) e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                  onMouseLeave={e => { if (form.resource_type !== t.id) e.currentTarget.style.borderColor = '' }}>
                   {t.icon} {t.label}
                 </button>
               ))}
@@ -2863,7 +2963,9 @@ function ResourceModal({ initial, onSave, onClose, saving }) {
               <label className="block text-xs font-semibold text-gray-700 mb-1">URL *</label>
               <input value={form.url} onChange={e => set('url', e.target.value)}
                 placeholder="https://drive.google.com/â€¦, https://youtu.be/â€¦, any link"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-accent)]" />
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                onBlur={e => { e.currentTarget.style.borderColor = '' }} />
               <p className="text-xs text-gray-400 mt-1">Google Drive, YouTube, Loom, websites, PDFs â€” any URL works.</p>
             </div>
           )}
@@ -2877,7 +2979,10 @@ function ResourceModal({ initial, onSave, onClose, saving }) {
                   <span className="text-lg">ðŸ“Ž</span>
                   <span className="text-xs text-gray-600 flex-1 truncate">Current file uploaded</span>
                   <button type="button" onClick={() => fileInputRef.current?.click()}
-                    className="text-xs text-[var(--color-accent)] font-semibold hover:text-[var(--color-accent-hover)]">Replace</button>
+                    className="text-xs font-semibold"
+                    style={{ color: 'var(--color-accent)' }}
+                    onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent-hover)' }}
+                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--color-accent)' }}>Replace</button>
                 </div>
               )}
               {file ? (
@@ -2889,7 +2994,9 @@ function ResourceModal({ initial, onSave, onClose, saving }) {
                 </div>
               ) : (!isEdit || !form.url) && (
                 <button type="button" onClick={() => fileInputRef.current?.click()}
-                  className="w-full border-2 border-dashed border-gray-300 rounded-xl py-5 text-sm text-gray-400 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors">
+                  className="w-full border-2 border-dashed border-gray-300 rounded-xl py-5 text-sm text-gray-400 transition-colors"
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.color = 'var(--color-accent)' }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.color = '' }}>
                   ðŸ“Ž Tap to select file
                 </button>
               )}
@@ -2905,30 +3012,39 @@ function ResourceModal({ initial, onSave, onClose, saving }) {
             <label className="block text-xs font-semibold text-gray-700 mb-1">Description</label>
             <textarea value={form.description} onChange={e => set('description', e.target.value)}
               rows={3} placeholder="Short description (optional)"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-accent)] resize-none" />
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none resize-none"
+              onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+              onBlur={e => { e.currentTarget.style.borderColor = '' }} />
           </div>
           <div className="flex gap-3">
             <div className="flex-1">
               <label className="block text-xs font-semibold text-gray-700 mb-1">Category</label>
               <input value={form.category} onChange={e => set('category', e.target.value)} placeholder="e.g. Nutrition"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-accent)]" />
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                onBlur={e => { e.currentTarget.style.borderColor = '' }} />
             </div>
             <div className="w-24">
               <label className="block text-xs font-semibold text-gray-700 mb-1">Order</label>
               <input type="number" value={form.display_order} onChange={e => set('display_order', Number(e.target.value))}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-accent)]" />
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
+                onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                onBlur={e => { e.currentTarget.style.borderColor = '' }} />
             </div>
           </div>
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input type="checkbox" checked={form.published} onChange={e => set('published', e.target.checked)}
-              className="w-4 h-4 accent-[var(--color-accent)]" />
+              className="w-4 h-4" style={{ accentColor: 'var(--color-accent)' }} />
             <span className="text-sm font-medium text-gray-700">Published (visible to clients)</span>
           </label>
         </div>
         <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 font-medium">Cancel</button>
           <button onClick={() => onSave(form, file)} disabled={!canSave}
-            className="px-5 py-2 bg-[var(--color-accent)] text-white text-sm font-bold rounded-xl hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors">
+            className="px-5 py-2 text-white text-sm font-bold rounded-xl disabled:opacity-50 transition-colors"
+            style={{ background: 'var(--color-accent)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}>
             {saving ? 'Savingâ€¦' : isEdit ? 'Save Changes' : 'Add Resource'}
           </button>
         </div>
@@ -2947,7 +3063,7 @@ function ResourceCard({ resource, isStaff, onEdit, onDelete, onTogglePublish }) 
           <div className="flex flex-wrap items-center gap-2 mb-1">
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${t.badge}`}>{t.label}</span>
             {resource.category && (
-              <span className="text-xs font-semibold bg-[#fde8c8] text-[var(--color-accent-hover)] px-2 py-0.5 rounded-full">{resource.category}</span>
+              <span className="text-xs font-semibold bg-[#fde8c8] px-2 py-0.5 rounded-full" style={{ color: 'var(--color-accent-hover)' }}>{resource.category}</span>
             )}
             {isStaff && (
               <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
@@ -2963,7 +3079,10 @@ function ResourceCard({ resource, isStaff, onEdit, onDelete, onTogglePublish }) 
           )}
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             <a href={resource.url} target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] transition-colors">
+              className="inline-flex items-center gap-1 text-xs font-semibold transition-colors"
+              style={{ color: 'var(--color-accent)' }}
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent-hover)' }}
+              onMouseLeave={e => { e.currentTarget.style.color = 'var(--color-accent)' }}>
               Open {t.icon}
             </a>
             {isStaff && (
@@ -2975,7 +3094,9 @@ function ResourceCard({ resource, isStaff, onEdit, onDelete, onTogglePublish }) 
                   }`}>
                   {resource.published ? 'Unpublish' : 'Publish'}
                 </button>
-                <button onClick={() => onEdit(resource)} className="text-xs font-semibold text-gray-400 hover:text-[var(--color-accent)] transition-colors">Edit</button>
+                <button onClick={() => onEdit(resource)} className="text-xs font-semibold text-gray-400 transition-colors"
+                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent)' }}
+                  onMouseLeave={e => { e.currentTarget.style.color = '' }}>Edit</button>
                 <button onClick={() => onDelete(resource)} className="text-xs font-semibold text-gray-400 hover:text-red-500 transition-colors">Delete</button>
               </>
             )}
@@ -3087,7 +3208,10 @@ function ResourcesTab({ getToken, isStaff }) {
             <p className="text-xs text-gray-400 mt-0.5">Manage guides, links, and materials for clients</p>
           </div>
           <button onClick={() => setModal('add')}
-            className="inline-flex items-center justify-center gap-2 bg-[var(--color-accent)] text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-[var(--color-accent-hover)] transition-colors">
+            className="inline-flex items-center justify-center gap-2 text-white px-4 py-2 rounded-xl text-sm font-bold transition-colors"
+            style={{ background: 'var(--color-accent)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
             </svg>
@@ -3294,7 +3418,10 @@ export default function Community() {
         <div className="mb-6">
           <button
             onClick={() => setTab(clientChannel)}
-            className="flex items-center gap-1.5 text-sm font-medium text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] transition-colors"
+            className="flex items-center gap-1.5 text-sm font-medium transition-colors"
+            style={{ color: 'var(--color-accent)' }}
+            onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent-hover)' }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'var(--color-accent)' }}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />

@@ -846,9 +846,15 @@ export default function Layout() {
                   : isActive && !(matchPath === undefined && label === 'Community' && location.search.includes('tab=mindset'))
                 return `flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   active
-                    ? 'bg-[var(--color-accent)] text-white'
+                    ? 'text-white'
                     : 'text-white/70 hover:bg-white/10 hover:text-white'
                 }`
+              }}
+              style={({ isActive }) => {
+                const active = matchSearch
+                  ? location.pathname === matchPath && location.search.includes(matchSearch)
+                  : isActive && !(matchPath === undefined && label === 'Community' && location.search.includes('tab=mindset'))
+                return active ? { background: 'var(--color-accent)' } : undefined
               }}
             >
               {label}
@@ -856,17 +862,17 @@ export default function Layout() {
                 <span className="ml-auto w-2 h-2 bg-red-500 rounded-full" />
               )}
               {to === '/ai-coach' && katieUnread > 0 && (
-                <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-[var(--color-accent)] text-white text-[10px] font-bold px-1">
+                <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-white text-[10px] font-bold px-1" style={{ background: 'var(--color-accent)' }}>
                   {katieUnread}
                 </span>
               )}
               {(label === 'Messages' || label === 'Support') && msgUnread > 0 && (
-                <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-[var(--color-accent)] text-white text-[10px] font-bold px-1">
+                <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-white text-[10px] font-bold px-1" style={{ background: 'var(--color-accent)' }}>
                   {msgUnread}
                 </span>
               )}
               {label === 'Team Communication' && staffUnread > 0 && (
-                <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-[var(--color-accent)] text-white text-[10px] font-bold px-1">
+                <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-white text-[10px] font-bold px-1" style={{ background: 'var(--color-accent)' }}>
                   {staffUnread}
                 </span>
               )}
@@ -988,16 +994,17 @@ export default function Layout() {
             to={to}
             className={({ isActive }) =>
               `flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-[11px] font-medium transition-colors min-w-0 ${
-                isActive ? 'text-[var(--color-accent)]' : 'text-gray-400'
+                isActive ? '' : 'text-gray-400'
               }`
             }
+            style={({ isActive }) => (isActive ? { color: 'var(--color-accent)' } : undefined)}
           >
             <div className="relative">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 {icon}
               </svg>
               {badge && (
-                <span className="absolute -top-1 -right-1 w-2 h-2 bg-[var(--color-accent)] rounded-full" />
+                <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full" style={{ background: 'var(--color-accent)' }} />
               )}
             </div>
             <span className="max-w-full truncate">{label}</span>
@@ -1012,12 +1019,12 @@ export default function Layout() {
           onClick={openQuickMenu}
           aria-label="Quick log"
         >
-          <div className="w-14 h-14 rounded-full bg-[var(--color-accent)] shadow-lg flex items-center justify-center">
+          <div className="w-14 h-14 rounded-full shadow-lg flex items-center justify-center" style={{ background: 'var(--color-accent)' }}>
             <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
             </svg>
           </div>
-          <span className="text-[11px] font-semibold text-[var(--color-accent)] leading-none drop-shadow-sm">Log</span>
+          <span className="text-[11px] font-semibold leading-none drop-shadow-sm" style={{ color: 'var(--color-accent)' }}>Log</span>
         </button>
       )}
       {/* Quick-log bottom sheet */}
@@ -1142,9 +1149,10 @@ export default function Layout() {
                           onClick={() => setQuickLogDate(value)}
                           className={`shrink-0 min-w-[44px] min-h-[44px] px-3.5 rounded-xl text-sm font-semibold transition-colors border whitespace-nowrap ${
                             quickLogDate === value
-                              ? 'bg-[var(--color-accent)] text-white border-[var(--color-accent)]'
+                              ? 'text-white'
                               : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-orange-50'
                           }`}
+                          style={quickLogDate === value ? { background: 'var(--color-accent)', borderColor: 'var(--color-accent)' } : undefined}
                         >
                           {label}
                         </button>
@@ -1158,12 +1166,17 @@ export default function Layout() {
                       max={getLocalDateString(new Date(Date.now() + 6 * 24 * 60 * 60 * 1000))}
                       min={getLocalDateString(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000))}
                       onChange={e => setQuickLogDate(e.target.value || getLocalDateString())}
-                      className="flex-1 min-h-[44px] border border-gray-300 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] bg-white"
+                      className="flex-1 min-h-[44px] border border-gray-300 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none bg-white"
+                      onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--color-accent)' }}
+                      onBlur={e => { e.currentTarget.style.boxShadow = 'none' }}
                     />
                     {quickLogDate !== getLocalDateString() && (
                       <button
                         onClick={() => setQuickLogDate(getLocalDateString())}
-                        className="shrink-0 text-xs font-semibold text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] transition-colors px-2"
+                        className="shrink-0 text-xs font-semibold transition-colors px-2"
+                        style={{ color: 'var(--color-accent)' }}
+                        onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent-hover)' }}
+                        onMouseLeave={e => { e.currentTarget.style.color = 'var(--color-accent)' }}
                       >
                         Today
                       </button>
@@ -1186,7 +1199,9 @@ export default function Layout() {
                           closeQuickMenu()
                           navigate('/journal', { state: { openSlot: slot, openMode: quickFoodMode, logDate: quickLogDate } })
                         }}
-                        className="flex items-center gap-3 bg-gray-50 hover:bg-orange-50 hover:border-[var(--color-accent)] border border-gray-200 rounded-2xl px-4 py-4 transition-all min-h-[60px]"
+                        className="flex items-center gap-3 bg-gray-50 hover:bg-orange-50 border border-gray-200 rounded-2xl px-4 py-4 transition-all min-h-[60px]"
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = '' }}
                       >
                         <span className="text-2xl">{emoji}</span>
                         <span className="text-sm font-semibold text-gray-700">{label}</span>
@@ -1221,12 +1236,17 @@ export default function Layout() {
                         min={minStr}
                         max={todayStr}
                         onChange={e => setQuickActionDate(e.target.value || todayStr)}
-                        className="flex-1 border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] bg-white"
+                        className="flex-1 border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-700 focus:outline-none bg-white"
+                        onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--color-accent)' }}
+                        onBlur={e => { e.currentTarget.style.boxShadow = 'none' }}
                       />
                       {quickActionDate !== todayStr && (
                         <button
                           onClick={() => setQuickActionDate(todayStr)}
-                          className="shrink-0 text-xs font-semibold text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] transition-colors"
+                          className="shrink-0 text-xs font-semibold transition-colors"
+                          style={{ color: 'var(--color-accent)' }}
+                          onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent-hover)' }}
+                          onMouseLeave={e => { e.currentTarget.style.color = 'var(--color-accent)' }}
                         >
                           Today
                         </button>
@@ -1248,9 +1268,12 @@ export default function Layout() {
                             onClick={() => setQuickValue(oz)}
                             className={`flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-colors ${
                               quickValue === oz
-                                ? 'bg-[var(--color-accent)] border-[var(--color-accent)] text-white'
-                                : 'border-gray-200 text-gray-600 hover:border-[var(--color-accent)]'
+                                ? 'text-white'
+                                : 'border-gray-200 text-gray-600'
                             }`}
+                            style={quickValue === oz ? { background: 'var(--color-accent)', borderColor: 'var(--color-accent)' } : undefined}
+                            onMouseEnter={e => { if (quickValue !== oz) e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                            onMouseLeave={e => { if (quickValue !== oz) e.currentTarget.style.borderColor = '' }}
                           >
                             +{oz} oz
                           </button>
@@ -1264,21 +1287,28 @@ export default function Layout() {
                       value={quickValue}
                       onChange={e => setQuickValue(e.target.value)}
                       placeholder={quickActionDate === getLocalDateString() ? 'Custom amount (oz)' : 'Total oz for this day'}
-                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[var(--color-accent)] mb-3"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none mb-3"
+                      onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                      onBlur={e => { e.currentTarget.style.borderColor = '' }}
                     />
                     <input
                       type="text"
                       value={quickNote}
                       onChange={e => setQuickNote(e.target.value)}
                       placeholder="Note (optional)"
-                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[var(--color-accent)] mb-3"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none mb-3"
+                      onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                      onBlur={e => { e.currentTarget.style.borderColor = '' }}
                     />
                     {quickActionDate === getLocalDateString() ? (
                       <div className="grid grid-cols-2 gap-2">
                         <button
                           onClick={() => { setQuickWaterMode('add'); submitQuickLog('add') }}
                           disabled={!quickValue || quickSaving}
-                          className="w-full bg-[var(--color-accent)] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
+                          className="w-full text-white font-bold py-3.5 rounded-2xl text-sm disabled:opacity-50 transition-colors"
+                      style={{ background: 'var(--color-accent)' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
                         >
                           {quickSaving && quickWaterMode === 'add' ? 'Saving...' : 'Add'}
                         </button>
@@ -1294,7 +1324,10 @@ export default function Layout() {
                       <button
                         onClick={() => submitQuickLog('add')}
                         disabled={!quickValue || quickSaving}
-                        className="w-full bg-[var(--color-accent)] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
+                        className="w-full text-white font-bold py-3.5 rounded-2xl text-sm disabled:opacity-50 transition-colors"
+                      style={{ background: 'var(--color-accent)' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
                       >
                         {quickSaving ? 'Saving...' : 'Save Water'}
                       </button>
@@ -1309,17 +1342,24 @@ export default function Layout() {
                     <input type="number" step="0.1" value={quickValue}
                       onChange={e => setQuickValue(e.target.value)}
                       placeholder="e.g. 145.5"
-                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[var(--color-accent)] mb-3"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none mb-3"
+                      onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                      onBlur={e => { e.currentTarget.style.borderColor = '' }}
                     />
                     <input
                       type="text"
                       value={quickNote}
                       onChange={e => setQuickNote(e.target.value)}
                       placeholder="Note (optional)"
-                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[var(--color-accent)] mb-4"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none mb-4"
+                      onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                      onBlur={e => { e.currentTarget.style.borderColor = '' }}
                     />
                     <button onClick={submitQuickLog} disabled={!quickValue || quickSaving}
-                      className="w-full bg-[var(--color-accent)] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors">
+                      className="w-full text-white font-bold py-3.5 rounded-2xl text-sm disabled:opacity-50 transition-colors"
+                      style={{ background: 'var(--color-accent)' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}>
                       {quickSaving ? 'Savingâ€¦' : 'Log Weight'}
                     </button>
                   </>
@@ -1332,10 +1372,15 @@ export default function Layout() {
                     <input type="number" value={quickValue}
                       onChange={e => setQuickValue(e.target.value)}
                       placeholder="e.g. 8500"
-                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[var(--color-accent)] mb-4"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none mb-4"
+                      onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                      onBlur={e => { e.currentTarget.style.borderColor = '' }}
                     />
                     <button onClick={submitQuickLog} disabled={!quickValue || quickSaving}
-                      className="w-full bg-[var(--color-accent)] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors">
+                      className="w-full text-white font-bold py-3.5 rounded-2xl text-sm disabled:opacity-50 transition-colors"
+                      style={{ background: 'var(--color-accent)' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}>
                       {quickSaving ? 'Savingâ€¦' : 'Log Steps'}
                     </button>
                     <button onClick={clearQuickLog} disabled={quickSaving}
@@ -1356,9 +1401,12 @@ export default function Layout() {
                           onClick={() => setQuickValue(h)}
                           className={`flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-colors ${
                             quickValue === h
-                              ? 'bg-[var(--color-accent)] border-[var(--color-accent)] text-white'
-                              : 'border-gray-200 text-gray-600 hover:border-[var(--color-accent)]'
+                              ? 'text-white'
+                              : 'border-gray-200 text-gray-600'
                           }`}
+                          style={quickValue === h ? { background: 'var(--color-accent)', borderColor: 'var(--color-accent)' } : undefined}
+                          onMouseEnter={e => { if (quickValue !== h) e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                          onMouseLeave={e => { if (quickValue !== h) e.currentTarget.style.borderColor = '' }}
                         >
                           {h}h
                         </button>
@@ -1370,17 +1418,24 @@ export default function Layout() {
                       value={quickValue}
                       onChange={e => setQuickValue(e.target.value)}
                       placeholder="Custom hours (e.g. 7.5)"
-                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[var(--color-accent)] mb-3"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none mb-3"
+                      onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                      onBlur={e => { e.currentTarget.style.borderColor = '' }}
                     />
                     <input
                       type="text"
                       value={quickNote}
                       onChange={e => setQuickNote(e.target.value)}
                       placeholder="Note (optional)"
-                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[var(--color-accent)] mb-4"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none mb-4"
+                      onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                      onBlur={e => { e.currentTarget.style.borderColor = '' }}
                     />
                     <button onClick={submitQuickLog} disabled={!quickValue || quickSaving}
-                      className="w-full bg-[var(--color-accent)] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors">
+                      className="w-full text-white font-bold py-3.5 rounded-2xl text-sm disabled:opacity-50 transition-colors"
+                      style={{ background: 'var(--color-accent)' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}>
                       {quickSaving ? 'Savingâ€¦' : 'Log Sleep'}
                     </button>
                     <button onClick={clearQuickLog} disabled={quickSaving}
@@ -1401,9 +1456,12 @@ export default function Layout() {
                           onClick={() => setQuickActivityType(t)}
                           className={`px-3 py-1.5 rounded-full text-xs font-semibold border-2 transition-colors ${
                             quickActivityType === t
-                              ? 'bg-[var(--color-accent)] border-[var(--color-accent)] text-white'
-                              : 'border-gray-200 text-gray-600 hover:border-[var(--color-accent)]'
+                              ? 'text-white'
+                              : 'border-gray-200 text-gray-600'
                           }`}
+                          style={quickActivityType === t ? { background: 'var(--color-accent)', borderColor: 'var(--color-accent)' } : undefined}
+                          onMouseEnter={e => { if (quickActivityType !== t) e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                          onMouseLeave={e => { if (quickActivityType !== t) e.currentTarget.style.borderColor = '' }}
                         >
                           {t}
                         </button>
@@ -1413,15 +1471,22 @@ export default function Layout() {
                     <input type="number" value={quickActivityDur}
                       onChange={e => setQuickActivityDur(e.target.value)}
                       placeholder="e.g. 30"
-                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[var(--color-accent)] mb-3"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none mb-3"
+                      onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                      onBlur={e => { e.currentTarget.style.borderColor = '' }}
                     />
                     <textarea value={quickActivityNotes}
                       onChange={e => setQuickActivityNotes(e.target.value)}
                       placeholder="Notes (optional)" rows={2}
-                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[var(--color-accent)] resize-none mb-4"
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none resize-none mb-4"
+                      onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                      onBlur={e => { e.currentTarget.style.borderColor = '' }}
                     />
                     <button onClick={submitQuickActivity} disabled={!quickActivityType || quickSaving}
-                      className="w-full bg-[var(--color-accent)] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors">
+                      className="w-full text-white font-bold py-3.5 rounded-2xl text-sm disabled:opacity-50 transition-colors"
+                      style={{ background: 'var(--color-accent)' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}>
                       {quickSaving ? 'Savingâ€¦' : 'Log Activity'}
                     </button>
                   </>
@@ -1451,9 +1516,12 @@ export default function Layout() {
                         <button key={a} onClick={() => setQuickPhotoAngle(a)}
                           className={`flex-1 py-2 rounded-xl text-sm font-bold border-2 transition-colors capitalize ${
                             quickPhotoAngle === a
-                              ? 'bg-[var(--color-accent)] border-[var(--color-accent)] text-white'
-                              : 'border-gray-200 text-gray-600 hover:border-[var(--color-accent)]'
+                              ? 'text-white'
+                              : 'border-gray-200 text-gray-600'
                           }`}
+                          style={quickPhotoAngle === a ? { background: 'var(--color-accent)', borderColor: 'var(--color-accent)' } : undefined}
+                          onMouseEnter={e => { if (quickPhotoAngle !== a) e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+                          onMouseLeave={e => { if (quickPhotoAngle !== a) e.currentTarget.style.borderColor = '' }}
                         >
                           {a}
                         </button>
@@ -1471,7 +1539,9 @@ export default function Layout() {
                       <div className="flex gap-2 mb-4">
                         <button
                           onClick={() => quickPhotoInputRef.current?.click()}
-                          className="flex-1 flex flex-col items-center justify-center gap-1.5 border-2 border-gray-200 rounded-xl py-5 text-sm text-gray-600 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
+                          className="flex-1 flex flex-col items-center justify-center gap-1.5 border-2 border-gray-200 rounded-xl py-5 text-sm text-gray-600 transition-colors"
+                          onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.color = 'var(--color-accent)' }}
+                          onMouseLeave={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.color = '' }}
                         >
                           <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
@@ -1481,7 +1551,9 @@ export default function Layout() {
                         </button>
                         <button
                           onClick={() => quickPhotoGalleryRef.current?.click()}
-                          className="flex-1 flex flex-col items-center justify-center gap-1.5 border-2 border-gray-200 rounded-xl py-5 text-sm text-gray-600 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
+                          className="flex-1 flex flex-col items-center justify-center gap-1.5 border-2 border-gray-200 rounded-xl py-5 text-sm text-gray-600 transition-colors"
+                          onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.color = 'var(--color-accent)' }}
+                          onMouseLeave={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.color = '' }}
                         >
                           <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -1520,7 +1592,10 @@ export default function Layout() {
                       }}
                     />
                     <button onClick={submitQuickPhoto} disabled={!quickPhotoFile || quickSaving}
-                      className="w-full bg-[var(--color-accent)] text-white font-bold py-3.5 rounded-2xl text-sm hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors">
+                      className="w-full text-white font-bold py-3.5 rounded-2xl text-sm disabled:opacity-50 transition-colors"
+                      style={{ background: 'var(--color-accent)' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}>
                       {quickSaving ? 'Uploadingâ€¦'
                         : PHOTO_ANGLE_SEQUENCE.indexOf(quickPhotoAngle) < PHOTO_ANGLE_SEQUENCE.length - 1
                           ? 'Save & Continue â†’'
