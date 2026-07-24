@@ -1997,6 +1997,35 @@ export async function runMigrations() {
     console.error('[migrations] group_members setup failed:', err.message)
   }
 
+  // One-time backfill: the Main Feed (group_id IS NULL) concept is retired —
+  // every post must belong to a group. Assigns orphaned posts to their org's
+  // first active group, same ordering POST /posts uses for new posts without
+  // a group_id. Idempotent — only ever touches group_id IS NULL rows, and does
+  // nothing for an org with no active groups.
+  try {
+    const { rowCount } = await pool.query(`
+      UPDATE community_posts cp
+      SET group_id = (
+        SELECT id FROM community_groups
+        WHERE org_id = cp.org_id
+        AND is_active = TRUE
+        ORDER BY display_order ASC, id ASC
+        LIMIT 1
+      )
+      WHERE cp.group_id IS NULL
+      AND EXISTS (
+        SELECT 1 FROM community_groups
+        WHERE org_id = cp.org_id
+        AND is_active = TRUE
+      )
+    `)
+    if (rowCount > 0) {
+      console.log(`[migrations] backfilled group_id for ${rowCount} orphaned community post(s)`)
+    }
+  } catch (err) {
+    console.error('[migrations] community_posts group_id backfill failed:', err.message)
+  }
+
   // One-time backfill: orgs that predate the owner_user_id column (or whose
   // owner invite was accepted before that write path existed) are left with
   // owner_user_id = NULL, which locks branding/settings saves to super admin

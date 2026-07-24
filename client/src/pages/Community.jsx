@@ -54,11 +54,6 @@ const REACTIONS = [
 
 const CATEGORIES = ['General Discussion', 'Non-Scale Victories']
 
-// Virtual first entry of GET /my-groups — the ungrouped feed (posts with
-// group_id IS NULL). Kept client-side too so the pill row still renders if that
-// request fails.
-const MAIN_FEED = { id: null, name: 'Main Feed', description: null, type: 'main' }
-
 function normalizeChannel(_ct) {
   return 'vip'  // one shared community for all coaching types
 }
@@ -919,7 +914,7 @@ function Leaderboard({ getToken }) {
 
 // ── HybridTab ─────────────────────────────────────────────────────────────────
 
-function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members, initialCategory = 'All' }) {
+function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members }) {
   const photoInputRef = useRef(null)
   const [posts,          setPosts]         = useState([])
   const [hasMore,        setHasMore]       = useState(false)
@@ -929,27 +924,23 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
   const [error,          setError]         = useState(null)
   const [retryKey,       setRetryKey]      = useState(0)
   const [newPost,        setNewPost]       = useState('')
-  const [category,       setCategory]      = useState(initialCategory === 'All' ? 'General Discussion' : initialCategory)
   const [poll,           setPoll]          = useState(null)
   const [photo,          setPhoto]         = useState(null)
   const [preview,        setPreview]       = useState(null)
   const [posting,        setPosting]       = useState(false)
   const [search,         setSearch]        = useState('')
-  const [activeCategory, setActiveCategory]= useState(initialCategory)
   const [searchParams]                     = useSearchParams()
   const [highlightPostId, setHighlightPostId] = useState(null) // post_id deep link target, briefly highlighted
-  const [groups,          setGroups]        = useState([]) // org's community_groups — backs both dropdowns below
+  const [groups,          setGroups]        = useState([]) // org's community_groups — backs the post-edit category dropdown
   const [manageGroupsOpen, setManageGroupsOpen] = useState(false)
-  const [myGroups,        setMyGroups]      = useState([MAIN_FEED]) // pill row: Main Feed + groups the caller belongs to
+  const [myGroups,        setMyGroups]      = useState([])          // pill row: groups the caller belongs to
   const [myGroupsLoaded,  setMyGroupsLoaded]= useState(false)       // gates deep-link group resolution below
-  const [activeGroupId,   setActiveGroupId] = useState(null)        // null = Main Feed
-  const [deepLinkGroupId, setDeepLinkGroupId] = useState(undefined) // undefined = unresolved, null = main feed, number = group id
+  const [activeGroupId,   setActiveGroupId] = useState(null)        // null until myGroups loads, then always a real group id
+  const [deepLinkGroupId, setDeepLinkGroupId] = useState(undefined) // undefined = unresolved, null = no group (unavailable), number = group id
   const [deepLinkError,   setDeepLinkError]   = useState(null)
 
-  const activeGroup = myGroups.find(g => g.id === activeGroupId) ?? MAIN_FEED
-  const inGroup     = activeGroupId !== null
-  // 'main' selects the ungrouped feed server-side; a numeric id selects a group.
-  const groupParam  = inGroup ? String(activeGroupId) : 'main'
+  const activeGroup = myGroups.find(g => g.id === activeGroupId) ?? myGroups[0] ?? null
+  const groupParam  = activeGroup ? String(activeGroup.id) : null
 
   // Falls back to the old hardcoded list until groups load (or if the fetch
   // fails) so the composer/filter dropdowns are never empty.
@@ -965,42 +956,48 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
 
   useEffect(() => { loadGroups() }, [loadGroups])
 
-  // Pill row source. Falls back to a Main-Feed-only row on failure rather than
-  // hiding the nav — the main feed still works without this call succeeding.
+  // Pill row source. Falls back to an empty row on failure rather than
+  // fabricating a feed — the "No groups yet" empty state below covers that.
   const loadMyGroups = useCallback(async () => {
     try {
       const token = await getToken()
       const res = await fetch(`${API_URL}/api/community/my-groups`, { headers: { Authorization: `Bearer ${token}` } })
       if (!res.ok) throw new Error(`Server error ${res.status}`)
       const data = await res.json()
-      setMyGroups(Array.isArray(data) && data.length ? data : [MAIN_FEED])
+      setMyGroups(Array.isArray(data) ? data : [])
     } catch {
-      setMyGroups([MAIN_FEED])
+      setMyGroups([])
     } finally {
       // Gates the deep-link group lookup below — that check needs the real
-      // membership list, not the [MAIN_FEED] placeholder this state starts as.
+      // membership list, not the [] placeholder this state starts as.
       setMyGroupsLoaded(true)
     }
   }, [getToken])
 
   useEffect(() => { loadMyGroups() }, [loadMyGroups])
 
-  // If the selected group disappears (removed from the group, or it was
-  // deactivated), fall back to Main Feed instead of polling a 403/empty feed.
+  // Defaults activeGroup to the first group on initial load, and re-anchors to
+  // the first group if the selected one disappears (removed from the group,
+  // or deactivated) instead of polling a 403/empty feed.
   useEffect(() => {
-    if (activeGroupId !== null && !myGroups.some(g => g.id === activeGroupId)) {
-      setActiveGroupId(null)
+    if (!myGroupsLoaded) return
+    if (myGroups.length === 0) { setActiveGroupId(null); return }
+    if (!myGroups.some(g => g.id === activeGroupId)) {
+      setActiveGroupId(myGroups[0].id)
     }
-  }, [myGroups, activeGroupId])
+  }, [myGroups, myGroupsLoaded, activeGroupId])
 
   // Re-runs on group switch, which clears the feed and resets the before_id
   // cursor — posts from the previous group must never bleed into the new one.
+  // Skips the fetch entirely until a real group is selected (myGroups still
+  // loading, or empty — the "No groups yet" empty state covers that case).
   useEffect(() => {
-    setLoading(true)
     setError(null)
     setPosts([])
     setHasMore(false)
     setNextBeforeId(null)
+    if (!groupParam) { setLoading(false); return }
+    setLoading(true)
     async function load() {
       try {
         const token = await getToken()
@@ -1023,13 +1020,14 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
   // (see notifyNewCommunityPost in server/services/pushService.js and the
   // pushNotificationActionPerformed listener in Layout.jsx).
   //
-  // The page always opens on Main Feed, but the post may live in a group the
-  // feed hasn't loaded (or the caller isn't a member of), so the post_id alone
-  // isn't enough — first resolve which feed the post belongs to via
-  // GET /posts/:id/group, then switch the pill row to that group before the
-  // highlight effect below can find it. Runs once per post_id: guarded on
-  // deepLinkGroupId still being undefined so it doesn't refire as myGroups
-  // changes for unrelated reasons (e.g. after a Manage Members edit).
+  // The page always opens on the first group, but the post may live in a
+  // different group the feed hasn't loaded (or the caller isn't a member of),
+  // so the post_id alone isn't enough — first resolve which group the post
+  // belongs to via GET /posts/:id/group, then switch the pill row to that
+  // group before the highlight effect below can find it. Runs once per
+  // post_id: guarded on deepLinkGroupId still being undefined so it doesn't
+  // refire as myGroups changes for unrelated reasons (e.g. after a Manage
+  // Members edit).
   useEffect(() => {
     const postId = searchParams.get('post_id')
     if (!postId || !myGroupsLoaded || deepLinkGroupId !== undefined) return
@@ -1048,7 +1046,9 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
         }
         const { group_id } = await res.json()
         if (group_id === null) {
-          setDeepLinkGroupId(null) // already on Main Feed by default
+          // Legacy ungrouped post — there's no feed left to show it in.
+          setDeepLinkError('That post could not be found.')
+          setDeepLinkGroupId(null)
           return
         }
         if (myGroups.some(g => g.id === group_id)) {
@@ -1095,13 +1095,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
     return () => clearTimeout(t)
   }, [searchParams, posts, loading, deepLinkGroupId, deepLinkError])
 
-  const visiblePosts = posts.filter(p => {
-    const matchSearch = !search.trim() || p.content.toLowerCase().includes(search.toLowerCase())
-    // The category filter is main-feed only — inside a group every post shares
-    // the group's category, so applying a stale selection would blank the feed.
-    const matchCat    = inGroup || activeCategory === 'All' || p.category === activeCategory
-    return matchSearch && matchCat
-  })
+  const visiblePosts = posts.filter(p => !search.trim() || p.content.toLowerCase().includes(search.toLowerCase()))
 
   function handlePhotoSelect(file) {
     if (!file || !file.type.startsWith('image/')) return
@@ -1116,18 +1110,18 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
 
   async function submitPost(e) {
     e.preventDefault()
-    if (!newPost.trim() || posting) return
+    if (!newPost.trim() || posting || !activeGroup) return
     setPosting(true)
     try {
       const token = await getToken()
       const body  = new FormData()
       body.append('content', newPost.trim())
-      // Inside a group the group is the category, so the label comes from the
-      // group rather than the (hidden) dropdown. The server re-derives it from
-      // group_id anyway; sending it keeps the optimistic post card correct.
-      body.append('category', inGroup ? activeGroup.name : category)
+      // Every post belongs to a group, so the category label always comes
+      // from the active group. The server re-derives it from group_id anyway;
+      // sending it keeps the optimistic post card correct.
+      body.append('category', activeGroup.name)
       body.append('channel', channel)
-      if (inGroup) body.append('group_id', String(activeGroupId))
+      body.append('group_id', String(activeGroup.id))
       if (photo) body.append('photo', photo)
       if (poll?.question?.trim() && poll.options.filter(o => o.trim()).length >= 2) {
         body.append('poll_question', poll.question.trim())
@@ -1146,7 +1140,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
         const unpinned = prev.filter(p => !p.pinned)
         return [...pinned, post, ...unpinned]
       })
-      setNewPost(''); setCategory('General Discussion'); setPoll(null); clearPhoto()
+      setNewPost(''); setPoll(null); clearPhoto()
     } catch (err) { setError(err.message) }
     finally { setPosting(false) }
   }
@@ -1245,17 +1239,17 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
   return (
     <div className="flex flex-col lg:flex-row gap-6 items-start">
       <div className="flex-1 min-w-0 w-full">
-        {/* Group pills — Main Feed first, then the groups this user belongs to.
-            Scrolls horizontally on mobile, wraps on desktop. Negative margin
-            lets the row bleed to the screen edge on mobile while keeping the
-            tap targets inside the normal padding. */}
+        {/* Group pills — the groups this user belongs to, first one selected
+            by default. Scrolls horizontally on mobile, wraps on desktop.
+            Negative margin lets the row bleed to the screen edge on mobile
+            while keeping the tap targets inside the normal padding. */}
         <div className="-mx-4 px-4 sm:mx-0 sm:px-0 mb-3 overflow-x-auto sm:overflow-x-visible">
           <div className="flex sm:flex-wrap gap-2 w-max sm:w-auto">
             {myGroups.map(g => {
               const active = g.id === activeGroupId
               return (
                 <button
-                  key={g.id ?? 'main'}
+                  key={g.id}
                   type="button"
                   onClick={() => setActiveGroupId(g.id)}
                   aria-current={active ? 'true' : undefined}
@@ -1292,6 +1286,34 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
           </div>
         )}
 
+        {isAdmin && (
+          <div className="flex items-center mb-3">
+            <button
+              type="button"
+              onClick={() => setManageGroupsOpen(true)}
+              className="ml-auto min-h-[44px] inline-flex items-center gap-1.5 border border-gray-200 text-gray-600 px-3 py-2 rounded-lg text-sm font-semibold transition-colors shrink-0"
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent)'; e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+              onMouseLeave={e => { e.currentTarget.style.color = ''; e.currentTarget.style.borderColor = '' }}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              Manage Groups
+            </button>
+          </div>
+        )}
+
+        {myGroupsLoaded && myGroups.length === 0 ? (
+          <div className="text-center py-16">
+            <p className="text-sm font-semibold text-gray-700 mb-1">No groups yet</p>
+            <p className="text-sm text-gray-400">
+              {isAdmin
+                ? 'Create a group above to start the conversation.'
+                : "Check back soon, there's nothing here yet."}
+            </p>
+          </div>
+        ) : (
+        <>
         {/* Search */}
         <div className="relative mb-3">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">🔍</span>
@@ -1306,37 +1328,6 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
           />
         </div>
 
-        {/* Feed filter — category is a main-feed concept only; inside a group
-            every post carries the group's own name, so the filter is hidden. */}
-        <div className="flex items-center gap-2 mb-4">
-          {!inGroup && (
-            <select
-              value={activeCategory}
-              onChange={e => setActiveCategory(e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none bg-white"
-              onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--color-accent)' }}
-              onBlur={e => { e.currentTarget.style.boxShadow = 'none' }}
-            >
-              <option value="All">All Posts</option>
-              {groupNames.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          )}
-          {isAdmin && (
-            <button
-              type="button"
-              onClick={() => setManageGroupsOpen(true)}
-              className="ml-auto min-h-[44px] inline-flex items-center gap-1.5 border border-gray-200 text-gray-600 px-3 py-2 rounded-lg text-sm font-semibold transition-colors shrink-0"
-              onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent)'; e.currentTarget.style.borderColor = 'var(--color-accent)' }}
-              onMouseLeave={e => { e.currentTarget.style.color = ''; e.currentTarget.style.borderColor = '' }}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
-              Manage Groups
-            </button>
-          )}
-        </div>
-
         {/* Compose */}
         <form onSubmit={submitPost} className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5 mb-5">
           <MentionInput
@@ -1348,25 +1339,9 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
             textareaClassName="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm resize-none focus:outline-none min-h-[96px]"
           />
 
-          {/* Category dropdown — main feed only; in a group the group IS the
-              category, so this is replaced by a plain destination label. */}
-          {inGroup ? (
-            <p className="mt-3 text-xs text-gray-500">
-              Posting to <span className="font-semibold text-gray-700">{activeGroup.name}</span>
-            </p>
-          ) : (
-          <div className="flex items-center gap-3 mt-3">
-            <select
-              value={category}
-              onChange={e => setCategory(e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none bg-white flex-1"
-              onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--color-accent)' }}
-              onBlur={e => { e.currentTarget.style.boxShadow = 'none' }}
-            >
-              {groupNames.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-          )}
+          <p className="mt-3 text-xs text-gray-500">
+            Posting to <span className="font-semibold text-gray-700">{activeGroup.name}</span>
+          </p>
 
           {poll && <PollCreator poll={poll} onChange={setPoll} />}
 
@@ -1481,6 +1456,8 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
               {loadingOlder ? 'Loading…' : 'Load more posts'}
             </button>
           </div>
+        )}
+        </>
         )}
       </div>
 

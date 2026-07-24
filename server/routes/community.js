@@ -592,9 +592,22 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
         return res.status(403).json({ error: 'Not a member of this group' })
       }
       category = g[0].name
-    } else if (!isStaff && !(await isClientPostableCategory(req.orgId, category))) {
-      // Clients may only post into an active, public group in their own org
-      category = 'General Discussion'
+    } else {
+      // No group specified — every post must belong to a group, so fall back
+      // to the org's first active group rather than leaving group_id NULL.
+      const { rows: defaultGroup } = await pool.query(
+        `SELECT id, name FROM community_groups
+         WHERE org_id = $1 AND is_active = TRUE
+         ORDER BY display_order ASC, id ASC LIMIT 1`,
+        [req.orgId],
+      )
+      if (defaultGroup.length) {
+        groupId  = defaultGroup[0].id
+        category = defaultGroup[0].name
+      } else if (!isStaff && !(await isClientPostableCategory(req.orgId, category))) {
+        // Clients may only post into an active, public group in their own org
+        category = 'General Discussion'
+      }
     }
 
     // Clients always post into their own channel; staff may specify a channel in body
