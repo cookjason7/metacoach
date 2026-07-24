@@ -1303,7 +1303,9 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
           </div>
         )}
 
-        {myGroupsLoaded && myGroups.length === 0 ? (
+        {!myGroupsLoaded ? (
+          <p className="text-sm text-gray-400 text-center py-16">Loading…</p>
+        ) : myGroups.length === 0 ? (
           <div className="text-center py-16">
             <p className="text-sm font-semibold text-gray-700 mb-1">No groups yet</p>
             <p className="text-sm text-gray-400">
@@ -1312,6 +1314,8 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
                 : "Check back soon, there's nothing here yet."}
             </p>
           </div>
+        ) : !activeGroup ? (
+          <p className="text-sm text-gray-400 text-center py-16">Loading…</p>
         ) : (
         <>
         {/* Search */}
@@ -1340,7 +1344,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
           />
 
           <p className="mt-3 text-xs text-gray-500">
-            Posting to <span className="font-semibold text-gray-700">{activeGroup.name}</span>
+            Posting to <span className="font-semibold text-gray-700">{activeGroup?.name}</span>
           </p>
 
           {poll && <PollCreator poll={poll} onChange={setPoll} />}
@@ -1410,7 +1414,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
               <>
                 <p className="text-2xl mb-3">👋</p>
                 <p className="text-sm font-semibold text-gray-700 mb-1">
-                  No posts yet. Be the first to post in {activeGroup.name}.
+                  No posts yet. Be the first to post in {activeGroup?.name}.
                 </p>
                 <p className="text-sm text-gray-400">Share a win, a question, or just say hello.</p>
               </>
