@@ -1,11 +1,11 @@
-﻿import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { linkify } from '../utils/linkify'
 import { API_URL } from '../config.js'
 import { useOrgBranding } from '../context/OrgBrandingContext.jsx'
 
-// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function timeAgo(isoString) {
   const seconds = Math.floor((Date.now() - new Date(isoString)) / 1000)
@@ -43,18 +43,18 @@ function Avatar({ name, size = 'md' }) {
   )
 }
 
-// â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Constants ─────────────────────────────────────────────────────────────────
 
 const REACTIONS = [
-  { type: 'like',  emoji: 'ðŸ‘', countKey: 'like_count',  myKey: 'my_like'  },
-  { type: 'love',  emoji: 'â¤ï¸', countKey: 'love_count',  myKey: 'my_love'  },
-  { type: 'laugh', emoji: 'ðŸ˜‚', countKey: 'laugh_count', myKey: 'my_laugh' },
-  { type: 'care',  emoji: 'ðŸ¤—', countKey: 'care_count',  myKey: 'my_care'  },
+  { type: 'like',  emoji: '👍', countKey: 'like_count',  myKey: 'my_like'  },
+  { type: 'love',  emoji: '❤️', countKey: 'love_count',  myKey: 'my_love'  },
+  { type: 'laugh', emoji: '😂', countKey: 'laugh_count', myKey: 'my_laugh' },
+  { type: 'care',  emoji: '🤗', countKey: 'care_count',  myKey: 'my_care'  },
 ]
 
 const CATEGORIES = ['General Discussion', 'Non-Scale Victories']
 
-// Virtual first entry of GET /my-groups â€” the ungrouped feed (posts with
+// Virtual first entry of GET /my-groups — the ungrouped feed (posts with
 // group_id IS NULL). Kept client-side too so the pill row still renders if that
 // request fails.
 const MAIN_FEED = { id: null, name: 'Main Feed', description: null, type: 'main' }
@@ -70,7 +70,7 @@ const CATEGORY_STYLES = {
   'Hurdles':             'bg-rose-50 text-rose-700 border-rose-200',
 }
 
-// â”€â”€ MentionInput â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── MentionInput ──────────────────────────────────────────────────────────────
 
 function MentionInput({ value, onChange, members, placeholder, rows = 3, inputClassName, textareaClassName }) {
   const ref   = useRef(null)
@@ -153,7 +153,7 @@ function MentionInput({ value, onChange, members, placeholder, rows = 3, inputCl
   )
 }
 
-// â”€â”€ PollCreator â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── PollCreator ───────────────────────────────────────────────────────────────
 
 function PollCreator({ poll, onChange }) {
   function setQ(q)    { onChange({ ...poll, question: q }) }
@@ -169,14 +169,14 @@ function PollCreator({ poll, onChange }) {
   return (
     <div className="mt-3 p-4 bg-blue-50 rounded-xl border border-blue-200">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-blue-800">ðŸ“Š Poll</span>
+        <span className="text-sm font-semibold text-blue-800">📊 Poll</span>
         <button type="button" onClick={() => onChange(null)} className="text-xs text-gray-400 hover:text-gray-600">Remove</button>
       </div>
       <input
         type="text"
         value={poll.question}
         onChange={e => setQ(e.target.value)}
-        placeholder="Ask a questionâ€¦"
+        placeholder="Ask a question…"
         className="w-full border border-blue-200 rounded-lg px-3 py-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-300"
       />
       {poll.options.map((opt, i) => (
@@ -189,7 +189,7 @@ function PollCreator({ poll, onChange }) {
             className="flex-1 border border-blue-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
           />
           {poll.options.length > 2 && (
-            <button type="button" onClick={() => removeOpt(i)} className="text-gray-400 hover:text-red-500 text-sm px-1">âœ•</button>
+            <button type="button" onClick={() => removeOpt(i)} className="text-gray-400 hover:text-red-500 text-sm px-1">✕</button>
           )}
         </div>
       ))}
@@ -202,7 +202,7 @@ function PollCreator({ poll, onChange }) {
   )
 }
 
-// â”€â”€ PollDisplay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── PollDisplay ───────────────────────────────────────────────────────────────
 
 function PollDisplay({ postId, getToken }) {
   const [poll,    setPoll]    = useState(null)
@@ -244,7 +244,7 @@ function PollDisplay({ postId, getToken }) {
 
   return (
     <div className="mt-3 p-4 bg-gray-50 rounded-xl border border-gray-200">
-      <p className="text-sm font-semibold text-gray-900 mb-3">ðŸ“Š {poll.question}</p>
+      <p className="text-sm font-semibold text-gray-900 mb-3">📊 {poll.question}</p>
       <div className="space-y-2">
         {poll.options.map(opt => {
           const pct      = poll.totalVotes > 0 ? Math.round((opt.vote_count / poll.totalVotes) * 100) : 0
@@ -261,7 +261,7 @@ function PollDisplay({ postId, getToken }) {
             >
               <div className="flex justify-between mb-1">
                 <span className={isMyVote ? 'font-medium' : 'text-gray-800'} style={isMyVote ? { color: 'var(--color-accent)' } : undefined}>
-                  {opt.option_text}{isMyVote ? ' âœ“' : ''}
+                  {opt.option_text}{isMyVote ? ' ✓' : ''}
                 </span>
                 {voted && <span className="text-xs text-gray-500">{pct}%</span>}
               </div>
@@ -282,7 +282,7 @@ function PollDisplay({ postId, getToken }) {
   )
 }
 
-// â”€â”€ CommentItem â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── CommentItem ───────────────────────────────────────────────────────────────
 
 function CommentItem({ comment, getToken, isAdmin, onDelete, members }) {
   const [reactions, setReactions] = useState({
@@ -382,7 +382,7 @@ function CommentItem({ comment, getToken, isAdmin, onDelete, members }) {
   )
 }
 
-// â”€â”€ PostCard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── PostCard ──────────────────────────────────────────────────────────────────
 
 function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate, getToken, isAdmin, isStaff, currentUserId, members, categories = CATEGORIES, highlighted = false }) {
   const [expanded,       setExpanded]       = useState(false)
@@ -532,7 +532,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
     >
       {post.pinned && (
         <div className="flex items-center gap-1.5 px-5 py-2 bg-amber-50 border-b border-amber-200">
-          <span className="text-xs">ðŸ“Œ</span>
+          <span className="text-xs">📌</span>
           <span className="text-xs font-medium text-amber-700">Pinned post</span>
         </div>
       )}
@@ -545,7 +545,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
             <Avatar name={post.first_name} />
             <div className="flex-1 min-w-0 flex items-center gap-2">
               <p className="text-sm font-semibold text-gray-900 truncate">{post.first_name ?? 'Member'}</p>
-              {post.hot && <span title="Trending" className="text-sm leading-none shrink-0">ðŸ”¥</span>}
+              {post.hot && <span title="Trending" className="text-sm leading-none shrink-0">🔥</span>}
             </div>
             <div className="flex items-center gap-3 shrink-0">
               {canEdit && (
@@ -610,7 +610,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
                 onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
               >
-                {saving ? 'Savingâ€¦' : 'Save'}
+                {saving ? 'Saving…' : 'Save'}
               </button>
               <button onClick={() => setIsEditing(false)} className="text-xs text-gray-500 hover:text-gray-700">
                 Cancel
@@ -669,7 +669,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
                 post.liked_by_me ? 'text-rose-500' : 'text-gray-400 hover:text-rose-400'
               }`}
             >
-              <span>{post.liked_by_me ? 'â™¥' : 'â™¡'}</span>
+              <span>{post.liked_by_me ? '♥' : '♡'}</span>
             </button>
             <button
               onClick={() => setShowLikers(true)}
@@ -689,7 +689,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
             onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent-hover)' }}
             onMouseLeave={e => { e.currentTarget.style.color = '' }}
           >
-            <span>ðŸ’¬</span>
+            <span>💬</span>
             <span>{localCount}</span>
           </button>
         </div>
@@ -697,7 +697,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
         {/* Comments */}
         {expanded && (
           <div className="mt-3 pt-3 border-t border-gray-100">
-            {loadingComments && <p className="text-xs text-gray-400 py-2">Loadingâ€¦</p>}
+            {loadingComments && <p className="text-xs text-gray-400 py-2">Loading…</p>}
             {comments?.length === 0 && !loadingComments && (
               <p className="text-xs text-gray-400 py-1">No comments yet. Be the first.</p>
             )}
@@ -709,7 +709,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
                 value={commentText}
                 onChange={setCommentText}
                 members={members}
-                placeholder="Add a commentâ€¦"
+                placeholder="Add a comment…"
                 rows={1}
                 inputClassName="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none"
               />
@@ -739,8 +739,8 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
   )
 }
 
-// â”€â”€ ReactedByModal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Names-only list of who reacted to a post, grouped by emoji â€” visible to any community member, no role gate.
+// ── ReactedByModal ───────────────────────────────────────────────────────────
+// Names-only list of who reacted to a post, grouped by emoji — visible to any community member, no role gate.
 
 function ReactedByModal({ postId, getToken, onClose }) {
   const [groups, setGroups] = useState(null)
@@ -777,11 +777,11 @@ function ReactedByModal({ postId, getToken, onClose }) {
       >
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
           <h2 className="text-base font-bold text-gray-900">Reactions</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">Ã—</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
         <div className="overflow-y-auto px-2 py-2">
           {groups === null && !error && (
-            <p className="text-center text-sm text-gray-400 py-6">Loadingâ€¦</p>
+            <p className="text-center text-sm text-gray-400 py-6">Loading…</p>
           )}
           {error && (
             <p className="text-center text-sm text-gray-400 py-6">Couldn't load reactions.</p>
@@ -812,8 +812,8 @@ function ReactedByModal({ postId, getToken, onClose }) {
   )
 }
 
-// â”€â”€ LikedByModal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Names-only list of who liked a post â€” visible to any community member, no role gate.
+// ── LikedByModal ──────────────────────────────────────────────────────────────
+// Names-only list of who liked a post — visible to any community member, no role gate.
 
 function LikedByModal({ postId, getToken, onClose }) {
   const [likers, setLikers] = useState(null)
@@ -846,11 +846,11 @@ function LikedByModal({ postId, getToken, onClose }) {
       >
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
           <h2 className="text-base font-bold text-gray-900">Liked by</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">Ã—</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
         <div className="overflow-y-auto px-2 py-2">
           {likers === null && !error && (
-            <p className="text-center text-sm text-gray-400 py-6">Loadingâ€¦</p>
+            <p className="text-center text-sm text-gray-400 py-6">Loading…</p>
           )}
           {error && (
             <p className="text-center text-sm text-gray-400 py-6">Couldn't load likes.</p>
@@ -873,7 +873,7 @@ function LikedByModal({ postId, getToken, onClose }) {
   )
 }
 
-// â”€â”€ Leaderboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Leaderboard ───────────────────────────────────────────────────────────────
 
 function Leaderboard({ getToken }) {
   const [entries, setEntries] = useState([])
@@ -895,9 +895,9 @@ function Leaderboard({ getToken }) {
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 sticky top-0">
-      <h3 className="text-sm font-bold text-gray-900 mb-1">ðŸ† Top This Week</h3>
+      <h3 className="text-sm font-bold text-gray-900 mb-1">🏆 Top This Week</h3>
       <p className="text-xs text-gray-400 mb-3">Meal logging streak</p>
-      {loading && <p className="text-xs text-gray-400 py-4 text-center">Loadingâ€¦</p>}
+      {loading && <p className="text-xs text-gray-400 py-4 text-center">Loading…</p>}
       {!loading && entries.length === 0 && (
         <p className="text-xs text-gray-400 py-4 text-center">No logs this week yet.</p>
       )}
@@ -905,7 +905,7 @@ function Leaderboard({ getToken }) {
         {entries.map((entry, i) => (
           <div key={entry.id} className="flex items-center gap-2">
             <span className="text-xs w-5 text-center shrink-0 font-bold">
-              {i === 0 ? 'ðŸ¥‡' : i === 1 ? 'ðŸ¥ˆ' : i === 2 ? 'ðŸ¥‰' : <span className="text-gray-400">{i + 1}</span>}
+              {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : <span className="text-gray-400">{i + 1}</span>}
             </span>
             <Avatar name={entry.first_name} size="sm" />
             <span className="text-xs text-gray-800 flex-1 truncate font-medium">{entry.first_name ?? 'Member'}</span>
@@ -917,7 +917,7 @@ function Leaderboard({ getToken }) {
   )
 }
 
-// â”€â”€ HybridTab â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── HybridTab ─────────────────────────────────────────────────────────────────
 
 function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members, initialCategory = 'All' }) {
   const photoInputRef = useRef(null)
@@ -938,7 +938,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
   const [activeCategory, setActiveCategory]= useState(initialCategory)
   const [searchParams]                     = useSearchParams()
   const [highlightPostId, setHighlightPostId] = useState(null) // post_id deep link target, briefly highlighted
-  const [groups,          setGroups]        = useState([]) // org's community_groups â€” backs both dropdowns below
+  const [groups,          setGroups]        = useState([]) // org's community_groups — backs both dropdowns below
   const [manageGroupsOpen, setManageGroupsOpen] = useState(false)
   const [myGroups,        setMyGroups]      = useState([MAIN_FEED]) // pill row: Main Feed + groups the caller belongs to
   const [myGroupsLoaded,  setMyGroupsLoaded]= useState(false)       // gates deep-link group resolution below
@@ -966,7 +966,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
   useEffect(() => { loadGroups() }, [loadGroups])
 
   // Pill row source. Falls back to a Main-Feed-only row on failure rather than
-  // hiding the nav â€” the main feed still works without this call succeeding.
+  // hiding the nav — the main feed still works without this call succeeding.
   const loadMyGroups = useCallback(async () => {
     try {
       const token = await getToken()
@@ -977,7 +977,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
     } catch {
       setMyGroups([MAIN_FEED])
     } finally {
-      // Gates the deep-link group lookup below â€” that check needs the real
+      // Gates the deep-link group lookup below — that check needs the real
       // membership list, not the [MAIN_FEED] placeholder this state starts as.
       setMyGroupsLoaded(true)
     }
@@ -994,7 +994,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
   }, [myGroups, activeGroupId])
 
   // Re-runs on group switch, which clears the feed and resets the before_id
-  // cursor â€” posts from the previous group must never bleed into the new one.
+  // cursor — posts from the previous group must never bleed into the new one.
   useEffect(() => {
     setLoading(true)
     setError(null)
@@ -1025,7 +1025,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
   //
   // The page always opens on Main Feed, but the post may live in a group the
   // feed hasn't loaded (or the caller isn't a member of), so the post_id alone
-  // isn't enough â€” first resolve which feed the post belongs to via
+  // isn't enough — first resolve which feed the post belongs to via
   // GET /posts/:id/group, then switch the pill row to that group before the
   // highlight effect below can find it. Runs once per post_id: guarded on
   // deepLinkGroupId still being undefined so it doesn't refire as myGroups
@@ -1073,7 +1073,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
   // the URL so the back button and refresh don't retrigger it. Waits for the
   // group resolution above (deepLinkGroupId !== undefined) and for that
   // group's feed to actually finish loading, so it never searches the wrong
-  // (pre-switch) posts array. On an access/lookup error, just cleans the URL â€”
+  // (pre-switch) posts array. On an access/lookup error, just cleans the URL —
   // the error banner below is the user-facing signal, this effect has nothing
   // to highlight.
   useEffect(() => {
@@ -1097,7 +1097,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
 
   const visiblePosts = posts.filter(p => {
     const matchSearch = !search.trim() || p.content.toLowerCase().includes(search.toLowerCase())
-    // The category filter is main-feed only â€” inside a group every post shares
+    // The category filter is main-feed only — inside a group every post shares
     // the group's category, so applying a stale selection would blank the feed.
     const matchCat    = inGroup || activeCategory === 'All' || p.category === activeCategory
     return matchSearch && matchCat
@@ -1245,7 +1245,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
   return (
     <div className="flex flex-col lg:flex-row gap-6 items-start">
       <div className="flex-1 min-w-0 w-full">
-        {/* Group pills â€” Main Feed first, then the groups this user belongs to.
+        {/* Group pills — Main Feed first, then the groups this user belongs to.
             Scrolls horizontally on mobile, wraps on desktop. Negative margin
             lets the row bleed to the screen edge on mobile while keeping the
             tap targets inside the normal padding. */}
@@ -1274,7 +1274,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
           </div>
         </div>
 
-        {/* Deep-link resolution failed â€” post not found, or not accessible
+        {/* Deep-link resolution failed — post not found, or not accessible
             (not a member of the group it lives in). The URL is already cleaned
             by the highlight effect above; this just surfaces why nothing
             scrolled/highlighted. */}
@@ -1287,26 +1287,26 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
               aria-label="Dismiss"
               className="min-w-[44px] min-h-[44px] flex items-center justify-center text-amber-500 hover:text-amber-700 text-lg leading-none shrink-0"
             >
-              Ã—
+              ×
             </button>
           </div>
         )}
 
         {/* Search */}
         <div className="relative mb-3">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">ðŸ”</span>
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">🔍</span>
           <input
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search postsâ€¦"
+            placeholder="Search posts…"
             className="w-full border border-gray-200 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none bg-white"
             onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--color-accent)' }}
             onBlur={e => { e.currentTarget.style.boxShadow = 'none' }}
           />
         </div>
 
-        {/* Feed filter â€” category is a main-feed concept only; inside a group
+        {/* Feed filter — category is a main-feed concept only; inside a group
             every post carries the group's own name, so the filter is hidden. */}
         <div className="flex items-center gap-2 mb-4">
           {!inGroup && (
@@ -1343,12 +1343,12 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
             value={newPost}
             onChange={setNewPost}
             members={members}
-            placeholder="Share a win, ask a question, or check in with the groupâ€¦"
+            placeholder="Share a win, ask a question, or check in with the group…"
             rows={3}
             textareaClassName="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm resize-none focus:outline-none min-h-[96px]"
           />
 
-          {/* Category dropdown â€” main feed only; in a group the group IS the
+          {/* Category dropdown — main feed only; in a group the group IS the
               category, so this is replaced by a plain destination label. */}
           {inGroup ? (
             <p className="mt-3 text-xs text-gray-500">
@@ -1389,12 +1389,12 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
                 onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent-hover)' }}
                 onMouseLeave={e => { e.currentTarget.style.color = '' }}
               >
-                ðŸ“·
+                📷
               </button>
               <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={e => handlePhotoSelect(e.target.files[0])} />
               {!poll && isAdmin && (
                 <button type="button" onClick={() => setPoll({ question: '', options: ['', ''] })} className="text-gray-400 hover:text-blue-500 transition-colors text-sm" title="Poll">
-                  ðŸ“Š
+                  📊
                 </button>
               )}
             </div>
@@ -1406,14 +1406,14 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
               onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
               onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
             >
-              {posting ? 'Postingâ€¦' : 'Post'}
+              {posting ? 'Posting…' : 'Post'}
             </button>
           </div>
         </form>
 
         {error && !loading && (
           <div className="bg-red-50 border border-red-200 rounded-2xl px-5 py-8 text-center mb-4">
-            <p className="text-2xl mb-2">âš ï¸</p>
+            <p className="text-2xl mb-2">⚠️</p>
             <p className="text-sm font-semibold text-gray-700 mb-1">Could not load posts</p>
             <p className="text-xs text-gray-500 mb-4">There was a problem connecting to the community. Check your connection and try again.</p>
             <button
@@ -1427,13 +1427,13 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
             </button>
           </div>
         )}
-        {loading && <p className="text-sm text-gray-400 text-center py-16">Loadingâ€¦</p>}
+        {loading && <p className="text-sm text-gray-400 text-center py-16">Loading…</p>}
 
         {!loading && visiblePosts.length === 0 && (
           <div className="text-center py-16">
             {posts.length === 0 ? (
               <>
-                <p className="text-2xl mb-3">ðŸ‘‹</p>
+                <p className="text-2xl mb-3">👋</p>
                 <p className="text-sm font-semibold text-gray-700 mb-1">
                   No posts yet. Be the first to post in {activeGroup.name}.
                 </p>
@@ -1441,7 +1441,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
               </>
             ) : (
               <>
-                <p className="text-2xl mb-3">ðŸ”</p>
+                <p className="text-2xl mb-3">🔍</p>
                 <p className="text-sm font-semibold text-gray-700 mb-1">No posts match</p>
                 <p className="text-sm text-gray-400">Try a different search or category.</p>
               </>
@@ -1478,7 +1478,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
               onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent)' }}
               onMouseLeave={e => { e.currentTarget.style.color = '' }}
             >
-              {loadingOlder ? 'Loadingâ€¦' : 'Load more posts'}
+              {loadingOlder ? 'Loading…' : 'Load more posts'}
             </button>
           </div>
         )}
@@ -1496,11 +1496,11 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
   )
 }
 
-// â”€â”€ Group management (admin/owner only) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Group management (admin/owner only) ─────────────────────────────────────────
 
 const EMPTY_GROUP = { name: '', description: '', type: 'public' }
 
-// Create/edit form â€” reused for both via the `initial` prop, same pattern as
+// Create/edit form — reused for both via the `initial` prop, same pattern as
 // ResourceModal below.
 function GroupFormModal({ initial, onSave, onClose, saving }) {
   const [form, setForm] = useState(initial ?? EMPTY_GROUP)
@@ -1513,7 +1513,7 @@ function GroupFormModal({ initial, onSave, onClose, saving }) {
       <div className="bg-white rounded-2xl w-full max-w-md shadow-xl overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <h2 className="text-base font-bold text-gray-900">{isEdit ? 'Edit Group' : 'New Group'}</h2>
-          <button onClick={onClose} className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-gray-600 text-xl leading-none">Ã—</button>
+          <button onClick={onClose} className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
         <div className="px-6 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
           <div>
@@ -1577,7 +1577,7 @@ function GroupFormModal({ initial, onSave, onClose, saving }) {
             onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
             onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
           >
-            {saving ? 'Savingâ€¦' : isEdit ? 'Save Changes' : 'Create Group'}
+            {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Group'}
           </button>
         </div>
       </div>
@@ -1694,9 +1694,9 @@ function MemberManagementModal({ group, getToken, currentUserId, onClose, onMemb
       >
         <div className="px-5 sm:px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
           <div className="min-w-0">
-            <h2 className="text-base font-bold text-gray-900 truncate">Members â€” {group.name}</h2>
+            <h2 className="text-base font-bold text-gray-900 truncate">Members — {group.name}</h2>
             <p className="text-xs text-gray-400 mt-0.5">
-              {loading ? 'Loadingâ€¦' : `${members.length} member${members.length === 1 ? '' : 's'}`}
+              {loading ? 'Loading…' : `${members.length} member${members.length === 1 ? '' : 's'}`}
             </p>
           </div>
           <button
@@ -1704,7 +1704,7 @@ function MemberManagementModal({ group, getToken, currentUserId, onClose, onMemb
             aria-label="Close"
             className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-gray-600 text-xl leading-none shrink-0"
           >
-            Ã—
+            ×
           </button>
         </div>
 
@@ -1715,7 +1715,7 @@ function MemberManagementModal({ group, getToken, currentUserId, onClose, onMemb
         )}
 
         <div className="px-5 sm:px-6 py-4 overflow-y-auto flex-1">
-          {loading && <p className="text-sm text-gray-400 text-center py-8">Loadingâ€¦</p>}
+          {loading && <p className="text-sm text-gray-400 text-center py-8">Loading…</p>}
 
           {!loading && (
             <>
@@ -1726,7 +1726,7 @@ function MemberManagementModal({ group, getToken, currentUserId, onClose, onMemb
                   type="text"
                   value={query}
                   onChange={e => { setQuery(e.target.value); setSelectedId('') }}
-                  placeholder="Search by name or emailâ€¦"
+                  placeholder="Search by name or email…"
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none min-h-[44px] mb-2"
                   onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
                   onBlur={e => { e.currentTarget.style.borderColor = '' }}
@@ -1740,11 +1740,11 @@ function MemberManagementModal({ group, getToken, currentUserId, onClose, onMemb
                     onBlur={e => { e.currentTarget.style.borderColor = '' }}
                   >
                     <option value="">
-                      {error ? 'Unavailable' : filteredEligible.length ? 'Select a personâ€¦' : 'No one available to add'}
+                      {error ? 'Unavailable' : filteredEligible.length ? 'Select a person…' : 'No one available to add'}
                     </option>
                     {filteredEligible.map(u => (
                       <option key={u.user_id} value={u.user_id}>
-                        {fullName(u)}{u.email ? ` â€” ${u.email}` : ''}
+                        {fullName(u)}{u.email ? ` — ${u.email}` : ''}
                       </option>
                     ))}
                   </select>
@@ -1757,7 +1757,7 @@ function MemberManagementModal({ group, getToken, currentUserId, onClose, onMemb
                     onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
                     onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
                   >
-                    {adding ? 'Addingâ€¦' : 'Add'}
+                    {adding ? 'Adding…' : 'Add'}
                   </button>
                 </div>
               </div>
@@ -1793,7 +1793,7 @@ function MemberManagementModal({ group, getToken, currentUserId, onClose, onMemb
                           aria-label={`Remove ${fullName(m)}`}
                           className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-red-500 disabled:opacity-40 text-lg leading-none shrink-0"
                         >
-                          Ã—
+                          ×
                         </button>
                       )}
                     </div>
@@ -1815,7 +1815,7 @@ function MemberManagementModal({ group, getToken, currentUserId, onClose, onMemb
 }
 
 // Full manage-groups panel: list with edit/deactivate, opened from HybridTab's
-// "Manage Groups" button (admin/account_owner only â€” button itself is gated by
+// "Manage Groups" button (admin/account_owner only — button itself is gated by
 // isAdmin, and every mutation is re-checked server-side by requireOrgAdminOrOwner).
 function ManageGroupsModal({ getToken, currentUserId, onClose, onGroupsChanged }) {
   const [groups,       setGroups]       = useState([])
@@ -1899,7 +1899,7 @@ function ManageGroupsModal({ getToken, currentUserId, onClose, onGroupsChanged }
             <h2 className="text-base font-bold text-gray-900">Manage Groups</h2>
             <p className="text-xs text-gray-400 mt-0.5">Categories your community can post into</p>
           </div>
-          <button onClick={onClose} className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-gray-600 text-xl leading-none shrink-0">Ã—</button>
+          <button onClick={onClose} className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-gray-600 text-xl leading-none shrink-0">×</button>
         </div>
 
         <div className="px-6 py-4 overflow-y-auto flex-1">
@@ -1917,7 +1917,7 @@ function ManageGroupsModal({ getToken, currentUserId, onClose, onGroupsChanged }
             New Group
           </button>
 
-          {loading && <p className="text-sm text-gray-400 text-center py-8">Loadingâ€¦</p>}
+          {loading && <p className="text-sm text-gray-400 text-center py-8">Loading…</p>}
           {error   && <p className="text-sm text-red-500 text-center py-4">{error}</p>}
 
           {!loading && !error && (
@@ -2017,7 +2017,7 @@ function ManageGroupsModal({ getToken, currentUserId, onClose, onGroupsChanged }
           currentUserId={currentUserId}
           onClose={() => setMembersTarget(null)}
           // Membership changes can add/remove the admin themselves, which
-          // changes their own pill row â€” refresh it on close.
+          // changes their own pill row — refresh it on close.
           onMembershipChanged={onGroupsChanged}
         />
       )}
@@ -2038,7 +2038,7 @@ function ManageGroupsModal({ getToken, currentUserId, onClose, onGroupsChanged }
                 disabled={deleting}
                 className="min-h-[44px] px-5 py-2 bg-red-500 text-white text-sm font-bold rounded-xl hover:bg-red-600 disabled:opacity-50 transition-colors"
               >
-                {deleting ? 'Deactivatingâ€¦' : 'Deactivate'}
+                {deleting ? 'Deactivating…' : 'Deactivate'}
               </button>
             </div>
           </div>
@@ -2048,12 +2048,12 @@ function ManageGroupsModal({ getToken, currentUserId, onClose, onGroupsChanged }
   )
 }
 
-// â”€â”€ Members tab â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Members tab ───────────────────────────────────────────────────────────────
 
 function MembersTab({ members, loading }) {
   return (
     <div className="max-w-2xl">
-      {loading && <p className="text-sm text-gray-400 text-center py-16">Loadingâ€¦</p>}
+      {loading && <p className="text-sm text-gray-400 text-center py-16">Loading…</p>}
       {!loading && members.length === 0 && (
         <p className="text-sm text-gray-400 text-center py-16">No members yet.</p>
       )}
@@ -2083,7 +2083,7 @@ function MembersTab({ members, loading }) {
   )
 }
 
-// â”€â”€ Mindset Videos helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Mindset Videos helpers ────────────────────────────────────────────────────
 
 // Load YouTube IFrame API once. Guards: no duplicate script tag, onerror, 10s timeout.
 let ytApiPromise = null
@@ -2128,7 +2128,7 @@ function VideoModal({ initial, onSave, onClose, saving }) {
       <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden max-h-[calc(100vh-2rem)]" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <h2 className="text-base font-bold text-gray-900">{isEdit ? 'Edit Video' : 'Add Video'}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">Ã—</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
         <div className="px-6 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
           <div>
@@ -2196,7 +2196,7 @@ function VideoModal({ initial, onSave, onClose, saving }) {
             onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
             onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
           >
-            {saving ? 'Savingâ€¦' : isEdit ? 'Save Changes' : 'Add Video'}
+            {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Video'}
           </button>
         </div>
       </div>
@@ -2204,16 +2204,16 @@ function VideoModal({ initial, onSave, onClose, saving }) {
   )
 }
 
-// â”€â”€ YoutubePlayer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── YoutubePlayer ─────────────────────────────────────────────────────────────
 // Standalone component: mount = player starts, unmount = player destroyed.
-// React never reconciles inside containerRef â€” YT owns that subtree entirely.
+// React never reconciles inside containerRef — YT owns that subtree entirely.
 
 function YoutubePlayer({ vid, videoId, getToken, onFallback, onProgressSaved }) {
   const containerRef = useRef(null)
   const playerRef    = useRef(null)
   const intervalRef  = useRef(null)
   const sentRef      = useRef(new Set())
-  // Stable ref wrappers â€” the useEffect closure captures these refs, not the values,
+  // Stable ref wrappers — the useEffect closure captures these refs, not the values,
   // so YT event handlers always read the latest getToken / callbacks / reportPct.
   const getTokenRef        = useRef(getToken)
   const onFallbackRef      = useRef(onFallback)
@@ -2252,14 +2252,14 @@ function YoutubePlayer({ vid, videoId, getToken, onFallback, onProgressSaved }) 
 
   useEffect(() => {
     // Effect runs once on mount; cleanup runs on unmount.
-    // No dependency array juggling â€” lifecycle IS the player lifecycle.
+    // No dependency array juggling — lifecycle IS the player lifecycle.
     let cancelled = false
 
     loadYTApi().then(() => {
       if (cancelled || !containerRef.current) return
 
       // Create a child div for YT to replace with its iframe.
-      // React never touches this div â€” it has no JSX counterpart.
+      // React never touches this div — it has no JSX counterpart.
       const playerDiv = document.createElement('div')
       playerDiv.style.cssText = 'position:absolute;inset:0;width:100%;height:100%'
       containerRef.current.innerHTML = ''
@@ -2328,7 +2328,7 @@ function YoutubePlayer({ vid, videoId, getToken, onFallback, onProgressSaved }) 
   return <div ref={containerRef} className="absolute inset-0 w-full h-full" />
 }
 
-// â”€â”€ VideoCard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── VideoCard ─────────────────────────────────────────────────────────────────
 
 function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded, onToggleExpand, getToken, progress, onProgressSaved }) {
   const vid = ytVideoId(video.youtube_url)
@@ -2339,9 +2339,9 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
 
   const statusLabel = !isStaff
     ? progress?.completed
-      ? { text: 'âœ“ Completed', cls: 'bg-emerald-100 text-emerald-700' }
+      ? { text: '✓ Completed', cls: 'bg-emerald-100 text-emerald-700' }
       : progress?.started
-        ? { text: `In progress Â· ${Math.round(progress.highest_pct ?? 0)}%`, cls: 'bg-[#fde8c8]', style: { color: 'var(--color-accent-hover)' } }
+        ? { text: `In progress · ${Math.round(progress.highest_pct ?? 0)}%`, cls: 'bg-[#fde8c8]', style: { color: 'var(--color-accent-hover)' } }
         : { text: 'Not started', cls: 'bg-gray-100 text-gray-400' }
     : null
 
@@ -2489,10 +2489,10 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
               {expanded
                 ? 'Close'
                 : progress?.completed
-                  ? 'Watch again â†’'
+                  ? 'Watch again →'
                   : progress?.started
-                    ? 'Continue â†’'
-                    : 'Watch â†’'}
+                    ? 'Continue →'
+                    : 'Watch →'}
             </button>
           </div>
         )}
@@ -2501,7 +2501,7 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
   )
 }
 
-// â”€â”€ FeaturedVideoCard (Continue Watching / Start Here) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── FeaturedVideoCard (Continue Watching / Start Here) ───────────────────────
 
 function FeaturedVideoCard({ video, progress, label, onWatch }) {
   const vid = ytVideoId(video.youtube_url)
@@ -2565,7 +2565,7 @@ function FeaturedVideoCard({ video, progress, label, onWatch }) {
   )
 }
 
-// â”€â”€ Mindset tab â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Mindset tab ───────────────────────────────────────────────────────────────
 
 function MindsetTab({ getToken, isStaff }) {
   const [videos,       setVideos]      = useState([])
@@ -2677,7 +2677,7 @@ function MindsetTab({ getToken, isStaff }) {
     finally { setDeleting(false) }
   }
 
-  // Published videos, newest first (client view) â€” API already returns
+  // Published videos, newest first (client view) — API already returns
   // videos sorted by created_at DESC, but sort defensively here too.
   const publishedVideos = videos
     .filter(v => v.published)
@@ -2711,7 +2711,7 @@ function MindsetTab({ getToken, isStaff }) {
 
   return (
     <div className="max-w-2xl">
-      {/* â”€â”€ Staff view â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Staff view ──────────────────────────────────────────────────────── */}
       {isStaff && (
         <>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
@@ -2733,12 +2733,12 @@ function MindsetTab({ getToken, isStaff }) {
             </button>
           </div>
 
-          {loading && <p className="text-sm text-gray-400 text-center py-16">Loadingâ€¦</p>}
+          {loading && <p className="text-sm text-gray-400 text-center py-16">Loading…</p>}
           {error   && <p className="text-sm text-red-500 text-center py-8">{error}</p>}
 
           {!loading && !error && videos.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20 text-center">
-              <p className="text-4xl mb-3">ðŸ§ </p>
+              <p className="text-4xl mb-3">🧠</p>
               <p className="text-sm font-semibold text-gray-700 mb-1">No videos yet</p>
               <p className="text-sm text-gray-400">Add your first video with the button above.</p>
             </div>
@@ -2763,7 +2763,7 @@ function MindsetTab({ getToken, isStaff }) {
         </>
       )}
 
-      {/* â”€â”€ Client view â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Client view ─────────────────────────────────────────────────────── */}
       {!isStaff && (
         <>
           {/* Page header */}
@@ -2772,14 +2772,14 @@ function MindsetTab({ getToken, isStaff }) {
             <p className="text-sm text-gray-500 mt-0.5">Foundational mindset work from your coaching team.</p>
           </div>
 
-          {loading && <p className="text-sm text-gray-400 text-center py-16">Loadingâ€¦</p>}
+          {loading && <p className="text-sm text-gray-400 text-center py-16">Loading…</p>}
           {error   && <p className="text-sm text-red-500 text-center py-8">{error}</p>}
 
           {!loading && !error && publishedVideos.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20 text-center">
-              <p className="text-4xl mb-3">ðŸ§ </p>
+              <p className="text-4xl mb-3">🧠</p>
               <p className="text-sm font-semibold text-gray-700 mb-1">No videos yet</p>
-              <p className="text-sm text-gray-400">Check back soon â€” content is on the way.</p>
+              <p className="text-sm text-gray-400">Check back soon — content is on the way.</p>
             </div>
           )}
 
@@ -2892,7 +2892,7 @@ function MindsetTab({ getToken, isStaff }) {
                 disabled={deleting}
                 className="px-5 py-2 bg-red-500 text-white text-sm font-bold rounded-xl hover:bg-red-600 disabled:opacity-50 transition-colors"
               >
-                {deleting ? 'Deletingâ€¦' : 'Delete'}
+                {deleting ? 'Deleting…' : 'Delete'}
               </button>
             </div>
           </div>
@@ -2902,11 +2902,11 @@ function MindsetTab({ getToken, isStaff }) {
   )
 }
 
-// â”€â”€ Resources helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Resources helpers ─────────────────────────────────────────────────────────
 
 const RESOURCE_TYPES = [
-  { id: 'link', label: 'Link', icon: 'ðŸ”—', badge: 'bg-blue-100 text-blue-700' },
-  { id: 'file', label: 'File', icon: 'ðŸ“Ž', badge: 'bg-gray-100 text-gray-700' },
+  { id: 'link', label: 'Link', icon: '🔗', badge: 'bg-blue-100 text-blue-700' },
+  { id: 'file', label: 'File', icon: '📎', badge: 'bg-gray-100 text-gray-700' },
 ]
 function rtype(id) { return id === 'file' ? RESOURCE_TYPES[1] : RESOURCE_TYPES[0] }
 
@@ -2927,7 +2927,7 @@ function ResourceModal({ initial, onSave, onClose, saving }) {
       <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <h2 className="text-base font-bold text-gray-900">{isEdit ? 'Edit Resource' : 'Add Resource'}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">Ã—</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
         </div>
         <div className="px-6 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
           <div>
@@ -2962,11 +2962,11 @@ function ResourceModal({ initial, onSave, onClose, saving }) {
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">URL *</label>
               <input value={form.url} onChange={e => set('url', e.target.value)}
-                placeholder="https://drive.google.com/â€¦, https://youtu.be/â€¦, any link"
+                placeholder="https://drive.google.com/…, https://youtu.be/…, any link"
                 className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
                 onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)' }}
                 onBlur={e => { e.currentTarget.style.borderColor = '' }} />
-              <p className="text-xs text-gray-400 mt-1">Google Drive, YouTube, Loom, websites, PDFs â€” any URL works.</p>
+              <p className="text-xs text-gray-400 mt-1">Google Drive, YouTube, Loom, websites, PDFs — any URL works.</p>
             </div>
           )}
 
@@ -2976,7 +2976,7 @@ function ResourceModal({ initial, onSave, onClose, saving }) {
               <label className="block text-xs font-semibold text-gray-700 mb-1">File *</label>
               {isEdit && form.url && !file && (
                 <div className="flex items-center gap-2 mb-2 p-2.5 bg-gray-50 rounded-xl border border-gray-200">
-                  <span className="text-lg">ðŸ“Ž</span>
+                  <span className="text-lg">📎</span>
                   <span className="text-xs text-gray-600 flex-1 truncate">Current file uploaded</span>
                   <button type="button" onClick={() => fileInputRef.current?.click()}
                     className="text-xs font-semibold"
@@ -2987,17 +2987,17 @@ function ResourceModal({ initial, onSave, onClose, saving }) {
               )}
               {file ? (
                 <div className="flex items-center gap-2 p-2.5 bg-emerald-50 rounded-xl border border-emerald-200">
-                  <span className="text-lg">ðŸ“Ž</span>
+                  <span className="text-lg">📎</span>
                   <span className="text-xs text-emerald-700 flex-1 truncate font-medium">{file.name}</span>
                   <button type="button" onClick={() => setFile(null)}
-                    className="text-xs text-gray-400 hover:text-gray-600 font-semibold">âœ•</button>
+                    className="text-xs text-gray-400 hover:text-gray-600 font-semibold">✕</button>
                 </div>
               ) : (!isEdit || !form.url) && (
                 <button type="button" onClick={() => fileInputRef.current?.click()}
                   className="w-full border-2 border-dashed border-gray-300 rounded-xl py-5 text-sm text-gray-400 transition-colors"
                   onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.color = 'var(--color-accent)' }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.color = '' }}>
-                  ðŸ“Ž Tap to select file
+                  📎 Tap to select file
                 </button>
               )}
               <input ref={fileInputRef} type="file" className="hidden"
@@ -3045,7 +3045,7 @@ function ResourceModal({ initial, onSave, onClose, saving }) {
             style={{ background: 'var(--color-accent)' }}
             onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
             onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}>
-            {saving ? 'Savingâ€¦' : isEdit ? 'Save Changes' : 'Add Resource'}
+            {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Resource'}
           </button>
         </div>
       </div>
@@ -3107,7 +3107,7 @@ function ResourceCard({ resource, isStaff, onEdit, onDelete, onTogglePublish }) 
   )
 }
 
-// â”€â”€ Resources tab â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Resources tab ─────────────────────────────────────────────────────────────
 
 function ResourcesTab({ getToken, isStaff }) {
   const [resources,    setResources]    = useState([])
@@ -3225,15 +3225,15 @@ function ResourcesTab({ getToken, isStaff }) {
         </div>
       )}
 
-      {loading && <p className="text-sm text-gray-400 text-center py-16">Loadingâ€¦</p>}
+      {loading && <p className="text-sm text-gray-400 text-center py-16">Loading…</p>}
       {error   && <p className="text-sm text-red-500 text-center py-8">{error}</p>}
 
       {!loading && !error && resources.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
-          <p className="text-4xl mb-3">ðŸ“š</p>
+          <p className="text-4xl mb-3">📚</p>
           <p className="text-sm font-semibold text-gray-700 mb-1">No resources yet</p>
           <p className="text-sm text-gray-400">
-            {isStaff ? 'Add your first resource with the button above.' : 'Check back soon â€” content is on the way.'}
+            {isStaff ? 'Add your first resource with the button above.' : 'Check back soon — content is on the way.'}
           </p>
         </div>
       )}
@@ -3278,7 +3278,7 @@ function ResourcesTab({ getToken, isStaff }) {
               <button onClick={() => setDeleteTarget(null)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 font-medium">Cancel</button>
               <button onClick={handleDelete} disabled={deleting}
                 className="px-5 py-2 bg-red-500 text-white text-sm font-bold rounded-xl hover:bg-red-600 disabled:opacity-50 transition-colors">
-                {deleting ? 'Deletingâ€¦' : 'Delete'}
+                {deleting ? 'Deleting…' : 'Delete'}
               </button>
             </div>
           </div>
@@ -3288,7 +3288,7 @@ function ResourcesTab({ getToken, isStaff }) {
   )
 }
 
-// â”€â”€ Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Page ──────────────────────────────────────────────────────────────────────
 
 // Tab IDs that can be driven by the ?tab= URL param
 const VALID_URL_TABS = ['vip', 'ai', 'mindset', 'resources']
@@ -3316,7 +3316,7 @@ export default function Community() {
       if (!res.ok) throw new Error(`Server error ${res.status}`)
       const data = await res.json()
       const staff = data.role === 'admin' || data.role === 'account_owner' || data.role === 'coach' || data.role === 'staff'
-      // Basic clients have no community access â€” redirect to dashboard
+      // Basic clients have no community access — redirect to dashboard
       if (!staff && data.coaching_type === 'basic') {
         navigate('/dashboard', { replace: true })
         return
@@ -3326,7 +3326,7 @@ export default function Community() {
       setIsStaff(staff)
       setClientChannel(ch)
       setCurrentUserId(data.id)
-      // Respect ?tab= URL param (e.g. Brain Mapping sidebar link â†’ ?tab=mindset)
+      // Respect ?tab= URL param (e.g. Brain Mapping sidebar link → ?tab=mindset)
       // Read window.location.search directly to avoid adding searchParams as a
       // callback dependency (which would cause unnecessary re-fetches).
       const urlTab = new URLSearchParams(window.location.search).get('tab')
@@ -3349,7 +3349,7 @@ export default function Community() {
   }, [getToken])
 
   // Handle sidebar navigation to ?tab=mindset (or any valid tab) while
-  // Community is already mounted â€” React Router won't remount the component,
+  // Community is already mounted — React Router won't remount the component,
   // it only updates searchParams.
   useEffect(() => {
     if (tab === null) return // wait for init
@@ -3396,7 +3396,7 @@ export default function Community() {
         <h1 className="text-2xl font-bold text-gray-900 mb-1">Community</h1>
         <p className="text-sm text-gray-500 mb-6">{`Connect with your ${brandName} community`}</p>
         <div className="flex justify-center py-16">
-          <span className="text-sm text-gray-400">Loadingâ€¦</span>
+          <span className="text-sm text-gray-400">Loading…</span>
         </div>
       </div>
     )
@@ -3434,7 +3434,7 @@ export default function Community() {
       <p className="text-sm text-gray-500 mb-6">{`Connect with your ${brandName} community`}</p>
 
       {clientOnHiddenTab ? (
-        // Minimal nav when showing Brain Mapping or Resources via sidebar link â€”
+        // Minimal nav when showing Brain Mapping or Resources via sidebar link —
         // just a back-to-chat button so the user isn't stranded
         <div className="mb-6">
           <button
@@ -3466,7 +3466,7 @@ export default function Community() {
         </div>
       )}
 
-      {/* Group Chat â€” VIP or AI channel feed */}
+      {/* Group Chat — VIP or AI channel feed */}
       {(tab === 'vip' || tab === 'ai') && (
         <HybridTab
           key={tab}
@@ -3479,10 +3479,10 @@ export default function Community() {
         />
       )}
 
-      {/* Brain Mapping â€” accessible via sidebar ?tab=mindset link for all users */}
+      {/* Brain Mapping — accessible via sidebar ?tab=mindset link for all users */}
       {tab === 'mindset'   && <MindsetTab getToken={getToken} isStaff={isStaff} />}
 
-      {/* Resources â€” staff tab + URL-accessible for direct links */}
+      {/* Resources — staff tab + URL-accessible for direct links */}
       {tab === 'resources' && <ResourcesTab getToken={getToken} isStaff={isStaff} />}
     </div>
   )
