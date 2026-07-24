@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../../config.js'
+import { useOrgBranding } from '../../context/OrgBrandingContext.jsx'
 
 const TABS = [
   { id: 'branding', label: 'Branding' },
@@ -367,6 +368,7 @@ function SubscriptionTab({ org }) {
 
 export default function OrgSetup() {
   const { getToken } = useAuth()
+  const { refreshBranding } = useOrgBranding()
 
   const [tab,      setTab]      = useState('branding')
   const [org,      setOrg]      = useState(null)
@@ -407,7 +409,7 @@ export default function OrgSetup() {
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-200 p-4 sm:p-6">
-        {tab === 'branding'     && <BrandingTab org={org} onSaved={setOrg} getToken={getToken} />}
+        {tab === 'branding'     && <BrandingTab org={org} onSaved={o => { setOrg(o); refreshBranding() }} getToken={getToken} />}
         {tab === 'ai_coach'     && <AiCoachTab aiConfig={aiConfig} onSaved={setAiConfig} getToken={getToken} />}
         {tab === 'subscription' && <SubscriptionTab org={org} />}
       </div>
