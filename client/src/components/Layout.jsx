@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { UserButton, useUser, useAuth, useClerk } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
@@ -21,7 +21,7 @@ const CLIENT_NAV_ITEMS = [
   { to: '/settings',     label: 'Settings' },
 ]
 
-// Coach / admin sidebar nav â€” no personal food/fitness items
+// Coach / admin sidebar nav — no personal food/fitness items
 const STAFF_NAV_ITEMS = [
   { to: '/dashboard',     label: 'Coaching Dashboard' },
   { to: '/admin/forms',   label: 'Forms' },
@@ -31,15 +31,15 @@ const STAFF_NAV_ITEMS = [
   { to: '/settings',      label: 'Settings' },
 ]
 
-// Mirrors ADMIN_EMAILS in server/db.js â€” nav visibility only, the real gate is
+// Mirrors ADMIN_EMAILS in server/db.js — nav visibility only, the real gate is
 // isAdminEmail() on every /api/organizations route.
 const SUPER_ADMIN_EMAILS = ['jason@lwcvip.com', 'jason@efcfit.com']
 
-// Progress photo angle sequence â€” must match this order: Front â†’ Side â†’ Back
+// Progress photo angle sequence — must match this order: Front → Side → Back
 const PHOTO_ANGLE_SEQUENCE = ['front', 'side', 'back']
 
 export default function Layout() {
-  // â”€â”€ Blunter diagnostic: fires synchronously during Layout's render body,
+  // ── Blunter diagnostic: fires synchronously during Layout's render body,
   // before any hook is declared. Confirms whether Layout's function is
   // executing fresh code on the device under test at all, independent of
   // any specific effect/hook ordering or timing further down.
@@ -68,7 +68,7 @@ export default function Layout() {
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const [isOrgAdmin,   setIsOrgAdmin]   = useState(false)
   const [isStaff,      setIsStaff]      = useState(false)
-  const [coachingType, setCoachingType] = useState(null) // 'vip' | 'ai' | 'hybrid' | 'basic' â€” null until loaded
+  const [coachingType, setCoachingType] = useState(null) // 'vip' | 'ai' | 'hybrid' | 'basic' — null until loaded
   const [bloodworkEnabled, setBloodworkEnabled] = useState(false) // per-client flag from /api/users/me
   const [notifCount,   setNotifCount]   = useState(0)
   const [katieUnread,  setKatieUnread]  = useState(0)
@@ -123,8 +123,8 @@ export default function Layout() {
 
   // Backdrop tap-to-close. We only close when a pointer press actually STARTED
   // on the backdrop. The tap that opens the sheet presses on the plus button
-  // (the backdrop doesn't exist yet), so its trailing synthetic/"ghost" click â€”
-  // which lands on the freshly-mounted backdrop â€” has no matching pointerdown
+  // (the backdrop doesn't exist yet), so its trailing synthetic/"ghost" click —
+  // which lands on the freshly-mounted backdrop — has no matching pointerdown
   // here and is ignored. This removes the open/close flicker without relying on
   // a fragile timing guard.
   function handleOverlayPointerDown(e) {
@@ -166,7 +166,7 @@ export default function Layout() {
           const delta = Math.abs(parseFloat(quickValue) || 0)
           body.water_oz = Math.max(0, waterMode === 'subtract' ? currentWater - delta : currentWater + delta)
         } else {
-          // Past date â€” set total directly
+          // Past date — set total directly
           body.water_oz = Math.max(0, Math.abs(parseFloat(quickValue) || 0))
         }
       } else if (quickAction === 'weight') {
@@ -271,16 +271,16 @@ export default function Layout() {
       setQuickPhotoPreview(null)
       if (quickPhotoInputRef.current)    quickPhotoInputRef.current.value    = ''
       if (quickPhotoGalleryRef.current)  quickPhotoGalleryRef.current.value  = ''
-      // Advance through Front â†’ Side â†’ Back; only close after the last angle
+      // Advance through Front → Side → Back; only close after the last angle
       const savedAngle = quickPhotoAngle
       const nextIdx    = PHOTO_ANGLE_SEQUENCE.indexOf(savedAngle) + 1
       if (nextIdx < PHOTO_ANGLE_SEQUENCE.length) {
-        // More angles remain â€” show banner, advance to next angle, stay open
+        // More angles remain — show banner, advance to next angle, stay open
         setQuickPhotoSaved(savedAngle)
         setQuickPhotoAngle(PHOTO_ANGLE_SEQUENCE[nextIdx])
         setTimeout(() => setQuickPhotoSaved(null), 900)
       } else {
-        // Last angle (back) saved â€” show done and close
+        // Last angle (back) saved — show done and close
         setQuickDone(true)
         setTimeout(() => closeQuickMenu(), 1200)
       }
@@ -307,7 +307,7 @@ export default function Layout() {
       setIsSuperAdmin(superAdminStatus)
       setIsStaff(staffStatus)
       // Org-level admin/owner: the org's own 'admin' role, or the org's owner_user_id
-      // even when their role is 'coach' â€” never Jason (he has his own admin views).
+      // even when their role is 'coach' — never Jason (he has his own admin views).
       setIsOrgAdmin(!superAdminStatus && (adminStatus || (data.role === 'coach' && data.is_org_owner === true)))
       setCoachingType(data.coaching_type ?? 'vip')
       setBloodworkEnabled(data.bloodwork_enabled === true)
@@ -373,7 +373,7 @@ export default function Layout() {
   }, [fetchRole])
 
   // Defense-in-depth: if Layout ever persists across a sign-out/sign-in cycle
-  // by the same Clerk account (it currently doesn't â€” ProtectedLayout unmounts
+  // by the same Clerk account (it currently doesn't — ProtectedLayout unmounts
   // it whenever isSignedIn goes false), force a fresh /api/users/me fetch on
   // the sign-in transition rather than trusting whatever role state is already
   // in memory from the prior session.
@@ -384,7 +384,7 @@ export default function Layout() {
     if (freshSignIn) fetchRole()
   }, [isSignedIn, fetchRole])
 
-  // â”€â”€ Unauthenticated app-load diagnostic â€” fires once on mount, no auth needed â”€â”€
+  // ── Unauthenticated app-load diagnostic — fires once on mount, no auth needed ──
   useEffect(() => {
     try {
       const payload = {
@@ -402,19 +402,19 @@ export default function Layout() {
     } catch {}
   }, [])
 
-  // â”€â”€ Android/iOS push notification registration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  // Runs once the user is authenticated. Non-blocking â€” all errors are warnings.
+  // ── Android/iOS push notification registration ─────────────────────────────
+  // Runs once the user is authenticated. Non-blocking — all errors are warnings.
   //
   // @capacitor/push-notifications is imported dynamically (not at module top
   // level) and only after Capacitor.isPluginAvailable('PushNotifications')
   // confirms the native bridge has finished injecting. registerPlugin() inside
   // @capacitor/core captures the platform/native-headers state ONCE, synchronously,
-  // at the moment the plugin module is first imported â€” if that happens before the
+  // at the moment the plugin module is first imported — if that happens before the
   // native bridge has injected into the WebView (a real race in this app's
   // server.url remote-content mode, since the web bundle is fetched over the
   // network rather than loaded from a bundled local asset), the plugin proxy is
   // permanently stuck treating the device as "web" for the rest of that page
-  // load, and every later call throws "plugin is not implemented" â€” no amount
+  // load, and every later call throws "plugin is not implemented" — no amount
   // of retrying checkPermissions()/register() afterwards fixes it. Deferring the
   // import itself until isPluginAvailable() (which re-checks live on every call)
   // confirms readiness avoids the race entirely.
@@ -422,7 +422,7 @@ export default function Layout() {
   useEffect(() => {
     // getToken() needs a live Clerk token, which POST /api/push/debug requires
     // (requireAuth()). Clerk can genuinely need a beat to initialize in the
-    // WebView right at effect-mount â€” one retry after a short delay gives it
+    // WebView right at effect-mount — one retry after a short delay gives it
     // that beat instead of giving up on the very first attempt.
     const getTokenRetried = async () => {
       try {
@@ -438,7 +438,7 @@ export default function Layout() {
       }
     }
 
-    // Fire-and-forget diagnostic ping â€” never includes the FCM token value.
+    // Fire-and-forget diagnostic ping — never includes the FCM token value.
     // Every failure mode is logged to console rather than swallowed: a fetch()
     // call resolving with a non-ok status (e.g. a 401 from an expired/missing
     // Clerk token) does NOT throw, so a bare `catch {}` here would silently
@@ -449,7 +449,7 @@ export default function Layout() {
 
       const clerkToken = await getTokenRetried()
       if (!clerkToken) {
-        console.warn('[push] sendDebug has no Clerk token after retry â€” step not reported', step)
+        console.warn('[push] sendDebug has no Clerk token after retry — step not reported', step)
         return
       }
 
@@ -467,10 +467,10 @@ export default function Layout() {
       }
     }
 
-    // Unconditional â€” fires on every run of this effect, before the isLoaded/user
+    // Unconditional — fires on every run of this effect, before the isLoaded/user
     // gate below, so we can tell "effect never ran" apart from "effect ran but
     // bailed because auth wasn't ready yet." Uses the unauthenticated
-    // /api/push/app-load-debug endpoint rather than sendDebug()/api/push/debug â€”
+    // /api/push/app-load-debug endpoint rather than sendDebug()/api/push/debug —
     // this is the single most critical log point (confirming the effect runs
     // at all), and it must not depend on getToken() having already resolved at
     // this exact instant, which is the one thing we can't guarantee this early.
@@ -497,7 +497,7 @@ export default function Layout() {
     let platform = null // set once the plugin is confirmed available, below
 
     // Poll the live Capacitor bridge state rather than trusting a one-shot
-    // check â€” isPluginAvailable() re-reads window.Capacitor.PluginHeaders on
+    // check — isPluginAvailable() re-reads window.Capacitor.PluginHeaders on
     // every call, so it correctly reflects the bridge finishing injection
     // after this effect has already started running.
     const waitForPushPlugin = async (timeoutMs = 5000, intervalMs = 100) => {
@@ -583,18 +583,18 @@ export default function Layout() {
       if (cancelled) return
 
       if (!pluginReady) {
-        // Always log the timeout, regardless of what platform is detected â€”
+        // Always log the timeout, regardless of what platform is detected —
         // a false 'web' reading on a real native device is exactly the kind
         // of thing this is meant to catch, not silently swallow.
         const platformNow = Capacitor.getPlatform()
         sendDebug('bridge-ready-timeout', `platform=${platformNow}`)
 
         if (platformNow === 'web') {
-          // Expected â€” plain browser tab, not the native app. No push support here.
+          // Expected — plain browser tab, not the native app. No push support here.
           return
         }
-        // Native platform, but the bridge never confirmed the plugin â€” worth tracing.
-        console.warn('[push] native bridge never became ready â€” push unavailable this session')
+        // Native platform, but the bridge never confirmed the plugin — worth tracing.
+        console.warn('[push] native bridge never became ready — push unavailable this session')
         return
       }
 
@@ -602,7 +602,7 @@ export default function Layout() {
       sendDebug('native-detected', `platform=${platform}`)
 
       try {
-        // Import only now â€” importing at module load time registers the plugin's
+        // Import only now — importing at module load time registers the plugin's
         // Capacitor proxy before we can guarantee the bridge is ready (see comment
         // above this effect). isPluginAvailable() having just returned true means
         // this import resolves against a bridge that's already live.
@@ -631,7 +631,7 @@ export default function Layout() {
         // The server attaches a deep-link url on whichever notification type sent
         // it (see notifyNewDirectMessage / notifyNewCommunityPost in
         // pushService.js) so tapping opens the specific thread or post instead of
-        // just landing on the Dashboard. Routed generically â€” no per-type cases.
+        // just landing on the Dashboard. Routed generically — no per-type cases.
         actionListener = await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
           const url = action?.notification?.data?.url
           if (url) navigate(url)
@@ -643,7 +643,7 @@ export default function Layout() {
         console.log('[push] permission result', { receive, platform })
         sendDebug('permission', receive)
         if (receive !== 'granted') {
-          console.log('[push] permission not granted â€” skipping registration')
+          console.log('[push] permission not granted — skipping registration')
           return
         }
 
@@ -674,11 +674,11 @@ export default function Layout() {
     }
   }, [isLoaded, user, getToken, navigate])
 
-  // â”€â”€ Apple Health auto-sync on foreground â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Apple Health auto-sync on foreground ──────────────────────────────────
   // Fires silently when the iOS app returns from background (visibilitychange
   // fires in Capacitor WebViews just like a browser tab becoming visible).
   // A 5-minute cooldown prevents hammering the server if the user multi-tasks.
-  // No UI shown â€” the 'daily-log-updated' event from syncAppleHealthToday()
+  // No UI shown — the 'daily-log-updated' event from syncAppleHealthToday()
   // updates the Dashboard in real-time when it fires.
   useEffect(() => {
     if (!isLoaded || !user) return
@@ -697,7 +697,7 @@ export default function Layout() {
           try { localStorage.setItem('ah_last_synced', new Date().toISOString()) } catch {}
         }
       } catch {
-        // Silent â€” auto-sync failures must never surface an error to the user
+        // Silent — auto-sync failures must never surface an error to the user
       }
     }
 
@@ -745,7 +745,7 @@ export default function Layout() {
 
   // Scroll desktop main content to top on every route change.
   // The <main> element persists across navigations (Layout never unmounts),
-  // so its scrollTop is preserved without this â€” leaving a blank space above
+  // so its scrollTop is preserved without this — leaving a blank space above
   // the content when the user navigates to /dashboard from a scrolled page.
   useEffect(() => {
     if (mainRef.current) mainRef.current.scrollTop = 0
@@ -769,7 +769,7 @@ export default function Layout() {
     : baseClientNav
   ).map(item => item.label.includes('Katie') ? { ...item, label: item.label.replace('Katie', aiCoachName) } : item)
 
-  // Org-level admins/owners (not Jason) get their own fixed nav â€” no LWC-internal
+  // Org-level admins/owners (not Jason) get their own fixed nav — no LWC-internal
   // tools (Usage Analytics, Workout Builder Test), but Katie Corrections stays
   // since org owners do need to review their own AI coach's corrections.
   const orgAdminNavItems = [
@@ -784,7 +784,7 @@ export default function Layout() {
   ]
 
   // Super-admin gets extra "Usage Analytics", "Workout Builder Test", and
-  // "Organizations" nav entries â€” LWC-internal tools, never shown to org admins.
+  // "Organizations" nav entries — LWC-internal tools, never shown to org admins.
   const navItems = isStaff
     ? isAdmin
       ? (isOrgAdmin
@@ -894,7 +894,7 @@ export default function Layout() {
         </div>
       </div>
 
-      {/* Logout â€” always visible, pinned to bottom */}
+      {/* Logout — always visible, pinned to bottom */}
       <div className="px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] lg:pb-4">
         <button
           onClick={async () => {
@@ -1012,7 +1012,7 @@ export default function Layout() {
         ))}
       </nav>
 
-      {/* Floating quick-log button â€” client only, above bottom nav on the right */}
+      {/* Floating quick-log button — client only, above bottom nav on the right */}
       {!isStaff && !quickMenuOpen && (
         <button
           className="lg:hidden fixed right-4 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 flex flex-col items-center gap-1 active:scale-95 transition-transform"
@@ -1059,18 +1059,18 @@ export default function Layout() {
                 <h2 className="text-base font-bold text-gray-900">Quick Log</h2>
               )}
               <button onClick={closeQuickMenu} className="w-11 h-11 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 text-lg leading-none">
-                Ã—
+                ×
               </button>
             </div>
 
-            {/* Error feedback â€” shown when a save fails */}
+            {/* Error feedback — shown when a save fails */}
             {quickError && !quickDone && (
               <div className="mx-5 mb-1 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-medium">
                 {quickError}
               </div>
             )}
 
-            {/* â”€â”€ Main tile grid (food + quick logs) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+            {/* ── Main tile grid (food + quick logs) ───────────────────── */}
             {!quickAction && !quickFoodMode && (
               <div className="px-4 pb-10 pt-1 space-y-4">
                 {/* Food section */}
@@ -1078,10 +1078,10 @@ export default function Layout() {
                   <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2 px-0.5">Food</p>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     {[
-                      { id: 'text',    emoji: 'ðŸ’¬', label: 'Text Entry'   },
-                      { id: 'search',  emoji: 'ðŸ”', label: 'Search Food'  },
-                      { id: 'barcode', emoji: 'ðŸ·ï¸', label: 'Scan Barcode' },
-                      { id: 'photo',   emoji: 'ðŸ“·', label: 'Food Photo'   },
+                      { id: 'text',    emoji: '💬', label: 'Text Entry'   },
+                      { id: 'search',  emoji: '🔍', label: 'Search Food'  },
+                      { id: 'barcode', emoji: '🏷️', label: 'Scan Barcode' },
+                      { id: 'photo',   emoji: '📷', label: 'Food Photo'   },
                     ].map(({ id, emoji, label }) => (
                       <button
                         key={id}
@@ -1100,13 +1100,13 @@ export default function Layout() {
                   <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2 px-0.5">Quick Logs</p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     {[
-                      { id: 'weight',   emoji: 'âš–ï¸', label: 'Log Weight'     },
-                      { id: 'water',    emoji: 'ðŸ’§', label: 'Log Water'      },
-                      { id: 'steps',    emoji: 'ðŸ‘Ÿ', label: 'Log Steps'      },
-                      { id: 'photo',    emoji: 'ðŸ“¸', label: 'Progress Photo' },
-                      { id: 'sleep',    emoji: 'ðŸ˜´', label: 'Sleep'          },
-                      { id: 'activity', emoji: 'ðŸƒ', label: 'Activity'       },
-                      ...(bloodworkEnabled ? [{ id: 'bloodwork', emoji: 'ðŸ©¸', label: 'Upload Bloodwork' }] : []),
+                      { id: 'weight',   emoji: '⚖️', label: 'Log Weight'     },
+                      { id: 'water',    emoji: '💧', label: 'Log Water'      },
+                      { id: 'steps',    emoji: '👟', label: 'Log Steps'      },
+                      { id: 'photo',    emoji: '📸', label: 'Progress Photo' },
+                      { id: 'sleep',    emoji: '😴', label: 'Sleep'          },
+                      { id: 'activity', emoji: '🏃', label: 'Activity'       },
+                      ...(bloodworkEnabled ? [{ id: 'bloodwork', emoji: '🩸', label: 'Upload Bloodwork' }] : []),
                     ].map(({ id, emoji, label }) => (
                       <button
                         key={id}
@@ -1129,10 +1129,10 @@ export default function Layout() {
               </div>
             )}
 
-            {/* â”€â”€ Meal picker (shown after tapping a food action) â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+            {/* ── Meal picker (shown after tapping a food action) ───────── */}
             {quickFoodMode && !quickAction && !quickDone && (
               <div className="px-4 pb-10 pt-2 space-y-4">
-                {/* Date selector â€” lets users log to today, tomorrow, or a past date */}
+                {/* Date selector — lets users log to today, tomorrow, or a past date */}
                 <div>
                   <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">
                     Log date
@@ -1188,10 +1188,10 @@ export default function Layout() {
                   <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Which meal?</p>
                   <div className="grid grid-cols-2 gap-3">
                     {[
-                      { slot: 'Breakfast', emoji: 'ðŸŒ…', label: 'Breakfast' },
-                      { slot: 'Lunch',     emoji: 'â˜€ï¸', label: 'Lunch'     },
-                      { slot: 'Dinner',    emoji: 'ðŸŒ™', label: 'Dinner'    },
-                      { slot: 'Snack',     emoji: 'ðŸŽ', label: 'Snack'     },
+                      { slot: 'Breakfast', emoji: '🌅', label: 'Breakfast' },
+                      { slot: 'Lunch',     emoji: '☀️', label: 'Lunch'     },
+                      { slot: 'Dinner',    emoji: '🌙', label: 'Dinner'    },
+                      { slot: 'Snack',     emoji: '🍎', label: 'Snack'     },
                     ].map(({ slot, emoji, label }) => (
                       <button
                         key={slot}
@@ -1215,7 +1215,7 @@ export default function Layout() {
             {/* success state */}
             {quickAction && quickDone && (
               <div className="px-5 pb-12 pt-4 text-center">
-                <p className="text-3xl mb-2">âœ…</p>
+                <p className="text-3xl mb-2">✅</p>
                 <p className="text-sm font-semibold text-gray-700">Saved!</p>
               </div>
             )}
@@ -1223,7 +1223,7 @@ export default function Layout() {
             {/* mini-form */}
             {quickAction && !quickDone && (
               <div className="px-5 pb-10 pt-2">
-                {/* â”€â”€ Shared date picker â€” shown for all quick-log actions â”€â”€ */}
+                {/* ── Shared date picker — shown for all quick-log actions ── */}
                 {(() => {
                   const todayStr = getLocalDateString()
                   const minStr   = getLocalDateString(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000))
@@ -1360,7 +1360,7 @@ export default function Layout() {
                       style={{ background: 'var(--color-accent)' }}
                       onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}>
-                      {quickSaving ? 'Savingâ€¦' : 'Log Weight'}
+                      {quickSaving ? 'Saving…' : 'Log Weight'}
                     </button>
                   </>
                 )}
@@ -1381,7 +1381,7 @@ export default function Layout() {
                       style={{ background: 'var(--color-accent)' }}
                       onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}>
-                      {quickSaving ? 'Savingâ€¦' : 'Log Steps'}
+                      {quickSaving ? 'Saving…' : 'Log Steps'}
                     </button>
                     <button onClick={clearQuickLog} disabled={quickSaving}
                       className="w-full mt-2 border-2 border-gray-200 text-gray-500 text-sm font-medium py-3 rounded-2xl hover:border-gray-300 hover:text-gray-700 disabled:opacity-50 transition-colors min-h-[44px]">
@@ -1436,7 +1436,7 @@ export default function Layout() {
                       style={{ background: 'var(--color-accent)' }}
                       onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}>
-                      {quickSaving ? 'Savingâ€¦' : 'Log Sleep'}
+                      {quickSaving ? 'Saving…' : 'Log Sleep'}
                     </button>
                     <button onClick={clearQuickLog} disabled={quickSaving}
                       className="w-full mt-2 border-2 border-gray-200 text-gray-500 text-sm font-medium py-3 rounded-2xl hover:border-gray-300 hover:text-gray-700 disabled:opacity-50 transition-colors min-h-[44px]">
@@ -1487,7 +1487,7 @@ export default function Layout() {
                       style={{ background: 'var(--color-accent)' }}
                       onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}>
-                      {quickSaving ? 'Savingâ€¦' : 'Log Activity'}
+                      {quickSaving ? 'Saving…' : 'Log Activity'}
                     </button>
                   </>
                 )}
@@ -1500,14 +1500,14 @@ export default function Layout() {
                       const stepIdx = PHOTO_ANGLE_SEQUENCE.indexOf(quickPhotoAngle)
                       return (
                         <p className="text-sm text-gray-500 mb-3">
-                          Step {stepIdx + 1} of {PHOTO_ANGLE_SEQUENCE.length} â€” <span className="font-semibold capitalize">{quickPhotoAngle}</span>
+                          Step {stepIdx + 1} of {PHOTO_ANGLE_SEQUENCE.length} — <span className="font-semibold capitalize">{quickPhotoAngle}</span>
                         </p>
                       )
                     })()}
                     {/* Success banner for most-recently saved angle */}
                     {quickPhotoSaved && (
                       <div className="mb-3 px-3 py-2 bg-green-50 border border-green-200 rounded-xl text-xs font-semibold text-green-700 flex items-center gap-1.5">
-                        <span>âœ“</span>
+                        <span>✓</span>
                         <span className="capitalize">{quickPhotoSaved}</span> photo saved!
                       </div>
                     )}
@@ -1533,7 +1533,7 @@ export default function Layout() {
                         <button
                           onClick={() => { URL.revokeObjectURL(quickPhotoPreview); setQuickPhotoPreview(null); setQuickPhotoFile(null) }}
                           className="absolute top-2 right-2 w-7 h-7 bg-white rounded-full flex items-center justify-center shadow text-gray-600 font-bold"
-                        >Ã—</button>
+                        >×</button>
                       </div>
                     ) : (
                       <div className="flex gap-2 mb-4">
@@ -1596,9 +1596,9 @@ export default function Layout() {
                       style={{ background: 'var(--color-accent)' }}
                       onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}>
-                      {quickSaving ? 'Uploadingâ€¦'
+                      {quickSaving ? 'Uploading…'
                         : PHOTO_ANGLE_SEQUENCE.indexOf(quickPhotoAngle) < PHOTO_ANGLE_SEQUENCE.length - 1
-                          ? 'Save & Continue â†’'
+                          ? 'Save & Continue →'
                           : 'Save & Finish'}
                     </button>
                   </>
