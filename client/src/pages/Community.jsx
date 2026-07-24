@@ -1680,7 +1680,7 @@ function MemberManagementModal({ group, getToken, currentUserId, onClose, onMemb
                     className="flex-1 min-w-0 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#E8670A] bg-white min-h-[44px]"
                   >
                     <option value="">
-                      {filteredEligible.length ? 'Select a person…' : 'No one available to add'}
+                      {error ? 'Unavailable' : filteredEligible.length ? 'Select a person…' : 'No one available to add'}
                     </option>
                     {filteredEligible.map(u => (
                       <option key={u.user_id} value={u.user_id}>
@@ -1701,7 +1701,7 @@ function MemberManagementModal({ group, getToken, currentUserId, onClose, onMemb
 
               {/* Current members */}
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Current members</p>
-              {members.length === 0 && (
+              {!error && members.length === 0 && (
                 <p className="text-sm text-gray-400 text-center py-6">No members yet. Add someone above.</p>
               )}
               <div className="space-y-1">

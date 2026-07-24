@@ -137,7 +137,13 @@ async function isGroupMember(groupId, userId, orgId) {
   if (isAdminEmail(rows[0]?.email)) return true
 
   const { rows: member } = await pool.query(
-    'SELECT id FROM group_members WHERE group_id = $1 AND user_id = $2 AND org_id = $3',
+    `SELECT gm.id
+     FROM group_members gm
+     JOIN users u ON u.id = gm.user_id
+     WHERE gm.group_id = $1
+       AND gm.user_id = $2
+       AND gm.org_id = $3
+       AND u.client_status = 'active'`,
     [groupId, userId, orgId],
   )
   return member.length > 0
@@ -1275,6 +1281,12 @@ router.delete('/groups/:id/members/:userId', requireAuth(), async (req, res, nex
     const groupId  = parseInt(req.params.id, 10)
     const targetId = parseInt(req.params.userId, 10)
     if (!await loadOrgGroup(req, res, groupId)) return
+
+    const callerRes = await pool.query('SELECT id FROM users WHERE clerk_user_id = $1', [getAuth(req).userId])
+    const callerId = callerRes.rows[0]?.id
+    if (callerId && callerId === parseInt(req.params.userId)) {
+      return res.status(400).json({ error: 'You cannot remove yourself from a group.' })
+    }
 
     await pool.query(
       'DELETE FROM group_members WHERE group_id = $1 AND user_id = $2 AND org_id = $3',
