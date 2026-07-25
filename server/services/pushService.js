@@ -12,13 +12,17 @@ export async function initPush() {
       return
     }
     // Dynamic import so firebase-admin not required at module load time
-    const { default: admin } = await import('firebase-admin')
-    if (!admin.apps.length) {
-      admin.initializeApp({
-        credential: admin.credential.cert(JSON.parse(credJson)),
+    const admin = await import('firebase-admin')
+    const { getMessaging } = await import('firebase-admin/messaging')
+    let app
+    if (!admin.getApps().length) {
+      app = admin.initializeApp({
+        credential: admin.cert(JSON.parse(credJson)),
       })
+    } else {
+      app = admin.getApp()
     }
-    messaging = admin.messaging()
+    messaging = getMessaging(app)
     console.log('[push] Firebase Admin initialized')
   } catch (err) {
     console.warn('[push] initPush failed:', err.message, '— push disabled')
