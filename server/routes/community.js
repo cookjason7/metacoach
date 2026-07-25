@@ -592,9 +592,22 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
         return res.status(403).json({ error: 'Not a member of this group' })
       }
       category = g[0].name
-    } else if (!isStaff && !(await isClientPostableCategory(req.orgId, category))) {
-      // Clients may only post into an active, public group in their own org
-      category = 'General Discussion'
+    } else {
+      // No group specified — every post must belong to a group, so fall back
+      // to the org's first active group rather than leaving group_id NULL.
+      const { rows: defaultGroup } = await pool.query(
+        `SELECT id, name FROM community_groups
+         WHERE org_id = $1 AND is_active = TRUE
+         ORDER BY display_order ASC, id ASC LIMIT 1`,
+        [req.orgId],
+      )
+      if (defaultGroup.length) {
+        groupId  = defaultGroup[0].id
+        category = defaultGroup[0].name
+      } else if (!isStaff && !(await isClientPostableCategory(req.orgId, category))) {
+        // Clients may only post into an active, public group in their own org
+        category = 'General Discussion'
+      }
     }
 
     // Clients always post into their own channel; staff may specify a channel in body
@@ -1322,9 +1335,10 @@ router.get('/groups/:id/eligible-members', requireAuth(), async (req, res, next)
   } catch (err) { next(err) }
 })
 
-// GET /api/community/my-groups — the group switcher for the caller. Main Feed is
-// a virtual entry (id: null) always pinned first; it maps to posts with
-// group_id IS NULL and needs no membership.
+// GET /api/community/my-groups — the group switcher for the caller: every
+// active group this user is a member of. No Main Feed entry — every post
+// belongs to a real group now, so the caller's own membership list is the
+// complete set of feeds they can see.
 router.get('/my-groups', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
@@ -1339,10 +1353,7 @@ router.get('/my-groups', requireAuth(), async (req, res, next) => {
       [dbUserId, req.orgId],
     )
 
-    res.json([
-      { id: null, name: 'Main Feed', description: null, type: 'main', org_id: req.orgId },
-      ...rows,
-    ])
+    res.json(rows)
   } catch (err) { next(err) }
 })
 
