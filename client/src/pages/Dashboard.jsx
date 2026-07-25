@@ -318,14 +318,145 @@ function addDays(dateStr, delta) {
   return toLocalDateStr(d)
 }
 
+// ── Date Picker Sheet ─────────────────────────────────────────────────────────
+// Compact calendar restricted to [minDate, maxDate]. Bottom sheet on mobile,
+// centered modal on desktop — matches the app's existing modal pattern
+// (see Calendar.jsx / MealHistory.jsx / Settings.jsx).
+
+const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+
+function DatePickerSheet({ selectedDate, minDate, maxDate, onSelect, onClose }) {
+  const [viewMonth, setViewMonth] = useState(() => {
+    const d = new Date(`${selectedDate}T00:00:00`)
+    return new Date(d.getFullYear(), d.getMonth(), 1)
+  })
+
+  const monthLabel = viewMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  const firstWeekday = viewMonth.getDay()
+  const daysInMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 0).getDate()
+
+  const cells = [...Array(firstWeekday).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)]
+
+  function cellDateStr(day) {
+    return toLocalDateStr(new Date(viewMonth.getFullYear(), viewMonth.getMonth(), day))
+  }
+
+  const minMonthKey = minDate.slice(0, 7)
+  const maxMonthKey = maxDate.slice(0, 7)
+  const viewMonthKey = `${viewMonth.getFullYear()}-${String(viewMonth.getMonth() + 1).padStart(2, '0')}`
+  const prevDisabled = viewMonthKey <= minMonthKey
+  const nextDisabled = viewMonthKey >= maxMonthKey
+
+  function goPrevMonth() { if (!prevDisabled) setViewMonth(m => new Date(m.getFullYear(), m.getMonth() - 1, 1)) }
+  function goNextMonth() { if (!nextDisabled) setViewMonth(m => new Date(m.getFullYear(), m.getMonth() + 1, 1)) }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm max-h-[92vh] flex flex-col overflow-hidden shadow-xl"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
+          <p className="text-sm font-semibold text-gray-900">Jump to a date</p>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="w-11 h-11 -mr-2 flex items-center justify-center text-gray-400 hover:text-gray-600 text-lg leading-none shrink-0"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="overflow-y-auto flex-1 p-4">
+          {/* Month nav */}
+          <div className="flex items-center justify-between mb-3">
+            <button
+              onClick={goPrevMonth}
+              disabled={prevDisabled}
+              aria-label="Previous month"
+              className={`w-11 h-11 flex items-center justify-center rounded-lg transition-colors ${
+                prevDisabled ? 'text-gray-200 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-50'
+              }`}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <p className="text-sm font-semibold text-gray-900">{monthLabel}</p>
+            <button
+              onClick={goNextMonth}
+              disabled={nextDisabled}
+              aria-label="Next month"
+              className={`w-11 h-11 flex items-center justify-center rounded-lg transition-colors ${
+                nextDisabled ? 'text-gray-200 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-50'
+              }`}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Weekday header */}
+          <div className="grid grid-cols-7 mb-1">
+            {WEEKDAY_LABELS.map((w, i) => (
+              <div key={i} className="h-8 flex items-center justify-center text-[11px] font-semibold text-gray-400">
+                {w}
+              </div>
+            ))}
+          </div>
+
+          {/* Day grid — each cell is a 44px+ tap target */}
+          <div className="grid grid-cols-7 gap-y-1">
+            {cells.map((day, i) => {
+              if (day == null) return <div key={i} className="h-11" />
+              const ds = cellDateStr(day)
+              const disabled = ds < minDate || ds > maxDate
+              const isSelected = ds === selectedDate
+              return (
+                <div key={i} className="h-11 flex items-center justify-center">
+                  <button
+                    onClick={() => { if (!disabled) onSelect(ds) }}
+                    disabled={disabled}
+                    className={`w-9 h-9 flex items-center justify-center rounded-full text-sm font-medium transition-colors ${
+                      disabled
+                        ? 'text-gray-200 cursor-not-allowed'
+                        : isSelected
+                          ? 'bg-[#f97316] text-white'
+                          : 'text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    {day}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+
+          <p className="text-[11px] text-gray-400 mt-3 text-center">
+            You can view up to 30 days of history.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const { getToken } = useAuth()
 
   const todayStr = toLocalDateStr(new Date())
+  const minPickerDate = addDays(todayStr, -30)
 
   const [selectedDate, setSelectedDate] = useState(todayStr)
+  const [pickerOpen,  setPickerOpen]  = useState(false)
   const [todayMeals,  setTodayMeals]  = useState(null)
   const [todayLog,    setTodayLog]    = useState(null)
   const [userProfile, setUserProfile] = useState(null)
@@ -371,7 +502,8 @@ export default function Dashboard() {
     return () => { cancelled = true }
   }, [getToken])
 
-  // Loads meals + daily log for the selected date. Re-runs on date navigation.
+  // Loads meals + daily log for the selected date. Re-runs on date navigation
+  // (tap-through tiles, forward/back-to-today, or the calendar picker).
   useEffect(() => {
     let cancelled = false
     async function load() {
@@ -432,10 +564,10 @@ export default function Dashboard() {
   return (
     <div>
 
-      {/* Header — date label + navigation, with shortcut buttons */}
+      {/* Header — date label + tap-through nav + calendar picker, with shortcut buttons */}
       <div className="mb-4 flex justify-between items-start">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <button
               onClick={stepBack}
               aria-label="Previous day"
@@ -446,6 +578,16 @@ export default function Dashboard() {
               </svg>
             </button>
             <h1 className="text-2xl font-bold text-gray-900">{headerLabel}</h1>
+            <button
+              onClick={() => setPickerOpen(true)}
+              aria-label="Pick a date"
+              className="w-11 h-11 flex items-center justify-center text-gray-400 hover:text-gray-700 active:opacity-70 transition-colors shrink-0"
+            >
+              <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <rect x="3" y="5" width="18" height="16" rx="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M8 3v4M16 3v4" />
+              </svg>
+            </button>
             {!isToday && (
               <button
                 onClick={stepForward}
@@ -519,6 +661,16 @@ export default function Dashboard() {
           Driven by todayLog; live-synced only while viewing today.
           Tap the card to step back a day. */}
       <TodayStatsStrip todayLog={todayLog} label={headerLabel} onStepBack={stepBack} />
+
+      {pickerOpen && (
+        <DatePickerSheet
+          selectedDate={selectedDate}
+          minDate={minPickerDate}
+          maxDate={todayStr}
+          onSelect={ds => { setSelectedDate(ds); setPickerOpen(false) }}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
 
     </div>
   )
