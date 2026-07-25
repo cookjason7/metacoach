@@ -440,6 +440,40 @@ router.post('/:id/copy', requireAuth(), async (req, res, next) => {
   }
 })
 
+// Parses the ingredients array from a photo-analysis save. It arrives as a
+// JSON string (multipart/form-data has no native array type) or already
+// parsed when the body is JSON. Malformed/absent input yields no items —
+// this is best-effort enrichment of the collapsed meals row, never blocking.
+function parseIngredients(raw) {
+  if (raw == null || raw === '') return []
+  let arr = raw
+  if (typeof arr === 'string') {
+    try { arr = JSON.parse(arr) } catch { return [] }
+  }
+  if (!Array.isArray(arr)) return []
+  return arr
+    .filter(i => i && typeof i === 'object' && typeof i.item === 'string' && i.item.trim())
+    .map(i => ({
+      item:     i.item.trim().slice(0, 255),
+      portion:  typeof i.portion === 'string' ? i.portion.trim().slice(0, 255) : null,
+      weight_g: Number.isFinite(Number(i.weight_g)) ? Number(i.weight_g) : null,
+      calories: Number.isFinite(Number(i.calories)) ? Number(i.calories) : null,
+      protein:  Number.isFinite(Number(i.protein_g ?? i.protein)) ? Number(i.protein_g ?? i.protein) : null,
+      carbs:    Number.isFinite(Number(i.carbs_g ?? i.carbs))     ? Number(i.carbs_g ?? i.carbs)     : null,
+      fat:      Number.isFinite(Number(i.fat_g ?? i.fat))         ? Number(i.fat_g ?? i.fat)         : null,
+    }))
+}
+
+async function insertMealItems(client, mealId, items) {
+  for (const it of items) {
+    await client.query(
+      `INSERT INTO meal_items (meal_id, item, portion, weight_g, calories, protein, carbs, fat)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [mealId, it.item, it.portion, it.weight_g, it.calories, it.protein, it.carbs, it.fat],
+    )
+  }
+}
+
 // POST /api/meals — save photo meal
 router.post('/', requireAuth(), upload.single('photo'), async (req, res, next) => {
   try {
@@ -448,6 +482,7 @@ router.post('/', requireAuth(), upload.single('photo'), async (req, res, next) =
     if (!v.ok) return res.status(400).json({ error: v.error })
     const d = v.data
     const dbUserId = await getOrCreateUser(userId)
+    const items = parseIngredients(req.body.ingredients)
 
     let photo_url = null
     if (req.file) {
@@ -472,8 +507,20 @@ router.post('/', requireAuth(), upload.single('photo'), async (req, res, next) =
        d.source_type ?? null, d.source_label ?? null,
        d.is_verified ?? false, d.micronutrients ?? null, req.orgId],
     )
+    const meal = rows[0]
+
+    if (items.length) {
+      try {
+        await insertMealItems(pool, meal.id, items)
+        meal.items = items
+      } catch (itemErr) {
+        // Non-fatal: the meal itself is already saved successfully above.
+        console.error('[meals] meal_items insert failed:', itemErr.message)
+      }
+    }
+
     fireGamification(pool, dbUserId, d.log_date)
-    res.status(201).json(rows[0])
+    res.status(201).json(meal)
   } catch (err) {
     next(err)
   }
@@ -564,6 +611,20 @@ router.get('/', requireAuth(), async (req, res, next) => {
           `${baseSelect} ORDER BY m.logged_at DESC${limit ? ` LIMIT ${limit}` : ''}`,
           [userId],
         )
+
+    if (rows.length) {
+      const { rows: items } = await pool.query(
+        `SELECT meal_id, item, portion, weight_g, calories, protein, carbs, fat
+         FROM meal_items WHERE meal_id = ANY($1::int[]) ORDER BY id ASC`,
+        [rows.map(r => r.id)],
+      )
+      const byMeal = new Map()
+      for (const it of items) {
+        if (!byMeal.has(it.meal_id)) byMeal.set(it.meal_id, [])
+        byMeal.get(it.meal_id).push(it)
+      }
+      for (const m of rows) m.items = byMeal.get(m.id) ?? []
+    }
 
     res.json(rows)
   } catch (err) {
