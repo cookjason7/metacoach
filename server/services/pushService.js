@@ -4,25 +4,22 @@ import { pool } from '../db.js'
 // are missing so the app runs cleanly in dev and on staging without FCM setup.
 let messaging = null
 
-export function initPush() {
-  const credJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
-  if (!credJson) {
-    console.log('[push] FIREBASE_SERVICE_ACCOUNT_JSON not set — push notifications disabled (no-op mode)')
-    return
-  }
+export async function initPush() {
   try {
+    const credJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
+    if (!credJson) {
+      console.log('[push] FIREBASE_SERVICE_ACCOUNT_JSON not set — push notifications disabled (no-op mode)')
+      return
+    }
     // Dynamic import so firebase-admin not required at module load time
-    import('firebase-admin').then(({ default: admin }) => {
-      if (admin.apps.length === 0) {
-        admin.initializeApp({
-          credential: admin.credential.cert(JSON.parse(credJson)),
-        })
-      }
-      messaging = admin.messaging()
-      console.log('[push] Firebase Admin initialized')
-    }).catch(err => {
-      console.warn('[push] firebase-admin import failed:', err.message, '— push disabled')
-    })
+    const { default: admin } = await import('firebase-admin')
+    if (!admin.apps.length) {
+      admin.initializeApp({
+        credential: admin.credential.cert(JSON.parse(credJson)),
+      })
+    }
+    messaging = admin.messaging()
+    console.log('[push] Firebase Admin initialized')
   } catch (err) {
     console.warn('[push] initPush failed:', err.message, '— push disabled')
   }
