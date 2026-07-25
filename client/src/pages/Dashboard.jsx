@@ -159,7 +159,7 @@ function nutritionMode(userProfile) {
   return 'calories_only'
 }
 
-function TodayGoals({ userProfile, todayMeals, loading }) {
+function TodayGoals({ userProfile, todayMeals, loading, label, onStepBack }) {
   const mode = nutritionMode(userProfile)
 
   const macroRings = {
@@ -192,8 +192,15 @@ function TodayGoals({ userProfile, todayMeals, loading }) {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-4">
-      <h2 className="text-sm font-bold text-gray-900 mb-4">Today's Goals</h2>
+    <div
+      className="bg-white rounded-2xl border border-gray-200 p-4 mb-4 cursor-pointer active:opacity-80"
+      onClick={onStepBack}
+      role="button"
+      tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onStepBack() } }}
+      title="Tap to view the previous day"
+    >
+      <h2 className="text-sm font-bold text-gray-900 mb-4">{label}</h2>
       {rings.length === 1 ? (
         <div className="flex justify-center py-1">
           <GoalRing {...rings[0]} dim={92} />
@@ -272,23 +279,43 @@ function StatPill({ icon, label, value, note }) {
   )
 }
 
-function TodayStatsStrip({ todayLog }) {
+function TodayStatsStrip({ todayLog, label, onStepBack }) {
   const steps   = todayLog?.steps       != null ? todayLog.steps       : null
   const sleep   = todayLog?.sleep_minutes != null ? fmtSleepMins(todayLog.sleep_minutes) : null
   const water   = todayLog?.water_oz    != null ? `${todayLog.water_oz} oz` : null
+  const weight  = todayLog?.weight_lbs  != null ? `${todayLog.weight_lbs} lb` : null
 
-  if (steps == null && sleep == null && water == null) return null
+  if (steps == null && sleep == null && water == null && weight == null) return null
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-4">
-      <h2 className="text-sm font-bold text-gray-900 mb-3">Today</h2>
-      <div className="flex gap-2">
+    <div
+      className="bg-white rounded-2xl border border-gray-200 p-4 mb-4 cursor-pointer active:opacity-80"
+      onClick={onStepBack}
+      role="button"
+      tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onStepBack() } }}
+      title="Tap to view the previous day"
+    >
+      <h2 className="text-sm font-bold text-gray-900 mb-3">{label}</h2>
+      <div className="flex flex-wrap gap-2">
         {steps  != null && <StatPill icon="👟" label="Steps"  value={steps.toLocaleString()} />}
         {water  != null && <StatPill icon="💧" label="Water"  value={water} note={todayLog?.water_note} />}
+        {weight != null && <StatPill icon="⚖️" label="Weight" value={weight} note={todayLog?.weight_note} />}
         {sleep  != null && <StatPill icon="😴" label="Sleep"  value={sleep} note={todayLog?.sleep_note} />}
       </div>
     </div>
   )
+}
+
+// Local (not UTC-shifted) YYYY-MM-DD for a given Date object.
+function toLocalDateStr(d) {
+  return d.toLocaleDateString('sv')
+}
+
+function addDays(dateStr, delta) {
+  const d = new Date(`${dateStr}T00:00:00`)
+  d.setDate(d.getDate() + delta)
+  return toLocalDateStr(d)
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -296,6 +323,9 @@ function TodayStatsStrip({ todayLog }) {
 export default function Dashboard() {
   const { getToken } = useAuth()
 
+  const todayStr = toLocalDateStr(new Date())
+
+  const [selectedDate, setSelectedDate] = useState(todayStr)
   const [todayMeals,  setTodayMeals]  = useState(null)
   const [todayLog,    setTodayLog]    = useState(null)
   const [userProfile, setUserProfile] = useState(null)
@@ -305,52 +335,94 @@ export default function Dashboard() {
   const [gamData,     setGamData]     = useState(null)
   const [gamLoading,  setGamLoading]  = useState(true)
 
+  const isToday = selectedDate === todayStr
+
+  // Loads user profile, Katie banner, and gamification momentum — these are
+  // always "today" concepts and don't vary with the selected date.
   useEffect(() => {
     let cancelled = false
     async function load() {
       try {
         const token   = await getToken()
         const headers = { Authorization: `Bearer ${token}` }
-        const today   = new Date().toLocaleDateString('sv')
 
         fetch(`${API_URL}/api/coach/check-proactive`, { method: 'POST', headers }).catch(() => {})
 
-        const [r1, r2, r3, r4, r5] = await Promise.all([
-          fetch(`${API_URL}/api/meals/today?date=${today}`, { headers }),  // todayMeals
-          fetch(`${API_URL}/api/daily-logs/today`,          { headers }),  // todayLog
-          fetch(`${API_URL}/api/users/me`,                  { headers }),  // userProfile
-          fetch(`${API_URL}/api/coach/latest-proactive`,    { headers }),  // katie banner
-          fetch(`${API_URL}/api/gamification/momentum`,     { headers }),  // gamData
+        const [r3, r4, r5] = await Promise.all([
+          fetch(`${API_URL}/api/users/me`,               { headers }),  // userProfile
+          fetch(`${API_URL}/api/coach/latest-proactive`, { headers }),  // katie banner
+          fetch(`${API_URL}/api/gamification/momentum`,  { headers }),  // gamData
         ])
 
-        if (!r1.ok || !r2.ok || !r3.ok) throw new Error('Failed to load dashboard data')
+        if (!r3.ok) throw new Error('Failed to load dashboard data')
 
         if (!cancelled) {
-          const [m, l, u] = await Promise.all([r1.json(), r2.json(), r3.json()])
-          setTodayMeals(m)
-          setTodayLog(l)
-          setUserProfile(u)
+          setUserProfile(await r3.json())
           if (r4.ok) setKatieBanner((await r4.json()).message ?? null)
           if (r5.ok) setGamData(await r5.json())
-          setGamLoading(false)
         }
       } catch (err) {
         if (!cancelled) setError(err.message)
       } finally {
-        if (!cancelled) { setLoading(false); setGamLoading(false) }
+        if (!cancelled) setGamLoading(false)
       }
     }
     load()
     return () => { cancelled = true }
   }, [getToken])
 
+  // Loads meals + daily log for the selected date. Re-runs on date navigation.
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        setLoading(true)
+        const token   = await getToken()
+        const headers = { Authorization: `Bearer ${token}` }
+
+        const [r1, r2] = await Promise.all([
+          fetch(`${API_URL}/api/meals/today?date=${selectedDate}`,      { headers }),  // todayMeals
+          fetch(`${API_URL}/api/daily-logs/today?date=${selectedDate}`, { headers }),  // todayLog
+        ])
+
+        if (!r1.ok || !r2.ok) throw new Error('Failed to load dashboard data')
+
+        if (!cancelled) {
+          const [m, l] = await Promise.all([r1.json(), r2.json()])
+          setTodayMeals(m)
+          setTodayLog(l)
+        }
+      } catch (err) {
+        if (!cancelled) setError(err.message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [getToken, selectedDate])
+
   useEffect(() => {
     // Merge the incoming fields — never replace the whole object, or we lose
     // water_oz / weight_lbs that weren't part of the Apple Health sync payload.
-    function onUpdate(e) { if (e.detail) setTodayLog(prev => prev ? { ...prev, ...e.detail } : e.detail) }
+    // Only applies to the live "today" view — past-date views must not be
+    // overwritten by updates meant for today.
+    function onUpdate(e) {
+      if (!isToday) return
+      if (e.detail) setTodayLog(prev => prev ? { ...prev, ...e.detail } : e.detail)
+    }
     window.addEventListener('daily-log-updated', onUpdate)
     return () => window.removeEventListener('daily-log-updated', onUpdate)
-  }, [])
+  }, [isToday])
+
+  function stepBack() { setSelectedDate(d => addDays(d, -1)) }
+  function stepForward() { setSelectedDate(d => (d < todayStr ? addDays(d, 1) : d)) }
+  function backToToday() { setSelectedDate(todayStr) }
+
+  const selectedDateObj = new Date(`${selectedDate}T00:00:00`)
+  const headerLabel = isToday
+    ? 'Today'
+    : selectedDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 
   // Staff → coaching dashboard
   if (!loading && (userProfile?.role === 'admin' || userProfile?.role === 'account_owner' || userProfile?.role === 'coach' || userProfile?.role === 'staff')) {
@@ -360,13 +432,43 @@ export default function Dashboard() {
   return (
     <div>
 
-      {/* Header — today only, no date picker, with shortcut buttons */}
+      {/* Header — date label + navigation, with shortcut buttons */}
       <div className="mb-4 flex justify-between items-start">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Today</h1>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={stepBack}
+              aria-label="Previous day"
+              className="w-11 h-11 -ml-2 flex items-center justify-center text-gray-400 hover:text-gray-700 active:opacity-70 transition-colors shrink-0"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <h1 className="text-2xl font-bold text-gray-900">{headerLabel}</h1>
+            {!isToday && (
+              <button
+                onClick={stepForward}
+                aria-label="Next day"
+                className="w-11 h-11 flex items-center justify-center text-gray-400 hover:text-gray-700 active:opacity-70 transition-colors shrink-0"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            )}
+          </div>
           <p className="text-sm text-gray-400 mt-0.5">
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+            {selectedDateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
           </p>
+          {!isToday && (
+            <button
+              onClick={backToToday}
+              className="text-sm font-medium text-[#f97316] mt-0.5 hover:underline"
+            >
+              Back to Today
+            </button>
+          )}
         </div>
 
         {/* Shortcut buttons */}
@@ -403,16 +505,20 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Circular goal progress rings — nutrition targets only */}
+      {/* Circular goal progress rings — nutrition targets only.
+          Tap the card to step back a day (matches TodayStatsStrip below). */}
       <TodayGoals
         userProfile={userProfile}
         todayMeals={todayMeals}
         loading={loading}
+        label={isToday ? "Today's Goals" : `${headerLabel}'s Goals`}
+        onStepBack={stepBack}
       />
 
-      {/* Steps / water / sleep strip — visible when any metric has data.
-          Driven by todayLog, which is updated in real-time by Apple Health sync. */}
-      <TodayStatsStrip todayLog={todayLog} />
+      {/* Steps / water / weight / sleep strip — visible when any metric has data.
+          Driven by todayLog; live-synced only while viewing today.
+          Tap the card to step back a day. */}
+      <TodayStatsStrip todayLog={todayLog} label={headerLabel} onStepBack={stepBack} />
 
     </div>
   )

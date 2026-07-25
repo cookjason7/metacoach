@@ -9,6 +9,7 @@ const router = Router()
 router.get('/today', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
+    const { date } = req.query
 
     const { rows } = await pool.query(
       `SELECT dl.water_oz, dl.steps, dl.weight_lbs, dl.sleep_minutes,
@@ -16,8 +17,8 @@ router.get('/today', requireAuth(), async (req, res, next) => {
        FROM daily_logs dl
        JOIN users u ON u.id = dl.user_id
        WHERE u.clerk_user_id = $1
-         AND dl.logged_date = CURRENT_DATE`,
-      [userId],
+         AND dl.logged_date = ${date ? '$2::date' : 'CURRENT_DATE'}`,
+      date ? [userId, date] : [userId],
     )
 
     res.set('Cache-Control', 'no-store')
