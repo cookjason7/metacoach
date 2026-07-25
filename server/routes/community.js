@@ -128,13 +128,15 @@ function isAdminRole(role) {
   return role === 'admin' || role === 'account_owner'
 }
 
-// Membership gate for group-scoped content. Super admin (ADMIN_EMAILS) always
-// passes — same bypass as isSuperAdmin above, resolved from the users row since
-// callers here have a db user id rather than a req. Reuses isAdminEmail instead
-// of re-parsing process.env so the allowlist can't drift between the two.
+// Membership gate for group-scoped content. Super admin (ADMIN_EMAILS) and
+// org admins always pass — an org admin has no group_members row (see
+// GET /my-groups) but still needs to read/post into every group in their org.
+// Reuses isAdminEmail instead of re-parsing process.env so the allowlist
+// can't drift between the two.
 async function isGroupMember(groupId, userId, orgId) {
-  const { rows } = await pool.query('SELECT email FROM users WHERE id = $1', [userId])
+  const { rows } = await pool.query('SELECT email, role FROM users WHERE id = $1', [userId])
   if (isAdminEmail(rows[0]?.email)) return true
+  if (rows[0]?.role === 'admin') return true
 
   const { rows: member } = await pool.query(
     `SELECT gm.id
@@ -1339,19 +1341,36 @@ router.get('/groups/:id/eligible-members', requireAuth(), async (req, res, next)
 // active group this user is a member of. No Main Feed entry — every post
 // belongs to a real group now, so the caller's own membership list is the
 // complete set of feeds they can see.
+//
+// Admins are the exception: they administer every group in their org but
+// have no group_members row of their own (adding one would put them in the
+// members list of every group, which isOrgOwnerOrAdmin already makes
+// redundant everywhere else). Without this bypass an admin's my-groups call
+// returns nothing and the pill row is empty.
 router.get('/my-groups', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const dbUserId = await getOrCreateUser(userId)
 
-    const { rows } = await pool.query(
-      `SELECT cg.id, cg.name, cg.description, cg.type, cg.org_id
-       FROM group_members gm
-       JOIN community_groups cg ON cg.id = gm.group_id
-       WHERE gm.user_id = $1 AND gm.org_id = $2 AND cg.is_active = TRUE
-       ORDER BY cg.display_order ASC, cg.name ASC`,
-      [dbUserId, req.orgId],
-    )
+    const { rows: callerRows } = await pool.query('SELECT role, email FROM users WHERE id = $1', [dbUserId])
+    const isAdmin = isAdminRole(callerRows[0]?.role) || isAdminEmail(callerRows[0]?.email)
+
+    const { rows } = isAdmin
+      ? await pool.query(
+          `SELECT id, name, description, type, org_id
+           FROM community_groups
+           WHERE org_id = $1 AND is_active = TRUE
+           ORDER BY display_order ASC, id ASC`,
+          [req.orgId],
+        )
+      : await pool.query(
+          `SELECT cg.id, cg.name, cg.description, cg.type, cg.org_id
+           FROM group_members gm
+           JOIN community_groups cg ON cg.id = gm.group_id
+           WHERE gm.user_id = $1 AND gm.org_id = $2 AND cg.is_active = TRUE
+           ORDER BY cg.display_order ASC, cg.name ASC`,
+          [dbUserId, req.orgId],
+        )
 
     res.json(rows)
   } catch (err) { next(err) }
