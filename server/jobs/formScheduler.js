@@ -213,10 +213,10 @@ export async function processFormSchedules() {
           const { rows: [occurrenceAssignment] } = await pool.query(`
           INSERT INTO form_assignments
             (template_id, client_id, assigned_by, send_at, is_active,
-             assignment_type, status, sent_at, parent_assignment_id)
-          VALUES ($1, $2, $3, $4, FALSE, 'recurring_occurrence', 'sent', NOW(), $5)
+             assignment_type, status, sent_at, parent_assignment_id, org_id)
+          VALUES ($1, $2, $3, $4, FALSE, 'recurring_occurrence', 'sent', NOW(), $5, $6)
           RETURNING id
-        `, [fa.template_id, fa.client_id, fa.assigned_by, fa.next_send_at, fa.id])
+        `, [fa.template_id, fa.client_id, fa.assigned_by, fa.next_send_at, fa.id, fa.org_id])
           submissionAssignmentId = occurrenceAssignment.id
           console.log('[formScheduler] recurring occurrence assignment created', {
             parent_assignment_id: fa.id,

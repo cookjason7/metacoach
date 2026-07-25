@@ -2061,6 +2061,36 @@ export async function runMigrations() {
   } catch (err) {
     console.error('[migrations] owner_user_id backfill failed:', err.message)
   }
+
+  // One-time backfill: form_assignments rows created before org_id was wired
+  // through every insert path (server/routes/coachAdmin.js, server/jobs/formScheduler.js)
+  // are left with org_id = NULL, which fails the org-scoped lookup in
+  // POST /api/forms/:id/submit ("Form assignment not found") even though the
+  // row and its client both exist. Idempotent — WHERE fa.org_id IS NULL means
+  // it only ever touches rows still missing one.
+  try {
+    const { rowCount } = await pool.query(`
+      UPDATE form_assignments fa
+      SET org_id = (
+        SELECT u.org_id
+        FROM users u
+        WHERE u.id = fa.client_id
+        AND u.org_id IS NOT NULL
+        LIMIT 1
+      )
+      WHERE fa.org_id IS NULL
+      AND EXISTS (
+        SELECT 1 FROM users u
+        WHERE u.id = fa.client_id
+        AND u.org_id IS NOT NULL
+      )
+    `)
+    if (rowCount > 0) {
+      console.log(`[migrations] backfilled org_id for ${rowCount} form_assignment(s)`)
+    }
+  } catch (err) {
+    console.error('[migrations] form_assignments org_id backfill failed:', err.message)
+  }
 }
 
 // Resolves the organization an internal user id belongs to. Falls back to 1

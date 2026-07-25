@@ -3284,10 +3284,10 @@ router.post('/forms/:id/send', requireAuth(), async (req, res, next) => {
       // Create assignment record
       const { rows: [assignment] } = await pool.query(`
         INSERT INTO form_assignments
-          (template_id, client_id, assigned_by, send_at, is_active, assignment_type, status, sent_at)
-        VALUES ($1, $2, $3, NOW(), TRUE, 'manual', 'sent', NOW())
+          (template_id, client_id, assigned_by, send_at, is_active, assignment_type, status, sent_at, org_id)
+        VALUES ($1, $2, $3, NOW(), TRUE, 'manual', 'sent', NOW(), $4)
         RETURNING id
-      `, [templateId, clientId, ctx.dbUserId])
+      `, [templateId, clientId, ctx.dbUserId, ctx.orgId])
 
       // Determine thread type and visibility
       // Coaches are limited to coach_thread; admin uses admin_private for AI clients, coach_thread for VIP
@@ -3482,10 +3482,10 @@ router.post('/forms/:id/schedule', requireAuth(), async (req, res, next) => {
       const { rows: [assignment] } = await pool.query(`
         INSERT INTO form_assignments
           (template_id, client_id, assigned_by, send_at, recurring_rule, is_active,
-           assignment_type, status, next_send_at)
-        VALUES ($1, $2, $3, $4, $5::jsonb, TRUE, $6, $7, $8)
+           assignment_type, status, next_send_at, org_id)
+        VALUES ($1, $2, $3, $4, $5::jsonb, TRUE, $6, $7, $8, $9)
         RETURNING id
-      `, [templateId, clientId, ctx.dbUserId, nextSendAt, recurringRuleJson, send_mode, status, nextSendAt])
+      `, [templateId, clientId, ctx.dbUserId, nextSendAt, recurringRuleJson, send_mode, status, nextSendAt, ctx.orgId])
 
       console.log('[formSchedule] created assignment', {
         assignment_id: assignment.id,

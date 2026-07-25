@@ -401,7 +401,7 @@ router.post('/:id/submit', requireAuth(), async (req, res, next) => {
                 parent.recurring_rule AS parent_recurring_rule
          FROM form_assignments fa
          LEFT JOIN form_assignments parent ON parent.id = fa.parent_assignment_id
-         WHERE fa.id = $1 AND fa.org_id = $2`,
+         WHERE fa.id = $1 AND (fa.org_id = $2 OR fa.org_id IS NULL)`,
         [assignId, req.orgId],
       )
       if (!assignment) {
