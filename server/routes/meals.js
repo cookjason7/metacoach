@@ -8,6 +8,7 @@ import { awardAction, checkFullDay, checkProteinGoal } from '../gamification.js'
 import { normalizeMealPayload } from '../mealValidation.js'
 import { mealAnalyzeLimit, mealTextLimit } from '../middleware/rateLimits.js'
 import { trackEvent } from '../services/usageTracker.js'
+import { parseIngredients, insertMealItems, sanitizeItemEdits, applyMealItemEdits } from '../mealItems.js'
 
 // Fire gamification hooks non-blocking so they never fail the main request
 function fireGamification(pool, dbUserId, dateStr) {
@@ -208,9 +209,10 @@ router.post('/text-log', requireAuth(), mealTextLimit, async (req, res, next) =>
       max_tokens: 512,
       messages: [{
         role: 'user',
-        content: `Parse this food description and estimate macros per the amounts described. Return ONLY valid JSON:
+        content: `Parse this food description and estimate macros per the amounts described. Identify each distinct food item mentioned — if only one food is described, ingredients should contain that single item. Return ONLY valid JSON:
 {
   "meal_name": "string (concise name for what was described)",
+  "ingredients": [{"item": "string", "portion": "string", "weight_g": number, "calories": number, "protein_g": number, "carbs_g": number, "fat_g": number}],
   "calories": number,
   "protein_g": number,
   "carbs_g": number,
@@ -218,6 +220,7 @@ router.post('/text-log', requireAuth(), mealTextLimit, async (req, res, next) =>
   "fiber_g": number,
   "sugar_g": number
 }
+The ingredients should sum to the combined totals above.
 Food: "${text.trim()}"
 Return only valid JSON, no markdown.`,
       }],
@@ -248,6 +251,7 @@ Return only valid JSON, no markdown.`,
     const v = normalizeMealPayload({ ...parsed, meal_slot, log_date })
     if (!v.ok) return res.status(400).json({ error: v.error })
     const d = v.data
+    const items = parseIngredients(parsed.ingredients)
 
     const { rows } = await pool.query(
       `INSERT INTO meals (user_id, meal_name, calories, protein, carbs, fat, fiber, sugar, meal_slot, log_date, org_id)
@@ -255,8 +259,20 @@ Return only valid JSON, no markdown.`,
       [dbUserId, d.meal_name, d.calories, d.protein, d.carbs, d.fat, d.fiber,
        d.sugar, d.meal_slot, d.log_date, req.orgId],
     )
+    const meal = rows[0]
+
+    if (items.length) {
+      try {
+        await insertMealItems(pool, meal.id, items)
+        meal.items = items
+      } catch (itemErr) {
+        // Non-fatal: the meal itself is already saved successfully above.
+        console.error('[meals] meal_items insert failed (text-log):', itemErr.message)
+      }
+    }
+
     fireGamification(pool, dbUserId, d.log_date)
-    res.status(201).json(rows[0])
+    res.status(201).json(meal)
   } catch (err) {
     next(err)
   }
@@ -439,40 +455,6 @@ router.post('/:id/copy', requireAuth(), async (req, res, next) => {
     next(err)
   }
 })
-
-// Parses the ingredients array from a photo-analysis save. It arrives as a
-// JSON string (multipart/form-data has no native array type) or already
-// parsed when the body is JSON. Malformed/absent input yields no items —
-// this is best-effort enrichment of the collapsed meals row, never blocking.
-function parseIngredients(raw) {
-  if (raw == null || raw === '') return []
-  let arr = raw
-  if (typeof arr === 'string') {
-    try { arr = JSON.parse(arr) } catch { return [] }
-  }
-  if (!Array.isArray(arr)) return []
-  return arr
-    .filter(i => i && typeof i === 'object' && typeof i.item === 'string' && i.item.trim())
-    .map(i => ({
-      item:     i.item.trim().slice(0, 255),
-      portion:  typeof i.portion === 'string' ? i.portion.trim().slice(0, 255) : null,
-      weight_g: Number.isFinite(Number(i.weight_g)) ? Number(i.weight_g) : null,
-      calories: Number.isFinite(Number(i.calories)) ? Number(i.calories) : null,
-      protein:  Number.isFinite(Number(i.protein_g ?? i.protein)) ? Number(i.protein_g ?? i.protein) : null,
-      carbs:    Number.isFinite(Number(i.carbs_g ?? i.carbs))     ? Number(i.carbs_g ?? i.carbs)     : null,
-      fat:      Number.isFinite(Number(i.fat_g ?? i.fat))         ? Number(i.fat_g ?? i.fat)         : null,
-    }))
-}
-
-async function insertMealItems(client, mealId, items) {
-  for (const it of items) {
-    await client.query(
-      `INSERT INTO meal_items (meal_id, item, portion, weight_g, calories, protein, carbs, fat)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [mealId, it.item, it.portion, it.weight_g, it.calories, it.protein, it.carbs, it.fat],
-    )
-  }
-}
 
 // POST /api/meals — save photo meal
 router.post('/', requireAuth(), upload.single('photo'), async (req, res, next) => {
@@ -701,6 +683,46 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
     )
     if (!rows.length) return res.status(404).json({ error: 'Meal not found' })
     res.json(rows[0])
+  } catch (err) {
+    next(err)
+  }
+})
+
+// PATCH /api/meals/:id/items — edit individual ingredient rows (amount/portion,
+// or delete one). Recomputes and persists the parent meal's collapsed
+// calories/protein/carbs/fat as the sum of what's left. Meals with no
+// meal_items rows never hit this route — the client falls back to the plain
+// PATCH /:id scalar-field edit instead.
+router.patch('/:id/items', requireAuth(), async (req, res, next) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId = await getOrCreateUser(userId)
+    const mealId   = parseInt(req.params.id, 10)
+
+    const sanitized = sanitizeItemEdits(req.body.items)
+    if (!sanitized.ok) return res.status(400).json({ error: sanitized.error })
+
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const orgFilter = isSuperAdmin(ctx) ? '' : ` AND org_id = $3`
+
+    const { rows: owned } = await pool.query(
+      `SELECT id FROM meals WHERE id = $1 AND user_id = $2${orgFilter}`,
+      isSuperAdmin(ctx) ? [mealId, dbUserId] : [mealId, dbUserId, ctx.orgId],
+    )
+    if (!owned.length) return res.status(404).json({ error: 'Meal not found' })
+
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      const meal = await applyMealItemEdits(client, mealId, sanitized.data)
+      await client.query('COMMIT')
+      res.json(meal)
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
   } catch (err) {
     next(err)
   }

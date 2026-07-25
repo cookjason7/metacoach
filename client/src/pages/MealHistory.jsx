@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { Link } from 'react-router-dom'
 import { API_URL } from '../config.js'
+import MealItemsEditor from '../components/MealItemsEditor.jsx'
+import { saveMealItemEdits } from '../utils/mealItemsApi.js'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -287,7 +289,9 @@ function CopyDayModal({ fromDate, mealCount, onConfirm, onClose }) {
 
 // ── Edit form ─────────────────────────────────────────────────────────────────
 
-function MealEditForm({ meal, onSave, onCancel }) {
+function MealEditForm({ meal, onSave, onApplyUpdate, onCancel }) {
+  const { getToken } = useAuth()
+  const hasItems = Array.isArray(meal.items) && meal.items.length > 0
   const [form, setForm] = useState({
     meal_name:     meal.meal_name,
     calories:      meal.calories      != null ? String(meal.calories)      : '',
@@ -297,6 +301,7 @@ function MealEditForm({ meal, onSave, onCancel }) {
     fiber:         meal.fiber         != null ? String(meal.fiber)         : '',
     portion_notes: meal.portion_notes ?? '',
   })
+  const [items,  setItems]  = useState(() => hasItems ? meal.items.map(i => ({ ...i })) : [])
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState(null)
 
@@ -311,6 +316,20 @@ function MealEditForm({ meal, onSave, onCancel }) {
     setSaving(true)
     setError(null)
     try {
+      if (hasItems) {
+        const updated = await saveMealItemEdits({
+          getToken,
+          mealId: meal.id,
+          scalarFields: {
+            meal_name:     form.meal_name.trim(),
+            fiber:         form.fiber !== '' ? Number(form.fiber) : undefined,
+            portion_notes: form.portion_notes.trim() || undefined,
+          },
+          items,
+        })
+        onApplyUpdate(updated)
+        return
+      }
       await onSave(meal.id, {
         meal_name:     form.meal_name.trim(),
         calories:      form.calories  !== '' ? Number(form.calories)  : undefined,
@@ -343,17 +362,32 @@ function MealEditForm({ meal, onSave, onCancel }) {
           className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
         />
       </div>
-      <div className="grid grid-cols-3 gap-2">
-        {FIELDS.map(([label, name]) => (
-          <div key={name}>
-            <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+
+      {hasItems ? (
+        <>
+          <MealItemsEditor items={items} onChange={setItems} />
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Fiber g</label>
             <input
-              type="number" name={name} value={form[name]} onChange={set} min="0"
+              type="number" name="fiber" value={form.fiber} onChange={set} min="0"
               className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
             />
           </div>
-        ))}
-      </div>
+        </>
+      ) : (
+        <div className="grid grid-cols-3 gap-2">
+          {FIELDS.map(([label, name]) => (
+            <div key={name}>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+              <input
+                type="number" name={name} value={form[name]} onChange={set} min="0"
+                className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
         <input
@@ -379,7 +413,7 @@ function MealEditForm({ meal, onSave, onCancel }) {
 
 // ── Meal card ─────────────────────────────────────────────────────────────────
 
-function MealCard({ meal, onUpdate, onDelete, onCopy }) {
+function MealCard({ meal, onUpdate, onApplyUpdate, onDelete, onCopy }) {
   const [editing,    setEditing]    = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [deleting,   setDeleting]   = useState(false)
@@ -462,6 +496,7 @@ function MealCard({ meal, onUpdate, onDelete, onCopy }) {
           <MealEditForm
             meal={meal}
             onSave={async (id, updates) => { await onUpdate(id, updates); setEditing(false) }}
+            onApplyUpdate={(updated) => { onApplyUpdate(updated); setEditing(false) }}
             onCancel={() => setEditing(false)}
           />
         )}
@@ -599,6 +634,13 @@ export default function MealHistory() {
     setMeals(prev => prev.map(m => m.id === mealId ? { ...m, ...updated } : m))
   }, [getToken])
 
+  // Merges an already-persisted meal object into local state — used by the
+  // ingredient editor, which does its own PATCH calls (meal + meal_items)
+  // rather than routing through updateMeal's single generic PATCH.
+  const applyMealUpdate = useCallback((updated) => {
+    setMeals(prev => prev.map(m => m.id === updated.id ? { ...m, ...updated } : m))
+  }, [])
+
   const deleteMeal = useCallback(async (mealId) => {
     const token = await getToken()
     const res   = await fetch(`${API_URL}/api/meals/${mealId}`, {
@@ -686,6 +728,7 @@ export default function MealHistory() {
                             key={meal.id}
                             meal={meal}
                             onUpdate={updateMeal}
+                            onApplyUpdate={applyMealUpdate}
                             onDelete={deleteMeal}
                             onCopy={copyMeal}
                           />
