@@ -1241,6 +1241,9 @@ function PhotoLogger({ slotName, onSaved, logDate, initialFile = null }) {
       if (a.fiber_g  != null) sf.append('fiber_g',  a.fiber_g)
       if (a.sugar_g  != null) sf.append('sugar_g',  a.sugar_g)
       if (logDate)            sf.append('log_date', logDate)
+      if (Array.isArray(a.ingredients) && a.ingredients.length > 0) {
+        sf.append('ingredients', JSON.stringify(a.ingredients))
+      }
       const sRes = await fetch(`${API_URL}/api/meals`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: sf })
       if (!sRes.ok) throw new Error(`Save failed (${sRes.status})`)
       const saved = await sRes.json()

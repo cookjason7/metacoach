@@ -32,14 +32,21 @@ export function parseIngredients(raw) {
     }))
 }
 
+// Returns the inserted rows (with their DB-assigned ids) rather than the
+// input array — callers need the id to let the ingredient editor reference
+// a specific row on save (PATCH /api/meals/:id/items).
 export async function insertMealItems(client, mealId, items) {
+  const inserted = []
   for (const it of items) {
-    await client.query(
+    const { rows } = await client.query(
       `INSERT INTO meal_items (meal_id, item, portion, weight_g, calories, protein, carbs, fat)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, meal_id, item, portion, weight_g, calories, protein, carbs, fat`,
       [mealId, it.item, it.portion, it.weight_g, it.calories, it.protein, it.carbs, it.fat],
     )
+    inserted.push(rows[0])
   }
+  return inserted
 }
 
 function numericOrNull(val, cap) {

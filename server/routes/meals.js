@@ -90,7 +90,7 @@ function buildAnalysisPrompt(phase, description) {
 Return ONLY a valid JSON object with these exact fields:
 {
   "meal_name": "string",
-  "ingredients": [{"item": "string", "portion": "string", "weight_g": number}],
+  "ingredients": [{"item": "string", "portion": "string", "weight_g": number, "calories": number, "protein_g": number, "carbs_g": number, "fat_g": number}],
   "calories": number,
   "protein_g": number,
   "carbs_g": number,
@@ -102,7 +102,7 @@ Return ONLY a valid JSON object with these exact fields:
   "katie_feedback": "string"
 }
 
-Estimate all macros from what is visible and the user description if provided.
+Estimate all macros from what is visible and the user description if provided. The ingredients should sum to the combined totals above.
 katie_feedback: exactly 1 sentence, calm and direct, no exclamation points, no emojis, no em dashes, no filler. State one factual observation about the meal. No signature.
 ${phaseGuide}
 Return only valid JSON, no markdown fences, no other text.`
@@ -263,8 +263,7 @@ Return only valid JSON, no markdown.`,
 
     if (items.length) {
       try {
-        await insertMealItems(pool, meal.id, items)
-        meal.items = items
+        meal.items = await insertMealItems(pool, meal.id, items)
       } catch (itemErr) {
         // Non-fatal: the meal itself is already saved successfully above.
         console.error('[meals] meal_items insert failed (text-log):', itemErr.message)
@@ -493,8 +492,7 @@ router.post('/', requireAuth(), upload.single('photo'), async (req, res, next) =
 
     if (items.length) {
       try {
-        await insertMealItems(pool, meal.id, items)
-        meal.items = items
+        meal.items = await insertMealItems(pool, meal.id, items)
       } catch (itemErr) {
         // Non-fatal: the meal itself is already saved successfully above.
         console.error('[meals] meal_items insert failed:', itemErr.message)
@@ -596,7 +594,7 @@ router.get('/', requireAuth(), async (req, res, next) => {
 
     if (rows.length) {
       const { rows: items } = await pool.query(
-        `SELECT meal_id, item, portion, weight_g, calories, protein, carbs, fat
+        `SELECT id, meal_id, item, portion, weight_g, calories, protein, carbs, fat
          FROM meal_items WHERE meal_id = ANY($1::int[]) ORDER BY id ASC`,
         [rows.map(r => r.id)],
       )
