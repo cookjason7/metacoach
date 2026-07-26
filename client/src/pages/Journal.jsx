@@ -6,6 +6,8 @@ import BarcodeScannerWidget from '../components/BarcodeScanner.jsx'
 import FoodSourceBadge from '../components/FoodSourceBadge.jsx'
 import MicronutrientGrid from '../components/MicronutrientGrid.jsx'
 import { calculateMicronutrientTotals } from '../components/MicronutrientTotals.jsx'
+import MealItemsEditor from '../components/MealItemsEditor.jsx'
+import { saveMealItemEdits } from '../utils/mealItemsApi.js'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -640,6 +642,7 @@ function SlotSection({ name, meals, onAddClick, onEdit, onDelete, onCopy, onMove
 
 function EditMealModal({ meal, onSave, onDelete, onClose }) {
   const { getToken } = useAuth()
+  const hasItems = Array.isArray(meal.items) && meal.items.length > 0
   const [form, setForm] = useState({
     meal_name:    meal.meal_name,
     meal_slot:    meal.meal_slot || '',
@@ -651,12 +654,14 @@ function EditMealModal({ meal, onSave, onDelete, onClose }) {
     serving_size: meal.serving_size != null ? String(meal.serving_size) : '',
     serving_unit: meal.serving_unit ?? 'g',
   })
+  const [items,     setItems]    = useState(() => hasItems ? meal.items.map(i => ({ ...i })) : [])
   const [saving,    setSaving]   = useState(false)
   const [deleting,  setDeleting] = useState(false)
   const [error,     setError]    = useState(null)
 
   // Auto-recalculate macros when serving size / unit changes (only when original serving is known)
   useEffect(() => {
+    if (hasItems) return
     if (!meal.serving_size || !meal.serving_unit) return
     const origGrams = toGrams(parseFloat(meal.serving_size), meal.serving_unit)
     if (origGrams <= 0) return
@@ -695,6 +700,21 @@ function EditMealModal({ meal, onSave, onDelete, onClose }) {
     setSaving(true)
     setError(null)
     try {
+      if (hasItems) {
+        const updated = await saveMealItemEdits({
+          getToken,
+          mealId: meal.id,
+          scalarFields: {
+            meal_name: form.meal_name.trim(),
+            meal_slot: form.meal_slot || undefined,
+            fiber:     form.fiber !== '' ? Number(form.fiber) : undefined,
+          },
+          items,
+        })
+        onSave(updated)
+        return
+      }
+
       const token = await getToken()
       const res = await fetch(`${API_URL}/api/meals/${meal.id}`, {
         method: 'PATCH',
@@ -763,32 +783,45 @@ function EditMealModal({ meal, onSave, onDelete, onClose }) {
             </select>
           </div>
 
-          {/* Serving size + unit — updates macros automatically */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Serving</label>
-            <div className="flex gap-2">
-              <input type="number" name="serving_size" value={form.serving_size} onChange={set} min="0.01" step="any"
-                placeholder="100"
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
-              <select value={form.serving_unit} onChange={e => handleEditUnitChange(e.target.value)}
-                className="border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
-                {SERVING_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-              </select>
-            </div>
-            {meal.serving_size && (
-              <p className="text-[10px] text-gray-400 mt-0.5">Changing serving recalculates macros</p>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            {[['Calories', 'calories'], ['Protein g', 'protein'], ['Carbs g', 'carbs'], ['Fat g', 'fat'], ['Fiber g', 'fiber']].map(([lbl, nm]) => (
-              <div key={nm}>
-                <label className="block text-xs font-medium text-gray-600 mb-1">{lbl}</label>
-                <input type="number" name={nm} value={form[nm]} onChange={set} min="0"
+          {hasItems ? (
+            <>
+              <MealItemsEditor items={items} onChange={setItems} />
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Fiber g</label>
+                <input type="number" name="fiber" value={form.fiber} onChange={set} min="0"
                   className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
               </div>
-            ))}
-          </div>
+            </>
+          ) : (
+            <>
+              {/* Serving size + unit — updates macros automatically */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Serving</label>
+                <div className="flex gap-2">
+                  <input type="number" name="serving_size" value={form.serving_size} onChange={set} min="0.01" step="any"
+                    placeholder="100"
+                    className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+                  <select value={form.serving_unit} onChange={e => handleEditUnitChange(e.target.value)}
+                    className="border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
+                    {SERVING_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </div>
+                {meal.serving_size && (
+                  <p className="text-[10px] text-gray-400 mt-0.5">Changing serving recalculates macros</p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                {[['Calories', 'calories'], ['Protein g', 'protein'], ['Carbs g', 'carbs'], ['Fat g', 'fat'], ['Fiber g', 'fiber']].map(([lbl, nm]) => (
+                  <div key={nm}>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">{lbl}</label>
+                    <input type="number" name={nm} value={form[nm]} onChange={set} min="0"
+                      className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]" />
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
           {error && <p className="text-xs text-red-500">{error}</p>}
         </div>
 
@@ -1208,6 +1241,9 @@ function PhotoLogger({ slotName, onSaved, logDate, initialFile = null }) {
       if (a.fiber_g  != null) sf.append('fiber_g',  a.fiber_g)
       if (a.sugar_g  != null) sf.append('sugar_g',  a.sugar_g)
       if (logDate)            sf.append('log_date', logDate)
+      if (Array.isArray(a.ingredients) && a.ingredients.length > 0) {
+        sf.append('ingredients', JSON.stringify(a.ingredients))
+      }
       const sRes = await fetch(`${API_URL}/api/meals`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: sf })
       if (!sRes.ok) throw new Error(`Save failed (${sRes.status})`)
       const saved = await sRes.json()

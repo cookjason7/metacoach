@@ -182,6 +182,9 @@ function PhotoMode({ slot, logDate }) {
       body.append('meal_slot', slot)
       body.append('log_date',  logDate)
       if (analysis.fiber_g != null) body.append('fiber_g', analysis.fiber_g)
+      if (Array.isArray(analysis.ingredients) && analysis.ingredients.length > 0) {
+        body.append('ingredients', JSON.stringify(analysis.ingredients))
+      }
       const res = await fetch(`${API_URL}/api/meals`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },

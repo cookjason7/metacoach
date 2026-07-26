@@ -2091,6 +2091,32 @@ export async function runMigrations() {
   } catch (err) {
     console.error('[migrations] form_assignments org_id backfill failed:', err.message)
   }
+
+  // meal_items: per-ingredient breakdown for a logged meal, following the
+  // recipe_ingredients precedent (recipes/recipe_ingredients above). meals
+  // keeps its existing collapsed calories/protein/carbs/fat row unchanged —
+  // this is an additive child table, populated for photo-analyzed meals
+  // whose AI response includes an itemized ingredients array. Rows are
+  // absent for meals logged before this table existed or via flows that
+  // don't itemize (manual/search/text entry).
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS meal_items (
+        id        SERIAL PRIMARY KEY,
+        meal_id   INTEGER NOT NULL REFERENCES meals(id) ON DELETE CASCADE,
+        item      TEXT NOT NULL,
+        portion   TEXT,
+        weight_g  NUMERIC(8,1),
+        calories  NUMERIC(8,1),
+        protein   NUMERIC(6,1),
+        carbs     NUMERIC(6,1),
+        fat       NUMERIC(6,1)
+      )
+    `)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_meal_items_meal_id ON meal_items (meal_id)`)
+  } catch (err) {
+    console.error('[migrations] meal_items setup failed:', err.message)
+  }
 }
 
 // Resolves the organization an internal user id belongs to. Falls back to 1
