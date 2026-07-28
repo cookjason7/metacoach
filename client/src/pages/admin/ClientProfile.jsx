@@ -3606,7 +3606,7 @@ function isCheckInSubmission(sub) {
   return t.includes('check-in') || t.includes('check in')
 }
 
-function FormSubmissionsSection({ clientId, getToken }) {
+function FormSubmissionsSection({ clientId, getToken, pinnedSubmissionId = null, onPinSubmission }) {
   const [submissions, setSubmissions] = useState(undefined)
   const [loading,     setLoading]     = useState(true)
   const [openId,      setOpenId]      = useState(null)
@@ -3884,12 +3884,28 @@ function FormSubmissionsSection({ clientId, getToken }) {
                         <span className="truncate block" title={sub.coach_note || ''}>{notePreview(sub.coach_note)}</span>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => handleView(sub)}
-                          className="text-xs text-[#E8670A] hover:text-[#c45e09] font-semibold"
-                        >
-                          {isOpen ? 'Close' : 'View'}
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          {onPinSubmission && (
+                            <button
+                              onClick={() => onPinSubmission(sub)}
+                              className={`hidden lg:inline-flex p-1 rounded-lg transition-colors ${
+                                pinnedSubmissionId === sub.id
+                                  ? 'text-[#E8670A] bg-orange-50'
+                                  : 'text-gray-300 hover:text-gray-500 hover:bg-gray-100'
+                              }`}
+                              title={pinnedSubmissionId === sub.id ? 'Unpin form' : 'Pin form to side panel'}
+                              aria-label={pinnedSubmissionId === sub.id ? 'Unpin form' : 'Pin form to side panel'}
+                            >
+                              📌
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleView(sub)}
+                            className="text-xs text-[#E8670A] hover:text-[#c45e09] font-semibold"
+                          >
+                            {isOpen ? 'Close' : 'View'}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                     {isOpen && (
@@ -3988,9 +4004,228 @@ function FormSubmissionsSection({ clientId, getToken }) {
   )
 }
 
+// ─── Pinned form detail (self-contained; used by the desktop split-view side panel) ──
+
+function FormSubmissionDetail({ sub, getToken, onChange }) {
+  const [reviewing, setReviewing] = useState(false)
+  const [completing, setCompleting] = useState(false)
+  const [savingNote, setSavingNote] = useState(false)
+  const [generatingFeedback, setGeneratingFeedback] = useState(false)
+  const [noteDraft, setNoteDraft] = useState(sub.coach_note ?? '')
+
+  useEffect(() => { setNoteDraft(sub.coach_note ?? '') }, [sub.id])
+
+  const schema  = Array.isArray(sub.version_schema) ? sub.version_schema : []
+  const isDirty = noteDraft !== (sub.coach_note ?? '')
+
+  async function handleMarkReviewed() {
+    if (reviewing) return
+    setReviewing(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(
+        `${API_URL}/api/coach-admin/form-submissions/${sub.id}/mark-reviewed`,
+        { method: 'PATCH', headers: { Authorization: `Bearer ${token}` } },
+      )
+      if (res.ok) {
+        const data = await res.json()
+        onChange({ reviewed_at: data.reviewed_at, reviewed_by: data.reviewed_by, reviewed_by_name: data.reviewed_by_name })
+      }
+    } catch {}
+    finally { setReviewing(false) }
+  }
+
+  async function handleMarkComplete() {
+    if (completing) return
+    setCompleting(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(
+        `${API_URL}/api/coach-admin/form-submissions/${sub.id}/mark-complete`,
+        { method: 'PATCH', headers: { Authorization: `Bearer ${token}` } },
+      )
+      if (res.ok) {
+        const data = await res.json()
+        onChange({ completed_at: data.completed_at, completed_by: data.completed_by, completed_by_name: data.completed_by_name })
+      }
+    } catch {}
+    finally { setCompleting(false) }
+  }
+
+  async function handleGenerateFeedback() {
+    if (generatingFeedback) return
+    setGeneratingFeedback(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(
+        `${API_URL}/api/coach-admin/form-submissions/${sub.id}/ai-feedback`,
+        { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
+      )
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) {
+        onChange({
+          ai_feedback:                   data.ai_feedback,
+          ai_feedback_generated_at:      data.ai_feedback_generated_at,
+          ai_feedback_generated_by_name: data.ai_feedback_generated_by_name,
+        })
+      } else {
+        alert(data.error ?? 'Failed to generate feedback.')
+      }
+    } catch {
+      alert('Failed to generate feedback.')
+    } finally {
+      setGeneratingFeedback(false)
+    }
+  }
+
+  async function handleSaveNote() {
+    if (savingNote) return
+    setSavingNote(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(
+        `${API_URL}/api/coach-admin/form-submissions/${sub.id}/note`,
+        {
+          method:  'PATCH',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ note: noteDraft }),
+        },
+      )
+      if (res.ok) {
+        const data = await res.json()
+        const savedNote = data.coach_note ?? null
+        onChange({ coach_note: savedNote })
+        setNoteDraft(savedNote ?? '')
+      }
+    } catch {}
+    finally { setSavingNote(false) }
+  }
+
+  return (
+    <div className="space-y-4">
+      {schema.length === 0 ? (
+        <p className="text-xs text-gray-400">No schema available.</p>
+      ) : (
+        <div className="space-y-3">
+          {schema.map(field => (
+            <div key={field.id}>
+              <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-0.5">{field.label}</p>
+              <p className="text-sm text-gray-800">{renderAnswer(field, sub.answers?.[field.id])}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="pt-3 border-t border-gray-200">
+        <div className="flex items-center justify-between gap-2 mb-1.5">
+          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">AI Feedback</p>
+          <button
+            onClick={handleGenerateFeedback}
+            disabled={generatingFeedback}
+            className="min-h-11 md:min-h-0 text-xs bg-[#1e2a3a] text-white font-bold px-3 py-1.5 rounded-lg hover:bg-[#28374b] disabled:opacity-50 shrink-0"
+          >
+            {generatingFeedback ? 'Generating…' : sub.ai_feedback ? 'Regenerate AI Feedback' : 'Generate AI Feedback'}
+          </button>
+        </div>
+        {sub.ai_feedback ? (
+          <div className="bg-orange-50/50 border border-orange-100 rounded-xl p-3">
+            <p className="text-sm text-gray-800 whitespace-pre-wrap">{sub.ai_feedback}</p>
+            {sub.ai_feedback_generated_at && (
+              <p className="text-[10px] text-gray-400 mt-2">
+                Generated {fmtDateTime(sub.ai_feedback_generated_at)}
+                {sub.ai_feedback_generated_by_name ? ` by ${sub.ai_feedback_generated_by_name}` : ''}
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400">No AI feedback generated yet.</p>
+        )}
+      </div>
+
+      <div className="pt-3 border-t border-gray-200">
+        <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-1">Staff Note</p>
+        <textarea
+          rows={2}
+          value={noteDraft}
+          onChange={e => setNoteDraft(e.target.value)}
+          placeholder="Add a note about this submission…"
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+        />
+        <button
+          onClick={handleSaveNote}
+          disabled={savingNote || !isDirty}
+          className="mt-1.5 min-h-11 md:min-h-0 text-xs bg-[#E8670A] text-white font-bold px-3 py-1.5 rounded-lg hover:bg-[#c45e09] disabled:opacity-50"
+        >
+          {savingNote ? 'Saving…' : 'Save Note'}
+        </button>
+      </div>
+
+      <div className="pt-2 border-t border-gray-200 space-y-2">
+        {sub.completed_at ? (
+          <div className="space-y-0.5">
+            <p className="text-xs text-emerald-700 font-semibold">
+              Reviewed{sub.reviewed_by_name ? ` by ${sub.reviewed_by_name}` : ''} · {new Date(sub.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </p>
+            <p className="text-xs text-purple-700 font-semibold">
+              Complete{sub.completed_by_name ? ` · ${sub.completed_by_name}` : ''} · {new Date(sub.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </p>
+          </div>
+        ) : sub.reviewed_at ? (
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-emerald-700 font-semibold">
+              Reviewed{sub.reviewed_by_name ? ` by ${sub.reviewed_by_name}` : ''} · {new Date(sub.reviewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </p>
+            <button
+              onClick={handleMarkComplete}
+              disabled={completing}
+              className="text-xs bg-purple-600 text-white font-bold px-4 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50"
+            >
+              {completing ? 'Marking…' : 'Mark Complete'}
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={handleMarkReviewed}
+            disabled={reviewing}
+            className="text-xs bg-emerald-600 text-white font-bold px-4 py-2 rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {reviewing ? 'Marking…' : 'Mark Reviewed'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Pinned form side panel (desktop split-view, lg breakpoint and up) ───────
+
+function PinnedFormPanel({ submission, getToken, onUnpin, onChange }) {
+  return (
+    <div className="hidden lg:flex lg:flex-col lg:w-[38%] lg:shrink-0 lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-2rem)] bg-white border border-gray-200 rounded-2xl overflow-hidden">
+      <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-gray-200 bg-gray-50 shrink-0">
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-gray-900 truncate">{submission.form_title}</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">{fmtDateTime(submission.submitted_at)}</p>
+        </div>
+        <button
+          onClick={onUnpin}
+          className="shrink-0 p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-colors"
+          title="Unpin and close"
+          aria-label="Unpin and close"
+        >
+          ✕
+        </button>
+      </div>
+      <div className="p-4 overflow-y-auto">
+        <FormSubmissionDetail sub={submission} getToken={getToken} onChange={onChange} />
+      </div>
+    </div>
+  )
+}
+
 // ─── Assessment tab ────────────────────────────────────────────────────────────
 
-function AssessmentTab({ clientId, getToken }) {
+function AssessmentTab({ clientId, getToken, pinnedSubmissionId, onPinSubmission }) {
   const [data, setData] = useState(undefined)
   const [loading, setLoading] = useState(true)
 
@@ -4041,7 +4276,7 @@ function AssessmentTab({ clientId, getToken }) {
       <FormSendSection clientId={clientId} getToken={getToken} />
 
       {/* ── Form Submissions: Check-Ins + Other Forms ── */}
-      <FormSubmissionsSection clientId={clientId} getToken={getToken} />
+      <FormSubmissionsSection clientId={clientId} getToken={getToken} pinnedSubmissionId={pinnedSubmissionId} onPinSubmission={onPinSubmission} />
 
       {/* ── Health Assessment / Intake Form ── */}
       <div>
@@ -7402,6 +7637,11 @@ export default function ClientProfile() {
   const [tab, setTab] = useState('overview')
   const [moreOpen, setMoreOpen] = useState(false)
   const [unreadMsg, setUnreadMsg] = useState(0)
+  const [pinnedSubmission, setPinnedSubmission] = useState(null)
+
+  function handlePinSubmission(sub) {
+    setPinnedSubmission(prev => (prev?.id === sub.id ? null : sub))
+  }
 
   useEffect(() => {
     const requestedTab = searchParams.get('tab')
@@ -7448,7 +7688,7 @@ export default function ClientProfile() {
   if (!client) return null
 
   return (
-    <div className="max-w-5xl">
+    <div className={pinnedSubmission ? 'max-w-7xl' : 'max-w-5xl'}>
       {/* Back link */}
       <button onClick={() => navigate('/admin/clients')} className="text-sm text-[#E8670A] hover:text-[#c45e09] font-medium mb-3 inline-flex items-center gap-1">
         ← Back to clients
@@ -7567,17 +7807,30 @@ export default function ClientProfile() {
         </div>
       </div>
 
-      {/* Tab content */}
-      {tab === 'overview'   && <OverviewTab    client={client} role={meRole} getToken={getToken} onUpdate={u => setClient(c => ({ ...c, ...u }))} />}
-      {tab === 'nutrition'  && <NutritionTab   client={client} clientId={client.id} getToken={getToken} onUpdate={u => setClient(c => ({ ...c, ...u }))} />}
-      {tab === 'habits'     && <CalendarTab    clientId={client.id} getToken={getToken} />}
-      {tab === 'progress'   && <ProgressTab    clientId={client.id} getToken={getToken} role={meRole} clientName={[client.display_first_name || client.first_name, client.display_last_name || client.last_name].filter(Boolean).join(' ') || client.email?.split('@')[0] || null} />}
-      {tab === 'assessment' && <AssessmentTab  clientId={client.id} getToken={getToken} />}
-      {tab === 'notes'      && <NotesTab       clientId={client.id} role={meRole} getToken={getToken} />}
-      {tab === 'messaging'  && <MessagingTab   client={client} role={meRole} meId={meId} getToken={getToken} />}
-      {tab === 'engagement' && <EngagementTab  clientId={client.id} getToken={getToken} />}
-      {tab === 'bloodwork'  && <BloodworkTab   clientId={client.id} getToken={getToken} bloodworkEnabled={client.bloodwork_enabled ?? false} onClientUpdate={u => setClient(c => ({ ...c, ...u }))} client={client} />}
-      {tab === 'workouts'   && <WorkoutsTab    clientId={client.id} clientFirstName={client.display_first_name || client.first_name} getToken={getToken} />}
+      {/* Tab content — becomes a two-column split view on desktop (lg+) when a form is pinned */}
+      <div className={pinnedSubmission ? 'lg:flex lg:items-start lg:gap-6' : ''}>
+        <div className={pinnedSubmission ? 'lg:flex-1 lg:min-w-0' : ''}>
+          {tab === 'overview'   && <OverviewTab    client={client} role={meRole} getToken={getToken} onUpdate={u => setClient(c => ({ ...c, ...u }))} />}
+          {tab === 'nutrition'  && <NutritionTab   client={client} clientId={client.id} getToken={getToken} onUpdate={u => setClient(c => ({ ...c, ...u }))} />}
+          {tab === 'habits'     && <CalendarTab    clientId={client.id} getToken={getToken} />}
+          {tab === 'progress'   && <ProgressTab    clientId={client.id} getToken={getToken} role={meRole} clientName={[client.display_first_name || client.first_name, client.display_last_name || client.last_name].filter(Boolean).join(' ') || client.email?.split('@')[0] || null} />}
+          {tab === 'assessment' && <AssessmentTab  clientId={client.id} getToken={getToken} pinnedSubmissionId={pinnedSubmission?.id ?? null} onPinSubmission={handlePinSubmission} />}
+          {tab === 'notes'      && <NotesTab       clientId={client.id} role={meRole} getToken={getToken} />}
+          {tab === 'messaging'  && <MessagingTab   client={client} role={meRole} meId={meId} getToken={getToken} />}
+          {tab === 'engagement' && <EngagementTab  clientId={client.id} getToken={getToken} />}
+          {tab === 'bloodwork'  && <BloodworkTab   clientId={client.id} getToken={getToken} bloodworkEnabled={client.bloodwork_enabled ?? false} onClientUpdate={u => setClient(c => ({ ...c, ...u }))} client={client} />}
+          {tab === 'workouts'   && <WorkoutsTab    clientId={client.id} clientFirstName={client.display_first_name || client.first_name} getToken={getToken} />}
+        </div>
+
+        {pinnedSubmission && (
+          <PinnedFormPanel
+            submission={pinnedSubmission}
+            getToken={getToken}
+            onUnpin={() => setPinnedSubmission(null)}
+            onChange={fields => setPinnedSubmission(prev => (prev ? { ...prev, ...fields } : prev))}
+          />
+        )}
+      </div>
     </div>
   )
 }
