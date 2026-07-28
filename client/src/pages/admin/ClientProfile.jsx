@@ -30,8 +30,8 @@ const TABS = [
   { id: 'messaging',   label: 'Messages',   icon: '✉' },
   { id: 'habits',      label: 'Calendar',   icon: '📅' },
   { id: 'notes',       label: 'Notes',      icon: '✎' },
-  { id: 'bloodwork',   label: 'Bloodwork',  icon: '🩸' },
   { id: 'workouts',    label: 'Workouts',   icon: '💪' },
+  { id: 'bloodwork',   label: 'Bloodwork',  icon: '🩸' },
 ]
 // First 7 always visible; rest tucked behind "More ▾" so the row fits desktop without scrolling.
 const PRIMARY_TABS = TABS.slice(0, 7)
