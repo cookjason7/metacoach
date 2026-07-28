@@ -26,10 +26,10 @@ const TABS = [
   { id: 'nutrition',   label: 'Nutrition',  icon: '🥗' },
   { id: 'progress',    label: 'Progress',   icon: '↗' },
   { id: 'assessment',  label: 'Forms',      icon: '★' },
-  { id: 'notes',       label: 'Notes',      icon: '✎' },
+  { id: 'engagement',  label: 'Engagement', icon: '⚡' },
   { id: 'messaging',   label: 'Messages',   icon: '✉' },
   { id: 'habits',      label: 'Calendar',   icon: '📅' },
-  { id: 'engagement',  label: 'Engagement', icon: '⚡' },
+  { id: 'notes',       label: 'Notes',      icon: '✎' },
   { id: 'bloodwork',   label: 'Bloodwork',  icon: '🩸' },
   { id: 'workouts',    label: 'Workouts',   icon: '💪' },
 ]
