@@ -660,6 +660,38 @@ function CoachFoodCard({ food, editingId, editSaving, editErr, togglingId, archi
   )
 }
 
+// Sanity-checks a pending client-submitted food's stated calories against
+// calories implied by its macros (protein*4 + carbs*4 + fat*9). Returns null
+// when the food looks fine, or a short warning label to surface on its row.
+function pendingFoodMacroWarning(food) {
+  const cal  = food.calories_per_serving
+  const pro  = food.protein
+  const carb = food.carbs
+  const fat  = food.fat
+
+  const hasCal      = cal != null
+  const calNonZero  = hasCal && Number(cal) !== 0
+  const hasAnyMacro = (pro  != null && Number(pro)  !== 0)
+                    || (carb != null && Number(carb) !== 0)
+                    || (fat  != null && Number(fat)  !== 0)
+
+  // Nothing entered at all — e.g. only a serving size with no calories/macros
+  if (!hasCal && !hasAnyMacro) return 'Incomplete data'
+
+  // One side has data, the other is entirely missing/zero
+  if (calNonZero && !hasAnyMacro) return "Macros don't match calories"
+  if (!calNonZero && hasAnyMacro) return "Macros don't match calories"
+
+  if (calNonZero && hasAnyMacro) {
+    const expected = (Number(pro) || 0) * 4 + (Number(carb) || 0) * 4 + (Number(fat) || 0) * 9
+    const stated   = Number(cal)
+    const variance = Math.abs(expected - stated) / stated
+    if (variance > 0.15) return "Macros don't match calories"
+  }
+
+  return null
+}
+
 function CoachFoodsTab({ getToken, onCountChange }) {
   const [coachFoods,    setCoachFoods]    = useState([])
   const [loading,       setLoading]       = useState(true)
@@ -892,7 +924,9 @@ function CoachFoodsTab({ getToken, onCountChange }) {
             <p className="text-xs text-amber-500 px-4 py-3">Loading…</p>
           ) : (
             <div className="divide-y divide-amber-100">
-              {pendingFoods.map(food => (
+              {pendingFoods.map(food => {
+                const macroWarning = pendingFoodMacroWarning(food)
+                return (
                 <div key={food.id} className="px-4 py-3">
                   <div className="flex items-start justify-between gap-3 flex-wrap sm:flex-nowrap">
                     <div className="min-w-0">
@@ -912,6 +946,17 @@ function CoachFoodsTab({ getToken, onCountChange }) {
                           food.serving_size != null ? `per ${food.serving_size}${food.serving_unit ?? 'g'}` : null,
                         ].filter(Boolean).join(' · ')}
                       </p>
+                      {macroWarning && (
+                        <span
+                          className={`inline-flex items-center gap-1 mt-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                            macroWarning === 'Incomplete data'
+                              ? 'border-orange-300 bg-orange-50 text-orange-700'
+                              : 'border-red-300 bg-red-50 text-red-700'
+                          }`}
+                        >
+                          ⚠ {macroWarning}
+                        </span>
+                      )}
                     </div>
                     <div className="flex gap-2 shrink-0 mt-1 sm:mt-0">
                       <button
@@ -931,7 +976,7 @@ function CoachFoodsTab({ getToken, onCountChange }) {
                     </div>
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           )}
         </div>
