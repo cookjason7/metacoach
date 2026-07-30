@@ -61,12 +61,12 @@ export function validateWorkoutPlan(plan, { equipmentList = null, blockedNamePat
       // carrying flagged/flag_reason/flag_note for the coach. Global-safety and
       // injury exclusions are never bypassed there, so this can't hide those.
       const isBlocked = blockedRe && !ex.block_bypass_approved ? blockedRe.test(ex.name) : false
-      // 'body only' requires literally zero equipment, so it's always performable
-      // regardless of the client's selected equipment — never a real mismatch. This
-      // matters now that the vertical-pull Day 3 preference (workoutGenerator.js)
-      // intentionally relaxes equipment matching to include body-only/band exercises
-      // even for clients who selected other equipment.
-      const isEquipmentMismatch = !isBlocked && !!equipmentList?.length && !!ex.equipment && ex.equipment !== 'body only' && !equipmentList.includes(ex.equipment)
+      // 'body only' requires literally zero equipment, and 'bands' are the other
+      // value the vertical-pull Day 3 preference (workoutGenerator.js) deliberately
+      // widens equipment matching to include — both are always performable
+      // regardless of the client's selected equipment, so neither is ever a real
+      // mismatch even for clients who selected other equipment.
+      const isEquipmentMismatch = !isBlocked && !!equipmentList?.length && !!ex.equipment && ex.equipment !== 'body only' && ex.equipment !== 'bands' && !equipmentList.includes(ex.equipment)
 
       if (isBlocked) {
         ex.flagged = true
