@@ -915,6 +915,28 @@ The "upper_push" and "upper_pull" slots on every day are already reserved by the
 - A 2-exercise circuit is correct and expected here. Never skip a day's circuit or leave every slot null just because only two eligible slots remain, and never pad it back to 3-4 by reaching for a reserved slot.
 ` : ''
 
+  // Longer sessions add one bonus carry/conditioning slot per day (see BONUS_SLOTS
+  // in buildDayQuota), which the static rules above only mention in passing as
+  // something to fold into a circuit "when that day has one." In testing, Claude
+  // never actually included it — a static, shared-across-all-days rule wasn't
+  // salient enough. Calling the slot out by name, per day, is a much more direct
+  // nudge than trusting the model to notice which of its own days qualifies.
+  const bonusSlotDayNotes = circuitsActive
+    ? daySkeletons
+        .map(day => {
+          const bonusSlot = day.slots.find(s => s.quotaSlot === 'carry' || s.quotaSlot === 'conditioning')
+          if (!bonusSlot) return null
+          return `- Day ${day.day_index + 1}: this day has a bonus ${bonusSlot.quotaSlot} slot — [${bonusSlot.slot_id}] "${bonusSlot.name}". Include it in that day's circuit_group alongside the squat-or-hinge + core pairing. Do not leave it standalone.`
+        })
+        .filter(Boolean)
+        .join('\n')
+    : ''
+
+  const bonusSlotText = bonusSlotDayNotes ? `
+BONUS SLOT — INCLUDE IN THAT DAY'S CIRCUIT
+${bonusSlotDayNotes}
+` : ''
+
   return `You are Katie, the Life Warrior Coaching workout programming assistant for women over 40.
 
 YOUR ROLE
@@ -973,10 +995,11 @@ Circuits selection: ${answers.circuits}
 ${supersetReservationText}
 CIRCUIT PATTERN RULE — HARD CONSTRAINT, NO EXCEPTIONS
 Never put the "squat" slot and the "hinge" slot in the same "circuit_group". Each exercise above is tagged with its pattern in parentheses — check those tags before assigning any circuit_group. A circuit may contain at most ONE of squat or hinge. Grouping both would place the day's two lower-body movements back to back inside the circuit's rounds, which the required day sequence forbids.
+REQUIRED: the "core" slot must always be one of the circuit_group's members. Never tag squat and hinge into the same circuit_group and leave core untagged — that is not a valid circuit, it just pairs the two forbidden lower-body slots together. Every circuit_group you create must be built around core paired with squat OR hinge (never both).
 ${circuitAllowedExamples}
 ${circuitNotAllowedExamples}
-If a circuit would need both, drop the hinge from it and leave that exercise's "circuit_group" null.
-
+If a circuit would need both squat and hinge, drop the hinge from it, keep core paired with squat instead, and leave the hinge exercise's "circuit_group" null — never leave core out.
+${bonusSlotText}
 Show inter-exercise rest AND round rest explicitly (via "rest_seconds" and "notes") when circuits are used.
 Use opposing or non-competing movement patterns in circuits (upper/lower alternation preferred).
 
@@ -1172,11 +1195,26 @@ function mergeResponse(daySkeletons, aiPlan, { includeCircuit = false } = {}) {
           kept.push(m)
         }
         // A group needs 2+ members to be a real group. If salvaging leaves fewer
-        // (e.g. the AI paired squat+hinge alone), fall back to fully flat for this
-        // group — every member standalone, same as the pre-salvage behaviour.
+        // (e.g. the AI tagged squat+hinge together and left core untagged), first
+        // try pulling in that day's core slot as the second member before giving
+        // up — core is the intended pairing per the CIRCUIT PATTERN RULE, and it's
+        // sitting right there untagged in exactly the failure case this handles.
+        // Only steal it if the AI didn't already tag it into some other group
+        // (coreTag would be set) and it isn't superset-claimed.
         if (kept.length < 2) {
-          console.warn(`[workoutGenerator] Dropping AI circuit_group for day ${i + 1} — contains ${members.length - kept.length + 1} lower-body (squat/hinge) slots and fewer than 2 members would remain after removing the conflict: ${members.map(m => m.slotId).join(', ')}`)
-          continue
+          const coreSlot = skeleton.slots.find(s => s.quotaSlot === 'core')
+          const coreEx = coreSlot ? exerciseBySlotId.get(coreSlot.slot_id) : null
+          const coreAi = coreSlot ? (aiBySlot.get(coreSlot.slot_id) ?? {}) : {}
+          const coreTag = typeof coreAi.circuit_group === 'string' ? coreAi.circuit_group.trim()
+            : typeof coreAi.circuit_group === 'number' ? String(coreAi.circuit_group) : null
+          const coreAvailable = coreEx && coreEx.group_type === 'exercise' && !coreTag
+          if (coreAvailable) {
+            kept.push({ slotId: coreSlot.slot_id, quotaSlot: coreSlot.quotaSlot })
+            console.warn(`[workoutGenerator] Salvaged AI circuit_group for day ${i + 1} by pulling in the untagged core slot (${coreSlot.slot_id}) as the second member, after removing ${demoted.length || members.length - 1} conflicting lower-body slot(s): ${members.map(m => m.slotId).join(', ')}`)
+          } else {
+            console.warn(`[workoutGenerator] Dropping AI circuit_group for day ${i + 1} — contains ${members.length - kept.length + 1} lower-body (squat/hinge) slots, fewer than 2 members would remain after removing the conflict, and no untagged core slot was available to salvage with: ${members.map(m => m.slotId).join(', ')}`)
+            continue
+          }
         }
         if (demoted.length) {
           console.warn(`[workoutGenerator] Salvaged AI circuit_group for day ${i + 1} — removed ${demoted.length} conflicting lower-body slot(s) (${demoted.map(m => `${m.slotId}/${m.quotaSlot}`).join(', ')}) and kept the circuit as ${kept.map(m => m.slotId).join(', ')}`)
