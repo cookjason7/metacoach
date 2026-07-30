@@ -818,9 +818,15 @@ function buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList,
   const equipment = Array.isArray(answers.equipment) ? answers.equipment.join(', ') : answers.equipment
   const isBegginer = (FITNESS_LEVEL_MAP[answers.fitness_level] ?? answers.fitness_level) === 'beginner'
 
+  // Each slot carries its quota pattern (squat/upper_push/hinge/upper_pull/core/…)
+  // because the circuit rules below turn on it — without the pattern spelled out
+  // per slot, the model only sees an exercise name and a slot id and cannot tell
+  // which row is the squat and which is the hinge, so it can't honour the
+  // "never circuit squat with hinge" rule even when told to. mergeResponse still
+  // enforces that rule regardless of what comes back.
   const skeletonText = daySkeletons.map(day => (
     `Day ${day.day_index + 1} (${day.day_focus}):\n` +
-    day.slots.map(s => `  - [${s.slot_id}] "${s.name}"`).join('\n')
+    day.slots.map(s => `  - [${s.slot_id}] "${s.name}" (pattern: ${s.quotaSlot})`).join('\n')
   )).join('\n\n')
 
   const blockedText = beginnerBlockList.length
@@ -926,6 +932,12 @@ Circuits selection: ${answers.circuits}
 - "full" = organize the strength work into multiple 3-4 exercise circuits where session length permits. Give each circuit's exercises a shared "circuit_group" value, distinct per circuit within that day (e.g. "1" for the first circuit, "2" for the second); any leftover exercise that doesn't fit a full circuit gets "circuit_group": null.
 
 "circuit_group" only groups exercises WITHIN the same day — values don't need to be unique across different days, and never apply it to Warm-Up or Cool-Down (those aren't in the exercises list). Never place one exercise's slot_id in more than one circuit_group. Never invent extra exercises to fill a circuit — group only from the exercises already given to you for that day.
+
+CIRCUIT PATTERN RULE — HARD CONSTRAINT, NO EXCEPTIONS
+Never put the "squat" slot and the "hinge" slot in the same "circuit_group". Each exercise above is tagged with its pattern in parentheses — check those tags before assigning any circuit_group. A circuit may contain at most ONE of squat or hinge. Grouping both would place the day's two lower-body movements back to back inside the circuit's rounds, which the required day sequence forbids.
+- Allowed:     squat + upper_push + core   |   hinge + upper_pull + core   |   upper_push + upper_pull + core
+- NOT allowed: squat + hinge + anything    |   any circuit_group containing both the squat and the hinge slot
+If a circuit would need both, drop the hinge from it and leave that exercise's "circuit_group" null.
 
 Show inter-exercise rest AND round rest explicitly (via "rest_seconds" and "notes") when circuits are used.
 Use opposing or non-competing movement patterns in circuits (upper/lower alternation preferred).
