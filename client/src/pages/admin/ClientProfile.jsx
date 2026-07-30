@@ -5739,7 +5739,7 @@ const WO_SUPERSET_OPTIONS = [
 const WO_CIRCUIT_OPTIONS = [
   { id: 'none', icon: '✕', title: 'No Circuits',   subtitle: 'Standard format' },
   { id: 'some', icon: '🔄', title: 'Some Circuits', subtitle: '1 per workout' },
-  { id: 'full', icon: '🔥', title: 'Full Circuits', subtitle: 'Multiple circuits' },
+  { id: 'full', icon: '🔥', title: 'Full Circuits', subtitle: 'One circuit per day' },
 ]
 const WO_STRENGTH_HISTORY_OPTIONS = [
   { id: 'never',        label: 'Never strength trained' },
