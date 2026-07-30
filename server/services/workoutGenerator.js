@@ -877,6 +877,44 @@ Core progression:
   }
   const injuryText = injuryContextLines.length ? `\n${injuryContextLines.map(l => `- ${l}`).join('\n')}` : ''
 
+  // Circuits and supersets requested together need extra prompt context. Superset
+  // pairing is decided entirely in code (buildDaySkeletons claims each day's
+  // upper_push + upper_pull before the model is ever called), and mergeResponse's
+  // circuit-bucketing pass skips any slot already carrying group_type='superset'.
+  // So a circuit_group naming push or pull is silently dropped on merge — and if
+  // that leaves the bucket with fewer than 2 members the circuit disappears
+  // entirely. The model is deliberately never told supersets exist (they're pure
+  // app-side structure, see the "Do NOT mention supersets" rule below), so without
+  // this it has no way to know those two slots are unavailable, and the
+  // upper_push + upper_pull + core pattern below — previously offered to it as an
+  // explicitly allowed example — collapsed to zero circuit grouping every time.
+  const supersetsActive = answers.supersets !== 'none'
+  const circuitsActive  = answers.circuits !== 'none'
+  const bothStructuresActive = supersetsActive && circuitsActive
+
+  // With push and pull reserved, a 45-minute day only has squat, hinge and core
+  // left, and squat-with-hinge is forbidden — so 2 is the realistic ceiling there.
+  // Asking for 3-4 anyway would push the model straight back onto a reserved slot.
+  const circuitSizeText = bothStructuresActive ? '2-3' : '3-4'
+
+  const circuitAllowedExamples = bothStructuresActive
+    ? '- Allowed:     squat + core   |   hinge + core   |   squat + core + carry/conditioning   |   hinge + core + carry/conditioning'
+    : '- Allowed:     squat + upper_push + core   |   hinge + upper_pull + core   |   upper_push + upper_pull + core'
+
+  const circuitNotAllowedExamples = bothStructuresActive
+    ? '- NOT allowed: squat + hinge + anything    |   any circuit_group containing both the squat and the hinge slot    |   any circuit_group containing the upper_push or upper_pull slot'
+    : '- NOT allowed: squat + hinge + anything    |   any circuit_group containing both the squat and the hinge slot'
+
+  const supersetReservationText = bothStructuresActive ? `
+RESERVED SLOTS — READ THIS BEFORE ASSIGNING ANY circuit_group
+The "upper_push" and "upper_pull" slots on every day are already reserved by the app for a separate pairing and are NOT available for circuits.
+- Never give the "upper_push" or "upper_pull" slot a "circuit_group" value. On every day both must be "circuit_group": null. A circuit_group naming either of them is discarded outright.
+- Build each circuit_group only from the remaining slots: squat, hinge, core, and — when that day has one — carry or conditioning.
+- Combined with the squat/hinge rule below, one circuit = the core slot plus EITHER the squat or the hinge slot (never both), plus any carry/conditioning slot that day has.
+- REQUIRED: every training day must contain exactly ONE circuit_group built this way, even when the circuits selection above says "full" — with push and pull reserved there is only ever room for one circuit per day, so produce one per day and no more.
+- A 2-exercise circuit is correct and expected here. Never skip a day's circuit or leave every slot null just because only two eligible slots remain, and never pad it back to 3-4 by reaching for a reserved slot.
+` : ''
+
   return `You are Katie, the Life Warrior Coaching workout programming assistant for women over 40.
 
 YOUR ROLE
@@ -928,15 +966,15 @@ INJURY AND LIMITATION FLAGS${injuryText || '\n- None flagged for this client.'}
 STRUCTURE RULES — ENFORCE EXACTLY
 Circuits selection: ${answers.circuits}
 - "none" = no circuits anywhere in the workout. Every exercise's "circuit_group" must be null.
-- "some" = exactly ONE circuit of 3-4 exercises per workout day, no more. Give every exercise in that circuit the SAME "circuit_group" value (e.g. "1"); every other exercise that day gets "circuit_group": null.
-- "full" = organize the strength work into multiple 3-4 exercise circuits where session length permits. Give each circuit's exercises a shared "circuit_group" value, distinct per circuit within that day (e.g. "1" for the first circuit, "2" for the second); any leftover exercise that doesn't fit a full circuit gets "circuit_group": null.
+- "some" = exactly ONE circuit of ${circuitSizeText} exercises per workout day, no more. Give every exercise in that circuit the SAME "circuit_group" value (e.g. "1"); every other exercise that day gets "circuit_group": null.
+- "full" = organize the strength work into multiple ${circuitSizeText} exercise circuits where session length permits. Give each circuit's exercises a shared "circuit_group" value, distinct per circuit within that day (e.g. "1" for the first circuit, "2" for the second); any leftover exercise that doesn't fit a full circuit gets "circuit_group": null.
 
 "circuit_group" only groups exercises WITHIN the same day — values don't need to be unique across different days, and never apply it to Warm-Up or Cool-Down (those aren't in the exercises list). Never place one exercise's slot_id in more than one circuit_group. Never invent extra exercises to fill a circuit — group only from the exercises already given to you for that day.
-
+${supersetReservationText}
 CIRCUIT PATTERN RULE — HARD CONSTRAINT, NO EXCEPTIONS
 Never put the "squat" slot and the "hinge" slot in the same "circuit_group". Each exercise above is tagged with its pattern in parentheses — check those tags before assigning any circuit_group. A circuit may contain at most ONE of squat or hinge. Grouping both would place the day's two lower-body movements back to back inside the circuit's rounds, which the required day sequence forbids.
-- Allowed:     squat + upper_push + core   |   hinge + upper_pull + core   |   upper_push + upper_pull + core
-- NOT allowed: squat + hinge + anything    |   any circuit_group containing both the squat and the hinge slot
+${circuitAllowedExamples}
+${circuitNotAllowedExamples}
 If a circuit would need both, drop the hinge from it and leave that exercise's "circuit_group" null.
 
 Show inter-exercise rest AND round rest explicitly (via "rest_seconds" and "notes") when circuits are used.
