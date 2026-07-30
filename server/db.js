@@ -457,6 +457,16 @@ export async function migrate() {
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS exercises_name_source_uq ON exercises (name, source)`)
   await pool.query(`CREATE INDEX IF NOT EXISTS exercises_movement_pattern_idx ON exercises (movement_pattern)`)
 
+  // requires_bench: a client-facing equipment answer only ever holds one primary
+  // value (dumbbell/barbell/…), so nothing previously captured the ~176 exercises
+  // that need a flat/incline/decline bench (lying/incline presses, incline curls,
+  // bench-supported rows, etc.) — 'Benches' in EQUIPMENT_MAP (workoutGenerator.js)
+  // resolves to an empty array — no filtering effect at all — so a client without a
+  // bench could be handed any of these. Backfilled from a name/instructions audit
+  // (see server/scripts/backfill-requires-bench.js); default FALSE so every
+  // unaudited/future row is assumed bench-free (never over-filters by accident).
+  await pool.query(`ALTER TABLE exercises ADD COLUMN IF NOT EXISTS requires_bench BOOLEAN NOT NULL DEFAULT FALSE`)
+
   // exercise_id: links a workout_exercises row back to the library when the
   // exercise was AI-selected or coach-picked from search. Nullable — free-typed
   // custom entries (not in the library) keep exercise_name only, as before.

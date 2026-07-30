@@ -188,11 +188,18 @@ function combinePatterns(a, b) {
 /** Builds a single case-insensitive regex source string (for Postgres `!~*` and
  * the post-generation validator) of every exercise name that must never be
  * selected for this client, given fitness level, injury flags, and equipment. Returns null
- * when there's nothing to exclude. */
-export function buildBlockedNamePattern({ isBeginner, injuryFlags, equipmentList, fitnessLevel }) {
+ * when there's nothing to exclude.
+ *
+ * `omitFitnessLevelBlocks` drops only the fitness-level-gated lists
+ * (BEGINNER_BLOCKED_EXERCISES / INTERMEDIATE_BLOCKED_EXERCISES) while keeping every
+ * global-safety, injury, and equipment exclusion as a hard constraint. It exists for
+ * exactly one caller — the last-resort pull-slot fallback (see fillPullSlot) — where
+ * leaving the slot empty is a worse outcome than a level-inappropriate-but-flagged
+ * exercise. Never use it for normal selection. */
+export function buildBlockedNamePattern({ isBeginner, injuryFlags, equipmentList, fitnessLevel, omitFitnessLevelBlocks = false }) {
   const terms = new Set(GLOBAL_BLOCKED_TERMS)
-  if (isBeginner) for (const t of BEGINNER_BLOCKED_EXERCISES) terms.add(t)
-  if (FITNESS_LEVEL_MAP[fitnessLevel] === 'intermediate') for (const t of INTERMEDIATE_BLOCKED_EXERCISES) terms.add(t)
+  if (isBeginner && !omitFitnessLevelBlocks) for (const t of BEGINNER_BLOCKED_EXERCISES) terms.add(t)
+  if (FITNESS_LEVEL_MAP[fitnessLevel] === 'intermediate' && !omitFitnessLevelBlocks) for (const t of INTERMEDIATE_BLOCKED_EXERCISES) terms.add(t)
   if (injuryFlags?.knee) for (const t of KNEE_UNSAFE_TERMS) terms.add(t)
   if (injuryFlags?.lowerBack) for (const t of LOWER_BACK_UNSAFE_TERMS) terms.add(t)
   if (shouldExcludeCardioMachines(equipmentList)) for (const t of CARDIO_MACHINE_TERMS) terms.add(t)
@@ -215,7 +222,7 @@ const EQUIPMENT_MAP = {
   'Dumbbells':         ['dumbbell'],
   'Body Weight':       ['body only'],
   'Barbell':           ['barbell'],
-  'Benches':           [], // no dedicated "bench" equipment tag in the library — contributes no filter on its own
+  'Benches':           [], // no dedicated "bench" equipment tag in the library — never a filter on its own; access is instead signaled through resolveHasBench below, which pickExercise uses to exclude requires_bench=TRUE rows
   'Cable Machine':     ['cable', 'machine'],
   'Full Gym':          null, // no filter — everything available
   'Resistance Bands':  ['bands'],
@@ -234,6 +241,18 @@ function resolveEquipmentList(equipmentAnswers) {
     for (const mapped of EQUIPMENT_MAP[eq] ?? []) set.add(mapped)
   }
   return set.size ? [...set] : null
+}
+
+/** Whether this client has access to a bench, derived from the raw equipment
+ * answers rather than the resolved equipmentList — 'Benches' contributes no
+ * equipment-tag filter of its own (see EQUIPMENT_MAP above), so it would
+ * otherwise vanish entirely once resolveEquipmentList normalizes the answer into
+ * tags. 'Full Gym'/'Full gym' implies bench access the same way it implies every
+ * other piece of equipment. Used by pickExercise to exclude requires_bench=TRUE
+ * rows for clients who answered neither. */
+function resolveHasBench(equipmentAnswers) {
+  const list = Array.isArray(equipmentAnswers) ? equipmentAnswers : [equipmentAnswers].filter(Boolean)
+  return list.includes('Benches') || list.includes('Full Gym') || list.includes('Full gym')
 }
 
 const FITNESS_LEVEL_MAP = { Beginner: 'beginner', Intermediate: 'intermediate', Advanced: 'advanced' }
@@ -293,6 +312,116 @@ function getBodyweightVerticalPullFallback() {
     equipment: 'body only',
     difficulty: 'beginner',
     notes: BODYWEIGHT_VERTICAL_PULL_FALLBACK_NOTE,
+  }
+}
+
+// ── Pull-slot fallback ladder ────────────────────────────────────────────────
+// An unfilled slot is normally skipped (see the `continue` in buildDaySkeletons),
+// which is tolerable for most patterns but never for upper_pull: dropping it
+// silently breaks both the required day sequence and the weekly pull >= push
+// ratio. validatePushPullRatio cannot catch that, because it counts the day
+// *quota* before selection runs and so never sees a slot lost during selection.
+//
+// Real equipment selections that hit this (verified against the live library):
+//   - Resistance Bands alone, every difficulty — zero 'bands' upper_pull rows exist
+//   - Resistance bands / bands + Body Weight, beginner & intermediate — the only
+//     'body only' pull row (Chin-Up) is name-blocked at those levels
+//   - Kettlebell / Kettlebell + Body Weight, beginner — no beginner kettlebell pull
+//     exists, and beginners run strictDifficulty so pickExercise never relaxes it
+//
+// The previous fallback only rescued clients whose equipment resolved to exactly
+// ['body only'], so all of the above silently lost their pull. Every unfilled pull
+// slot now walks this ladder instead, and any tier that had to relax a constraint
+// reports it through the same coach-facing flag field as the equipment-mismatch
+// case (pullVarietyFlag -> pull_variety_flag).
+//
+// Tier order is deliberate — each tier gives up strictly less than the next:
+//   1. Keep equipment + every name block, relax difficulty only.
+//   2. Additionally lift the fitness-level name block. Skipped for beginners:
+//      for them the level block is a hard safety line (the same reasoning behind
+//      strictDifficulty), so a beginner drops to tier 3 rather than being handed
+//      e.g. a Chin-Up. Global-safety, injury, and equipment exclusions are never
+//      lifted at any tier.
+//   3. A hardcoded no-equipment pull (door frame / table / towel row, or the
+//      Doorframe Lat Pull on the vertical-pull day). Requires nothing the client
+//      lacks, so it is always performable and always fills the slot.
+
+const PULL_DIFFICULTY_RELAXED_FLAG = difficulty =>
+  `[PULL FALLBACK — the library has no ${difficulty}-level pull exercise for this client's equipment, so this pull was selected at a different difficulty to keep the day's push/pull balance intact. Review that the load and progression suit this client.]`
+const PULL_LEVEL_BLOCK_BYPASSED_FLAG = level =>
+  `[PULL FALLBACK — every pull exercise matching this client's equipment is on the ${level} block list, so the block was bypassed for this one slot rather than leaving the day with push work and no pull. Review this exercise and substitute an assisted or band-assisted variation if needed.]`
+const PULL_NO_EQUIPMENT_FALLBACK_FLAG =
+  '[PULL FALLBACK — no pull exercise in the library matches this client\'s equipment, so a no-equipment substitute was used instead. It needs nothing the client lacks, but review whether it fits their setup.]'
+
+/** Joins two optional coach-facing flag strings, keeping either alone if the other is absent. */
+function combineFlags(a, b) {
+  return a && b ? `${a} ${b}` : a || b || null
+}
+
+/**
+ * Last-resort fill for an upper_pull slot that normal selection left empty.
+ * Returns `{ exercise, notes, flag, reason, bypassedBlock, isVerticalPull }` —
+ * `exercise` is always a real exercise (a DB row, or a hardcoded no-equipment
+ * substitute carrying its own `notes`); `flag` is the coach-facing note text and
+ * `reason` the machine-readable flag_reason, both non-null whenever a constraint
+ * had to be relaxed; `bypassedBlock` marks a tier-2 pick so the post-generation
+ * validator doesn't re-reject the very name this ladder deliberately allowed.
+ */
+async function fillPullSlot(pool, {
+  dayIndex, pattern, equipmentList, hasBench, difficulty, usedIds,
+  excludeNamePattern, levelRelaxedExcludeNamePattern, isBeginner, fitnessLevel,
+}) {
+  // Tier 1 — equipment and every name block intact; difficulty relaxed.
+  // strictDifficulty is deliberately false here: this is the point at which
+  // relaxing it is the lesser harm, and it is reported to the coach.
+  let exercise = await pickExercise(pool, {
+    pattern, equipmentList, hasBench, difficulty, excludeIds: usedIds,
+    excludeNamePattern, strictDifficulty: false,
+  })
+  if (exercise) {
+    console.warn(`[workoutGenerator] No ${difficulty ?? 'matching'}-difficulty pull exercise for equipment=${JSON.stringify(equipmentList)} (day ${dayIndex + 1}) — relaxed difficulty and selected "${exercise.name}" (${exercise.difficulty})`)
+    return {
+      exercise, notes: null,
+      flag: PULL_DIFFICULTY_RELAXED_FLAG(difficulty ?? 'requested'),
+      reason: 'pull_fallback_difficulty_relaxed',
+      bypassedBlock: false,
+      isVerticalPull: false,
+    }
+  }
+
+  // Tier 2 — additionally lift the fitness-level name block. Never for beginners.
+  if (!isBeginner && levelRelaxedExcludeNamePattern !== excludeNamePattern) {
+    exercise = await pickExercise(pool, {
+      pattern, equipmentList, hasBench, difficulty, excludeIds: usedIds,
+      excludeNamePattern: levelRelaxedExcludeNamePattern, strictDifficulty: false,
+    })
+    if (exercise) {
+      console.warn(`[workoutGenerator] Every equipment-matched pull exercise is on the ${fitnessLevel ?? 'level'} block list (day ${dayIndex + 1}) — bypassed the block for this slot and selected "${exercise.name}"`)
+      return {
+        exercise, notes: null,
+        flag: PULL_LEVEL_BLOCK_BYPASSED_FLAG(fitnessLevel ?? 'fitness-level'),
+        reason: 'pull_fallback_level_block_bypassed',
+        bypassedBlock: true,
+        isVerticalPull: false,
+      }
+    }
+  }
+
+  // Tier 3 — hardcoded no-equipment substitute. Always succeeds.
+  const isVerticalPullDay = dayIndex === VERTICAL_PULL_DAY_INDEX
+  const fallback = isVerticalPullDay ? getBodyweightVerticalPullFallback() : getBodyweightPullFallback(dayIndex)
+  console.warn(`[workoutGenerator] No DB pull exercise available for equipment=${JSON.stringify(equipmentList)} (day ${dayIndex + 1}) — using hardcoded no-equipment fallback "${fallback.name}"`)
+  // A bodyweight-only client is not an equipment mismatch — a no-equipment
+  // substitute is exactly what they should get, so no coach flag for them
+  // (unchanged from the original behaviour for that case).
+  const bodyweightClient = isBodyweightOnly(equipmentList)
+  return {
+    exercise: { id: null, name: fallback.name, movement_pattern: fallback.movement_pattern, equipment: fallback.equipment },
+    notes: fallback.notes,
+    flag: bodyweightClient ? null : PULL_NO_EQUIPMENT_FALLBACK_FLAG,
+    reason: bodyweightClient ? null : 'pull_fallback_no_equipment_match',
+    bypassedBlock: false,
+    isVerticalPull: isVerticalPullDay,
   }
 }
 
@@ -378,7 +507,7 @@ function getBeginnerCoreDayPreference(dayIndex) {
  * `preferredNamePattern` (optional) additionally requires the name to match a regex —
  * used for beginner squat day-variation — and is not itself relaxed across attempts;
  * the caller retries without it if a preferred pick isn't found. */
-async function pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds, excludeNamePattern, strictDifficulty, preferredNamePattern }) {
+async function pickExercise(pool, { pattern, equipmentList, hasBench, difficulty, excludeIds, excludeNamePattern, strictDifficulty, preferredNamePattern }) {
   const attempts = strictDifficulty
     ? [
         { useDifficulty: true, allowRepeat: false },
@@ -399,6 +528,14 @@ async function pickExercise(pool, { pattern, equipmentList, difficulty, excludeI
     if (equipmentList?.length) {
       params.push(equipmentList)
       conditions.push(`equipment = ANY($${params.length})`)
+    }
+    // Bench access is a hard constraint like equipment itself — never relaxed
+    // across attempts, and never skipped for a repeat-allowed retry. A client
+    // who never answered 'Benches' or 'Full Gym'/'Full gym' cannot physically
+    // perform any of the requires_bench=TRUE rows regardless of how sparse the
+    // remaining library gets for their equipment/difficulty.
+    if (!hasBench) {
+      conditions.push(`requires_bench = FALSE`)
     }
     if (useDifficulty && difficulty) {
       params.push(difficulty)
@@ -464,8 +601,10 @@ async function assertLibraryHasRequiredPatterns(pool, requiredPatterns) {
   }
 }
 
-/** Builds the per-day exercise skeleton (deterministic DB picks, no AI involved yet). */
-async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentList, difficulty, preferBilateral, excludeNamePattern, strictDifficulty, isBeginner, injuryFlags, includeSuperset }) {
+/** Builds the per-day exercise skeleton (deterministic DB picks, no AI involved yet).
+ * Exported so the pull-slot fallback behaviour can be exercised directly against a
+ * real library (see workoutGenerator.test.js) without a live Claude call. */
+export async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentList, hasBench, difficulty, preferBilateral, excludeNamePattern, levelRelaxedExcludeNamePattern, strictDifficulty, isBeginner, injuryFlags, includeSuperset, fitnessLevel }) {
   const usedIds = []
   const days = []
   let totalFilled = 0
@@ -480,9 +619,14 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
       // see PLYO_EXCLUDED_SLOTS above. Core slot further excludes sprint/cardio-named
       // exercises — see CORE_SLOT_BLOCKED_TERMS above.
       let slotExcludeNamePattern = excludeNamePattern
+      // Same per-slot additions applied to the level-block-free variant, so the
+      // pull fallback ladder's tier 2 still carries the plyo exclusion it relaxes
+      // nothing about — see fillPullSlot.
+      let slotLevelRelaxedExcludeNamePattern = levelRelaxedExcludeNamePattern ?? excludeNamePattern
       if (PLYO_EXCLUDED_SLOTS.has(slot)) {
         const plyoPattern = PLYO_TERMS.map(escapeRegExp).join('|')
         slotExcludeNamePattern = combinePatterns(excludeNamePattern, plyoPattern)
+        slotLevelRelaxedExcludeNamePattern = combinePatterns(slotLevelRelaxedExcludeNamePattern, plyoPattern)
         // Defensive check: combinePatterns must fold the plyo terms into the final
         // pattern for every strength slot — if it silently dropped them (e.g. a
         // future combinePatterns change breaks the `a && b` branch), a plyo exercise
@@ -494,6 +638,7 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
       }
       if (slot === 'core') {
         slotExcludeNamePattern = combinePatterns(slotExcludeNamePattern, CORE_SLOT_BLOCKED_TERMS.map(escapeRegExp).join('|'))
+        slotLevelRelaxedExcludeNamePattern = combinePatterns(slotLevelRelaxedExcludeNamePattern, CORE_SLOT_BLOCKED_TERMS.map(escapeRegExp).join('|'))
       }
 
       // Beginner squat day-variation: try the day's preferred name pattern first
@@ -503,7 +648,7 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
       if (slot === 'squat' && isBeginner) {
         const preferredNamePattern = getBeginnerSquatDayPreference(d)
         if (preferredNamePattern) {
-          exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
+          exercise = await pickExercise(pool, { pattern, equipmentList, hasBench, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
         }
       }
       // Beginner hinge day-variation: same idea as squat above — bridge/kickback
@@ -511,14 +656,14 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
       if (!exercise && slot === 'hinge' && isBeginner) {
         const preferredNamePattern = getBeginnerHingeDayPreference(d, equipmentList)
         if (preferredNamePattern) {
-          exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
+          exercise = await pickExercise(pool, { pattern, equipmentList, hasBench, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
         }
       }
       // Beginner core day-variation: same idea as squat/hinge above.
       if (!exercise && slot === 'core' && isBeginner) {
         const preferredNamePattern = getBeginnerCoreDayPreference(d)
         if (preferredNamePattern) {
-          exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
+          exercise = await pickExercise(pool, { pattern, equipmentList, hasBench, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
         }
       }
       // Day 3 pull-pattern variation: try a vertical pull (pulldown-family) before
@@ -537,7 +682,7 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
         const verticalPullEquipmentList = equipmentList?.length
           ? [...new Set([...equipmentList, 'body only', 'bands'])]
           : equipmentList // null = "Full Gym" = no restriction already
-        exercise = await pickExercise(pool, { pattern, equipmentList: verticalPullEquipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern: getVerticalPullPreference() })
+        exercise = await pickExercise(pool, { pattern, equipmentList: verticalPullEquipmentList, hasBench, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern: getVerticalPullPreference() })
         if (!exercise) pullVarietyFlag = PULL_VARIETY_FLAG
       }
       // Low back injury: prefer a supported single-arm row for the horizontal pull
@@ -546,25 +691,40 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
       // supported variant rather than leaving it to chance among what's left).
       if (!exercise && slot === 'upper_pull' && injuryFlags?.lowerBack) {
         const preferredNamePattern = getLowerBackPullPreference(equipmentList)
-        exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
+        exercise = await pickExercise(pool, { pattern, equipmentList, hasBench, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
       }
       if (!exercise) {
-        exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty })
+        exercise = await pickExercise(pool, { pattern, equipmentList, hasBench, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty })
       }
 
+      // A pull slot is never allowed to go unfilled — see the fillPullSlot ladder
+      // above for why, and for what each tier gives up. Applies to every equipment
+      // selection now, not just a client whose equipment is exactly ['body only'].
       let fallbackNotes = null
-      if (!exercise && slot === 'upper_pull' && d === VERTICAL_PULL_DAY_INDEX && isBodyweightOnly(equipmentList)) {
-        const fallback = getBodyweightVerticalPullFallback()
-        exercise = { id: null, name: fallback.name, movement_pattern: fallback.movement_pattern, equipment: fallback.equipment }
+      let pullFallbackReason = null
+      let pullFallbackBypassedBlock = false
+      if (!exercise && slot === 'upper_pull') {
+        const fallback = await fillPullSlot(pool, {
+          dayIndex: d,
+          pattern,
+          equipmentList,
+          hasBench,
+          difficulty,
+          usedIds,
+          excludeNamePattern: slotExcludeNamePattern,
+          levelRelaxedExcludeNamePattern: slotLevelRelaxedExcludeNamePattern,
+          isBeginner,
+          fitnessLevel,
+        })
+        exercise = fallback.exercise
         fallbackNotes = fallback.notes
-        pullVarietyFlag = null // this fallback IS a vertical pull — no longer needs the variety flag
-        console.warn(`[workoutGenerator] No DB vertical pull exercise available for bodyweight-only client (day ${d + 1}) — using hardcoded fallback "${fallback.name}"`)
-      }
-      if (!exercise && slot === 'upper_pull' && isBodyweightOnly(equipmentList)) {
-        const fallback = getBodyweightPullFallback(d)
-        exercise = { id: null, name: fallback.name, movement_pattern: fallback.movement_pattern, equipment: fallback.equipment }
-        fallbackNotes = fallback.notes
-        console.warn(`[workoutGenerator] No DB pull exercise available for bodyweight-only client (day ${d + 1}) — using hardcoded fallback "${fallback.name}"`)
+        pullFallbackReason = fallback.reason
+        pullFallbackBypassedBlock = fallback.bypassedBlock
+        // The vertical-pull substitute IS a vertical pull, so it satisfies the Day 3
+        // variety preference and clears that flag; every other tier leaves it standing
+        // and appends its own reason alongside.
+        if (fallback.isVerticalPull) pullVarietyFlag = null
+        pullVarietyFlag = combineFlags(pullVarietyFlag, fallback.flag)
       }
 
       if (!exercise) {
@@ -591,6 +751,8 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
         equipment: exercise.equipment,
         fallbackNotes,
         pullVarietyFlag,
+        pullFallbackReason,
+        pullFallbackBypassedBlock,
         supersetLabel: null,
         // Only ever forced true on the push half of a superset pair — see below.
         // Never relaxed/inferred from the AI response: rest=0 between a superset's
@@ -885,6 +1047,19 @@ function mergeResponse(daySkeletons, aiPlan) {
         // Coach-facing only (see PULL_VARIETY_FLAG) — not shown to the client, and
         // never overrides the exercise itself, which is otherwise perfectly valid.
         pull_variety_flag: slot.pullVarietyFlag ?? null,
+        // Set when the pull-slot fallback ladder had to relax difficulty, bypass the
+        // fitness-level name block, or substitute a no-equipment exercise (see
+        // fillPullSlot). Uses the same flagged/flag_reason mechanism as the
+        // equipment-mismatch case in workoutValidation.js so a coach reviews it —
+        // but deliberately does NOT blank out the exercise name the way that case
+        // does, since the whole point is that a real pull got selected.
+        ...(slot.pullFallbackReason
+          ? { flagged: true, flag_reason: slot.pullFallbackReason, flag_note: slot.pullVarietyFlag ?? null }
+          : {}),
+        // Tells validateWorkoutPlan this specific name was allowed on purpose, so it
+        // isn't re-rejected as [BLOCKED EXERCISE] — which would put the day back to
+        // having no pull at all, the exact bug this ladder exists to fix.
+        ...(slot.pullFallbackBypassedBlock ? { block_bypass_approved: true } : {}),
       })
     }
     if (aiDay.cooldown) {
@@ -1149,6 +1324,11 @@ const BEGINNER_BLOCKED_EXERCISES = [
   'dip', 'bench dip', 'ring dip',
   'clean', 'power clean', 'hang clean', 'clean and press',
   'kettlebell swing', 'single-leg kettlebell swing', 'vertical swing',
+  // Ballistic hinge/pull — same category as the swings above ("Never: kettlebell
+  // swings, hang cleans, or any ballistic hinge pattern" in BEGINNER EXERCISE
+  // PROGRESSIONS), but previously unnamed here, so 'Kettlebell Sumo High Pull'
+  // stayed selectable for a beginner via the pull-slot fallback ladder.
+  'high pull',
   'russian twist',
   'sit-up', 'full sit-up',
   'box jump', 'depth jump',
@@ -1173,6 +1353,7 @@ const INTERMEDIATE_BLOCKED_EXERCISES = [
   '3/4 sit-up', 'three quarter sit-up', // sit-ups blocked for beginners, extended to intermediate
   'decline crunch', 'decline sit-up',
   'kettlebell swing', 'one-arm kettlebell swing', 'single arm swing', // ballistic power movement requiring established hip hinge mechanics
+  'high pull', // ballistic hinge-to-pull, same category as the swings above
   'clock push-up', 'clock pushup', // advanced multi-plane variation
   'lunge sprint', // plyometric lunge pattern
   'rope climb', // requires specialized equipment and extreme pulling strength
@@ -1221,6 +1402,7 @@ function getFloorTransferContext(floorTransfer) {
  */
 export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
   const equipmentList = resolveEquipmentList(answers.equipment)
+  const hasBench      = resolveHasBench(answers.equipment)
   const difficulty    = FITNESS_LEVEL_MAP[answers.fitness_level] ?? null
   const preferBilateral = shouldPreferBilateral({
     injuries: answers.injuries,
@@ -1237,6 +1419,13 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
   const isBeginner = (FITNESS_LEVEL_MAP[answers.fitness_level] ?? answers.fitness_level) === 'beginner'
   const injuryFlags = getInjuryFlags(answers.injuries, opts.healthAssessmentInjuries)
   const blockedNamePattern = buildBlockedNamePattern({ isBeginner, injuryFlags, equipmentList, fitnessLevel: answers.fitness_level })
+  // Identical exclusions minus the fitness-level-gated name lists. Used by exactly
+  // one path — tier 2 of the pull-slot fallback ladder (see fillPullSlot) — and never
+  // for normal selection or for the post-generation validator, which keeps checking
+  // against the full blockedNamePattern above.
+  const levelRelaxedBlockedNamePattern = buildBlockedNamePattern({
+    isBeginner, injuryFlags, equipmentList, fitnessLevel: answers.fitness_level, omitFitnessLevelBlocks: true,
+  })
   // 'some'/'full' both request supersets (validateCircuitSuperset above already
   // guarantees answers.supersets is one of 'none'/'some'/'full') — the push+pull
   // pairing is deterministic (buildDaySkeletons/applySupersetLabel/forceZeroRest)
@@ -1252,13 +1441,16 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
     daysPerWeek: answers.days_per_week,
     sessionLength: answers.session_length,
     equipmentList,
+    hasBench,
     difficulty,
     preferBilateral,
     excludeNamePattern: blockedNamePattern,
+    levelRelaxedExcludeNamePattern: levelRelaxedBlockedNamePattern,
     strictDifficulty: isBeginner,
     isBeginner,
     injuryFlags,
     includeSuperset,
+    fitnessLevel: answers.fitness_level,
   })
 
   const prompt = buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext, injuryFlags)

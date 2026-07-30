@@ -28,7 +28,8 @@ function equipmentDisplay(equipmentList) {
  * Mutates and returns `plan` (the object returned by mergeResponse):
  *   1. Equipment mismatch — an exercise's equipment isn't in the client's equipmentList.
  *   2. Sequence — two lower-body pattern exercises (squat/hinge) land back to back.
- *   3. Blocked exercise names — matches the same block list used at selection time.
+ *   3. Blocked exercise names — matches the same block list used at selection time,
+ *      except for an exercise carrying `block_bypass_approved` (see below).
  * Flagged exercises get their name replaced with a bracketed coach-facing note and
  * `flagged: true` / `flag_reason` set; flagged days get a `sequence_warning` string.
  *
@@ -52,7 +53,14 @@ export function validateWorkoutPlan(plan, { equipmentList = null, blockedNamePat
       }
 
       const patternLabel = PATTERN_DISPLAY[ex.movement_pattern] ?? ex.movement_pattern
-      const isBlocked = blockedRe ? blockedRe.test(ex.name) : false
+      // `block_bypass_approved` is set only by the pull-slot fallback ladder
+      // (workoutGenerator.js fillPullSlot), which lifts the fitness-level name block
+      // for a single slot when every equipment-matched pull is on that list. Blanking
+      // the name here would leave the day with push work and no pull — the exact
+      // silent failure that ladder exists to prevent — so the pick stands, already
+      // carrying flagged/flag_reason/flag_note for the coach. Global-safety and
+      // injury exclusions are never bypassed there, so this can't hide those.
+      const isBlocked = blockedRe && !ex.block_bypass_approved ? blockedRe.test(ex.name) : false
       // 'body only' requires literally zero equipment, so it's always performable
       // regardless of the client's selected equipment — never a real mismatch. This
       // matters now that the vertical-pull Day 3 preference (workoutGenerator.js)
