@@ -161,11 +161,17 @@ router.post('/', requireAuth(), async (req, res, next) => {
 
     for (const day of days) {
       for (const ex of (day.exercises || [])) {
+        // group_type comes from the generator (workoutGenerator.js mergeResponse) as
+        // one of exercise/superset/circuit, but this whole `plan` object round-trips
+        // through the client between generate and save — normalize defensively rather
+        // than trust it's still one of the three valid values by the time it comes back.
+        const groupType = ['exercise', 'superset', 'circuit'].includes(ex.group_type) ? ex.group_type : 'exercise'
         await pool.query(
-          `INSERT INTO workout_exercises (workout_id, day, exercise_name, exercise_id, day_focus, sets, reps, rest_seconds, notes, org_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          `INSERT INTO workout_exercises (workout_id, day, exercise_name, exercise_id, day_focus, sets, reps, rest_seconds, notes, org_id, section_name, group_id, group_type, group_label)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
           [workout.id, day.day_name, ex.name, ex.exercise_id ?? null, day.focus ?? null,
-           ex.sets ?? null, ex.reps ?? null, ex.rest_seconds ?? null, ex.notes ?? null, req.orgId],
+           ex.sets ?? null, ex.reps ?? null, ex.rest_seconds ?? null, ex.notes ?? null, req.orgId,
+           ex.section_name ?? null, ex.group_id ?? null, groupType, ex.group_label ?? null],
         )
       }
     }
