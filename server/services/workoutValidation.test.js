@@ -62,3 +62,31 @@ test('validateWorkoutPlan does not flag warm-up/cool-down as breaking the sequen
   const result = validateWorkoutPlan(plan, { equipmentList: null, blockedNamePattern: null })
   assert.equal(result.days[0].sequence_warning, undefined)
 })
+
+test('validateWorkoutPlan keeps a pull-fallback exercise that carries block_bypass_approved', () => {
+  const plan = samplePlan()
+  // The pull-slot fallback ladder (workoutGenerator.js fillPullSlot) deliberately
+  // lifted the fitness-level block for this one slot because every equipment-matched
+  // pull was on that list. Re-blanking the name here would leave the day with push
+  // work and no pull at all.
+  const pull = plan.days[0].exercises[4]
+  pull.name = 'Chin-Up'
+  pull.equipment = 'body only'
+  pull.flagged = true
+  pull.flag_reason = 'pull_fallback_level_block_bypassed'
+  pull.block_bypass_approved = true
+
+  const result = validateWorkoutPlan(plan, { equipmentList: ['bands', 'body only'], blockedNamePattern: 'chin-up' })
+  const checked = result.days[0].exercises[4]
+  assert.equal(checked.name, 'Chin-Up', 'the real pull exercise must survive validation')
+  assert.equal(checked.flag_reason, 'pull_fallback_level_block_bypassed', 'the coach-facing reason must not be overwritten')
+  assert.equal(checked.flagged, true)
+})
+
+test('validateWorkoutPlan still blocks a blocked name when block_bypass_approved is absent', () => {
+  const plan = samplePlan()
+  plan.days[0].exercises[4].name = 'Chin-Up'
+  const result = validateWorkoutPlan(plan, { equipmentList: null, blockedNamePattern: 'chin-up' })
+  assert.equal(result.days[0].exercises[4].flag_reason, 'blocked_exercise')
+  assert.match(result.days[0].exercises[4].name, /^\[BLOCKED EXERCISE/)
+})
