@@ -222,7 +222,7 @@ const EQUIPMENT_MAP = {
   'Dumbbells':         ['dumbbell'],
   'Body Weight':       ['body only'],
   'Barbell':           ['barbell'],
-  'Benches':           [], // no dedicated "bench" equipment tag in the library — contributes no filter on its own
+  'Benches':           [], // no dedicated "bench" equipment tag in the library — never a filter on its own; access is instead signaled through resolveHasBench below, which pickExercise uses to exclude requires_bench=TRUE rows
   'Cable Machine':     ['cable', 'machine'],
   'Full Gym':          null, // no filter — everything available
   'Resistance Bands':  ['bands'],
@@ -241,6 +241,18 @@ function resolveEquipmentList(equipmentAnswers) {
     for (const mapped of EQUIPMENT_MAP[eq] ?? []) set.add(mapped)
   }
   return set.size ? [...set] : null
+}
+
+/** Whether this client has access to a bench, derived from the raw equipment
+ * answers rather than the resolved equipmentList — 'Benches' contributes no
+ * equipment-tag filter of its own (see EQUIPMENT_MAP above), so it would
+ * otherwise vanish entirely once resolveEquipmentList normalizes the answer into
+ * tags. 'Full Gym'/'Full gym' implies bench access the same way it implies every
+ * other piece of equipment. Used by pickExercise to exclude requires_bench=TRUE
+ * rows for clients who answered neither. */
+function resolveHasBench(equipmentAnswers) {
+  const list = Array.isArray(equipmentAnswers) ? equipmentAnswers : [equipmentAnswers].filter(Boolean)
+  return list.includes('Benches') || list.includes('Full Gym') || list.includes('Full gym')
 }
 
 const FITNESS_LEVEL_MAP = { Beginner: 'beginner', Intermediate: 'intermediate', Advanced: 'advanced' }
@@ -356,14 +368,14 @@ function combineFlags(a, b) {
  * validator doesn't re-reject the very name this ladder deliberately allowed.
  */
 async function fillPullSlot(pool, {
-  dayIndex, pattern, equipmentList, difficulty, usedIds,
+  dayIndex, pattern, equipmentList, hasBench, difficulty, usedIds,
   excludeNamePattern, levelRelaxedExcludeNamePattern, isBeginner, fitnessLevel,
 }) {
   // Tier 1 — equipment and every name block intact; difficulty relaxed.
   // strictDifficulty is deliberately false here: this is the point at which
   // relaxing it is the lesser harm, and it is reported to the coach.
   let exercise = await pickExercise(pool, {
-    pattern, equipmentList, difficulty, excludeIds: usedIds,
+    pattern, equipmentList, hasBench, difficulty, excludeIds: usedIds,
     excludeNamePattern, strictDifficulty: false,
   })
   if (exercise) {
@@ -380,7 +392,7 @@ async function fillPullSlot(pool, {
   // Tier 2 — additionally lift the fitness-level name block. Never for beginners.
   if (!isBeginner && levelRelaxedExcludeNamePattern !== excludeNamePattern) {
     exercise = await pickExercise(pool, {
-      pattern, equipmentList, difficulty, excludeIds: usedIds,
+      pattern, equipmentList, hasBench, difficulty, excludeIds: usedIds,
       excludeNamePattern: levelRelaxedExcludeNamePattern, strictDifficulty: false,
     })
     if (exercise) {
@@ -495,7 +507,7 @@ function getBeginnerCoreDayPreference(dayIndex) {
  * `preferredNamePattern` (optional) additionally requires the name to match a regex —
  * used for beginner squat day-variation — and is not itself relaxed across attempts;
  * the caller retries without it if a preferred pick isn't found. */
-async function pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds, excludeNamePattern, strictDifficulty, preferredNamePattern }) {
+async function pickExercise(pool, { pattern, equipmentList, hasBench, difficulty, excludeIds, excludeNamePattern, strictDifficulty, preferredNamePattern }) {
   const attempts = strictDifficulty
     ? [
         { useDifficulty: true, allowRepeat: false },
@@ -516,6 +528,14 @@ async function pickExercise(pool, { pattern, equipmentList, difficulty, excludeI
     if (equipmentList?.length) {
       params.push(equipmentList)
       conditions.push(`equipment = ANY($${params.length})`)
+    }
+    // Bench access is a hard constraint like equipment itself — never relaxed
+    // across attempts, and never skipped for a repeat-allowed retry. A client
+    // who never answered 'Benches' or 'Full Gym'/'Full gym' cannot physically
+    // perform any of the 176 bench-dependent rows regardless of how sparse the
+    // remaining library gets for their equipment/difficulty.
+    if (!hasBench) {
+      conditions.push(`requires_bench = FALSE`)
     }
     if (useDifficulty && difficulty) {
       params.push(difficulty)
@@ -584,7 +604,7 @@ async function assertLibraryHasRequiredPatterns(pool, requiredPatterns) {
 /** Builds the per-day exercise skeleton (deterministic DB picks, no AI involved yet).
  * Exported so the pull-slot fallback behaviour can be exercised directly against a
  * real library (see workoutGenerator.test.js) without a live Claude call. */
-export async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentList, difficulty, preferBilateral, excludeNamePattern, levelRelaxedExcludeNamePattern, strictDifficulty, isBeginner, injuryFlags, includeSuperset, fitnessLevel }) {
+export async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentList, hasBench, difficulty, preferBilateral, excludeNamePattern, levelRelaxedExcludeNamePattern, strictDifficulty, isBeginner, injuryFlags, includeSuperset, fitnessLevel }) {
   const usedIds = []
   const days = []
   let totalFilled = 0
@@ -628,7 +648,7 @@ export async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equi
       if (slot === 'squat' && isBeginner) {
         const preferredNamePattern = getBeginnerSquatDayPreference(d)
         if (preferredNamePattern) {
-          exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
+          exercise = await pickExercise(pool, { pattern, equipmentList, hasBench, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
         }
       }
       // Beginner hinge day-variation: same idea as squat above — bridge/kickback
@@ -636,14 +656,14 @@ export async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equi
       if (!exercise && slot === 'hinge' && isBeginner) {
         const preferredNamePattern = getBeginnerHingeDayPreference(d, equipmentList)
         if (preferredNamePattern) {
-          exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
+          exercise = await pickExercise(pool, { pattern, equipmentList, hasBench, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
         }
       }
       // Beginner core day-variation: same idea as squat/hinge above.
       if (!exercise && slot === 'core' && isBeginner) {
         const preferredNamePattern = getBeginnerCoreDayPreference(d)
         if (preferredNamePattern) {
-          exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
+          exercise = await pickExercise(pool, { pattern, equipmentList, hasBench, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
         }
       }
       // Day 3 pull-pattern variation: try a vertical pull (pulldown-family) before
@@ -662,7 +682,7 @@ export async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equi
         const verticalPullEquipmentList = equipmentList?.length
           ? [...new Set([...equipmentList, 'body only', 'bands'])]
           : equipmentList // null = "Full Gym" = no restriction already
-        exercise = await pickExercise(pool, { pattern, equipmentList: verticalPullEquipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern: getVerticalPullPreference() })
+        exercise = await pickExercise(pool, { pattern, equipmentList: verticalPullEquipmentList, hasBench, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern: getVerticalPullPreference() })
         if (!exercise) pullVarietyFlag = PULL_VARIETY_FLAG
       }
       // Low back injury: prefer a supported single-arm row for the horizontal pull
@@ -671,10 +691,10 @@ export async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equi
       // supported variant rather than leaving it to chance among what's left).
       if (!exercise && slot === 'upper_pull' && injuryFlags?.lowerBack) {
         const preferredNamePattern = getLowerBackPullPreference(equipmentList)
-        exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
+        exercise = await pickExercise(pool, { pattern, equipmentList, hasBench, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty, preferredNamePattern })
       }
       if (!exercise) {
-        exercise = await pickExercise(pool, { pattern, equipmentList, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty })
+        exercise = await pickExercise(pool, { pattern, equipmentList, hasBench, difficulty, excludeIds: usedIds, excludeNamePattern: slotExcludeNamePattern, strictDifficulty })
       }
 
       // A pull slot is never allowed to go unfilled — see the fillPullSlot ladder
@@ -688,6 +708,7 @@ export async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equi
           dayIndex: d,
           pattern,
           equipmentList,
+          hasBench,
           difficulty,
           usedIds,
           excludeNamePattern: slotExcludeNamePattern,
@@ -1529,6 +1550,7 @@ function getFloorTransferContext(floorTransfer) {
  */
 export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
   const equipmentList = resolveEquipmentList(answers.equipment)
+  const hasBench      = resolveHasBench(answers.equipment)
   const difficulty    = FITNESS_LEVEL_MAP[answers.fitness_level] ?? null
   const preferBilateral = shouldPreferBilateral({
     injuries: answers.injuries,
@@ -1573,6 +1595,7 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
     daysPerWeek: answers.days_per_week,
     sessionLength: answers.session_length,
     equipmentList,
+    hasBench,
     difficulty,
     preferBilateral,
     excludeNamePattern: blockedNamePattern,
