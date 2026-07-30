@@ -4,6 +4,7 @@ import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
 import { awardAction } from '../gamification.js'
 import { workoutGenLimit } from '../middleware/rateLimits.js'
 import { generateWorkoutPlan } from '../services/workoutGenerator.js'
+import { getWorkoutDayNotes } from '../services/workoutDayNotes.js'
 
 const router = Router()
 
@@ -131,7 +132,13 @@ router.get('/:id', requireAuth(), async (req, res, next) => {
       [workoutId, dbUserId],
     )
 
-    res.json({ ...workout, exercises, logs })
+    // Coach-authored per-day notes, keyed by day name. Bundled into this response
+    // rather than given its own client route, matching how exercises/logs are already
+    // returned together — the client view needs all three in one paint anyway.
+    // Read-only for the client; only coaches write these (see coachAdmin.js).
+    const day_notes = await getWorkoutDayNotes(workoutId)
+
+    res.json({ ...workout, exercises, logs, day_notes })
   } catch (err) {
     next(err)
   }

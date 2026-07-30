@@ -584,6 +584,7 @@ function ProgramDetail({ program, onBack }) {
   const { getToken } = useAuth()
   const [exercises, setExercises] = useState([])
   const [logs,      setLogs]      = useState([])
+  const [dayNotes,  setDayNotes]  = useState({})   // { [day]: note_text } — coach-authored, read-only here
   const [loading,   setLoading]   = useState(true)
   const [showLog,   setShowLog]   = useState(false)
   const [loggedAt,  setLoggedAt]  = useState(null)
@@ -599,6 +600,7 @@ function ProgramDetail({ program, onBack }) {
         const data = await res.json()
         setExercises(data.exercises ?? [])
         setLogs(data.logs ?? [])
+        setDayNotes(data.day_notes ?? {})
       } finally {
         setLoading(false)
       }
@@ -656,11 +658,23 @@ function ProgramDetail({ program, onBack }) {
 
       {!loading && Object.entries(days).map(([dayName, exs]) => {
         const sections = buildSections(exs)
+        // Coach note for this day. Rendered above Warm-Up, matching where the coach
+        // authors it in the builder. Whitespace-only is treated as no note, so the
+        // whole block disappears rather than showing an empty box.
+        const dayNote = (dayNotes[dayName] ?? '').trim()
         return (
           <div key={dayName} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="bg-[#0F1E35] px-5 py-3">
               <p className="text-sm font-semibold text-white">{formatDayLabel(dayName)}</p>
             </div>
+            {dayNote && (
+              <div className="bg-orange-50/70 border-b border-orange-100 px-4 py-3 sm:px-5">
+                <p className="text-[11px] font-semibold text-[#E8670A] uppercase tracking-wide mb-1">
+                  Note from your coach
+                </p>
+                <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line break-words">{dayNote}</p>
+              </div>
+            )}
             {sections.map(section => (
               <ReadOnlySectionBlock key={section.name} section={section} />
             ))}

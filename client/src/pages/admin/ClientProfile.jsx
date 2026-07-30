@@ -6492,6 +6492,12 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
   const [scheduling,      setScheduling]      = useState(false)
   const [scheduleSuccess, setScheduleSuccess] = useState(null)
 
+  // Per-day coach notes, { [day]: note_text }. Absent key = no note for that day.
+  // Auto-saved on blur (see saveDayNote) rather than behind an explicit Save button,
+  // matching the inline cell editing used everywhere else in this builder.
+  const [dayNotes,       setDayNotes]       = useState({})
+  const [savingDayNote,  setSavingDayNote]  = useState(null)  // day currently being persisted
+
   // ── Load list ──────────────────────────────────────────────────────────────
   async function loadWorkouts() {
     setLoading(true)
@@ -6511,6 +6517,7 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
     // previously open workout don't leak into this one.
     setExtraDays([]); setSectionOverrides({}); setAddTarget(null); setGroupPicker(null)
     setAddingSectionFor(null); setCustomSectionName(''); setEditingSectionName(null)
+    setDayNotes({}); setSavingDayNote(null)
     try {
       const token = await getToken()
       const res   = await fetch(`${BASE}/${w.id}`, { headers: { Authorization: `Bearer ${token}` } })
@@ -6518,7 +6525,38 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
       const data  = await res.json()
       setExercises(data.exercises ?? [])
       setLogs(data.logs ?? [])
+      setDayNotes(data.day_notes ?? {})
     } finally { setDetailLoad(false) }
+  }
+
+  // ── Per-day note ───────────────────────────────────────────────────────────
+  // Persists on blur. `dayNotes` is already the source of truth for the textarea,
+  // so no optimistic update is needed — this only reconciles with the server and
+  // normalizes a whitespace-only value to "no note" the same way the route does.
+  async function saveDayNote(day) {
+    if (!selected) return
+    const raw = (dayNotes[day] ?? '').trim()
+    setSavingDayNote(day); setError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${BASE}/${selected.id}/day-notes/${encodeURIComponent(day)}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note_text: raw }),
+      })
+      if (!res.ok) { setError('Could not save the note for this day.'); return }
+      const saved = await res.json()
+      setDayNotes(prev => {
+        const next = { ...prev }
+        // Cleared note -> drop the key entirely, so this map keeps matching the
+        // shape the GET returns (absent = no note) instead of holding an empty string.
+        if (saved.note_text) next[day] = saved.note_text
+        else delete next[day]
+        return next
+      })
+    } catch {
+      setError('Could not save the note for this day.')
+    } finally { setSavingDayNote(null) }
   }
 
   // ── Katie generation ───────────────────────────────────────────────────────
@@ -7537,6 +7575,25 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
             <div className="bg-[#0F1E35] px-4 py-2.5 rounded-xl flex items-center justify-between">
               <p className="text-sm font-semibold text-white">{formatDayLabel(dayName)}</p>
               <span className="text-[10px] text-white/50">{dayExs.length} exercise{dayExs.length !== 1 ? 's' : ''}</span>
+            </div>
+            {/* Coach note for this day — sits above Warm-Up, saves on blur. Shown to
+                the client read-only on their Workouts page (hidden there when empty). */}
+            <div className="bg-white rounded-xl border border-gray-200 px-3 py-2.5 sm:px-4 sm:py-3">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <label htmlFor={`day-note-${dayName}`} className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+                  Note for this day
+                </label>
+                {savingDayNote === dayName && <span className="text-[10px] text-gray-400 shrink-0">Saving…</span>}
+              </div>
+              <textarea
+                id={`day-note-${dayName}`}
+                rows={2}
+                value={dayNotes[dayName] ?? ''}
+                onChange={e => setDayNotes(prev => ({ ...prev, [dayName]: e.target.value }))}
+                onBlur={() => saveDayNote(dayName)}
+                placeholder="Optional note the client sees above this day's warm-up…"
+                className="w-full min-h-[56px] border border-gray-300 rounded-lg px-3 py-2 text-sm leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30 placeholder:text-gray-400"
+              />
             </div>
             {sections.map((section, sIdx) => (
               <SectionBlock
