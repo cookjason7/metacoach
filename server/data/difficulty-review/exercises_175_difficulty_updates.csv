@@ -1,0 +1,175 @@
+id,name,current_difficulty,target_difficulty,review_note
+100,Box Jump (Multiple Response),intermediate,advanced,CHANGE TO ADVANCED — high impact and/or high strength/control requirement
+287,Front Box Jump,intermediate,advanced,CHANGE TO ADVANCED — high impact and/or high strength/control requirement
+391,Knee Tuck Jump,intermediate,advanced,CHANGE TO ADVANCED — high impact and/or high strength/control requirement
+207,Depth Jump Leap,intermediate,advanced,CHANGE TO ADVANCED — high impact and/or high strength/control requirement
+404,Lateral Box Jump,intermediate,advanced,CHANGE TO ADVANCED — high impact and/or high strength/control requirement
+731,Split Jump,intermediate,advanced,CHANGE TO ADVANCED — high impact and/or high strength/control requirement
+682,Single-Leg Stride Jump,intermediate,advanced,CHANGE TO ADVANCED — high impact and/or high strength/control requirement
+349,Incline Push-Up Depth Jump,advanced,advanced,CHANGE TO ADVANCED — high impact and/or high strength/control requirement
+532,Parallel Bar Dip,advanced,advanced,CHANGE TO ADVANCED — high impact and/or high strength/control requirement
+545,Plyo Push-up,advanced,advanced,CHANGE TO ADVANCED — high impact and/or high strength/control requirement
+870,Yoke Walk,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+7,Advanced Kettlebell Windmill,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+42,Barbell Ab Rollout,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+57,Barbell Rollout from Bench,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+216,Double Kettlebell Windmill,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+386,Kettlebell Windmill,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+806,Suspended Fallout,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+30,Axle Deadlift,exclude,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+142,Car Deadlift,exclude,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+206,Deficit Deadlift,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+300,Glute Ham Raise,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+303,Good Morning,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+304,Good Morning off Pins,exclude,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+318,Hanging Bar Good Morning,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+475,Natural Glute Ham Raise,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+547,Power Clean,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+548,Power Clean from Blocks,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+553,Power Stairs,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+704,Smith Machine Hang Power Clean,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+718,Snatch Deadlift,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+719,Snatch Pull,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+800,Sumo Deadlift with Bands,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+801,Sumo Deadlift with Chains,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+17,Alternating Hang Clean,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+212,Double Kettlebell Alternating Hang Clean,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+501,One-Arm Open Palm Kettlebell Clean,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+283,Frog Hops,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+72,Bench Jump,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+169,Clean from Blocks,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+165,Clean Pull,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+242,Dumbbell Seated Box Jump,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+314,Hang Clean,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+315,Hang Clean - Below the Knees,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+321,Heaving Snatch Balance,exclude,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+369,Jerk Dip Squat,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+385,Kettlebell Turkish Get-Up (Squat style),intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+424,Linear Depth Jump,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+480,Olympic Squat,exclude,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+552,Power Snatch from Blocks,exclude,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+581,Reverse Band Box Squat,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+716,Snatch,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+717,Snatch Balance,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+723,Speed Box Squat,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+729,Split Clean,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+730,Split Jerk,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+736,Squat with Bands,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+737,Squat with Chains,exclude,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+738,Squat with Plate Movers,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+817,Tire Flip,exclude,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+850,Weighted Jump Squat,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+384,Kettlebell Turkish Get-Up (Lunge style),intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+434,Lunge Sprint,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+710,Smith Machine Pistol Squat,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+28,Atlas Stone Trainer,exclude,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+98,Bottoms-Up Clean From The Hang Position,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+299,Gironda Sternum Chins,exclude,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+371,Keg Load,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+382,Kettlebell Sumo High Pull,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+387,Kipping Muscle Up,exclude,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+426,London Bridges,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+471,Muscle Up,exclude,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+575,Rack Pull with Bands,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+603,Rocky Pull-Ups/Pulldowns,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+606,Rope Climb,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+671,Side To Side Chins,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+720,Snatch Shrug,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+851,Weighted Pull Ups,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+860,Wide-Grip Rear Pull-Up,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+91,Body-Up,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+93,Bodyweight Flyes,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+147,Chain Handle Extension,exclude,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+148,Chain Press,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+168,Clean and Press,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+170,Clock Push-Up,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+209,Dips - Chest Version,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+213,Double Kettlebell Jerk,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+220,Drop Push,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+368,Jerk Balance,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+383,Kettlebell Thruster,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+425,Log Lift,exclude,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+488,One-Arm Kettlebell Clean and Jerk,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+490,One-Arm Kettlebell Jerk,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+493,One-Arm Kettlebell Push Press,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+496,One-Arm Kettlebell Split Jerk,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+564,Push-Ups With Feet On An Exercise Ball,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+574,Rack Delivery,intermediate,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+580,Reverse Band Bench Press,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+600,Ring Dips,exclude,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+676,Single-Arm Push-Up,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+848,Weighted Bench Dip,advanced,advanced,"CHANGE TO ADVANCED — technical, ballistic, high-impact, or high relative-strength demand"
+70,Behind Head Chest Stretch,beginner,beginner,CHANGE TO BEGINNER — basic mobility/stretching drill; scale range to the client
+435,Lying Bent Leg Groin,beginner,beginner,CHANGE TO BEGINNER — basic mobility/stretching drill; scale range to the client
+441,Lying Crossover,beginner,beginner,CHANGE TO BEGINNER — basic mobility/stretching drill; scale range to the client
+445,Lying Glute,beginner,beginner,CHANGE TO BEGINNER — basic mobility/stretching drill; scale range to the client
+446,Lying Hamstring,beginner,beginner,CHANGE TO BEGINNER — basic mobility/stretching drill; scale range to the client
+451,Lying Prone Quadriceps,beginner,beginner,CHANGE TO BEGINNER — basic mobility/stretching drill; scale range to the client
+521,Overhead Lat,beginner,beginner,CHANGE TO BEGINNER — basic mobility/stretching drill; scale range to the client
+525,Overhead Triceps,beginner,beginner,CHANGE TO BEGINNER — basic mobility/stretching drill; scale range to the client
+625,Seated Biceps,beginner,beginner,CHANGE TO BEGINNER — basic mobility/stretching drill; scale range to the client
+638,Seated Front Deltoid,beginner,beginner,CHANGE TO BEGINNER — basic mobility/stretching drill; scale range to the client
+639,Seated Glute,beginner,beginner,CHANGE TO BEGINNER — basic mobility/stretching drill; scale range to the client
+641,Seated Hamstring,beginner,beginner,CHANGE TO BEGINNER — basic mobility/stretching drill; scale range to the client
+65,Barbell Squat To A Bench,beginner,intermediate,CHANGE TO INTERMEDIATE — reasonable for a fit client with sound technique and appropriate loading
+285,Front Barbell Squat,intermediate,intermediate,CHANGE TO INTERMEDIATE — reasonable for a fit client with sound technique and appropriate loading
+286,Front Barbell Squat To A Bench,intermediate,intermediate,CHANGE TO INTERMEDIATE — reasonable for a fit client with sound technique and appropriate loading
+20,Alternating Renegade Row,intermediate,intermediate,CHANGE TO INTERMEDIATE — reasonable for a fit client with sound technique and appropriate loading
+466,Mixed Grip Chin,intermediate,intermediate,CHANGE TO INTERMEDIATE — reasonable for a fit client with sound technique and appropriate loading
+565,Push Press,intermediate,intermediate,CHANGE TO INTERMEDIATE — reasonable for a fit client with sound technique and appropriate loading
+37,Band Good Morning,intermediate,intermediate,"CHANGE TO INTERMEDIATE — requires more hinge, trunk, shoulder, or pressing control than a new client"
+38,Band Good Morning (Pull Through),intermediate,intermediate,"CHANGE TO INTERMEDIATE — requires more hinge, trunk, shoulder, or pressing control than a new client"
+164,Clean Deadlift,intermediate,intermediate,"CHANGE TO INTERMEDIATE — requires more hinge, trunk, shoulder, or pressing control than a new client"
+792,Stiff Leg Barbell Good Morning,intermediate,intermediate,"CHANGE TO INTERMEDIATE — requires more hinge, trunk, shoulder, or pressing control than a new client"
+269,Fast Skipping,beginner,intermediate,"CHANGE TO INTERMEDIATE — requires more hinge, trunk, shoulder, or pressing control than a new client"
+601,Rocket Jump,intermediate,intermediate,"CHANGE TO INTERMEDIATE — requires more hinge, trunk, shoulder, or pressing control than a new client"
+618,Scissors Jump,intermediate,intermediate,"CHANGE TO INTERMEDIATE — requires more hinge, trunk, shoulder, or pressing control than a new client"
+670,Side Standing Long Jump,intermediate,intermediate,"CHANGE TO INTERMEDIATE — requires more hinge, trunk, shoulder, or pressing control than a new client"
+769,Standing Long Jump,intermediate,intermediate,"CHANGE TO INTERMEDIATE — requires more hinge, trunk, shoulder, or pressing control than a new client"
+787,Star Jump,intermediate,intermediate,"CHANGE TO INTERMEDIATE — requires more hinge, trunk, shoulder, or pressing control than a new client"
+798,Stride Jump Crossover,beginner,intermediate,"CHANGE TO INTERMEDIATE — requires more hinge, trunk, shoulder, or pressing control than a new client"
+166,Clean Shrug,beginner,intermediate,"CHANGE TO INTERMEDIATE — requires more hinge, trunk, shoulder, or pressing control than a new client"
+331,Hyperextensions (Back Extensions),beginner,intermediate,"CHANGE TO INTERMEDIATE — requires more hinge, trunk, shoulder, or pressing control than a new client"
+71,Bench Dips,beginner,intermediate,"CHANGE TO INTERMEDIATE — requires more hinge, trunk, shoulder, or pressing control than a new client"
+208,Dip Machine,beginner,intermediate,"CHANGE TO INTERMEDIATE — requires more hinge, trunk, shoulder, or pressing control than a new client"
+210,Dips - Triceps Version,intermediate,intermediate,"CHANGE TO INTERMEDIATE — requires more hinge, trunk, shoulder, or pressing control than a new client"
+807,Suspended Push-Up,intermediate,intermediate,"CHANGE TO INTERMEDIATE — requires more hinge, trunk, shoulder, or pressing control than a new client"
+477,Neck Press,exclude,exclude,EXCLUDE — behind-neck pressing adds unnecessary shoulder/neck risk
+566,Push Press - Behind the Neck,exclude,exclude,EXCLUDE — behind-neck pressing adds unnecessary shoulder/neck stress
+743,Standing Barbell Press Behind Neck,exclude,exclude,EXCLUDE — behind-neck pressing adds unnecessary shoulder/neck stress
+859,Wide-Grip Pulldown Behind The Neck,exclude,exclude,EXCLUDE — behind-neck pulling adds unnecessary shoulder/neck stress
+393,Kneeling Cable Crunch With Alternating Oblique Twists,exclude,exclude,EXCLUDE — combines loaded spinal flexion and rotation
+361,Isometric Neck Exercise - Front And Back,exclude,exclude,EXCLUDE — direct neck loading is not a general-client beginner exercise
+362,Isometric Neck Exercise - Sides,exclude,exclude,EXCLUDE — direct neck loading is not a general-client beginner exercise
+430,Low Pulley Row To Neck,exclude,exclude,EXCLUDE — high-elbow pull toward the neck adds unnecessary shoulder stress
+443,Lying Face Down Plate Neck Resistance,exclude,exclude,EXCLUDE — loaded neck flexion/extension is not a general-client choice
+444,Lying Face Up Plate Neck Resistance,exclude,exclude,EXCLUDE — loaded neck flexion/extension is not a general-client choice
+643,Seated Head Harness Neck Resistance,exclude,exclude,EXCLUDE — loaded neck work is not a general-client choice
+128,Cable Russian Twists,exclude,exclude,EXCLUDE — loaded trunk rotation is a poor general-client core choice; favor anti-rotation
+541,Plate Twist,exclude,exclude,EXCLUDE — loaded trunk rotation is a poor general-client core choice; favor anti-rotation
+614,Russian Twist,exclude,exclude,EXCLUDE — loaded trunk rotation is a poor general-client core choice; favor anti-rotation
+50,Barbell Guillotine Bench Press,exclude,exclude,EXCLUDE — unnecessary shoulder stress for a general client
+1,3/4 Sit-Up,intermediate,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+97,Bosu Ball Cable Crunch With Side Bends,intermediate,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+112,Cable Crunch,intermediate,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+125,Cable Reverse Crunch,intermediate,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+129,Cable Seated Crunch,intermediate,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+182,Cross-Body Crunch,beginner,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+189,Crunches,beginner,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+187,Crunch - Hands Overhead,intermediate,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+188,Crunch - Legs On Exercise Ball,intermediate,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+202,Decline Oblique Crunch,intermediate,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+204,Decline Reverse Crunch,intermediate,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+261,Exercise Ball Crunch,intermediate,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+365,Jackknife Sit-Up,intermediate,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+366,Janda Sit-Up,beginner,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+478,Oblique Crunches,beginner,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+479,Oblique Crunches - On The Floor,beginner,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+588,Reverse Crunch,beginner,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+607,Rope Crunch,intermediate,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+664,Side Jackknife,beginner,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+687,Sit-Up,intermediate,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+782,Standing Rope Crunch,intermediate,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+808,Suspended Reverse Crunch,advanced,advanced,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+829,Tuck Crunch,intermediate,intermediate,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
+849,Weighted Crunches,advanced,advanced,REMOVE FROM BEGINNER — repeated/loaded spinal flexion; use anti-extension or anti-rotation core work
