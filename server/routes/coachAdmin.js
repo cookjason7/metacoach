@@ -3876,11 +3876,12 @@ router.post('/clients/:id/workouts', requireAuth(), async (req, res, next) => {
           // attachLegacyMedia()); no re-querying or re-matching here.
           await pool.query(
             `INSERT INTO workout_exercises
-               (workout_id, day, exercise_name, exercise_id, day_focus, sets, reps, rest_seconds, notes, sort_order, image_url, instructions, org_id)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,(SELECT org_id FROM workouts WHERE id = $1))`,
+               (workout_id, day, exercise_name, exercise_id, day_focus, sets, reps, rest_seconds, notes, sort_order, image_url, instructions, group_id, group_type, group_label, org_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,(SELECT org_id FROM workouts WHERE id = $1))`,
             [workout.id, day.day_name, ex.name, ex.exercise_id ?? null, day.focus ?? null,
              ex.sets ?? null, ex.reps ?? null, ex.rest_seconds ?? null, ex.notes ?? null, dayOrder++,
-             ex.image_url ?? null, ex.instructions ?? null],
+             ex.image_url ?? null, ex.instructions ?? null,
+             ex.group_id ?? null, ex.group_type ?? 'exercise', ex.group_label ?? null],
           )
         }
       }
