@@ -797,9 +797,15 @@ function buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList,
   const equipment = Array.isArray(answers.equipment) ? answers.equipment.join(', ') : answers.equipment
   const isBegginer = (FITNESS_LEVEL_MAP[answers.fitness_level] ?? answers.fitness_level) === 'beginner'
 
+  // Each slot carries its quota pattern (squat/upper_push/hinge/upper_pull/core/…)
+  // because the circuit rules below turn on it — without the pattern spelled out
+  // per slot, the model only sees an exercise name and a slot id and cannot tell
+  // which row is the squat and which is the hinge, so it can't honour the
+  // "never circuit squat with hinge" rule even when told to. mergeResponse still
+  // enforces that rule regardless of what comes back.
   const skeletonText = daySkeletons.map(day => (
     `Day ${day.day_index + 1} (${day.day_focus}):\n` +
-    day.slots.map(s => `  - [${s.slot_id}] "${s.name}"`).join('\n')
+    day.slots.map(s => `  - [${s.slot_id}] "${s.name}" (pattern: ${s.quotaSlot})`).join('\n')
   )).join('\n\n')
 
   const blockedText = beginnerBlockList.length
@@ -905,6 +911,12 @@ Circuits selection: ${answers.circuits}
 - "full" = organize the strength work into multiple 3-4 exercise circuits where session length permits. Give each circuit's exercises a shared "circuit_group" value, distinct per circuit within that day (e.g. "1" for the first circuit, "2" for the second); any leftover exercise that doesn't fit a full circuit gets "circuit_group": null.
 
 "circuit_group" only groups exercises WITHIN the same day — values don't need to be unique across different days, and never apply it to Warm-Up or Cool-Down (those aren't in the exercises list). Never place one exercise's slot_id in more than one circuit_group. Never invent extra exercises to fill a circuit — group only from the exercises already given to you for that day.
+
+CIRCUIT PATTERN RULE — HARD CONSTRAINT, NO EXCEPTIONS
+Never put the "squat" slot and the "hinge" slot in the same "circuit_group". Each exercise above is tagged with its pattern in parentheses — check those tags before assigning any circuit_group. A circuit may contain at most ONE of squat or hinge. Grouping both would place the day's two lower-body movements back to back inside the circuit's rounds, which the required day sequence forbids.
+- Allowed:     squat + upper_push + core   |   hinge + upper_pull + core   |   upper_push + upper_pull + core
+- NOT allowed: squat + hinge + anything    |   any circuit_group containing both the squat and the hinge slot
+If a circuit would need both, drop the hinge from it and leave that exercise's "circuit_group" null.
 
 Show inter-exercise rest AND round rest explicitly (via "rest_seconds" and "notes") when circuits are used.
 Use opposing or non-competing movement patterns in circuits (upper/lower alternation preferred).
@@ -1079,18 +1091,50 @@ function mergeResponse(daySkeletons, aiPlan, { includeCircuit = false } = {}) {
       }
       for (const members of buckets.values()) {
         if (members.length < 2) continue // a "circuit" of one exercise isn't a real group — leave it standalone
-        // The AI is never told about the day template's squat/hinge non-adjacency
-        // rule (DAY STRUCTURE above) — never trust it to have respected that on its
-        // own. A circuit containing both would force them back-to-back within the
-        // circuit's rounds, exactly what that rule exists to prevent. Drop the whole
-        // grouping (all members fall back to standalone) rather than try to salvage it.
-        const lowerBodyCount = members.filter(m => m.quotaSlot === 'squat' || m.quotaSlot === 'hinge').length
-        if (lowerBodyCount > 1) {
-          console.warn(`[workoutGenerator] Dropping AI circuit_group for day ${i + 1} — contains ${lowerBodyCount} lower-body (squat/hinge) slots, which would violate the required non-adjacent sequencing: ${members.map(m => m.slotId).join(', ')}`)
+        // The AI is told the per-slot pattern and the no-squat-with-hinge rule
+        // (see buildWorkoutPrompt), but never trust it to have respected that — a
+        // circuit holding both would force them back-to-back within the circuit's
+        // rounds, exactly what the day template's non-adjacency rule prevents.
+        //
+        // Salvage rather than discard: keep the FIRST lower-body member and demote
+        // only the later one(s) to standalone. Day order is squat -> push -> hinge ->
+        // pull -> core, so the retained member is the squat, and keeping the earliest
+        // also keeps the group anchored at its original position once the
+        // first-appearance reorder below runs. Dropping the whole grouping (the old
+        // behaviour) cost the client every circuit on the day over one bad member,
+        // which in testing was most circuit attempts.
+        const kept = []
+        const demoted = []
+        let lowerBodyKept = false
+        for (const m of members) {
+          const isLowerBody = m.quotaSlot === 'squat' || m.quotaSlot === 'hinge'
+          if (isLowerBody && lowerBodyKept) { demoted.push(m); continue }
+          if (isLowerBody) lowerBodyKept = true
+          kept.push(m)
+        }
+        // A group needs 2+ members to be a real group. If salvaging leaves fewer
+        // (e.g. the AI paired squat+hinge alone), fall back to fully flat for this
+        // group — every member standalone, same as the pre-salvage behaviour.
+        if (kept.length < 2) {
+          console.warn(`[workoutGenerator] Dropping AI circuit_group for day ${i + 1} — contains ${members.length - kept.length + 1} lower-body (squat/hinge) slots and fewer than 2 members would remain after removing the conflict: ${members.map(m => m.slotId).join(', ')}`)
           continue
         }
-        const groupId = `d${i}-circuit-${members[0].slotId}`
-        members.forEach(({ slotId }, idx) => {
+        if (demoted.length) {
+          console.warn(`[workoutGenerator] Salvaged AI circuit_group for day ${i + 1} — removed ${demoted.length} conflicting lower-body slot(s) (${demoted.map(m => `${m.slotId}/${m.quotaSlot}`).join(', ')}) and kept the circuit as ${kept.map(m => m.slotId).join(', ')}`)
+          // Explicit reset: these were already 'exercise'/null (the bucket builder
+          // skips anything superset-claimed), but state it so a demoted slot can
+          // never inherit stale grouping if that ever changes.
+          for (const { slotId } of demoted) {
+            const ex = exerciseBySlotId.get(slotId)
+            ex.group_type = 'exercise'
+            ex.group_id = null
+            ex.group_label = null
+          }
+        }
+        // groupId/labels key off `kept`, not `members` — a demoted first member must
+        // not name the group or leave a gap in the 1/2/3… label sequence.
+        const groupId = `d${i}-circuit-${kept[0].slotId}`
+        kept.forEach(({ slotId }, idx) => {
           const ex = exerciseBySlotId.get(slotId)
           ex.group_type = 'circuit'
           ex.group_id = groupId
