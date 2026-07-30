@@ -7,6 +7,7 @@ import { sendInviteEmail } from '../services/email.js'
 import { getAppBaseUrl } from '../services/appUrl.js'
 import { notifyNewDirectMessage, notifyNewFormDelivery } from '../services/pushService.js'
 import { generateWorkoutPlan, ExerciseLibraryError } from '../services/workoutGenerator.js'
+import { getWorkoutDayNotes } from '../services/workoutDayNotes.js'
 import { trackEvent } from '../services/usageTracker.js'
 
 const router = Router()
@@ -3790,7 +3791,11 @@ router.get('/clients/:id/workouts/:wid', requireAuth(), async (req, res, next) =
     const { rows: logs } = await pool.query(
       'SELECT * FROM workout_logs WHERE workout_id=$1 AND user_id=$2 ORDER BY completed_at DESC LIMIT 10',
       [workoutId, clientId])
-    res.json({ ...workout, exercises, logs })
+    // day_notes bundled here (rather than requiring a second request) so opening a
+    // program in the builder renders its notes in the same paint as its exercises.
+    // The dedicated GET .../day-notes route below still exists for refetching alone.
+    const day_notes = await getWorkoutDayNotes(workoutId)
+    res.json({ ...workout, exercises, logs, day_notes })
   } catch (err) { next(err) }
 })
 
@@ -4017,6 +4022,61 @@ router.delete('/clients/:id/workouts/:wid', requireAuth(), async (req, res, next
          AND org_id = (SELECT org_id FROM users WHERE id = $2)`, [workoutId, clientId])
     if (!rowCount) return res.status(404).json({ error: 'Workout not found' })
     res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
+// ─── Workout day notes ──────────────────────────────────────────────────────────
+// Coach-authored note rendered above the Warm-Up section of a single day. Keyed by
+// (workout_id, day) since a day has no row of its own — see workout_day_notes in
+// db.js. Both routes verify the workout actually belongs to this client (on top of
+// canAccessClient) so a workoutId from another client's program can't be written.
+// These are 3-segment paths under /workouts/, so they never shadow the 1-segment
+// /clients/:id/workouts/:wid program routes above.
+
+// GET /api/coach-admin/clients/:id/workouts/:workoutId/day-notes
+// -> { "Day 1": "note text", … } — days with no note are simply absent.
+router.get('/clients/:id/workouts/:workoutId/day-notes', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId  = parseInt(req.params.id, 10)
+    const workoutId = parseInt(req.params.workoutId, 10)
+    if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
+    const { rows: [w] } = await pool.query(
+      'SELECT id FROM workouts WHERE id=$1 AND user_id=$2', [workoutId, clientId])
+    if (!w) return res.status(404).json({ error: 'Workout not found' })
+    res.json(await getWorkoutDayNotes(workoutId))
+  } catch (err) { next(err) }
+})
+
+// PUT /api/coach-admin/clients/:id/workouts/:workoutId/day-notes/:day
+// body: { note_text }. An empty/whitespace-only note DELETEs the row rather than
+// storing a blank one, so GET never has to tell "cleared" apart from "never set".
+router.put('/clients/:id/workouts/:workoutId/day-notes/:day', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId  = parseInt(req.params.id, 10)
+    const workoutId = parseInt(req.params.workoutId, 10)
+    const day       = String(req.params.day ?? '').trim()
+    if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
+    if (!day) return res.status(400).json({ error: 'day required' })
+    const { rows: [w] } = await pool.query(
+      'SELECT id FROM workouts WHERE id=$1 AND user_id=$2', [workoutId, clientId])
+    if (!w) return res.status(404).json({ error: 'Workout not found' })
+
+    const noteText = typeof req.body?.note_text === 'string' ? req.body.note_text.trim() : ''
+    if (!noteText) {
+      await pool.query('DELETE FROM workout_day_notes WHERE workout_id=$1 AND day=$2', [workoutId, day])
+      return res.json({ day, note_text: null })
+    }
+    const { rows: [note] } = await pool.query(
+      `INSERT INTO workout_day_notes (workout_id, day, note_text, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (workout_id, day)
+         DO UPDATE SET note_text = EXCLUDED.note_text, updated_at = NOW()
+       RETURNING day, note_text`,
+      [workoutId, day, noteText],
+    )
+    res.json(note)
   } catch (err) { next(err) }
 })
 

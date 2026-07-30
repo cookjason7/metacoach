@@ -554,6 +554,31 @@ export async function migrate() {
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_workout_set_logs_log ON workout_set_logs (workout_log_id)`)
 
+  // ── Workout day notes ────────────────────────────────────────────────────────
+  // Coach-authored note shown above the Warm-Up section of one day of a program.
+  // Keyed by (workout_id, day) — the same "a day is just a distinct
+  // workout_exercises.day value" convention coach_assigned_workouts.day_label
+  // already uses, since there is no workout_days table and a day has no row of
+  // its own. One row per day, created on first save; the row is deleted (not
+  // blanked) when a coach clears the note, so a read never has to distinguish an
+  // empty note from no note.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS workout_day_notes (
+      id         SERIAL PRIMARY KEY,
+      workout_id INTEGER NOT NULL REFERENCES workouts(id) ON DELETE CASCADE,
+      day        TEXT NOT NULL,                       -- matches a workout_exercises.day value
+      note_text  TEXT,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  // Unique so the PUT route can upsert via ON CONFLICT (workout_id, day). A unique
+  // INDEX rather than a table constraint so it stays idempotent via IF NOT EXISTS
+  // (matching workout_logs_assignment_date_uq above).
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS workout_day_notes_workout_day_uq
+      ON workout_day_notes (workout_id, day)
+  `)
+
   // ── Custom foods ─────────────────────────────────────────────────────────────
   await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS sugar NUMERIC(6,1)`)
   await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS log_date DATE`)
