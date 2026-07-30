@@ -591,7 +591,12 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
         equipment: exercise.equipment,
         fallbackNotes,
         pullVarietyFlag,
-        supersetLabel: null,
+        // groupType/groupId: 'exercise'/null until the superset-pairing block below
+        // (deterministic, code-only) claims a push/pull pair, or the circuit-grouping
+        // pass in mergeResponse (AI-proposed, via circuit_group) claims a slot that
+        // superset pairing left alone. Superset always takes precedence — see mergeResponse.
+        groupType: 'exercise',
+        groupId: null,
         // Only ever forced true on the push half of a superset pair — see below.
         // Never relaxed/inferred from the AI response: rest=0 between a superset's
         // two exercises must hold even if Claude ignores or misreads the prompt's
@@ -615,8 +620,11 @@ async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equipmentLi
       // pull+pull (or push+push) if either side isn't a real, named exercise.
       const hasRealExercise = s => !!s && typeof s.name === 'string' && s.name.trim().length > 0
       if (hasRealExercise(pushSlot) && hasRealExercise(pullSlot)) {
-        pushSlot.supersetLabel = 'Superset A - Exercise 1'
-        pullSlot.supersetLabel = 'Superset A - Exercise 2'
+        const supersetGroupId = `d${d}-superset`
+        pushSlot.groupType = 'superset'
+        pushSlot.groupId   = supersetGroupId
+        pullSlot.groupType = 'superset'
+        pullSlot.groupId   = supersetGroupId
         // Exercise 1 (push) is immediately followed by Exercise 2 (pull) with no
         // rest between them — only the round rest (after pull) is a real rest
         // period, and that stays whatever Claude assigns via ai.rest_seconds.
@@ -751,14 +759,16 @@ INJURY AND LIMITATION FLAGS${injuryText || '\n- None flagged for this client.'}
 
 STRUCTURE RULES — ENFORCE EXACTLY
 Circuits selection: ${answers.circuits}
-- "none" = no circuits anywhere in the workout
-- "some" = exactly ONE circuit of 3-4 exercises per workout day, no more
-- "full" = organize the strength work into multiple 3-4 exercise circuits where session length permits
+- "none" = no circuits anywhere in the workout. Every exercise's "circuit_group" must be null.
+- "some" = exactly ONE circuit of 3-4 exercises per workout day, no more. Give every exercise in that circuit the SAME "circuit_group" value (e.g. "1"); every other exercise that day gets "circuit_group": null.
+- "full" = organize the strength work into multiple 3-4 exercise circuits where session length permits. Give each circuit's exercises a shared "circuit_group" value, distinct per circuit within that day (e.g. "1" for the first circuit, "2" for the second); any leftover exercise that doesn't fit a full circuit gets "circuit_group": null.
 
-Show inter-exercise rest AND round rest explicitly when circuits are used.
+"circuit_group" only groups exercises WITHIN the same day — values don't need to be unique across different days, and never apply it to Warm-Up or Cool-Down (those aren't in the exercises list). Never place one exercise's slot_id in more than one circuit_group. Never invent extra exercises to fill a circuit — group only from the exercises already given to you for that day.
+
+Show inter-exercise rest AND round rest explicitly (via "rest_seconds" and "notes") when circuits are used.
 Use opposing or non-competing movement patterns in circuits (upper/lower alternation preferred).
 
-Do NOT mention supersets, paired exercises, superset labels, or exercise sequencing between exercises in any notes or descriptions. Do not use the words 'Superset', 'Exercise 1', 'Exercise 2', 'go straight into', 'move directly into', or 'no rest' in any exercise description. The app handles all superset structure and labeling automatically.
+Do NOT mention supersets, circuits, paired exercises, superset/circuit labels or numbers, or exercise sequencing between exercises in any notes or descriptions. Do not use the words 'Superset', 'Circuit', 'Circuit 1', 'Exercise 1', 'Exercise 2', 'go straight into', 'move directly into', or 'no rest' in any exercise description. The app renders all superset/circuit structure, labeling, and badges automatically from the "circuit_group" field and the app's own superset pairing — never describe it in prose.
 ${blockedText}
 
 BEGINNER RULES${isBegginer ? ' — THIS CLIENT IS A BEGINNER. ENFORCE ALL OF THESE.' : ' (not applicable — intermediate/advanced client)'}
@@ -830,7 +840,8 @@ Return ONLY a valid JSON object with this exact structure (no markdown, no extra
           "sets": number,
           "reps": "string (e.g. '10-12' or '30 seconds' or '10 each side')",
           "rest_seconds": number,
-          "notes": "string (setup + movement + breathing cue + coaching note, 4 sentences maximum, per EXERCISE DESCRIPTION QUALITY STANDARDS above)"
+          "notes": "string (setup + movement + breathing cue + coaching note, 4 sentences maximum, per EXERCISE DESCRIPTION QUALITY STANDARDS above)",
+          "circuit_group": "string or null (short id shared by every exercise in the same circuit on this day, per STRUCTURE RULES above — null if this exercise is not part of a circuit)"
         }
       ]
     }
@@ -845,28 +856,32 @@ Include exactly ${daySkeletons.length} days in the same order as given. Echo eac
 // (defense in depth — even though the prompt forbids it, never trust the model
 // to preserve exact exercise names) and prepends/appends warm-up/cool-down as
 // synthetic exercise rows (sets=1, matching the pre-existing UI convention).
+//
+// Grouping (group_id/group_type/group_label) is assembled here from two
+// sources: superset pairing is decided entirely by buildDaySkeletons (code,
+// never the AI — see includeSuperset there) and just needs relabeling into
+// the shared shape; circuit membership is proposed by the AI per exercise via
+// circuit_group and cleaned up below (malformed/singleton tags dropped,
+// ignored outright when the client didn't request circuits). Superset always
+// takes precedence over a circuit tag on the same slot — see the group_type
+// guard in the circuit-bucketing pass.
+//
+// group_label mirrors client/src/utils/workoutGrouping.js's groupLabelFor():
+// 'A'/'B' by push/pull order for supersets, '1'/'2'/… by in-day appearance
+// order for circuits. Keep both in sync if either changes.
 
-/** Prefixes `notes` with a bracketed superset label (e.g. "[Superset A - Exercise 1]")
- * when the slot was paired — see buildDaySkeletons. Passes `notes` through unchanged
- * when the slot has no superset label. */
-function applySupersetLabel(notes, supersetLabel) {
-  if (!supersetLabel) return notes
-  return `[${supersetLabel}] ${notes ?? ''}`.trim()
-}
-
-function mergeResponse(daySkeletons, aiPlan) {
+function mergeResponse(daySkeletons, aiPlan, { includeCircuit = false } = {}) {
   const days = daySkeletons.map((skeleton, i) => {
     const aiDay = aiPlan.days?.[i] ?? {}
-    const slotById = new Map(skeleton.slots.map(s => [s.slot_id, s]))
-    const aiBySlot  = new Map((aiDay.exercises ?? []).map(e => [e.slot_id, e]))
+    const aiBySlot = new Map((aiDay.exercises ?? []).map(e => [e.slot_id, e]))
 
-    const exercises = []
-    if (aiDay.warmup) {
-      exercises.push({ name: 'Warm-Up', sets: 1, reps: aiDay.warmup.duration ?? '5 minutes', rest_seconds: null, notes: aiDay.warmup.exercises ?? aiDay.warmup.notes ?? null, exercise_id: null, movement_pattern: null })
-    }
+    // slot_id -> exercise object, so the circuit-grouping pass below can mutate
+    // the exact object already pushed for that slot.
+    const exerciseBySlotId = new Map()
+    const quotaExercises = []
     for (const slot of skeleton.slots) {
       const ai = aiBySlot.get(slot.slot_id) ?? {}
-      exercises.push({
+      const ex = {
         name: slot.name,
         exercise_id: slot.exercise_id,
         movement_pattern: slot.movement_pattern,
@@ -878,17 +893,106 @@ function mergeResponse(daySkeletons, aiPlan) {
         // is unaffected and keeps the normal ai-provided rest period.
         rest_seconds: slot.forceZeroRest ? 0 : (ai.rest_seconds ?? null),
         // Hardcoded fallback exercises (e.g. the bodyweight pull substitute) carry
-        // their own fixed description — never let Katie's guess override it. Superset
-        // pairing (see buildDaySkeletons) is labeled directly into the notes string —
-        // the exercise table UI reads notes only, so no separate field/UI change needed.
-        notes: applySupersetLabel(slot.fallbackNotes ?? ai.notes ?? null, slot.supersetLabel),
+        // their own fixed description — never let Katie's guess override it.
+        notes: slot.fallbackNotes ?? ai.notes ?? null,
         // Coach-facing only (see PULL_VARIETY_FLAG) — not shown to the client, and
         // never overrides the exercise itself, which is otherwise perfectly valid.
         pull_variety_flag: slot.pullVarietyFlag ?? null,
+        section_name: 'Strength',
+        group_id: slot.groupId,
+        group_type: slot.groupType,
+        group_label: null, // filled in below, once every group's membership for the day is final
+      }
+      quotaExercises.push(ex)
+      exerciseBySlotId.set(slot.slot_id, ex)
+    }
+
+    // Circuit grouping — AI-proposed via circuit_group, applied only to slots
+    // the code hasn't already claimed for a superset. Ignored entirely when
+    // circuits weren't requested, regardless of what the AI returned, so a
+    // stray/hallucinated circuit_group can never surface when "none" was selected.
+    if (includeCircuit) {
+      const buckets = new Map() // raw circuit_group tag -> [{ slotId, quotaSlot }], in day order
+      for (const slot of skeleton.slots) {
+        const ex = exerciseBySlotId.get(slot.slot_id)
+        if (ex.group_type !== 'exercise') continue // already superset-paired — a circuit can never override that
+        const ai = aiBySlot.get(slot.slot_id) ?? {}
+        const tag = typeof ai.circuit_group === 'string' ? ai.circuit_group.trim()
+          : typeof ai.circuit_group === 'number' ? String(ai.circuit_group) : null
+        if (!tag) continue
+        if (!buckets.has(tag)) buckets.set(tag, [])
+        buckets.get(tag).push({ slotId: slot.slot_id, quotaSlot: slot.quotaSlot })
+      }
+      for (const members of buckets.values()) {
+        if (members.length < 2) continue // a "circuit" of one exercise isn't a real group — leave it standalone
+        // The AI is never told about the day template's squat/hinge non-adjacency
+        // rule (DAY STRUCTURE above) — never trust it to have respected that on its
+        // own. A circuit containing both would force them back-to-back within the
+        // circuit's rounds, exactly what that rule exists to prevent. Drop the whole
+        // grouping (all members fall back to standalone) rather than try to salvage it.
+        const lowerBodyCount = members.filter(m => m.quotaSlot === 'squat' || m.quotaSlot === 'hinge').length
+        if (lowerBodyCount > 1) {
+          console.warn(`[workoutGenerator] Dropping AI circuit_group for day ${i + 1} — contains ${lowerBodyCount} lower-body (squat/hinge) slots, which would violate the required non-adjacent sequencing: ${members.map(m => m.slotId).join(', ')}`)
+          continue
+        }
+        const groupId = `d${i}-circuit-${members[0].slotId}`
+        members.forEach(({ slotId }, idx) => {
+          const ex = exerciseBySlotId.get(slotId)
+          ex.group_type = 'circuit'
+          ex.group_id = groupId
+          ex.group_label = String(idx + 1)
+        })
+      }
+    }
+
+    // Superset group_label — always exactly push then pull (guaranteed by
+    // buildDaySkeletons), so a fixed A/B rather than the general loop above.
+    for (const slot of skeleton.slots) {
+      const ex = exerciseBySlotId.get(slot.slot_id)
+      if (ex.group_type === 'superset') ex.group_label = slot.quotaSlot === 'upper_push' ? 'A' : 'B'
+    }
+
+    // Reorder so exercises sharing a group_id sit adjacent to each other. Required
+    // for the shared client display util (client/src/utils/workoutGrouping.js
+    // buildGroups) to recognize them as one group — it only merges CONSECUTIVE
+    // same-group_id rows, and the day template's fixed slot order (squat -> push
+    // -> hinge -> pull -> core -> bonus) otherwise interleaves a superset's push+pull
+    // (or an AI circuit's members) with unrelated slots between them. A stable sort
+    // keyed by each group's first-appearance index preserves the original quota
+    // order for standalone exercises and pulls each group together at the position
+    // of its earliest member. Safe with respect to the squat/hinge non-adjacency
+    // rule: squat is always slot index 0 (the global minimum), so it's always first
+    // regardless of grouping, and the lower-body rejection above guarantees no group
+    // ever contains both squat and hinge — see workoutGenerator.test.js if this
+    // invariant ever needs re-verifying after a BASE_QUOTA change.
+    const firstIndexByGroupKey = new Map()
+    quotaExercises.forEach((ex, idx) => {
+      const key = ex.group_id ?? `__solo_${idx}`
+      if (!firstIndexByGroupKey.has(key)) firstIndexByGroupKey.set(key, idx)
+    })
+    const orderedQuotaExercises = quotaExercises
+      .map((ex, idx) => ({ ex, idx, key: ex.group_id ?? `__solo_${idx}` }))
+      .sort((a, b) => {
+        const rank = firstIndexByGroupKey.get(a.key) - firstIndexByGroupKey.get(b.key)
+        return rank !== 0 ? rank : a.idx - b.idx
+      })
+      .map(e => e.ex)
+
+    const exercises = []
+    if (aiDay.warmup) {
+      exercises.push({
+        name: 'Warm-Up', sets: 1, reps: aiDay.warmup.duration ?? '5 minutes', rest_seconds: null,
+        notes: aiDay.warmup.exercises ?? aiDay.warmup.notes ?? null, exercise_id: null, movement_pattern: null,
+        section_name: 'Warm-Up', group_id: null, group_type: 'exercise', group_label: null,
       })
     }
+    exercises.push(...orderedQuotaExercises)
     if (aiDay.cooldown) {
-      exercises.push({ name: 'Cool-Down', sets: 1, reps: aiDay.cooldown.reps ?? '5 minutes', rest_seconds: null, notes: aiDay.cooldown.notes ?? null, exercise_id: null, movement_pattern: null })
+      exercises.push({
+        name: 'Cool-Down', sets: 1, reps: aiDay.cooldown.reps ?? '5 minutes', rest_seconds: null,
+        notes: aiDay.cooldown.notes ?? null, exercise_id: null, movement_pattern: null,
+        section_name: 'Cool Down', group_id: null, group_type: 'exercise', group_label: null,
+      })
     }
 
     return {
@@ -1239,11 +1343,17 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
   const blockedNamePattern = buildBlockedNamePattern({ isBeginner, injuryFlags, equipmentList, fitnessLevel: answers.fitness_level })
   // 'some'/'full' both request supersets (validateCircuitSuperset above already
   // guarantees answers.supersets is one of 'none'/'some'/'full') — the push+pull
-  // pairing is deterministic (buildDaySkeletons/applySupersetLabel/forceZeroRest)
-  // and identical either way. Katie's prompt is never told about superset
-  // structure at all (see buildWorkoutPrompt) — 'some' vs 'full' no longer changes
-  // anything about what she writes, only that the app pairs push+pull for either.
+  // pairing is deterministic (buildDaySkeletons/forceZeroRest) and identical
+  // either way. Katie's prompt is never told about superset structure at all
+  // (see buildWorkoutPrompt) — 'some' vs 'full' no longer changes anything about
+  // what she writes, only that the app pairs push+pull for either.
   const includeSuperset = answers.supersets !== 'none'
+  // Circuits, unlike supersets, ARE proposed by the AI (via circuit_group in its
+  // JSON response — see buildWorkoutPrompt/mergeResponse) since there's no
+  // deterministic code-side circuit logic. includeCircuit gates mergeResponse's
+  // circuit-bucketing pass so a "none" selection can never surface a circuit
+  // regardless of what the model returns.
+  const includeCircuit = answers.circuits !== 'none'
 
   const requiredPatterns = getRequiredPatterns(answers.days_per_week, answers.session_length, preferBilateral)
   await assertLibraryHasRequiredPatterns(pool, requiredPatterns)
@@ -1264,6 +1374,6 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
   const prompt = buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext, injuryFlags)
   const aiPlan = await requestAndParsePlan(prompt)
 
-  const plan = mergeResponse(daySkeletons, aiPlan)
+  const plan = mergeResponse(daySkeletons, aiPlan, { includeCircuit })
   return validateWorkoutPlan(plan, { equipmentList, blockedNamePattern })
 }
