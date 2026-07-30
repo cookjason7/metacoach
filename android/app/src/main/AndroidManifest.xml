@@ -34,6 +34,25 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
+
+        <!--
+            Health Connect rationale components injected by @capgo/capacitor-health.
+
+            Both carry android.intent.category.HEALTH_PERMISSIONS, which is what Play Console
+            scans when deciding whether to require a Health Connect declaration. The plugin is
+            iOS-only in this app (see the permission strip-out note below), so these are dead
+            code on Android. Removed at merge time to match the permission removals.
+
+            Names are fully qualified against the library namespace (app.capgo.plugin.health)
+            because the merger resolves a leading-dot name against the *app* package, not the
+            library's.
+        -->
+        <activity
+            android:name="app.capgo.plugin.health.PermissionsRationaleActivity"
+            tools:node="remove" />
+        <activity-alias
+            android:name="app.capgo.plugin.health.ViewPermissionUsageActivity"
+            tools:node="remove" />
     </application>
 
     <!-- Permissions -->
