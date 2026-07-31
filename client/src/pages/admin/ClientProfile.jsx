@@ -5717,11 +5717,12 @@ function BloodworkTab({ clientId, getToken, bloodworkEnabled = false, onClientUp
 // ─── Coach Workouts Tab ───────────────────────────────────────────────────────
 
 // ── Constants for the Katie questionnaire (mirror of Workouts.jsx) ────────────
-// 'general_fitness' is hidden here only — the assembleSession()-backed
-// generator (server/services/assemblyWorkoutGenerator.js) has no engine
-// support for it yet. 'flexibility' now maps to the 'mobility' volume_rules
-// goal (see GOAL_ENGINE_MAP in assemblyWorkoutGenerator.js) and generates a
-// real mobility-focused session. Workouts.jsx's own GOALS list is untouched.
+// 'general_fitness' is hidden here only — historical; Workouts.jsx's own GOALS
+// list includes it but this coach-facing list never has. The live "Generate
+// with Katie" flow is workoutGenerator.js's generateWorkoutPlan(), a single
+// AI-prompt generator with no per-goal engine — every goal here, including
+// 'flexibility', is passed through as prompt text, not routed to a dedicated
+// engine. Workouts.jsx's own GOALS list is untouched.
 const WO_GOALS = [
   { id: 'weight_loss',     label: 'Weight Loss'    },
   { id: 'muscle_gain',     label: 'Muscle Gain'    },

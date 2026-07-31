@@ -3871,9 +3871,12 @@ router.post('/clients/:id/workouts', requireAuth(), async (req, res, next) => {
         let dayOrder = 0
         for (const ex of (day.exercises || [])) {
           // image_url / instructions carried through as-is from the request
-          // body — this is exactly what the coach already reviewed on screen
-          // (assemblyWorkoutGenerator.js's flattenAssembledSession() +
-          // attachLegacyMedia()); no re-querying or re-matching here.
+          // body. The live "Generate with Katie" flow (generateWorkoutPlan()
+          // in workoutGenerator.js, called from the /generate route above)
+          // never sets these on its returned exercises, so today they save as
+          // null here; image_url is instead resolved at read time from the
+          // legacy exercises table (see the GET /:wid route above). Columns
+          // are still accepted as-is for any future caller that does supply them.
           await pool.query(
             `INSERT INTO workout_exercises
                (workout_id, day, exercise_name, exercise_id, day_focus, sets, reps, rest_seconds, notes, sort_order, image_url, instructions, group_id, group_type, group_label, org_id)
