@@ -248,17 +248,34 @@ async function createNewPostNotifications(postId, fromUserId, orgId) {
 // push, since the audience query is the same for both.
 async function notifyGroupPost({ postId, groupId, authorUserId, authorIsStaff, orgId }) {
   try {
-    const audienceFilter = authorIsStaff
-      ? `u.role = 'client' AND COALESCE(u.coaching_type, '') != 'basic'`
-      : `u.role IN ('admin', 'account_owner', 'coach', 'staff')`
-
-    const { rows } = await pool.query(
-      `SELECT u.id
-       FROM group_members gm
-       JOIN users u ON u.id = gm.user_id
-       WHERE gm.group_id = $1 AND gm.org_id = $2 AND u.id != $3 AND ${audienceFilter}`,
-      [groupId, orgId, authorUserId],
-    )
+    // Admins (admin, account_owner) deliberately have no group_members row
+    // (see db.js:2065-2069, community.js:1345) — they administer every group
+    // without being a "member" of any, so the members-picker can exclude them.
+    // That means a plain membership JOIN can never surface them: union them in
+    // by role, org-wide, independent of group_members. Coach/staff still need
+    // an actual membership row since they aren't auto-admins of every group.
+    const { rows } = authorIsStaff
+      ? await pool.query(
+          `SELECT u.id
+           FROM group_members gm
+           JOIN users u ON u.id = gm.user_id
+           WHERE gm.group_id = $1 AND gm.org_id = $2 AND u.id != $3
+             AND u.role = 'client' AND COALESCE(u.coaching_type, '') != 'basic'`,
+          [groupId, orgId, authorUserId],
+        )
+      : await pool.query(
+          `SELECT gm.user_id AS id
+           FROM group_members gm
+           JOIN users u ON u.id = gm.user_id
+           WHERE gm.group_id = $1 AND gm.org_id = $2 AND u.id != $3
+             AND u.role IN ('coach', 'staff')
+           UNION
+           SELECT u.id
+           FROM users u
+           WHERE u.org_id = $2 AND u.id != $3
+             AND u.role IN ('admin', 'account_owner')`,
+          [groupId, orgId, authorUserId],
+        )
 
     for (const u of rows) {
       await pool.query(
