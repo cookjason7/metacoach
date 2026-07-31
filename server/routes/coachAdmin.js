@@ -15,10 +15,15 @@ const router = Router()
 const anthropic = new Anthropic()
 
 // Coaching types whose support thread is ai_admin rather than coach_thread.
+// Must stay in sync with visibleThreadTypesForClient() in routes/messages.js,
+// which is the source of truth for what a client actually sees: every non-VIP
+// tier gets ai_admin. 'basic' belongs here for that reason — basic clients
+// could send into the thread but staff replies were rejected, so their
+// messages went unanswered.
 // 'ai' was consolidated into 'hybrid' — nothing writes 'ai' anymore, but it
 // stays in this list so any legacy row still routes to the right thread
 // instead of failing the send gate below.
-const AI_COACHING_TYPES = ['hybrid', 'ai']
+const AI_ADMIN_THREAD_TYPES = ['hybrid', 'ai', 'basic']
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -2626,11 +2631,11 @@ router.post('/clients/:id/messages', requireAuth(), async (req, res, next) => {
       ? 'client_and_admin_only'
       : 'client_and_staff'
 
-    // If sending to ai_admin, verify client is an AI-coaching client
+    // If sending to ai_admin, verify this client's support thread is ai_admin
     if (canonicalThreadType === 'ai_admin') {
       const { rows } = await pool.query('SELECT coaching_type FROM users WHERE id = $1', [id])
-      if (!AI_COACHING_TYPES.includes(rows[0]?.coaching_type)) {
-        return res.status(400).json({ error: 'ai_admin thread is only for AI coaching clients' })
+      if (!AI_ADMIN_THREAD_TYPES.includes(rows[0]?.coaching_type)) {
+        return res.status(400).json({ error: 'ai_admin thread is not available for this client' })
       }
     }
 
@@ -3311,10 +3316,12 @@ router.post('/forms/:id/send', requireAuth(), async (req, res, next) => {
       `, [templateId, clientId, ctx.dbUserId, ctx.orgId])
 
       // Determine thread type and visibility
-      // Coaches are limited to coach_thread; admin uses ai_admin for AI-coaching
-      // clients (hybrid, plus legacy 'ai'), coach_thread for VIP
+      // Coaches are limited to coach_thread; admin uses ai_admin for every
+      // non-VIP tier (hybrid, basic, plus legacy 'ai'), coach_thread for VIP.
+      // Routing a non-VIP client to coach_thread would drop the form into a
+      // thread they can't see — visibleThreadTypesForClient() hides it.
       let thread_type = 'coach_thread'
-      if (isAdminRole(ctx.role) && AI_COACHING_TYPES.includes(client.coaching_type)) thread_type = 'ai_admin'
+      if (isAdminRole(ctx.role) && AI_ADMIN_THREAD_TYPES.includes(client.coaching_type)) thread_type = 'ai_admin'
 
       const visibility = (thread_type === 'admin_private' || thread_type === 'ai_admin')
         ? 'client_and_admin_only'
