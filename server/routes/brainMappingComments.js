@@ -45,6 +45,68 @@ router.get('/:videoId', requireAuth(), async (req, res) => {
   }
 })
 
+// GET /api/brain-mapping-comments/:videoId/video-reactions — reaction counts + current user's reactions for the video itself
+router.get('/:videoId/video-reactions', requireAuth(), async (req, res) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId = await getOrCreateUser(userId)
+    const videoId = parseInt(req.params.videoId, 10)
+    if (isNaN(videoId)) return res.status(400).json({ error: 'Invalid video id' })
+
+    const { rows } = await pool.query(
+      `SELECT reaction_type, COUNT(*) AS cnt, bool_or(user_id = $2) AS reacted_by_me
+       FROM brain_mapping_video_reactions
+       WHERE video_id = $1
+       GROUP BY reaction_type`,
+      [videoId, dbUserId],
+    )
+    const reaction_counts = {}
+    const my_reactions = []
+    for (const r of rows) {
+      reaction_counts[r.reaction_type] = parseInt(r.cnt, 10)
+      if (r.reacted_by_me) my_reactions.push(r.reaction_type)
+    }
+    res.json({ reaction_counts, my_reactions })
+  } catch (e) {
+    console.error('[brain-mapping-comments:video-reactions:list]', e.message, e.stack)
+    res.status(500).json({ error: e.message ?? 'Server error' })
+  }
+})
+
+// POST /api/brain-mapping-comments/:videoId/video-reactions — toggle a video-level reaction
+router.post('/:videoId/video-reactions', requireAuth(), async (req, res) => {
+  try {
+    const { userId } = getAuth(req)
+    const dbUserId = await getOrCreateUser(userId)
+    const videoId = parseInt(req.params.videoId, 10)
+    if (isNaN(videoId)) return res.status(400).json({ error: 'Invalid video id' })
+    const { reaction_type } = req.body
+    if (!REACTION_TYPES.includes(reaction_type)) {
+      return res.status(400).json({ error: `reaction_type must be one of ${REACTION_TYPES.join(', ')}` })
+    }
+
+    const { rowCount } = await pool.query(
+      'DELETE FROM brain_mapping_video_reactions WHERE video_id = $1 AND user_id = $2 AND reaction_type = $3',
+      [videoId, dbUserId, reaction_type],
+    )
+    let action = 'removed'
+    if (!rowCount) {
+      await pool.query(
+        `INSERT INTO brain_mapping_video_reactions (video_id, user_id, reaction_type)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (video_id, user_id, reaction_type) DO NOTHING`,
+        [videoId, dbUserId, reaction_type],
+      )
+      action = 'added'
+    }
+    res.json({ success: true, action })
+  } catch (e) {
+    if (e.code === '23503') return res.status(404).json({ error: 'Video not found' })
+    console.error('[brain-mapping-comments:video-reactions:react]', e.message, e.stack)
+    res.status(500).json({ error: e.message ?? 'Server error' })
+  }
+})
+
 // POST /api/brain-mapping-comments — create a comment
 router.post('/', requireAuth(), async (req, res) => {
   try {

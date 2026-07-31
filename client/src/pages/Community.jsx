@@ -2478,6 +2478,10 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
           </div>
         )}
 
+        {!isStaff && getToken && (
+          <VideoReactionRow videoId={video.id} getToken={getToken} />
+        )}
+
         {getToken && (
           <CommentSection videoId={video.id} getToken={getToken} isAdmin={isAdmin} currentUserId={currentUserId} />
         )}
@@ -2486,9 +2490,87 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
   )
 }
 
-// ── CommentSection (Brain Mapping video comments + reactions) ────────────────
+// ── VideoReactionRow (reactions on the video itself, separate from comments) ─
 
 const REACTION_EMOJI = { like: '👍', love: '❤️', fire: '🔥' }
+
+function VideoReactionRow({ videoId, getToken }) {
+  const [reactionCounts, setReactionCounts] = useState({})
+  const [myReactions, setMyReactions] = useState([])
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/brain-mapping-comments/${videoId}/video-reactions`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        setReactionCounts(data.reaction_counts ?? {})
+        setMyReactions(data.my_reactions ?? [])
+        setLoaded(true)
+      } catch { /* silent — reaction row is non-critical */ }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [videoId, getToken])
+
+  async function handleReact(reactionType) {
+    const hasIt = myReactions.includes(reactionType)
+    // Optimistic toggle
+    setMyReactions(prev => hasIt ? prev.filter(r => r !== reactionType) : [...prev, reactionType])
+    setReactionCounts(prev => ({
+      ...prev,
+      [reactionType]: Math.max(0, (prev[reactionType] ?? 0) + (hasIt ? -1 : 1)),
+    }))
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/brain-mapping-comments/${videoId}/video-reactions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reaction_type: reactionType }),
+      })
+      if (!res.ok) throw new Error()
+    } catch {
+      // Resync from server on failure
+      setMyReactions(prev => hasIt ? [...prev, reactionType] : prev.filter(r => r !== reactionType))
+      setReactionCounts(prev => ({
+        ...prev,
+        [reactionType]: Math.max(0, (prev[reactionType] ?? 0) + (hasIt ? 1 : -1)),
+      }))
+    }
+  }
+
+  if (!loaded) return null
+
+  return (
+    <div className="mt-3 flex items-center gap-1.5">
+      {Object.keys(REACTION_EMOJI).map(type => {
+        const count = reactionCounts[type] ?? 0
+        const mine = myReactions.includes(type)
+        return (
+          <button
+            key={type}
+            onClick={() => handleReact(type)}
+            className={`inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-full border transition-colors min-h-[44px] sm:min-h-[32px] ${
+              mine ? 'border-transparent' : 'border-gray-200 text-gray-500 hover:bg-gray-100'
+            }`}
+            style={mine ? { background: '#fde8c8', color: 'var(--color-accent-hover)' } : undefined}
+          >
+            <span>{REACTION_EMOJI[type]}</span>
+            {count > 0 && <span className="font-semibold">{count}</span>}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── CommentSection (Brain Mapping video comments + reactions) ────────────────
 
 function CommentSection({ videoId, getToken, isAdmin, currentUserId }) {
   const [open, setOpen] = useState(false)

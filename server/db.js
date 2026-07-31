@@ -1445,6 +1445,20 @@ export async function migrate() {
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_bm_reactions_comment ON brain_mapping_reactions (comment_id)`)
 
+  // Video-level reactions — separate from per-comment reactions above; a user
+  // reacts to the video itself, not to any particular comment.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS brain_mapping_video_reactions (
+      id             SERIAL PRIMARY KEY,
+      video_id       INTEGER NOT NULL REFERENCES mindset_videos(id) ON DELETE CASCADE,
+      user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      reaction_type  TEXT    NOT NULL CHECK (reaction_type IN ('like', 'love', 'fire')),
+      created_at     TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (video_id, user_id, reaction_type)
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_bm_video_reactions_video ON brain_mapping_video_reactions (video_id)`)
+
   // ── Client Measurements ───────────────────────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS client_measurements (
