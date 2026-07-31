@@ -8,6 +8,7 @@ import { getAppBaseUrl } from '../services/appUrl.js'
 import { notifyNewDirectMessage, notifyNewFormDelivery } from '../services/pushService.js'
 import { generateWorkoutPlan, ExerciseLibraryError } from '../services/workoutGenerator.js'
 import { getWorkoutDayNotes } from '../services/workoutDayNotes.js'
+import { insertWorkoutExercise } from '../services/workoutExerciseInsert.js'
 import { trackEvent } from '../services/usageTracker.js'
 
 const router = Router()
@@ -3877,15 +3878,15 @@ router.post('/clients/:id/workouts', requireAuth(), async (req, res, next) => {
           // null here; image_url is instead resolved at read time from the
           // legacy exercises table (see the GET /:wid route above). Columns
           // are still accepted as-is for any future caller that does supply them.
-          await pool.query(
-            `INSERT INTO workout_exercises
-               (workout_id, day, exercise_name, exercise_id, day_focus, sets, reps, rest_seconds, notes, sort_order, image_url, instructions, group_id, group_type, group_label, org_id)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,(SELECT org_id FROM workouts WHERE id = $1))`,
-            [workout.id, day.day_name, ex.name, ex.exercise_id ?? null, day.focus ?? null,
-             ex.sets ?? null, ex.reps ?? null, ex.rest_seconds ?? null, ex.notes ?? null, dayOrder++,
-             ex.image_url ?? null, ex.instructions ?? null,
-             ex.group_id ?? null, ex.group_type ?? 'exercise', ex.group_label ?? null],
-          )
+          await insertWorkoutExercise({
+            workout_id: workout.id, day: day.day_name, exercise_name: ex.name,
+            exercise_id: ex.exercise_id ?? null, day_focus: day.focus ?? null,
+            sets: ex.sets ?? null, reps: ex.reps ?? null, rest_seconds: ex.rest_seconds ?? null,
+            notes: ex.notes ?? null, sort_order: dayOrder++,
+            image_url: ex.image_url ?? null, instructions: ex.instructions ?? null,
+            group_id: ex.group_id ?? null, group_type: ex.group_type ?? 'exercise',
+            group_label: ex.group_label ?? null, org_id: workout.org_id,
+          })
         }
       }
     }
@@ -3924,7 +3925,7 @@ router.post('/clients/:id/workouts/:wid/exercises', requireAuth(), async (req, r
     const workoutId = parseInt(req.params.wid, 10)
     if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
     const { rows: [w] } = await pool.query(
-      'SELECT id FROM workouts WHERE id=$1 AND user_id=$2', [workoutId, clientId])
+      'SELECT id, org_id FROM workouts WHERE id=$1 AND user_id=$2', [workoutId, clientId])
     if (!w) return res.status(404).json({ error: 'Workout not found' })
     const {
       day, exercise_name, exercise_id, sets, reps, weight, rest_seconds, notes, sort_order,
@@ -3934,23 +3935,13 @@ router.post('/clients/:id/workouts/:wid/exercises', requireAuth(), async (req, r
     if (group_type && !['exercise', 'superset', 'circuit'].includes(group_type)) {
       return res.status(400).json({ error: 'group_type must be exercise, superset, or circuit' })
     }
-    const { rows: [ex] } = await pool.query(
-      `INSERT INTO workout_exercises
-         (workout_id, day, exercise_name, exercise_id, sets, reps, weight, rest_seconds, notes, sort_order,
-          section_name, group_id, group_type, group_label, org_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
-               (SELECT org_id FROM workouts WHERE id = $1))
-       RETURNING *, COALESCE(
-         (SELECT image_url FROM exercises WHERE id = workout_exercises.exercise_id),
-         (SELECT image_url FROM exercises
-            WHERE lower(trim(name)) = lower(trim(workout_exercises.exercise_name))
-              AND image_url IS NOT NULL
-            ORDER BY id LIMIT 1)
-       ) AS image_url`,
-      [workoutId, day ?? 'Day 1', exercise_name.trim(), exercise_id ?? null, sets ?? null, reps ?? null,
-       weight ?? null, rest_seconds ?? null, notes ?? null, sort_order ?? 0,
-       section_name ?? null, group_id ?? null, group_type ?? 'exercise', group_label ?? null],
-    )
+    const ex = await insertWorkoutExercise({
+      workout_id: workoutId, day: day ?? 'Day 1', exercise_name: exercise_name.trim(),
+      exercise_id: exercise_id ?? null, sets: sets ?? null, reps: reps ?? null,
+      weight: weight ?? null, rest_seconds: rest_seconds ?? null, notes: notes ?? null,
+      sort_order: sort_order ?? 0, section_name: section_name ?? null, group_id: group_id ?? null,
+      group_type: group_type ?? 'exercise', group_label: group_label ?? null, org_id: w.org_id,
+    }, { resolveImageUrl: true })
     res.status(201).json(ex)
   } catch (err) { next(err) }
 })
