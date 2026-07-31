@@ -3736,8 +3736,7 @@ export default function Community() {
 
   // Build tab list:
   //   Staff/admin — full list: both chat channels, Brain Mapping, Resources
-  //   Clients     — simplified: Group Chat · Resources · Non-Scale Victories
-  //                 Brain Mapping is sidebar-only (?tab=mindset); not a client tab
+  //   Clients     — Group Chat · Brain Mapping · Resources
   const TABS = isStaff ? [
     { id: 'vip',       label: 'VIP Chat' },
     { id: 'ai',        label: 'AI Chat' },
@@ -3756,6 +3755,28 @@ export default function Community() {
         <p className="text-sm text-gray-500 mb-6">{`Connect with your ${brandName} community`}</p>
         <div className="flex justify-center py-16">
           <span className="text-sm text-gray-400">Loading…</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (initError) {
+    return (
+      <div className="max-w-5xl">
+        <h1 className="text-2xl font-bold text-gray-900 mb-1">Community</h1>
+        <p className="text-sm text-gray-500 mb-6">{`Connect with your ${brandName} community`}</p>
+        <div className="bg-red-50 border border-red-200 rounded-xl p-8 text-center">
+          <p className="text-sm font-medium text-red-700 mb-1">Could not load community settings</p>
+          <p className="text-xs text-red-500 mb-4">Check your connection and try again.</p>
+          <button
+            onClick={runInit}
+            className="text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+            style={{ background: 'var(--color-accent)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
+          >
+            Retry
+          </button>
         </div>
       </div>
     )

@@ -2095,6 +2095,29 @@ export async function runMigrations() {
     console.error('[migrations] group_members setup failed:', err.message)
   }
 
+  // Second-pass backfill: the first membership backfill above required
+  // client_status = 'active' at the time it ran, so clients who were inactive
+  // then (or signed up before either backfill ran) can still be missing a
+  // group_members row. Drops that status filter — every client gets added to
+  // every active public group in their org regardless of current status.
+  // Safe to over-include: isGroupMember still enforces client_status =
+  // 'active' at request time, so a deactivated client with a group_members
+  // row still can't read/post into the group. Idempotent via ON CONFLICT.
+  try {
+    await pool.query(`
+      INSERT INTO group_members (group_id, user_id, org_id, added_by)
+      SELECT cg.id, u.id, u.org_id, NULL
+      FROM community_groups cg
+      JOIN users u ON u.org_id = cg.org_id
+      WHERE cg.is_active = TRUE
+        AND cg.type = 'public'
+        AND u.role = 'client'
+      ON CONFLICT (group_id, user_id) DO NOTHING
+    `)
+  } catch (err) {
+    console.error('[migrations] client group_members re-backfill failed:', err.message)
+  }
+
   // One-time backfill: the Main Feed (group_id IS NULL) concept is retired —
   // every post must belong to a group. Assigns orphaned posts to their org's
   // first active group, same ordering POST /posts uses for new posts without
