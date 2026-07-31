@@ -200,32 +200,30 @@ export async function notifyNewTeamMessage(recipientUserId, previewBody, url = n
   }
 }
 
-// Notify a user about a new top-level community post.
+// Notify ONE recipient about a new community post.
 // Generic copy only - no post content, no health data.
-// postId (optional): the new post's id. When provided, the notification carries
-// a deep-link url so tapping it opens the Community page scrolled to and
-// highlighting that specific post instead of just landing on the Dashboard.
-export async function notifyNewCommunityPost(authorUserId, authorIsStaff = false, postId = null) {
+//
+// The audience is the caller's job — every call site in server/routes/community.js
+// already runs its own query (group membership, channel, coach assignment) and
+// loops over the result, so this function must send to exactly the user it is
+// given. It only enforces that user's own notification prefs.
+//
+// postId: the new post's id. Carried as a deep-link url so tapping the
+// notification opens the Community page scrolled to and highlighting that
+// specific post instead of just landing on the Dashboard.
+export async function notifyNewCommunityPost(recipientUserId, postId = null) {
   try {
-    const roleFilter = authorIsStaff
-      ? `(role IN ('admin', 'coach') OR (role = 'client' AND COALESCE(coaching_type, '') != 'basic'))`
-      : `role IN ('admin', 'coach')`
     const { rows } = await pool.query(
-      `SELECT id, notif_master_enabled, notif_community_enabled
-       FROM users
-       WHERE id != $1
-         AND ${roleFilter}
-         AND notif_master_enabled = TRUE
-         AND notif_community_enabled = TRUE`,
-      [authorUserId],
+      `SELECT notif_master_enabled, notif_community_enabled FROM users WHERE id = $1`,
+      [recipientUserId],
     )
-    for (const user of rows) {
-      await sendToUser(user.id, {
-        title: 'New Post',
-        body:  "There's a new group post.",
-        data:  postId != null ? { url: `/community?post_id=${String(postId)}` } : undefined,
-      }).catch(() => {})
-    }
+    const prefs = rows[0]
+    if (!prefs || prefs.notif_master_enabled === false || prefs.notif_community_enabled === false) return
+    await sendToUser(recipientUserId, {
+      title: 'New Post',
+      body:  "There's a new group post.",
+      data:  postId != null ? { url: `/community?post_id=${String(postId)}` } : undefined,
+    })
   } catch (err) {
     console.warn('[push] notifyNewCommunityPost error:', err.message)
   }
