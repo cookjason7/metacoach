@@ -14,6 +14,12 @@ import { trackEvent } from '../services/usageTracker.js'
 const router = Router()
 const anthropic = new Anthropic()
 
+// Coaching types whose support thread is ai_admin rather than coach_thread.
+// 'ai' was consolidated into 'hybrid' — nothing writes 'ai' anymore, but it
+// stays in this list so any legacy row still routes to the right thread
+// instead of failing the send gate below.
+const AI_COACHING_TYPES = ['hybrid', 'ai']
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function getCurrentStaff(req) {
@@ -675,8 +681,11 @@ router.post('/clients/invite', requireAuth(), async (req, res, next) => {
     if (!first_name?.trim()) return res.status(400).json({ error: 'First name is required.' })
     if (!email?.trim())      return res.status(400).json({ error: 'Email is required.' })
 
+    // 'ai' stays accepted as input (an old client build could still send it)
+    // but is folded to 'hybrid' before it is stored, so no new 'ai' rows appear.
     const validCoachingTypes = ['vip', 'ai', 'hybrid', 'basic']
-    const resolvedType = validCoachingTypes.includes(coaching_type) ? coaching_type : 'vip'
+    const requestedType = validCoachingTypes.includes(coaching_type) ? coaching_type : 'vip'
+    const resolvedType = requestedType === 'ai' ? 'hybrid' : requestedType
 
     const normalizedEmail = email.trim().toLowerCase()
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
@@ -1035,8 +1044,13 @@ router.patch('/clients/:id', requireAuth(), async (req, res, next) => {
     for (const key of allowed) {
       if (key in req.body) {
         let value = req.body[key]
-        if (key === 'coaching_type' && !['vip', 'ai', 'hybrid', 'basic'].includes(value)) {
-          return res.status(400).json({ error: 'coaching_type must be vip, ai, hybrid, or basic' })
+        if (key === 'coaching_type') {
+          if (!['vip', 'ai', 'hybrid', 'basic'].includes(value)) {
+            return res.status(400).json({ error: 'coaching_type must be vip, hybrid, or basic' })
+          }
+          // Legacy 'ai' is still accepted from older clients but folded to
+          // 'hybrid' so it is never written back into the column.
+          if (value === 'ai') value = 'hybrid'
         }
         // Normalize empty string → NULL for these fields
         if (key === 'assigned_coach_id') {
@@ -2612,10 +2626,10 @@ router.post('/clients/:id/messages', requireAuth(), async (req, res, next) => {
       ? 'client_and_admin_only'
       : 'client_and_staff'
 
-    // If sending to ai_admin, verify client is an AI client
+    // If sending to ai_admin, verify client is an AI-coaching client
     if (canonicalThreadType === 'ai_admin') {
       const { rows } = await pool.query('SELECT coaching_type FROM users WHERE id = $1', [id])
-      if (rows[0]?.coaching_type !== 'ai') {
+      if (!AI_COACHING_TYPES.includes(rows[0]?.coaching_type)) {
         return res.status(400).json({ error: 'ai_admin thread is only for AI coaching clients' })
       }
     }
@@ -3297,9 +3311,10 @@ router.post('/forms/:id/send', requireAuth(), async (req, res, next) => {
       `, [templateId, clientId, ctx.dbUserId, ctx.orgId])
 
       // Determine thread type and visibility
-      // Coaches are limited to coach_thread; admin uses admin_private for AI clients, coach_thread for VIP
+      // Coaches are limited to coach_thread; admin uses ai_admin for AI-coaching
+      // clients (hybrid, plus legacy 'ai'), coach_thread for VIP
       let thread_type = 'coach_thread'
-      if (isAdminRole(ctx.role) && client.coaching_type === 'ai') thread_type = 'ai_admin'
+      if (isAdminRole(ctx.role) && AI_COACHING_TYPES.includes(client.coaching_type)) thread_type = 'ai_admin'
 
       const visibility = (thread_type === 'admin_private' || thread_type === 'ai_admin')
         ? 'client_and_admin_only'

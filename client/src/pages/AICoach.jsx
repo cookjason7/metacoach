@@ -131,7 +131,11 @@ export default function AICoach() {
         const profileRes = await fetch(`${API_URL}/api/users/me`, { headers })
         if (profileRes.ok) {
           const profile = await profileRes.json()
-          const vip = profile.coaching_type !== 'ai'
+          // VIP is the only tier with a human coach leading the program; every
+          // other tier (basic, hybrid, plus legacy 'ai') is AI-coached and gets
+          // the proactive check below. Previously this tested `!== 'ai'`, which
+          // misread hybrid and basic clients as VIP and suppressed it for them.
+          const vip = profile.coaching_type === 'vip'
           setIsVip(vip)
           // Only fire check-proactive for AI coaching clients
           if (!vip) {

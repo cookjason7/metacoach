@@ -91,11 +91,11 @@ function fmtActivityLevel(value) {
   return map[String(value).trim().toLowerCase()] ?? value
 }
 
+// 'ai' was consolidated into 'hybrid' — legacy rows label as Hybrid, which is
+// the tier they actually behave as everywhere else.
 function coachingTypeLabel(type) {
   if (type === 'vip') return 'VIP'
-  if (type === 'hybrid') return 'Hybrid'
   if (type === 'basic') return 'Basic'
-  if (type === 'ai') return 'Legacy AI'
   return 'Hybrid'
 }
 
@@ -134,7 +134,10 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
   const [form, setForm] = useState({
     first_name:           client.display_first_name ?? client.first_name ?? '',
     last_name:            client.display_last_name  ?? client.last_name  ?? '',
-    coaching_type:        client.coaching_type ?? 'vip',
+    // Legacy 'ai' rows surface as 'hybrid' — the two are the same tier now, so
+    // the form normalizes on load. Saving an untouched legacy client therefore
+    // writes 'hybrid' rather than silently persisting 'ai' again.
+    coaching_type:        client.coaching_type === 'ai' ? 'hybrid' : (client.coaching_type ?? 'vip'),
     assigned_coach_id:    client.assigned_coach_id ?? '',
     role:                 client.role ?? 'client',
     start_date:           startDateInitial,
@@ -326,7 +329,7 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Coaching type</label>
                 <select
-                  value={form.coaching_type === 'ai' ? 'legacy_ai' : form.coaching_type}
+                  value={form.coaching_type}
                   onChange={e => setForm(f => ({
                     ...f,
                     coaching_type: e.target.value,
@@ -336,15 +339,7 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                   <option value="basic">Basic</option>
                   <option value="hybrid">Hybrid</option>
                   <option value="vip">VIP</option>
-                  {form.coaching_type === 'ai' && (
-                    <option value="legacy_ai" disabled>Legacy AI</option>
-                  )}
                 </select>
-                {form.coaching_type === 'ai' && (
-                  <p className="text-[10px] text-gray-400 mt-1">
-                    Existing legacy AI client. Choose Basic, Hybrid, or VIP to update.
-                  </p>
-                )}
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Role</label>
@@ -4741,7 +4736,10 @@ function FlagCorrectionModal({ flaggedMessage, getToken, onClose }) {
 }
 
 function MessagingTab({ client, role, meId, getToken }) {
-  const isAI = client.coaching_type === 'ai'
+  // AI-coaching clients use the ai_admin thread instead of coach_thread.
+  // 'ai' was consolidated into 'hybrid'; it stays matched here so any legacy
+  // row still shows the tab it can actually send to.
+  const isAI = client.coaching_type === 'hybrid' || client.coaching_type === 'ai'
   // When this admin IS the client's assigned coach, coach_thread and admin_private point
   // at the same person — merge into one sendable tab instead of showing both (a client
   // reply could otherwise land in whichever tab staff wasn't looking at).
@@ -7764,11 +7762,7 @@ export default function ClientProfile() {
         const statusTag  = computeClientStatusTag(client)
         const tagStyle   = statusTagStyle(statusTag)
         const coachLabel = client.assigned_coach_name || client.assigned_coach_email || '—'
-        const typeLabel  = client.coaching_type === 'vip' ? 'VIP'
-          : client.coaching_type === 'ai' ? 'AI'
-          : client.coaching_type
-            ? client.coaching_type.charAt(0).toUpperCase() + client.coaching_type.slice(1)
-            : '—'
+        const typeLabel  = client.coaching_type ? coachingTypeLabel(client.coaching_type) : '—'
         const effStart   = client.effective_start_date || client.start_date
         const startLabel = effStart ? fmtDate(effStart) : '—'
         const rawDays    = effStart ? daysSince(effStart) : null

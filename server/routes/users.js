@@ -44,34 +44,44 @@ router.get('/me', requireAuth(), async (req, res, next) => {
       [dbUserId],
     )
 
+    // 'ai' was consolidated into 'hybrid' — 'hybrid' is the only value this
+    // self-heal writes now. Both count as "already healed" on the read side, so
+    // a user who is already 'hybrid' is never dragged back to the legacy 'ai',
+    // and a leftover 'ai' row is left alone rather than rewritten on every
+    // /me call. Invite lookups still match either value so an invite minted
+    // before the consolidation still heals its user.
+    const AI_COACHING_TYPES = ['hybrid', 'ai']
+
     const originalCoachingType = rows[0]?.coaching_type
     let robustAiSelfHealRan = false
     const canAiSelfHeal = rows[0]
-      && rows[0].coaching_type !== 'ai'
+      && !AI_COACHING_TYPES.includes(rows[0].coaching_type)
       && rows[0].coaching_type_source !== 'manual'
 
-    // Self-heal: if the user accepted an AI invite but coaching_type wasn't updated
-    // (e.g. invite accept failed silently on an older deploy), fix it now.
+    // Self-heal: if the user accepted an AI-coaching invite but coaching_type
+    // wasn't updated (e.g. invite accept failed silently on an older deploy),
+    // fix it now.
     if (canAiSelfHeal) {
       const { rows: aiInvite } = await pool.query(
         `SELECT 1 FROM client_invites
-         WHERE accepted_by_user_id = $1 AND coaching_type = 'ai'
+         WHERE accepted_by_user_id = $1 AND coaching_type = ANY($2::text[])
          LIMIT 1`,
-        [dbUserId],
+        [dbUserId, AI_COACHING_TYPES],
       )
       if (aiInvite.length > 0) {
         await pool.query(
-          `UPDATE users SET coaching_type = 'ai', coaching_type_source = COALESCE(coaching_type_source, 'self_heal_ai') WHERE id = $1`,
+          `UPDATE users SET coaching_type = 'hybrid', coaching_type_source = COALESCE(coaching_type_source, 'self_heal_ai') WHERE id = $1`,
           [dbUserId],
         )
-        rows[0].coaching_type = 'ai'
+        rows[0].coaching_type = 'hybrid'
         rows[0].coaching_type_source = rows[0].coaching_type_source ?? 'self_heal_ai'
-        console.log(`[users/me] self-healed coaching_type → 'ai' for user id=${dbUserId}`)
+        console.log(`[users/me] self-healed coaching_type → 'hybrid' for user id=${dbUserId}`)
       }
     }
 
-    // Debug logging — confirms admin status at runtime
-    if (rows[0] && rows[0].coaching_type !== 'ai' && rows[0].coaching_type_source !== 'manual') {
+    // Second, more robust pass: match the invite by email rather than by
+    // accepted_by_user_id, for users whose invite accept never linked back.
+    if (rows[0] && !AI_COACHING_TYPES.includes(rows[0].coaching_type) && rows[0].coaching_type_source !== 'manual') {
       const normalizedEmail = (email ?? rows[0].email ?? '').trim().toLowerCase()
       // client_invites has no org_id column — scope via a join to the invite's
       // assigned coach/inviter org, same pattern as healthAssessment.js (bf7addf).
@@ -86,7 +96,7 @@ router.get('/me', requireAuth(), async (req, res, next) => {
          FROM client_invites ci
          LEFT JOIN users invcoach ON invcoach.id = ci.assigned_coach_id
          LEFT JOIN users invstaff ON invstaff.id = ci.invited_by
-         WHERE ci.coaching_type = 'ai'
+         WHERE ci.coaching_type IN ('hybrid', 'ai')
            AND $1 != ''
            AND LOWER(ci.email) = $1
            ${orgFilter}
@@ -96,10 +106,10 @@ router.get('/me', requireAuth(), async (req, res, next) => {
       )
       if (aiInviteByEmail.length > 0) {
         await pool.query(
-          `UPDATE users SET coaching_type = 'ai', coaching_type_source = COALESCE(coaching_type_source, 'self_heal_ai') WHERE id = $1`,
+          `UPDATE users SET coaching_type = 'hybrid', coaching_type_source = COALESCE(coaching_type_source, 'self_heal_ai') WHERE id = $1`,
           [dbUserId],
         )
-        rows[0].coaching_type = 'ai'
+        rows[0].coaching_type = 'hybrid'
         rows[0].coaching_type_source = rows[0].coaching_type_source ?? 'self_heal_ai'
         robustAiSelfHealRan = true
       }

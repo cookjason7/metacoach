@@ -420,7 +420,7 @@ async function seedAiDemoClient(db, coachId, log) {
          age, gender, height_inches, starting_weight_lbs, goal_weight_lbs,
          goal_calories, goal_protein, goal_carbs, goal_fat, activity_level)
       VALUES ($1,$2,$3,$4,$5,'client',TRUE,TRUE,TRUE,'active',
-              'ai',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+              'hybrid',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
       RETURNING id
     `, [
       AI_CLIENT.clerkId, AI_CLIENT.email,
@@ -448,7 +448,7 @@ async function seedAiDemoClient(db, coachId, log) {
         habitStart, h.cat ?? null,
       ])
     }
-    log(`  ✓ AI client ${AI_CLIENT.firstName} ${AI_CLIENT.lastName} (id=${aiId}, coaching_type='ai')`)
+    log(`  ✓ AI client ${AI_CLIENT.firstName} ${AI_CLIENT.lastName} (id=${aiId}, coaching_type='hybrid')`)
   }
 }
 

@@ -128,14 +128,14 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     const { rows: [invite] } = await pool.query(
       `INSERT INTO client_invites
          (email, first_name, last_name, coaching_type, notes)
-       VALUES ($1, $2, $3, 'ai', 'AI coaching — Stripe purchase')
+       VALUES ($1, $2, $3, 'hybrid', 'AI coaching — Stripe purchase')
        RETURNING token, email, first_name`,
       [email, firstName, lastName],
     )
 
     await pool.query(
       `UPDATE users
-       SET coaching_type = 'ai',
+       SET coaching_type = 'hybrid',
            coaching_type_source = 'stripe_ai',
            paid = TRUE,
            paid_at = COALESCE(paid_at, NOW()),
@@ -201,10 +201,13 @@ router.get('/session-setup-link', async (req, res, next) => {
     const email = (session.customer_details?.email ?? session.customer_email ?? '').trim().toLowerCase()
     if (!email) return res.status(400).json({ error: 'No email found for this session.' })
 
-    // Find existing unaccepted AI invite (webhook may have already created it)
+    // Find existing unaccepted AI-coaching invite (webhook may have already
+    // created it). Matches 'hybrid' (what we write now) and 'ai' (the legacy
+    // value) so an invite minted before the consolidation still resolves here
+    // instead of silently provisioning a duplicate.
     const { rows } = await pool.query(
       `SELECT token FROM client_invites
-       WHERE LOWER(email) = $1 AND coaching_type = 'ai' AND accepted_at IS NULL
+       WHERE LOWER(email) = $1 AND coaching_type IN ('hybrid', 'ai') AND accepted_at IS NULL
        ORDER BY created_at DESC LIMIT 1`,
       [email],
     )
@@ -220,7 +223,7 @@ router.get('/session-setup-link', async (req, res, next) => {
       const lastName  = parts.slice(1).join(' ') || null
       const { rows: [invite] } = await pool.query(
         `INSERT INTO client_invites (email, first_name, last_name, coaching_type, notes)
-         VALUES ($1, $2, $3, 'ai', 'AI coaching — Stripe purchase (session lookup)')
+         VALUES ($1, $2, $3, 'hybrid', 'AI coaching — Stripe purchase (session lookup)')
          RETURNING token`,
         [email, firstName, lastName],
       )
@@ -229,7 +232,7 @@ router.get('/session-setup-link', async (req, res, next) => {
 
     await pool.query(
       `UPDATE users
-       SET coaching_type = 'ai',
+       SET coaching_type = 'hybrid',
            coaching_type_source = 'stripe_ai',
            paid = TRUE,
            paid_at = COALESCE(paid_at, NOW()),

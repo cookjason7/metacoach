@@ -889,7 +889,11 @@ export async function migrate() {
 
   // ── Coaching command center ──────────────────────────────────────────────────
   // Role expansion: 'client' (default), 'coach', 'admin'
-  // coaching_type: 'vip' (default — has human coach) | 'ai' (AI-only client)
+  // coaching_type: 'vip' (default — has human coach) | 'hybrid' (AI-coached)
+  //   | 'basic' (tracking tier, no community). The legacy value 'ai' was
+  //   consolidated into 'hybrid' — nothing writes it anymore, but the column is
+  //   deliberately left unconstrained TEXT so any old row still stores and
+  //   reads back fine; readers treat 'ai' as 'hybrid'.
   // assigned_coach_id: which coach owns this client (NULL = unassigned / Jason)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS coaching_type     TEXT DEFAULT 'vip'`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS coaching_type_source TEXT`)
@@ -2237,7 +2241,9 @@ export async function claimInvite(executor, invite, dbUserId) {
     `UPDATE users
      SET first_name          = COALESCE(NULLIF(first_name, ''), $1),
          last_name           = COALESCE(NULLIF(last_name,  ''), $2),
-         coaching_type       = COALESCE($3, 'vip'),
+         -- A stale invite minted before the 'ai' → 'hybrid' consolidation is
+         -- folded here so claiming it can't reintroduce the legacy value.
+         coaching_type       = CASE WHEN COALESCE($3, 'vip') = 'ai' THEN 'hybrid' ELSE COALESCE($3, 'vip') END,
          coaching_type_source = 'invite',
          assigned_coach_id   = COALESCE(assigned_coach_id, $4),
          onboarding_complete = TRUE,

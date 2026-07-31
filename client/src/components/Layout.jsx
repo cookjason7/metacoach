@@ -68,7 +68,7 @@ export default function Layout() {
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const [isOrgAdmin,   setIsOrgAdmin]   = useState(false)
   const [isStaff,      setIsStaff]      = useState(false)
-  const [coachingType, setCoachingType] = useState(null) // 'vip' | 'ai' | 'hybrid' | 'basic' — null until loaded
+  const [coachingType, setCoachingType] = useState(null) // 'vip' | 'hybrid' | 'basic' (legacy: 'ai' ≡ 'hybrid') — null until loaded
   const [bloodworkEnabled, setBloodworkEnabled] = useState(false) // per-client flag from /api/users/me
   const [notifCount,   setNotifCount]   = useState(0)
   const [katieUnread,  setKatieUnread]  = useState(0)
