@@ -18,7 +18,7 @@ router.get('/:videoId', requireAuth(), async (req, res) => {
       `SELECT c.id, c.video_id, c.user_id, c.comment_text, c.created_at,
               COALESCE(
                 NULLIF(TRIM(u.first_name), ''),
-                NULLIF(SPLIT_PART(u.email, '@', 1), ''),
+                NULLIF(UPPER(LEFT(SPLIT_PART(u.email, '@', 1), 1)) || SUBSTRING(SPLIT_PART(u.email, '@', 1) FROM 2), ''),
                 'User'
               ) AS user_name,
               COALESCE(
@@ -132,7 +132,8 @@ router.post('/', requireAuth(), async (req, res) => {
     const { rows: userRows } = await pool.query('SELECT first_name, email FROM users WHERE id = $1', [dbUserId])
     const rawFirstName = userRows[0]?.first_name?.trim()
     const emailPrefix = userRows[0]?.email?.split('@')[0]?.trim()
-    const userName = rawFirstName || emailPrefix || 'User'
+    const capitalizedPrefix = emailPrefix ? emailPrefix[0].toUpperCase() + emailPrefix.slice(1) : null
+    const userName = rawFirstName || capitalizedPrefix || 'User'
     res.status(201).json({ ...rows[0], user_name: userName, reaction_counts: {}, my_reactions: [] })
   } catch (e) {
     if (e.code === '23503') return res.status(404).json({ error: 'Video not found' })
