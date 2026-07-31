@@ -624,6 +624,23 @@ export default function Layout() {
         // this import resolves against a bridge that's already live.
         const { PushNotifications } = await import('@capacitor/push-notifications')
 
+        // Fires when the user taps a notification (from tray or in-app banner).
+        // The server attaches a deep-link url on whichever notification type sent
+        // it (see notifyNewDirectMessage / notifyNewCommunityPost in
+        // pushService.js) so tapping opens the specific thread or post instead of
+        // just landing on the Dashboard. Routed generically — no per-type cases.
+        //
+        // Attached FIRST, before the registration listeners: on a cold start the
+        // tap event is fired by the native layer as soon as the bridge is live and
+        // is NOT replayed for listeners that attach later, so every extra bridge
+        // round-trip ahead of this one is a window where the deep link is lost and
+        // the app just lands on the default page. Warm start (app already open in
+        // the webview) needs nothing extra — navigate() routes in place.
+        actionListener = await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+          const url = action?.notification?.data?.url
+          if (url) navigate(url)
+        })
+
         // Register listeners BEFORE calling register() so the token event is not missed
         regListener = await PushNotifications.addListener('registration', async ({ value: token }) => {
           if (cancelled) return
@@ -641,16 +658,6 @@ export default function Layout() {
           const msg = String(err?.error ?? err ?? 'unknown')
           console.warn('[push] FCM registration error:', msg)
           sendDebug('registration-error', msg.slice(0, 128))
-        })
-
-        // Fires when the user taps a notification (from tray or in-app banner).
-        // The server attaches a deep-link url on whichever notification type sent
-        // it (see notifyNewDirectMessage / notifyNewCommunityPost in
-        // pushService.js) so tapping opens the specific thread or post instead of
-        // just landing on the Dashboard. Routed generically — no per-type cases.
-        actionListener = await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
-          const url = action?.notification?.data?.url
-          if (url) navigate(url)
         })
 
         sendDebug('listeners-added')
