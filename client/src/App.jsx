@@ -20,6 +20,7 @@ import Journal from './pages/Journal'
 import Calendar from './pages/Calendar'
 import Badges from './pages/Badges'
 import HealthAssessment from './pages/HealthAssessment'
+import PendingAccess from './pages/PendingAccess'
 import Messages from './pages/Messages'
 import ClientList from './pages/admin/ClientList'
 import ClientProfile from './pages/admin/ClientProfile'
@@ -134,6 +135,7 @@ function ProtectedLayout() {
           role: data.role ?? null,
           email: data.email ?? null,
           isOrgAdmin: isOrgAdminUser,
+          clientStatus: data.client_status ?? null,
         }
         if (!cancelled) {
           setUserState(userStateCache)
@@ -165,6 +167,12 @@ function ProtectedLayout() {
     </div>
   )
   const isPrivileged = ['admin', 'account_owner', 'staff', 'coach'].includes(userState?.role)
+  // Signed up with no matching invite and no paid record — held at /pending-access
+  // until an admin invites/activates them. Must come BEFORE the assessment check,
+  // or a gated account would be sent through the Health Assessment first.
+  if (!isPrivileged && userState?.clientStatus === 'pending_access') {
+    return <Navigate to="/pending-access" replace />
+  }
   if (!isPrivileged && !userState?.assessmentComplete) return <Navigate to="/health-assessment" replace />
   // Payment gate disabled — open access
   // if (!userState?.paid) return <Navigate to="/payment" replace />
@@ -227,6 +235,10 @@ function HealthAssessmentRoute() {
   if (userStateCache && userStateCache.role !== 'client') {
     return <Navigate to={userStateCache.isOrgAdmin ? '/org/dashboard' : '/dashboard'} replace />
   }
+  // Gated signups must not slip into onboarding by navigating here directly.
+  if (userStateCache?.clientStatus === 'pending_access') {
+    return <Navigate to="/pending-access" replace />
+  }
   return <HealthAssessment />
 }
 
@@ -243,6 +255,7 @@ export default function App() {
         <Route path="/onboarding"         element={<OnboardingRoute />} />
         <Route path="/payment"            element={<PaymentRoute />} />
         <Route path="/health-assessment"  element={<HealthAssessmentRoute />} />
+        <Route path="/pending-access"     element={<PendingAccess />} />
         <Route path="/invite/:token"       element={<InviteAccept />} />
         <Route path="/staff-invite/:token" element={<StaffInviteAccept />} />
         <Route path="/ai-welcome"         element={<AiWelcome />} />

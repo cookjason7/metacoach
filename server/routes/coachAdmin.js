@@ -141,6 +141,7 @@ function publicIdFromCloudinaryUrl(url) {
 // Internal supportive status tag — never use shame words
 function computeStatusTag(client) {
   // Invited = accepted invite, assessment not yet complete
+  if (client.client_status === 'pending_access') return 'Pending Access'
   if (client.client_status === 'invited') return 'Invited'
   if (!client.onboarding_complete || !client.assessment_complete) return 'New Client'
   const adh7  = Number(client.adherence_7d  || 0)
@@ -163,7 +164,7 @@ function computeMomentum(adh7, adh30) {
 
 // ─── Clients list ─────────────────────────────────────────────────────────────
 
-// GET /api/coach-admin/clients?status=active|deactivated|all (default active)
+// GET /api/coach-admin/clients?status=active|invited|pending_access|deactivated|all (default active)
 router.get('/clients', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireStaff(req, res); if (!ctx) return
@@ -182,6 +183,10 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
       where += ` AND u.client_status = 'deactivated'`
     } else if (statusFilter === 'invited') {
       where += ` AND u.client_status = 'invited'`
+    } else if (statusFilter === 'pending_access') {
+      // Self-signups with no matching invite and no paid record — gated at
+      // /pending-access until an admin invites or activates them.
+      where += ` AND u.client_status = 'pending_access'`
     }
     // 'all' → no extra filter (still excludes deleted)
 

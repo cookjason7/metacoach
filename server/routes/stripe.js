@@ -138,7 +138,9 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
        SET coaching_type = 'ai',
            coaching_type_source = 'stripe_ai',
            paid = TRUE,
-           paid_at = COALESCE(paid_at, NOW())
+           paid_at = COALESCE(paid_at, NOW()),
+           -- A purchase lifts the no-invite signup gate (see getOrCreateUser)
+           client_status = CASE WHEN client_status = 'pending_access' THEN 'active' ELSE client_status END
        WHERE LOWER(email) = $1
          AND COALESCE(role, 'client') = 'client'
          AND COALESCE(coaching_type_source, '') != 'manual'`,
@@ -230,7 +232,9 @@ router.get('/session-setup-link', async (req, res, next) => {
        SET coaching_type = 'ai',
            coaching_type_source = 'stripe_ai',
            paid = TRUE,
-           paid_at = COALESCE(paid_at, NOW())
+           paid_at = COALESCE(paid_at, NOW()),
+           -- A purchase lifts the no-invite signup gate (see getOrCreateUser)
+           client_status = CASE WHEN client_status = 'pending_access' THEN 'active' ELSE client_status END
        WHERE LOWER(email) = $1
          AND COALESCE(role, 'client') = 'client'
          AND COALESCE(coaching_type_source, '') != 'manual'`,
