@@ -1372,6 +1372,25 @@ export async function migrate() {
       updated_at    TIMESTAMPTZ DEFAULT NOW()
     )
   `)
+  // display_order predates manual reordering UI and was always left at its
+  // default of 0. Backfill distinct values from the existing created_at
+  // sequence once so drag/drop has real positions to work with — guarded so
+  // it never overwrites an ordering an admin has already customized.
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF (SELECT COUNT(DISTINCT display_order) FROM community_resources) <= 1
+         AND (SELECT COUNT(*) FROM community_resources) > 0 THEN
+        UPDATE community_resources cr
+        SET display_order = sub.rn * 10
+        FROM (
+          SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) AS rn
+          FROM community_resources
+        ) sub
+        WHERE cr.id = sub.id;
+      END IF;
+    END $$;
+  `)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS mindset_videos (
       id            SERIAL PRIMARY KEY,

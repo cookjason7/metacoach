@@ -3321,11 +3321,52 @@ function ResourceModal({ initial, onSave, onClose, saving }) {
   )
 }
 
-function ResourceCard({ resource, isStaff, onEdit, onDelete, onTogglePublish }) {
+function ResourceCard({
+  resource, isStaff, onEdit, onDelete, onTogglePublish,
+  onMoveUp, onMoveDown, canMoveUp, canMoveDown,
+  draggable, onDragStart, onDragOver, onDrop, onDragEnd, isDragOver,
+}) {
   const t = rtype(resource.resource_type)
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-4">
+    <div
+      className={`bg-white rounded-2xl border p-4 transition-colors ${
+        isDragOver ? 'border-2' : 'border-gray-200'
+      }`}
+      style={isDragOver ? { borderColor: 'var(--color-accent)' } : undefined}
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}>
       <div className="flex items-start gap-3">
+        {isStaff && (
+          <div className="flex flex-col items-center shrink-0 -ml-1 -my-1">
+            <button type="button" onClick={onMoveUp} disabled={!canMoveUp}
+              aria-label="Move up"
+              className="w-11 h-11 flex items-center justify-center text-gray-400 disabled:opacity-25 transition-colors"
+              onMouseEnter={e => { if (canMoveUp) e.currentTarget.style.color = 'var(--color-accent)' }}
+              onMouseLeave={e => { e.currentTarget.style.color = '' }}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+              </svg>
+            </button>
+            <div className="cursor-grab active:cursor-grabbing text-gray-300 select-none -my-1"
+              title="Drag to reorder">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 6h.01M8 12h.01M8 18h.01M16 6h.01M16 12h.01M16 18h.01" />
+              </svg>
+            </div>
+            <button type="button" onClick={onMoveDown} disabled={!canMoveDown}
+              aria-label="Move down"
+              className="w-11 h-11 flex items-center justify-center text-gray-400 disabled:opacity-25 transition-colors"
+              onMouseEnter={e => { if (canMoveDown) e.currentTarget.style.color = 'var(--color-accent)' }}
+              onMouseLeave={e => { e.currentTarget.style.color = '' }}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+          </div>
+        )}
         <div className="text-2xl leading-none shrink-0 mt-0.5">{t.icon}</div>
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2 mb-1">
@@ -3459,6 +3500,47 @@ function ResourcesTab({ getToken, isStaff }) {
     finally { setDeleting(false) }
   }
 
+  // Reordering — optimistic local update, persisted via a single bulk PATCH.
+  // dragIndex tracks the item being dragged; dragOverIndex highlights the drop target.
+  const [dragIndex,     setDragIndex]     = useState(null)
+  const [dragOverIndex, setDragOverIndex] = useState(null)
+
+  async function persistOrder(nextResources) {
+    const prev = resources
+    setResources(nextResources)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/community-resources/reorder`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: nextResources.map(r => r.id) }),
+      })
+      if (!res.ok) throw new Error(`Server error ${res.status}`)
+      setResources(await res.json())
+    } catch (e) {
+      setResources(prev)
+      alert(e.message || 'Failed to save new order')
+    }
+  }
+
+  function reorder(fromIndex, toIndex) {
+    if (fromIndex === toIndex || fromIndex == null || toIndex == null) return
+    if (fromIndex < 0 || toIndex < 0 || fromIndex >= resources.length || toIndex >= resources.length) return
+    const next = [...resources]
+    const [moved] = next.splice(fromIndex, 1)
+    next.splice(toIndex, 0, moved)
+    persistOrder(next)
+  }
+
+  function handleDragStart(index) { setDragIndex(index) }
+  function handleDragOver(e, index) { e.preventDefault(); setDragOverIndex(index) }
+  function handleDrop(index) {
+    reorder(dragIndex, index)
+    setDragIndex(null)
+    setDragOverIndex(null)
+  }
+  function handleDragEnd() { setDragIndex(null); setDragOverIndex(null) }
+
   const grouped = resources.reduce((acc, r) => {
     const key = r.category || 'General'
     if (!acc[key]) acc[key] = []
@@ -3509,9 +3591,17 @@ function ResourcesTab({ getToken, isStaff }) {
       {!loading && !error && resources.length > 0 && (
         isStaff ? (
           <div className="space-y-3">
-            {resources.map(r => (
+            {resources.map((r, i) => (
               <ResourceCard key={r.id} resource={r} isStaff
-                onEdit={setModal} onDelete={setDeleteTarget} onTogglePublish={handleTogglePublish} />
+                onEdit={setModal} onDelete={setDeleteTarget} onTogglePublish={handleTogglePublish}
+                onMoveUp={() => reorder(i, i - 1)} onMoveDown={() => reorder(i, i + 1)}
+                canMoveUp={i > 0} canMoveDown={i < resources.length - 1}
+                draggable
+                onDragStart={() => handleDragStart(i)}
+                onDragOver={e => handleDragOver(e, i)}
+                onDrop={() => handleDrop(i)}
+                onDragEnd={handleDragEnd}
+                isDragOver={dragOverIndex === i && dragIndex !== i} />
             ))}
           </div>
         ) : (

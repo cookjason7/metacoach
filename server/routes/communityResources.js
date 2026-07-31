@@ -90,6 +90,45 @@ router.get('/', requireAuth(), async (req, res) => {
   }
 })
 
+// PATCH /api/community-resources/reorder — staff only
+// Body: { ids: [3, 1, 2, ...] } — full set of resource ids in the desired
+// display order. Reassigns display_order sequentially (10, 20, 30, ...) so
+// there's always room to insert between existing positions later.
+router.patch('/reorder', requireAuth(), async (req, res) => {
+  try {
+    if (!await requireStaff(req, res)) return
+    const { ids } = req.body
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'ids array is required' })
+    }
+
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      for (let i = 0; i < ids.length; i++) {
+        await client.query(
+          'UPDATE community_resources SET display_order = $1, updated_at = NOW() WHERE id = $2',
+          [(i + 1) * 10, ids[i]],
+        )
+      }
+      await client.query('COMMIT')
+    } catch (e) {
+      await client.query('ROLLBACK')
+      throw e
+    } finally {
+      client.release()
+    }
+
+    const { rows } = await pool.query(
+      'SELECT * FROM community_resources ORDER BY display_order ASC, created_at ASC',
+    )
+    res.json(rows)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
 // POST /api/community-resources — staff only; accepts JSON or multipart
 router.post('/', requireAuth(), upload.single('file'), async (req, res) => {
   try {
