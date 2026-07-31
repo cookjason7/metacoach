@@ -30,6 +30,7 @@ import weeklyCheckinsRouter from './routes/weeklyCheckins.js'
 import formsRouter from './routes/forms.js'
 import measurementsRouter from './routes/measurements.js'
 import mindsetVideosRouter from './routes/mindsetVideos.js'
+import brainMappingCommentsRouter from './routes/brainMappingComments.js'
 import communityResourcesRouter from './routes/communityResources.js'
 import stripeRouter from './routes/stripe.js'
 import fitbitRouter from './routes/fitbit.js'
@@ -112,6 +113,7 @@ app.use('/api/weekly-checkins',  clerkMiddleware(), blockDeactivatedClients, org
 app.use('/api/forms',            clerkMiddleware(), blockDeactivatedClients, orgContext, formsRouter)
 app.use('/api/measurements',     clerkMiddleware(), blockDeactivatedClients, orgContext, measurementsRouter)
 app.use('/api/mindset-videos',        clerkMiddleware(), blockDeactivatedClients, orgContext, mindsetVideosRouter)
+app.use('/api/brain-mapping-comments', clerkMiddleware(), blockDeactivatedClients, orgContext, brainMappingCommentsRouter)
 app.use('/api/community-resources',   clerkMiddleware(), blockDeactivatedClients, orgContext, communityResourcesRouter)
 app.use('/api/fitbit',                clerkMiddleware(), blockDeactivatedClients, orgContext, fitbitRouter)
 app.use('/api/apple-health',          clerkMiddleware(), blockDeactivatedClients, orgContext, appleHealthRouter)
