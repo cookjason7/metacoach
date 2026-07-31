@@ -113,6 +113,7 @@ function lastActivityAt(c) {
 }
 
 function accountStatus(c) {
+  if (c.client_status === 'pending_access') return 'pending_access'
   if (c.client_status === 'invited')     return 'invited'
   if (c.client_status === 'deactivated') return 'inactive'
   if (c.paid) return 'active'
@@ -123,6 +124,7 @@ function accountStatus(c) {
 
 function accountStatusLabel(c) {
   const s = accountStatus(c)
+  if (s === 'pending_access') return 'Pending Access'
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
@@ -130,6 +132,7 @@ function accountStatusBadgeClass(c) {
   const s = accountStatus(c)
   if (s === 'active')  return 'bg-emerald-50 text-emerald-700 border-emerald-200'
   if (s === 'invited') return 'bg-purple-50 text-purple-700 border-purple-200'
+  if (s === 'pending_access') return 'bg-amber-50 text-amber-700 border-amber-200'
   return 'bg-gray-100 text-gray-600 border-gray-300'
 }
 
@@ -2223,6 +2226,7 @@ export default function CoachDashboard({ getToken, userRole }) {
                 <option value="all">All statuses</option>
                 <option value="active">Active</option>
                 <option value="invited">Awaiting Setup</option>
+                <option value="pending_access">Pending Access</option>
                 <option value="inactive">Inactive</option>
               </select>
               <select value={weekFilter} onChange={e => setWeekFilter(e.target.value)}

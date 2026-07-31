@@ -2182,13 +2182,47 @@ export async function resolveOrgId(userId) {
   return rows[0]?.org_id ?? 1
 }
 
+// claimInvite: applies a client_invites row to a user and marks it accepted.
+// Shared by the token-based accept route (server/routes/invites.js) and the
+// email-match auto-claim in getOrCreateUser() below, so both paths produce
+// identical user state.
+//
+// `executor` is anything with .query() — pass `pool` for a standalone call, or
+// a checked-out client when this must run inside a caller's transaction.
+//
+// client_status = 'invited' — stays invited until the Health Assessment is
+// completed, at which point healthAssessment.js flips it to 'active'.
+export async function claimInvite(executor, invite, dbUserId) {
+  await executor.query(
+    `UPDATE users
+     SET first_name          = COALESCE(NULLIF(first_name, ''), $1),
+         last_name           = COALESCE(NULLIF(last_name,  ''), $2),
+         coaching_type       = COALESCE($3, 'vip'),
+         coaching_type_source = 'invite',
+         assigned_coach_id   = COALESCE(assigned_coach_id, $4),
+         onboarding_complete = TRUE,
+         assessment_complete = FALSE,
+         client_status       = 'invited',
+         paid                = TRUE
+     WHERE id = $5`,
+    [invite.first_name, invite.last_name, invite.coaching_type, invite.assigned_coach_id, dbUserId],
+  )
+
+  await executor.query(
+    `UPDATE client_invites
+     SET accepted_at = NOW(), accepted_by_user_id = $1
+     WHERE id = $2`,
+    [dbUserId, invite.id],
+  )
+}
+
 // getOrCreateUser: ensures a DB user row exists for this Clerk user.
 // Optionally captures their email — if it matches ADMIN_EMAILS the row is
 // promoted to admin atomically. This is the runtime backstop that catches
 // admin users whose email column was NULL at startup migration time.
 export async function getOrCreateUser(clerkUserId, email = null) {
   const existing = await pool.query(
-    'SELECT id, email, role, last_login_at FROM users WHERE clerk_user_id = $1',
+    'SELECT id, email, role, last_login_at, client_status, paid FROM users WHERE clerk_user_id = $1',
     [clerkUserId],
   )
 
@@ -2216,12 +2250,40 @@ export async function getOrCreateUser(clerkUserId, email = null) {
         vals,
       )
     }
+
+    // Re-check gated accounts on every login: an invite may have been sent, or a
+    // purchase completed, since they were first held at /pending-access. Without
+    // this they'd stay gated even after being invited, because the auto-claim
+    // below only runs on the very first login.
+    if (existing.rows[0].client_status === 'pending_access') {
+      const inviteEmail = email ?? existing.rows[0].email
+      let released = false
+      if (inviteEmail) {
+        const { rows: matchedInvite } = await pool.query(
+          `SELECT * FROM client_invites
+           WHERE LOWER(email) = LOWER($1) AND accepted_at IS NULL
+             AND (expires_at IS NULL OR expires_at > NOW())
+           ORDER BY created_at DESC LIMIT 1`,
+          [inviteEmail],
+        )
+        if (matchedInvite.length) {
+          await claimInvite(pool, matchedInvite[0], dbUserId)
+          released = true
+          console.log(`[auto-claim] released gated user id=${dbUserId} via invite id=${matchedInvite[0].id}`)
+        }
+      }
+      if (!released && existing.rows[0].paid === true) {
+        await pool.query(`UPDATE users SET client_status = 'active' WHERE id = $1`, [dbUserId])
+        console.log(`[auto-claim] released gated user id=${dbUserId} — paid = TRUE`)
+      }
+    }
   } else {
     // New users default to org_id = 1 (Life Warrior Coaching) unless a pending,
     // unaccepted staff invite ties this email to a specific org — set by the
     // super-admin "invite org owner" flow (server/routes/organizations.js) so a
     // newly-invited org owner lands in their own org instead of LWC's.
     let targetOrgId = 1
+    let hasStaffInvite = false
     if (email) {
       const { rows: pendingInvite } = await pool.query(
         `SELECT org_id FROM staff_invites
@@ -2230,13 +2292,68 @@ export async function getOrCreateUser(clerkUserId, email = null) {
          ORDER BY created_at DESC LIMIT 1`,
         [email],
       )
-      if (pendingInvite.length) targetOrgId = pendingInvite[0].org_id
+      if (pendingInvite.length) {
+        targetOrgId    = pendingInvite[0].org_id
+        hasStaffInvite = true
+      }
     }
-    const inserted = await pool.query(
-      'INSERT INTO users (clerk_user_id, email, org_id) VALUES ($1, $2, $3) RETURNING id',
-      [clerkUserId, email, targetOrgId],
-    )
-    dbUserId = inserted.rows[0].id
+
+    // The INSERT and the invite auto-claim / access gate share one transaction:
+    // a new row must never be visible in the window between being created and
+    // having its client_status settled, or the frontend gate would flap.
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      const inserted = await client.query(
+        'INSERT INTO users (clerk_user_id, email, org_id) VALUES ($1, $2, $3) RETURNING id, paid',
+        [clerkUserId, email, targetOrgId],
+      )
+      dbUserId = inserted.rows[0].id
+
+      // Paid users are never gated. `paid` is set directly by the Stripe webhook
+      // (server/routes/stripe.js) and is independent of invite expiry, so a
+      // buyer whose invite lapsed before first login still gets straight in.
+      // Staff-invite signups and the super-admin allowlist are likewise exempt —
+      // neither is a client and neither will ever match a client_invites row.
+      const exemptFromGate = inserted.rows[0].paid === true || hasStaffInvite || isAdminEmail(email)
+
+      // Auto-claim a pending invite addressed to this email. Covers signups that
+      // went through Clerk directly instead of the /invite/:token link.
+      let claimed = false
+      if (email) {
+        const { rows: matchedInvite } = await client.query(
+          `SELECT * FROM client_invites
+           WHERE LOWER(email) = LOWER($1) AND accepted_at IS NULL
+             AND (expires_at IS NULL OR expires_at > NOW())
+           ORDER BY created_at DESC LIMIT 1`,
+          [email],
+        )
+        if (matchedInvite.length) {
+          await claimInvite(client, matchedInvite[0], dbUserId)
+          claimed = true
+          console.log(`[auto-claim] matched invite id=${matchedInvite[0].id} for ${email} (user id=${dbUserId})`)
+        }
+      }
+
+      // No invite and not paid → hold the account until an admin grants access.
+      // Set explicitly rather than relying on the column default ('active').
+      if (!claimed) {
+        await client.query(
+          `UPDATE users SET client_status = $1 WHERE id = $2`,
+          [exemptFromGate ? 'active' : 'pending_access', dbUserId],
+        )
+        if (!exemptFromGate) {
+          console.log(`[auto-claim] no invite match for ${email ?? '(no email)'} — user id=${dbUserId} set to pending_access`)
+        }
+      }
+
+      await client.query('COMMIT')
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {})
+      throw err
+    } finally {
+      client.release()
+    }
   }
 
   // Runtime admin self-promote — covers the case where the startup migration

@@ -35,6 +35,7 @@ router.get('/me', requireAuth(), async (req, res, next) => {
               onboarding_complete, assessment_complete,
               goal_calories, goal_protein, goal_carbs, goal_fat, goal_fiber, goal_water,
               gender, phone_number, paid, role, coaching_type, coaching_type_source,
+              client_status,
               bloodwork_enabled, food_dislikes, food_allergies,
               notif_master_enabled, notif_dm_enabled, notif_community_enabled,
               org_id,
@@ -183,7 +184,9 @@ router.post('/me/activate', requireAuth(), async (req, res, next) => {
     await pool.query(
       `UPDATE users
        SET paid = TRUE,
-           paid_at = COALESCE(paid_at, NOW())
+           paid_at = COALESCE(paid_at, NOW()),
+           -- Paying lifts the no-invite signup gate (see getOrCreateUser)
+           client_status = CASE WHEN client_status = 'pending_access' THEN 'active' ELSE client_status END
        WHERE id = $1`,
       [dbUserId],
     )

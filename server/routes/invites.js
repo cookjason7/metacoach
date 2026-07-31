@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { requireAuth, getAuth, clerkClient } from '@clerk/express'
-import { pool, getOrCreateUser } from '../db.js'
+import { pool, getOrCreateUser, claimInvite } from '../db.js'
 
 // Best-effort fetch of the authenticated user's primary email from Clerk.
 // Times out after 5 s and returns null so the route still responds.
@@ -101,32 +101,10 @@ router.post('/:token/accept', requireAuth(), async (req, res, next) => {
       })
     }
 
-    // Update user profile from invite data without overwriting existing values.
-    // coaching_type comes from the invite row (supports both 'vip' and 'ai').
-    // client_status = 'invited' — stays invited until Health Assessment is completed,
-    // at which point healthAssessment.js flips it to 'active'.
-    await pool.query(
-      `UPDATE users
-       SET first_name          = COALESCE(NULLIF(first_name, ''), $1),
-           last_name           = COALESCE(NULLIF(last_name,  ''), $2),
-           coaching_type       = COALESCE($3, 'vip'),
-           coaching_type_source = 'invite',
-           assigned_coach_id   = COALESCE(assigned_coach_id, $4),
-           onboarding_complete = TRUE,
-           assessment_complete = FALSE,
-           client_status       = 'invited',
-           paid                = TRUE
-       WHERE id = $5`,
-      [invite.first_name, invite.last_name, invite.coaching_type, invite.assigned_coach_id, dbUserId],
-    )
-
-    // Mark invite accepted
-    await pool.query(
-      `UPDATE client_invites
-       SET accepted_at = NOW(), accepted_by_user_id = $1
-       WHERE id = $2`,
-      [dbUserId, invite.id],
-    )
+    // Update user profile from invite data and mark the invite accepted.
+    // Shared with the email-match auto-claim in getOrCreateUser() so both paths
+    // leave the user in identical state.
+    await claimInvite(pool, invite, dbUserId)
 
     res.json({ ok: true, redirect_to: '/health-assessment' })
   } catch (err) { next(err) }
