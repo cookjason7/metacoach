@@ -2478,7 +2478,7 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
           </div>
         )}
 
-        {!isStaff && getToken && (
+        {getToken && (
           <VideoReactionRow videoId={video.id} getToken={getToken} />
         )}
 
