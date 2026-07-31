@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth, useUser } from '@clerk/clerk-react'
+import { Play } from 'lucide-react'
 import { API_URL } from '../config.js'
 
 // ── Option data ──────────────────────────────────────────────────────────────
@@ -1188,10 +1189,9 @@ export default function HealthAssessment() {
             <div className="px-8 py-8 space-y-4">
               <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-left">
                 <p className="text-sm font-semibold text-[#E8670A] mb-1">What happens next?</p>
-                {coachingType === 'ai' ? (
+                {coachingType === 'hybrid' || coachingType === 'ai' ? (
                   <ul className="space-y-1.5 text-xs text-gray-600">
-                    <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> Enter WarriorFIT AI to start using your AI-powered coaching tools.</li>
-                    <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> You can access Katie, food tracking, Brain Mapping, resources, and community support.</li>
+                    <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> Be sure to watch the video below — it walks you through how to get the best out of the app using Coach Katie.</li>
                     <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> You can update your assessment anytime in Settings.</li>
                   </ul>
                 ) : (
@@ -1202,6 +1202,18 @@ export default function HealthAssessment() {
                   </ul>
                 )}
               </div>
+
+              {(coachingType === 'hybrid' || coachingType === 'ai') && (
+                <div className="text-left">
+                  {/* Video placeholder — swap this div's contents for an <iframe>/<video> embed when the real walkthrough is ready */}
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl aspect-video flex items-center justify-center">
+                    <div className="w-14 h-14 rounded-full bg-white shadow flex items-center justify-center">
+                      <Play className="w-6 h-6 text-[#E8670A] fill-[#E8670A] ml-0.5" />
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-400 text-center mt-2">Coach Katie walkthrough video — coming soon</p>
+                </div>
+              )}
 
               <button
                 onClick={handleEnterApp}
