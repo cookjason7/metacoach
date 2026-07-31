@@ -16,7 +16,7 @@ router.get('/:videoId', requireAuth(), async (req, res) => {
 
     const { rows } = await pool.query(
       `SELECT c.id, c.video_id, c.user_id, c.comment_text, c.created_at,
-              u.name AS user_name,
+              u.first_name AS user_name,
               COALESCE(
                 json_object_agg(r.reaction_type, r.cnt) FILTER (WHERE r.reaction_type IS NOT NULL),
                 '{}'
@@ -34,7 +34,7 @@ router.get('/:videoId', requireAuth(), async (req, res) => {
          GROUP BY comment_id, reaction_type
        ) r ON r.comment_id = c.id
        WHERE c.video_id = $1
-       GROUP BY c.id, u.name
+       GROUP BY c.id, u.first_name
        ORDER BY c.created_at ASC`,
       [videoId, dbUserId],
     )
@@ -125,8 +125,8 @@ router.post('/', requireAuth(), async (req, res) => {
        RETURNING *`,
       [videoId, dbUserId, text],
     )
-    const { rows: userRows } = await pool.query('SELECT name FROM users WHERE id = $1', [dbUserId])
-    res.status(201).json({ ...rows[0], user_name: userRows[0]?.name ?? null, reaction_counts: {}, my_reactions: [] })
+    const { rows: userRows } = await pool.query('SELECT first_name FROM users WHERE id = $1', [dbUserId])
+    res.status(201).json({ ...rows[0], user_name: userRows[0]?.first_name ?? null, reaction_counts: {}, my_reactions: [] })
   } catch (e) {
     if (e.code === '23503') return res.status(404).json({ error: 'Video not found' })
     console.error('[brain-mapping-comments:create]', e.message, e.stack)
