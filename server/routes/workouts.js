@@ -5,6 +5,7 @@ import { awardAction } from '../gamification.js'
 import { workoutGenLimit } from '../middleware/rateLimits.js'
 import { generateWorkoutPlan } from '../services/workoutGenerator.js'
 import { getWorkoutDayNotes } from '../services/workoutDayNotes.js'
+import { insertWorkoutExercise } from '../services/workoutExerciseInsert.js'
 
 const router = Router()
 
@@ -166,13 +167,13 @@ router.post('/', requireAuth(), async (req, res, next) => {
         // through the client between generate and save — normalize defensively rather
         // than trust it's still one of the three valid values by the time it comes back.
         const groupType = ['exercise', 'superset', 'circuit'].includes(ex.group_type) ? ex.group_type : 'exercise'
-        await pool.query(
-          `INSERT INTO workout_exercises (workout_id, day, exercise_name, exercise_id, day_focus, sets, reps, rest_seconds, notes, org_id, section_name, group_id, group_type, group_label)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-          [workout.id, day.day_name, ex.name, ex.exercise_id ?? null, day.focus ?? null,
-           ex.sets ?? null, ex.reps ?? null, ex.rest_seconds ?? null, ex.notes ?? null, req.orgId,
-           ex.section_name ?? null, ex.group_id ?? null, groupType, ex.group_label ?? null],
-        )
+        await insertWorkoutExercise({
+          workout_id: workout.id, day: day.day_name, exercise_name: ex.name,
+          exercise_id: ex.exercise_id ?? null, day_focus: day.focus ?? null,
+          sets: ex.sets ?? null, reps: ex.reps ?? null, rest_seconds: ex.rest_seconds ?? null,
+          notes: ex.notes ?? null, org_id: req.orgId, section_name: ex.section_name ?? null,
+          group_id: ex.group_id ?? null, group_type: groupType, group_label: ex.group_label ?? null,
+        })
       }
     }
 
@@ -213,12 +214,12 @@ router.post('/:id/exercises', requireAuth(), async (req, res, next) => {
     if (!w) return res.status(404).json({ error: 'Workout not found' })
     const { day, exercise_name, sets, reps, weight, rest_seconds, notes, sort_order } = req.body
     if (!exercise_name?.trim()) return res.status(400).json({ error: 'exercise_name required' })
-    const { rows: [ex] } = await pool.query(
-      `INSERT INTO workout_exercises (workout_id, day, exercise_name, sets, reps, weight, rest_seconds, notes, sort_order, org_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-      [workoutId, day ?? 'Day 1', exercise_name.trim(), sets ?? null, reps ?? null,
-       weight ?? null, rest_seconds ?? null, notes ?? null, sort_order ?? 0, req.orgId],
-    )
+    const ex = await insertWorkoutExercise({
+      workout_id: workoutId, day: day ?? 'Day 1', exercise_name: exercise_name.trim(),
+      sets: sets ?? null, reps: reps ?? null, weight: weight ?? null,
+      rest_seconds: rest_seconds ?? null, notes: notes ?? null, sort_order: sort_order ?? 0,
+      org_id: req.orgId,
+    })
     res.status(201).json(ex)
   } catch (err) { next(err) }
 })
