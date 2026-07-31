@@ -2311,7 +2311,7 @@ function YoutubePlayer({ vid, videoId, getToken, onFallback, onProgressSaved }) 
 
 // ── VideoCard ─────────────────────────────────────────────────────────────────
 
-function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded, onToggleExpand, getToken, progress, onProgressSaved }) {
+function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded, onToggleExpand, getToken, progress, onProgressSaved, isAdmin, currentUserId }) {
   const vid = ytVideoId(video.youtube_url)
   const [ytFailed, setYtFailed] = useState(false)
 
@@ -2477,7 +2477,207 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
             </button>
           </div>
         )}
+
+        {getToken && (
+          <CommentSection videoId={video.id} getToken={getToken} isAdmin={isAdmin} currentUserId={currentUserId} />
+        )}
       </div>
+    </div>
+  )
+}
+
+// ── CommentSection (Brain Mapping video comments + reactions) ────────────────
+
+const REACTION_EMOJI = { like: '👍', love: '❤️', fire: '🔥' }
+
+function CommentSection({ videoId, getToken, isAdmin, currentUserId }) {
+  const [open, setOpen] = useState(false)
+  const [comments, setComments] = useState([])
+  const [loaded, setLoaded] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [text, setText] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function load() {
+    setLoading(true)
+    setError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/brain-mapping-comments/${videoId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error(`Server error ${res.status}`)
+      setComments(await res.json())
+      setLoaded(true)
+    } catch (e) { setError(e.message) }
+    finally { setLoading(false) }
+  }
+
+  function toggleOpen() {
+    const next = !open
+    setOpen(next)
+    if (next && !loaded) load()
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    const trimmed = text.trim()
+    if (!trimmed || trimmed.length > 500) return
+    setSubmitting(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/brain-mapping-comments`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ video_id: videoId, comment_text: trimmed }),
+      })
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Failed to post comment') }
+      const created = await res.json()
+      setComments(prev => [...prev, created])
+      setText('')
+    } catch (e) { alert(e.message) }
+    finally { setSubmitting(false) }
+  }
+
+  async function handleDelete(commentId) {
+    if (!confirm('Delete this comment?')) return
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/brain-mapping-comments/${commentId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error('Failed to delete comment')
+      setComments(prev => prev.filter(c => c.id !== commentId))
+    } catch (e) { alert(e.message) }
+  }
+
+  async function handleReact(commentId, reactionType) {
+    // Optimistic toggle
+    setComments(prev => prev.map(c => {
+      if (c.id !== commentId) return c
+      const mine = c.my_reactions ?? []
+      const hasIt = mine.includes(reactionType)
+      const counts = { ...(c.reaction_counts ?? {}) }
+      counts[reactionType] = Math.max(0, (counts[reactionType] ?? 0) + (hasIt ? -1 : 1))
+      return {
+        ...c,
+        my_reactions: hasIt ? mine.filter(r => r !== reactionType) : [...mine, reactionType],
+        reaction_counts: counts,
+      }
+    }))
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/brain-mapping-comments/${commentId}/reactions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reaction_type: reactionType }),
+      })
+      if (!res.ok) throw new Error()
+    } catch {
+      load() // resync on failure
+    }
+  }
+
+  return (
+    <div className="mt-3 pt-3 border-t border-gray-100">
+      <button
+        onClick={toggleOpen}
+        className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 min-h-[44px] sm:min-h-0 py-1"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+        </svg>
+        {loaded ? `${comments.length} ${comments.length === 1 ? 'Comment' : 'Comments'}` : 'Comments'}
+        <svg className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="mt-2 space-y-3">
+          {loading && <p className="text-xs text-gray-400 py-2">Loading comments…</p>}
+          {error && <p className="text-xs text-red-500 py-2">{error}</p>}
+
+          {!loading && !error && comments.map(c => {
+            const canDelete = isAdmin || c.user_id === currentUserId
+            return (
+              <div key={c.id} className="bg-gray-50 rounded-xl p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-gray-900">{c.user_name ?? 'User'}</p>
+                    <p className="text-sm text-gray-700 mt-0.5 break-words">{c.comment_text}</p>
+                    <p className="text-[10px] text-gray-400 mt-1">
+                      {new Date(c.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                    </p>
+                  </div>
+                  {canDelete && (
+                    <button
+                      onClick={() => handleDelete(c.id)}
+                      title="Delete comment"
+                      className="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0 min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5 mt-2">
+                  {Object.keys(REACTION_EMOJI).map(type => {
+                    const count = c.reaction_counts?.[type] ?? 0
+                    const mine = (c.my_reactions ?? []).includes(type)
+                    return (
+                      <button
+                        key={type}
+                        onClick={() => handleReact(c.id, type)}
+                        className={`inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-full border transition-colors min-h-[32px] ${
+                          mine ? 'border-transparent' : 'border-gray-200 text-gray-500 hover:bg-gray-100'
+                        }`}
+                        style={mine ? { background: '#fde8c8', color: 'var(--color-accent-hover)' } : undefined}
+                      >
+                        <span>{REACTION_EMOJI[type]}</span>
+                        {count > 0 && <span className="font-semibold">{count}</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+
+          {!loading && !error && loaded && comments.length === 0 && (
+            <p className="text-xs text-gray-400 py-1">No comments yet. Be the first to share your thoughts.</p>
+          )}
+
+          <form onSubmit={handleSubmit} className="pt-1">
+            <textarea
+              value={text}
+              onChange={e => setText(e.target.value.slice(0, 500))}
+              placeholder="Add a comment…"
+              rows={2}
+              className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 resize-none"
+              style={{ '--tw-ring-color': 'var(--color-accent)' }}
+              maxLength={500}
+            />
+            <div className="flex items-center justify-between mt-1.5">
+              <span className="text-[10px] text-gray-400">{text.length}/500</span>
+              <button
+                type="submit"
+                disabled={!text.trim() || submitting}
+                className="inline-flex items-center gap-1.5 text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors min-h-[36px] disabled:opacity-40"
+                style={{ background: 'var(--color-accent)' }}
+                onMouseEnter={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
+              >
+                {submitting ? 'Posting…' : 'Post'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   )
 }
@@ -2548,7 +2748,7 @@ function FeaturedVideoCard({ video, progress, label, onWatch }) {
 
 // ── Mindset tab ───────────────────────────────────────────────────────────────
 
-function MindsetTab({ getToken, isStaff }) {
+function MindsetTab({ getToken, isStaff, isAdmin, currentUserId }) {
   const [videos,       setVideos]      = useState([])
   const [myProgress,   setMyProgress]  = useState({})
   const [loading,      setLoading]     = useState(true)
@@ -2737,6 +2937,9 @@ function MindsetTab({ getToken, isStaff }) {
                   onTogglePublish={handleTogglePublish}
                   expanded={expandedId === v.id}
                   onToggleExpand={() => setExpandedId(expandedId === v.id ? null : v.id)}
+                  getToken={getToken}
+                  isAdmin={isAdmin}
+                  currentUserId={currentUserId}
                 />
               ))}
             </div>
@@ -2812,6 +3015,8 @@ function MindsetTab({ getToken, isStaff }) {
                       getToken={getToken}
                       progress={myProgress[v.id] ?? null}
                       onProgressSaved={handleProgressSaved}
+                      isAdmin={isAdmin}
+                      currentUserId={currentUserId}
                     />
                   </div>
                 ))}
@@ -3461,7 +3666,7 @@ export default function Community() {
       )}
 
       {/* Brain Mapping — accessible via sidebar ?tab=mindset link for all users */}
-      {tab === 'mindset'   && <MindsetTab getToken={getToken} isStaff={isStaff} />}
+      {tab === 'mindset'   && <MindsetTab getToken={getToken} isStaff={isStaff} isAdmin={isAdmin} currentUserId={currentUserId} />}
 
       {/* Resources — staff tab + URL-accessible for direct links */}
       {tab === 'resources' && <ResourcesTab getToken={getToken} isStaff={isStaff} />}

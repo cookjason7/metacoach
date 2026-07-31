@@ -1410,6 +1410,32 @@ export async function migrate() {
   await pool.query(`ALTER TABLE video_watch_progress ADD COLUMN IF NOT EXISTS first_watched_at TIMESTAMPTZ`)
   await pool.query(`ALTER TABLE video_watch_progress ADD COLUMN IF NOT EXISTS last_watched_at  TIMESTAMPTZ`)
 
+  // ── Brain Mapping video comments & reactions ─────────────────────────────────
+  // video_id references mindset_videos(id) — the actual stable identifier used
+  // by the Brain Mapping video list (Community.jsx MindsetTab), confirmed in code.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS brain_mapping_comments (
+      id            SERIAL PRIMARY KEY,
+      video_id      INTEGER NOT NULL REFERENCES mindset_videos(id) ON DELETE CASCADE,
+      user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      comment_text  TEXT    NOT NULL CHECK (char_length(comment_text) <= 500),
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_bm_comments_video ON brain_mapping_comments (video_id)`)
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS brain_mapping_reactions (
+      id             SERIAL PRIMARY KEY,
+      comment_id     INTEGER NOT NULL REFERENCES brain_mapping_comments(id) ON DELETE CASCADE,
+      user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      reaction_type  TEXT    NOT NULL CHECK (reaction_type IN ('like', 'love', 'fire')),
+      created_at     TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (comment_id, user_id, reaction_type)
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_bm_reactions_comment ON brain_mapping_reactions (comment_id)`)
+
   // ── Client Measurements ───────────────────────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS client_measurements (
