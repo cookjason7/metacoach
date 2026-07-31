@@ -5716,6 +5716,20 @@ function BloodworkTab({ clientId, getToken, bloodworkEnabled = false, onClientUp
 
 // ─── Coach Workouts Tab ───────────────────────────────────────────────────────
 
+// Coach-readable tooltip text for a flagged exercise row's warning icon, keyed
+// by workoutGenerator.js/workoutValidation.js's flag_reason. The pull-fallback
+// values are set by fillPullSlot (server/services/workoutGenerator.js) when the
+// upper_pull slot's normal pickExercise() call comes up empty and one of its
+// three fallback tiers has to fire. Any reason not listed here — including
+// workoutValidation.js's 'blocked_exercise' and any future value — falls back
+// to the generic 'Blocked exercise' text rather than a blank/wrong tooltip.
+const EXERCISE_FLAG_TOOLTIPS = {
+  equipment_mismatch: 'Equipment mismatch',
+  pull_fallback_difficulty_relaxed: 'Pull fallback: no pull exercise at the requested difficulty for this equipment, so difficulty was relaxed to fill the slot',
+  pull_fallback_level_block_bypassed: 'Pull fallback: every equipment-matched pull exercise is blocked for this fitness level, so the block was bypassed to fill the slot',
+  pull_fallback_no_equipment_match: 'Pull fallback: no pull exercise in the library matches this client\'s equipment, so a no-equipment substitute was used',
+}
+
 // ── Constants for the Katie questionnaire (mirror of Workouts.jsx) ────────────
 // 'general_fitness' is hidden here only — historical; Workouts.jsx's own GOALS
 // list includes it but this coach-facing list never has. The live "Generate
@@ -7110,7 +7124,7 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
                         <tr key={exIdx} className={ex.flagged ? 'bg-red-50 hover:bg-red-50' : 'hover:bg-gray-50/40'}>
                           <td className="px-3 py-2.5 font-medium text-gray-900">
                             <div className="flex items-center gap-2">
-                              {ex.flagged && <span title={ex.flag_reason === 'equipment_mismatch' ? 'Equipment mismatch' : 'Blocked exercise'} className="text-red-500">⚠</span>}
+                              {ex.flagged && <span title={EXERCISE_FLAG_TOOLTIPS[ex.flag_reason] ?? 'Blocked exercise'} className="text-red-500">⚠</span>}
                               <span onClick={() => ex.image_url && setLightboxSrc(ex.image_url)} className={ex.image_url ? 'cursor-zoom-in' : ''}>
                                 <ExerciseThumb src={ex.image_url} alt={ex.name} />
                               </span>
