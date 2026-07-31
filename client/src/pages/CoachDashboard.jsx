@@ -14,7 +14,16 @@ const SERVING_UNITS = ['g', 'oz', 'lb', 'cup', 'tbsp', 'tsp', 'ml', 'fl oz']
 
 const COACHING_TYPE_BADGE = {
   vip:    'bg-orange-50 text-[#E8670A] border-orange-200',
-  ai:     'bg-blue-50 text-blue-700 border-blue-200',
+  basic:  'bg-gray-50 text-gray-600 border-gray-200',
+  hybrid: 'bg-purple-50 text-purple-700 border-purple-200',
+}
+
+// 'ai' was consolidated into 'hybrid'. Nothing writes 'ai' anymore, but any
+// legacy row still needs to read back as the tier it now behaves as — so every
+// display and filter path funnels through here rather than comparing raw values.
+function normalizeCoachingType(type) {
+  if (type === 'ai') return 'hybrid'
+  return type || 'vip'
 }
 
 const STATUS_STYLES = {
@@ -97,12 +106,14 @@ function clientName(c) {
 }
 
 function coachingLabel(type) {
-  if (type === 'ai') return 'AI'
+  const t = normalizeCoachingType(type)
+  if (t === 'basic')  return 'Basic'
+  if (t === 'hybrid') return 'Hybrid'
   return 'VIP'
 }
 
 function coachingBadge(type) {
-  return COACHING_TYPE_BADGE[type] ?? COACHING_TYPE_BADGE.vip
+  return COACHING_TYPE_BADGE[normalizeCoachingType(type)] ?? COACHING_TYPE_BADGE.vip
 }
 
 function lastActivityAt(c) {
@@ -1290,8 +1301,8 @@ function PendingInviteRow({ invite, onResend, onCancel }) {
   const daysLeft    = invite.expires_at
     ? Math.max(0, Math.ceil((new Date(invite.expires_at) - Date.now()) / 86400_000))
     : null
-  const coachBadge  = COACHING_TYPE_BADGE[invite.coaching_type] ?? COACHING_TYPE_BADGE.vip
-  const typeLabel   = invite.coaching_type === 'ai' ? 'AI' : 'VIP'
+  const coachBadge  = coachingBadge(invite.coaching_type)
+  const typeLabel   = coachingLabel(invite.coaching_type)
 
   async function copy() {
     try {
@@ -1372,13 +1383,16 @@ function InviteModal({ getToken, coaches = [], onClose, onSuccess }) {
   const [result,     setResult]     = useState(null)
   const [copied,     setCopied]     = useState(false)
 
-  const isAI = form.coaching_type === 'ai'
+  // Only VIP clients get a human coach assignment — every other tier
+  // (basic, hybrid, plus legacy 'ai') has assigned_coach_id forced to null
+  // server-side, so the picker is disabled and cleared for them here.
+  const isAI = form.coaching_type !== 'vip'
 
   function setF(e) {
     const { name, value } = e.target
     setForm(f => {
       const next = { ...f, [name]: value }
-      if (name === 'coaching_type' && value === 'ai') next.assigned_coach_id = ''
+      if (name === 'coaching_type' && value !== 'vip') next.assigned_coach_id = ''
       return next
     })
   }
@@ -1487,7 +1501,8 @@ function InviteModal({ getToken, coaches = [], onClose, onSuccess }) {
                 <label className="block text-xs font-medium text-gray-600 mb-1">Coaching type</label>
                 <select name="coaching_type" value={form.coaching_type} onChange={setF} className={inputCls}>
                   <option value="vip">VIP</option>
-                  <option value="ai">AI</option>
+                  <option value="basic">Basic</option>
+                  <option value="hybrid">Hybrid</option>
                 </select>
               </div>
               <div>
@@ -2013,7 +2028,7 @@ export default function CoachDashboard({ getToken, userRole }) {
     return clients
       .filter(c => {
         if (isAdmin && coachFilter !== 'all' && String(c.assigned_coach_id ?? '') !== coachFilter) return false
-        if (typeFilter   !== 'all' && (c.coaching_type || 'vip') !== typeFilter) return false
+        if (typeFilter   !== 'all' && normalizeCoachingType(c.coaching_type) !== typeFilter) return false
         if (statusFilter !== 'all' && accountStatus(c) !== statusFilter) return false
         if (checkinFilter === 'received' && !hadCheckinInWeek(c)) return false
         if (checkinFilter === 'none'     &&  hadCheckinInWeek(c)) return false
@@ -2219,7 +2234,8 @@ export default function CoachDashboard({ getToken, userRole }) {
                 className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
                 <option value="all">All coaching</option>
                 <option value="vip">VIP</option>
-                <option value="ai">AI</option>
+                <option value="basic">Basic</option>
+                <option value="hybrid">Hybrid</option>
               </select>
               <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
                 className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">

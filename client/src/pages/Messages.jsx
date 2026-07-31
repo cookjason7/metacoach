@@ -196,7 +196,7 @@ export default function Messages() {
   const [deepLinkClientId, setDeepLinkClientId] = useState(null)
   const [isStaff,     setIsStaff]     = useState(null) // null = loading
   const [staffRole,   setStaffRole]   = useState(null) // 'admin' | 'coach' | null
-  const [coachingType, setCoachingType] = useState(null) // 'vip' | 'ai' | null
+  const [coachingType, setCoachingType] = useState(null) // 'vip' | 'hybrid' | 'basic' (legacy: 'ai' ≡ 'hybrid') | null
   const [threads,     setThreads]     = useState([])
   const [coachName,   setCoachName]   = useState(null)
   const [active,      setActive]      = useState(null)  // thread_type string

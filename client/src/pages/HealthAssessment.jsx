@@ -1181,7 +1181,7 @@ export default function HealthAssessment() {
               <h1 className="text-2xl font-bold text-white mb-2">You're all set!</h1>
               <p className="text-white/80 text-sm">
                 {form.first_name ? `Great work, ${form.first_name}!` : 'Great work!'}{' '}
-                {coachingType === 'ai'
+                {coachingType === 'hybrid' || coachingType === 'ai'
                   ? 'Your assessment has been saved and your AI coaching setup is ready.'
                   : 'Your assessment has been saved and sent to your coach.'}
               </p>
