@@ -84,8 +84,8 @@ export default function AiWelcome() {
 
         <p className="text-xs text-gray-400">
           Questions?{' '}
-          <a href="mailto:info@lwcvip.com" className="text-[#E8670A] hover:underline">
-            info@lwcvip.com
+          <a href="mailto:support@lwcvip.com" className="text-[#E8670A] hover:underline">
+            support@lwcvip.com
           </a>
         </p>
       </div>
