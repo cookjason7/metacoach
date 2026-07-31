@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url'
 import { clerkMiddleware, getAuth } from '@clerk/express'
 import { migrate, pool } from './db.js'
 import orgContext from './middleware/orgContext.js'
+import requireAssessmentComplete from './middleware/requireAssessmentComplete.js'
 import mealsRouter from './routes/meals.js'
 import dailyLogsRouter from './routes/dailyLogs.js'
 import usersRouter from './routes/users.js'
@@ -90,34 +91,34 @@ async function blockDeactivatedClients(req, res, next) {
 }
 
 app.use('/api/users',      clerkMiddleware(), blockDeactivatedClients, orgContext, usersRouter)
-app.use('/api/meals',      clerkMiddleware(), blockDeactivatedClients, orgContext, mealsRouter)
-app.use('/api/daily-logs', clerkMiddleware(), blockDeactivatedClients, orgContext, dailyLogsRouter)
+app.use('/api/meals',      clerkMiddleware(), blockDeactivatedClients, orgContext, requireAssessmentComplete, mealsRouter)
+app.use('/api/daily-logs', clerkMiddleware(), blockDeactivatedClients, orgContext, requireAssessmentComplete, dailyLogsRouter)
 app.use('/api/coach',      clerkMiddleware(), blockDeactivatedClients, orgContext, coachRouter)
-app.use('/api/community',       clerkMiddleware(), blockDeactivatedClients, orgContext, communityRouter)
-app.use('/api/progress-photos', clerkMiddleware(), blockDeactivatedClients, orgContext, progressPhotosRouter)
+app.use('/api/community',       clerkMiddleware(), blockDeactivatedClients, orgContext, requireAssessmentComplete, communityRouter)
+app.use('/api/progress-photos', clerkMiddleware(), blockDeactivatedClients, orgContext, requireAssessmentComplete, progressPhotosRouter)
 app.use('/api/foods',           clerkMiddleware(), blockDeactivatedClients, orgContext, foodsRouter)
 app.use('/api/admin',           clerkMiddleware(), blockDeactivatedClients, orgContext, adminRouter)
 app.use('/api/recipes',         clerkMiddleware(), blockDeactivatedClients, orgContext, recipesRouter)
 app.use('/api/custom-foods',    clerkMiddleware(), blockDeactivatedClients, orgContext, customFoodsRouter)
-app.use('/api/workouts',        clerkMiddleware(), blockDeactivatedClients, orgContext, workoutsRouter)
+app.use('/api/workouts',        clerkMiddleware(), blockDeactivatedClients, orgContext, requireAssessmentComplete, workoutsRouter)
 app.use('/api/workout-builder',   clerkMiddleware(), blockDeactivatedClients, orgContext, workoutBuilderRouter)
 app.use('/api/gamification',      clerkMiddleware(), blockDeactivatedClients, orgContext, gamificationRouter)
 app.use('/api/health-assessment', clerkMiddleware(), blockDeactivatedClients, orgContext, healthAssessmentRouter)
 app.use('/api/coach-admin',       clerkMiddleware(), blockDeactivatedClients, orgContext, coachAdminRouter)
-app.use('/api/client-habits',     clerkMiddleware(), blockDeactivatedClients, orgContext, clientHabitsRouter)
-app.use('/api/client-workouts',   clerkMiddleware(), blockDeactivatedClients, orgContext, clientWorkoutsRouter)
+app.use('/api/client-habits',     clerkMiddleware(), blockDeactivatedClients, orgContext, requireAssessmentComplete, clientHabitsRouter)
+app.use('/api/client-workouts',   clerkMiddleware(), blockDeactivatedClients, orgContext, requireAssessmentComplete, clientWorkoutsRouter)
 app.use('/api/messages',          clerkMiddleware(), blockDeactivatedClients, orgContext, messagesRouter)
 app.use('/api/client-invites',    clerkMiddleware(), blockDeactivatedClients, orgContext, invitesRouter)
 app.use('/api/staff-invites',     clerkMiddleware(), blockDeactivatedClients, orgContext, invitesRouter)
-app.use('/api/weekly-checkins',  clerkMiddleware(), blockDeactivatedClients, orgContext, weeklyCheckinsRouter)
+app.use('/api/weekly-checkins',  clerkMiddleware(), blockDeactivatedClients, orgContext, requireAssessmentComplete, weeklyCheckinsRouter)
 app.use('/api/forms',            clerkMiddleware(), blockDeactivatedClients, orgContext, formsRouter)
-app.use('/api/measurements',     clerkMiddleware(), blockDeactivatedClients, orgContext, measurementsRouter)
+app.use('/api/measurements',     clerkMiddleware(), blockDeactivatedClients, orgContext, requireAssessmentComplete, measurementsRouter)
 app.use('/api/mindset-videos',        clerkMiddleware(), blockDeactivatedClients, orgContext, mindsetVideosRouter)
-app.use('/api/brain-mapping-comments', clerkMiddleware(), blockDeactivatedClients, orgContext, brainMappingCommentsRouter)
+app.use('/api/brain-mapping-comments', clerkMiddleware(), blockDeactivatedClients, orgContext, requireAssessmentComplete, brainMappingCommentsRouter)
 app.use('/api/community-resources',   clerkMiddleware(), blockDeactivatedClients, orgContext, communityResourcesRouter)
-app.use('/api/fitbit',                clerkMiddleware(), blockDeactivatedClients, orgContext, fitbitRouter)
-app.use('/api/apple-health',          clerkMiddleware(), blockDeactivatedClients, orgContext, appleHealthRouter)
-app.use('/api/bloodwork',             clerkMiddleware(), blockDeactivatedClients, orgContext, bloodworkRouter)
+app.use('/api/fitbit',                clerkMiddleware(), blockDeactivatedClients, orgContext, requireAssessmentComplete, fitbitRouter)
+app.use('/api/apple-health',          clerkMiddleware(), blockDeactivatedClients, orgContext, requireAssessmentComplete, appleHealthRouter)
+app.use('/api/bloodwork',             clerkMiddleware(), blockDeactivatedClients, orgContext, requireAssessmentComplete, bloodworkRouter)
 app.use('/api/push',                  clerkMiddleware(), blockDeactivatedClients, orgContext, pushRouter)
 app.use('/api/staff-chat',            clerkMiddleware(), blockDeactivatedClients, orgContext, requireStaffMiddleware, staffChatRouter)
 app.use('/api/organizations',         clerkMiddleware(), blockDeactivatedClients, orgContext, organizationsRouter)
