@@ -128,6 +128,8 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState(null)
+  const [activating, setActivating] = useState(false)
+  const [activateError, setActivateError] = useState(null)
   const startDateInitial =
     client.start_date ? String(client.start_date).slice(0, 10) :
     client.effective_start_date ? String(client.effective_start_date).slice(0, 10) : ''
@@ -199,6 +201,32 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
     }
   }
 
+  // Self-signups with no matching invite and no paid record sit at
+  // client_status = 'pending_access' until an admin manually clears them in.
+  async function activateClient() {
+    setActivating(true)
+    setActivateError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/${client.id}/activate`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error ?? `Server ${res.status}`)
+      }
+      const updated = await res.json()
+      onUpdate({ client_status: updated.client_status, paid: updated.paid, paid_at: updated.paid_at })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (err) {
+      setActivateError(err.message)
+    } finally {
+      setActivating(false)
+    }
+  }
+
   const adh7  = Math.round(Number(client.adherence_7d)  || 0)
   const adh30 = Math.round(Number(client.adherence_30d) || 0)
 
@@ -243,10 +271,22 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
       <div className="bg-white border border-gray-200 rounded-xl p-5">
         <div className="flex justify-between items-start mb-4">
           <h3 className="text-sm font-semibold text-gray-900">Client Info</h3>
-          {role === 'admin' && !editing && (
-            <button onClick={() => setEditing(true)} className="text-xs text-[#E8670A] hover:text-[#c45e09] font-medium">Edit</button>
-          )}
+          <div className="flex items-center gap-3">
+            {role === 'admin' && !editing && client.client_status === 'pending_access' && (
+              <button
+                onClick={activateClient}
+                disabled={activating}
+                className="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {activating ? 'Activating…' : 'Activate Client'}
+              </button>
+            )}
+            {role === 'admin' && !editing && (
+              <button onClick={() => setEditing(true)} className="text-xs text-[#E8670A] hover:text-[#c45e09] font-medium">Edit</button>
+            )}
+          </div>
         </div>
+        {activateError && <p className="text-xs text-red-500 mb-3">{activateError}</p>}
 
         {!editing ? (
           (() => {
