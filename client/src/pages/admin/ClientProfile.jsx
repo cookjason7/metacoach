@@ -7703,6 +7703,14 @@ export default function ClientProfile() {
     if (requestedTab && TABS.some(t => t.id === requestedTab)) setTab(requestedTab)
   }, [searchParams])
 
+  // 'va' only sees Overview — every other tab (messaging, notes, workouts,
+  // nutrition, progress, assessment, engagement, habits, bloodwork) calls
+  // requireStaff-gated endpoints this role can't reach. Bounce back if a
+  // stale ?tab= query or prior selection points somewhere else.
+  useEffect(() => {
+    if (meRole === 'va' && tab !== 'overview') setTab('overview')
+  }, [meRole, tab])
+
   useEffect(() => {
     async function load() {
       try {
@@ -7792,10 +7800,14 @@ export default function ClientProfile() {
       })()}
 
       {/* Tabs — primary tabs scroll on mobile; More button sits outside overflow so its dropdown isn't clipped */}
+      {(() => {
+      const primaryTabs = meRole === 'va' ? TABS.filter(t => t.id === 'overview') : PRIMARY_TABS
+      const moreTabs     = meRole === 'va' ? [] : MORE_TABS
+      return (
       <div className="border-b border-gray-200 mb-5 flex items-stretch">
         <div className="flex-1 overflow-x-auto min-w-0">
           <div className="flex gap-1">
-            {PRIMARY_TABS.map(t => (
+            {primaryTabs.map(t => (
               <button key={t.id} onClick={() => {
                 setTab(t.id)
                 if (t.id === 'messaging') setUnreadMsg(0)
@@ -7821,24 +7833,25 @@ export default function ClientProfile() {
           </div>
         </div>
         {/* More button is a flex sibling — NOT inside overflow-x-auto — so dropdown escapes clipping */}
+        {moreTabs.length > 0 && (
         <div className="relative shrink-0">
           <button
             onClick={() => setMoreOpen(o => !o)}
             className={`px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-semibold transition-colors border-b-2 whitespace-nowrap ${
-              MORE_TABS.some(t => t.id === tab)
+              moreTabs.some(t => t.id === tab)
                 ? 'border-[#E8670A] text-[#E8670A]'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
-            {MORE_TABS.some(t => t.id === tab)
-              ? <><span className="mr-1">{MORE_TABS.find(t2 => t2.id === tab)?.icon}</span>{MORE_TABS.find(t2 => t2.id === tab)?.label} ▾</>
+            {moreTabs.some(t => t.id === tab)
+              ? <><span className="mr-1">{moreTabs.find(t2 => t2.id === tab)?.icon}</span>{moreTabs.find(t2 => t2.id === tab)?.label} ▾</>
               : 'More ▾'}
           </button>
           {moreOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setMoreOpen(false)} />
               <div className="absolute right-0 top-full mt-0.5 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[160px]">
-                {MORE_TABS.map(t => (
+                {moreTabs.map(t => (
                   <button key={t.id} onClick={() => {
                     setTab(t.id)
                     setMoreOpen(false)
@@ -7856,7 +7869,10 @@ export default function ClientProfile() {
             </>
           )}
         </div>
+        )}
       </div>
+      )
+      })()}
 
       {/* Tab content — becomes a two-column split view on desktop (lg+) when a form is pinned */}
       <div className={pinnedSubmission ? 'lg:flex lg:items-start lg:gap-6' : ''}>
