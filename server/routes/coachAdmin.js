@@ -1226,6 +1226,35 @@ router.patch('/clients/:id/reactivate', requireAuth(), async (req, res, next) =>
   } catch (err) { next(err) }
 })
 
+// PATCH /api/coach-admin/clients/:id/activate — self-signups with no matching
+// invite and no paid record sit at client_status = 'pending_access' until an
+// admin manually clears them in. Flips paid + client_status together so the
+// pending-access gate (server/index.js) lets them straight through.
+router.patch('/clients/:id/activate', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireAdmin(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+
+    const { rows: targetRows } = await pool.query('SELECT client_status FROM users WHERE id = $1', [id])
+    if (!targetRows.length) return res.status(404).json({ error: 'Client not found' })
+    if (targetRows[0].client_status !== 'pending_access') {
+      return res.status(400).json({ error: 'Only clients pending access can be activated.' })
+    }
+
+    const { rows } = await pool.query(`
+      UPDATE users
+      SET paid          = TRUE,
+          paid_at        = COALESCE(paid_at, NOW()),
+          client_status  = 'active'
+      WHERE id = $1
+      RETURNING id, client_status, paid, paid_at
+    `, [id])
+    if (!rows.length) return res.status(404).json({ error: 'Client not found' })
+    res.json({ ok: true, ...rows[0] })
+  } catch (err) { next(err) }
+})
+
 // DELETE /api/coach-admin/clients/:id — SOFT delete (preserves all data)
 // Pass ?hard=true to permanently remove (admin only, requires confirmation
 // at the API level by sending {confirm: 'PERMANENT_DELETE'} in the body).
