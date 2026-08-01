@@ -1327,6 +1327,15 @@ export async function migrate() {
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_staff_invites_email ON staff_invites (LOWER(email))`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_staff_invites_token ON staff_invites (token)`)
+  // Widen staff_invites.role CHECK to add 'va' — client onboarding/transition
+  // staff role, scoped narrowly in server/routes/coachAdmin.js.
+  await pool.query(`
+    DO $$ BEGIN
+      ALTER TABLE staff_invites DROP CONSTRAINT IF EXISTS staff_invites_role_check;
+      ALTER TABLE staff_invites ADD CONSTRAINT staff_invites_role_check
+        CHECK (role IN ('coach', 'admin', 'va'));
+    END $$;
+  `)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT`)
   await pool.query(`ALTER TABLE community_posts ADD COLUMN IF NOT EXISTS channel TEXT DEFAULT 'vip'`)
   await pool.query(`
