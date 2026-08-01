@@ -31,6 +31,14 @@ const STAFF_NAV_ITEMS = [
   { to: '/settings',      label: 'Settings' },
 ]
 
+// 'va' sidebar nav — client onboarding/transition scope only. No Forms,
+// Messages, Team Communication, or Community: those all sit behind
+// requireStaff on the backend and are never reachable for this role.
+const VA_NAV_ITEMS = [
+  { to: '/dashboard', label: 'Coaching Dashboard' },
+  { to: '/settings',  label: 'Settings' },
+]
+
 // Mirrors ADMIN_EMAILS in server/db.js — nav visibility only, the real gate is
 // isAdminEmail() on every /api/organizations route.
 const SUPER_ADMIN_EMAILS = ['jason@lwcvip.com', 'jason@efcfit.com']
@@ -68,6 +76,7 @@ export default function Layout() {
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const [isOrgAdmin,   setIsOrgAdmin]   = useState(false)
   const [isStaff,      setIsStaff]      = useState(false)
+  const [isVa,         setIsVa]         = useState(false) // client onboarding/transition role — scoped staff subset
   const [coachingType, setCoachingType] = useState(null) // 'vip' | 'hybrid' | 'basic' (legacy: 'ai' ≡ 'hybrid') — null until loaded
   const [bloodworkEnabled, setBloodworkEnabled] = useState(false) // per-client flag from /api/users/me
   const [notifCount,   setNotifCount]   = useState(0)
@@ -302,11 +311,13 @@ export default function Layout() {
       }
       const data = await res.json()
       const adminStatus = data.role === 'admin' || data.role === 'account_owner'
-      const staffStatus = adminStatus || data.role === 'coach' || data.role === 'staff'
+      const vaStatus    = data.role === 'va'
+      const staffStatus = adminStatus || data.role === 'coach' || data.role === 'staff' || vaStatus
       const superAdminStatus = SUPER_ADMIN_EMAILS.includes((data.email ?? '').toLowerCase())
       setIsAdmin(adminStatus)
       setIsSuperAdmin(superAdminStatus)
       setIsStaff(staffStatus)
+      setIsVa(vaStatus)
       // Org-level admin/owner: the org's own 'admin' role, or the org's owner_user_id
       // even when their role is 'coach' — never Jason (he has his own admin views).
       setIsOrgAdmin(!superAdminStatus && (adminStatus || (data.role === 'coach' && data.is_org_owner === true)))
@@ -330,6 +341,7 @@ export default function Layout() {
   }, [getToken])
 
   const fetchMsgUnread = useCallback(async () => {
+    if (isVa) return // va has no messaging access — server would 403 anyway
     try {
       const token = await getToken()
       const endpoint = isStaff
@@ -342,7 +354,7 @@ export default function Layout() {
       const data = await res.json()
       setMsgUnread(data.unread ?? 0)
     } catch {}
-  }, [getToken, isStaff])
+  }, [getToken, isStaff, isVa])
 
   const fetchStaffUnread = useCallback(async () => {
     if (!isStaff) return
@@ -372,7 +384,7 @@ export default function Layout() {
   // Same source as the "Coach Foods" tab badge (CoachDashboard.jsx) — pending
   // client-submitted foods awaiting admin review.
   const fetchPendingFoodsCount = useCallback(async () => {
-    if (!isStaff) return
+    if (!isStaff || isVa) return // va has no access to client-foods review — stays staff-only
     try {
       const token = await getToken()
       const res   = await fetch(`${API_URL}/api/admin/client-foods?status=pending`, {
@@ -382,7 +394,7 @@ export default function Layout() {
       const data = await res.json()
       setPendingFoodsCount(Array.isArray(data) ? data.length : 0)
     } catch {}
-  }, [getToken, isStaff])
+  }, [getToken, isStaff, isVa])
 
   useEffect(() => {
     fetchRole()
@@ -825,7 +837,7 @@ export default function Layout() {
               { to: '/admin/workout-builder-test', label: 'Workout Builder Test' },
               ...(isSuperAdmin ? [{ to: '/admin/organizations', label: 'Organizations' }] : []),
             ])
-      : (isOrgAdmin ? orgAdminNavItems : STAFF_NAV_ITEMS)
+      : (isOrgAdmin ? orgAdminNavItems : (isVa ? VA_NAV_ITEMS : STAFF_NAV_ITEMS))
     : clientNavWithLabels
 
   // Mobile drawer hides items already in the client bottom nav. Matched by
@@ -905,7 +917,7 @@ export default function Layout() {
                   {staffUnread}
                 </span>
               )}
-              {label === 'Coaching Dashboard' && pendingFoodsCount > 0 && (
+              {label === 'Coaching Dashboard' && pendingFoodsCount > 0 && !isVa && (
                 <span
                   className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-white text-[10px] font-bold px-1 bg-amber-500"
                   title={`${pendingFoodsCount} pending client food${pendingFoodsCount === 1 ? '' : 's'} awaiting review`}
@@ -1000,7 +1012,13 @@ export default function Layout() {
             AI/Hybrid:   Home | Food Log | Katie | Community
             VIP:         Home | Calendar | Food Log | Messages | Community  */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 flex pb-[env(safe-area-inset-bottom)]">
-        {(isStaff ? [
+        {(isVa ? [
+          // VA bottom nav: onboarding-only scope, no Messages/Community. No
+          // pending-foods badge either — that stays a staff-only signal.
+          { to: '/dashboard',     label: 'Coaching',  badge: false,             icon: <path strokeLinecap="round" strokeLinejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" /> },
+          { to: '/admin/clients', label: 'Clients',   badge: false,             icon: <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /> },
+          { to: '/settings',      label: 'Settings',  badge: false,             icon: <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /> },
+        ] : isStaff ? [
           // Staff bottom nav
           { to: '/dashboard',     label: 'Coaching',  badge: pendingFoodsCount > 0, icon: <path strokeLinecap="round" strokeLinejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" /> },
           { to: '/admin/clients', label: 'Clients',   badge: false,             icon: <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /> },

@@ -166,7 +166,7 @@ function ProtectedLayout() {
       </button>
     </div>
   )
-  const isPrivileged = ['admin', 'account_owner', 'staff', 'coach'].includes(userState?.role)
+  const isPrivileged = ['admin', 'account_owner', 'staff', 'coach', 'va'].includes(userState?.role)
   // Signed up with no matching invite and no paid record — held at /pending-access
   // until an admin invites/activates them. Must come BEFORE the assessment check,
   // or a gated account would be sent through the Health Assessment first.
@@ -185,6 +185,16 @@ function ProtectedLayout() {
 
 function AdminRoute() {
   if (!['admin', 'account_owner', 'staff', 'coach'].includes(userStateCache?.role)) {
+    return <Navigate to="/dashboard" replace />
+  }
+  return <Outlet />
+}
+
+// 'va' (client onboarding/transition role) gets ONLY the client list/profile —
+// never Forms, Team Communication, Usage Analytics, Katie Corrections, or
+// Workout Builder Test, which stay behind the stricter AdminRoute above.
+function StaffOrVaRoute() {
+  if (!['admin', 'account_owner', 'staff', 'coach', 'va'].includes(userStateCache?.role)) {
     return <Navigate to="/dashboard" replace />
   }
   return <Outlet />
@@ -277,10 +287,12 @@ export default function App() {
           <Route path="/messages"     element={<Messages />} />
           <Route path="/weekly-checkin"      element={<Navigate to="/dashboard" replace />} />
           <Route path="/forms/:id/fill"        element={<FormFill />} />
-          <Route element={<AdminRoute />}>
-            <Route path="/admin"               element={<Admin />} />
+          <Route element={<StaffOrVaRoute />}>
             <Route path="/admin/clients"       element={<ClientList />} />
             <Route path="/admin/clients/:id"   element={<ClientProfile />} />
+          </Route>
+          <Route element={<AdminRoute />}>
+            <Route path="/admin"               element={<Admin />} />
             <Route path="/admin/forms"         element={<FormsList />} />
             <Route path="/admin/forms/:id/edit" element={<FormBuilder />} />
             <Route path="/admin/usage"         element={<UsageAnalytics />} />

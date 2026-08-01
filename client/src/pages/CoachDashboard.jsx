@@ -1375,7 +1375,7 @@ function PendingInviteRow({ invite, onResend, onCancel }) {
 
 // ── Invite Modal ──────────────────────────────────────────────────────────────
 
-function InviteModal({ getToken, coaches = [], onClose, onSuccess }) {
+function InviteModal({ getToken, coaches = [], isVa = false, onClose, onSuccess }) {
   const [form,       setForm]       = useState(EMPTY_INVITE)
   const [saving,     setSaving]     = useState(false)
   const [error,      setError]      = useState(null)
@@ -1505,24 +1505,26 @@ function InviteModal({ getToken, coaches = [], onClose, onSuccess }) {
                   <option value="hybrid">Hybrid</option>
                 </select>
               </div>
-              <div>
-                <label className={`block text-xs font-medium mb-1 ${isAI ? 'text-gray-400' : 'text-gray-600'}`}>Assign coach</label>
-                <select
-                  name="assigned_coach_id"
-                  value={form.assigned_coach_id}
-                  onChange={setF}
-                  disabled={isAI}
-                  className={`${inputCls} ${isAI ? 'opacity-50 cursor-not-allowed bg-gray-100' : ''}`}
-                >
-                  <option value="">Unassigned</option>
-                  {coaches.map(c => (
-                    <option key={c.id} value={String(c.id)}>{c.first_name || c.email}</option>
-                  ))}
-                </select>
-                {isAI && (
-                  <p className="text-[10px] text-gray-400 mt-0.5">AI clients work with Coach Katie — no human coach assignment needed.</p>
-                )}
-              </div>
+              {!isVa && (
+                <div>
+                  <label className={`block text-xs font-medium mb-1 ${isAI ? 'text-gray-400' : 'text-gray-600'}`}>Assign coach</label>
+                  <select
+                    name="assigned_coach_id"
+                    value={form.assigned_coach_id}
+                    onChange={setF}
+                    disabled={isAI}
+                    className={`${inputCls} ${isAI ? 'opacity-50 cursor-not-allowed bg-gray-100' : ''}`}
+                  >
+                    <option value="">Unassigned</option>
+                    {coaches.map(c => (
+                      <option key={c.id} value={String(c.id)}>{c.first_name || c.email}</option>
+                    ))}
+                  </select>
+                  {isAI && (
+                    <p className="text-[10px] text-gray-400 mt-0.5">AI clients work with Coach Katie — no human coach assignment needed.</p>
+                  )}
+                </div>
+              )}
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -1733,6 +1735,11 @@ export default function CoachDashboard({ getToken, userRole }) {
   const [pendingLoading, setPendingLoading] = useState(true)
   const [inviteOpen,     setInviteOpen]     = useState(false)
   const [isAdmin,        setIsAdmin]        = useState(userRole === 'admin' || userRole === 'account_owner')
+  // 'va' — client onboarding/transition role. Can invite clients and view basic
+  // info; cannot deactivate/reactivate, message, or reassign coaches. The
+  // server enforces this independently (requireStaffOrVa) — these UI checks
+  // just keep out-of-scope controls from being offered in the first place.
+  const isVa = userRole === 'va'
   const [myUserId,       setMyUserId]       = useState(null) // this staff member's own db id
   const [messageClient,  setMessageClient]  = useState(null) // { id, name } — quick-message modal target
 
@@ -2114,6 +2121,7 @@ export default function CoachDashboard({ getToken, userRole }) {
         <InviteModal
           getToken={getToken}
           coaches={coaches}
+          isVa={isVa}
           onClose={() => setInviteOpen(false)}
           onSuccess={() => { setInviteOpen(false); reloadClients(); loadPendingInvites() }}
         />
@@ -2293,28 +2301,31 @@ export default function CoachDashboard({ getToken, userRole }) {
             </div>
           </div>
 
-          {/* Bulk action bar — appears once one or more clients are checked */}
-          <div className={`overflow-hidden transition-all duration-200 ease-out ${
-            selectedClientIds.size > 0 ? 'max-h-16 opacity-100' : 'max-h-0 opacity-0'
-          }`}>
-            <div className="flex items-center justify-between gap-3 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
-              <p className="text-sm font-semibold text-[#E8670A]">
-                {selectedClientIds.size} client{selectedClientIds.size === 1 ? '' : 's'} selected
-              </p>
-              <div className="flex items-center gap-3">
-                <button type="button" onClick={clearSelection} className="text-xs font-medium text-gray-500 hover:text-gray-700">
-                  Clear selection
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setBulkMessageOpen(true)}
-                  className="bg-[#E8670A] text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-[#c45e09] transition-colors min-h-[36px]"
-                >
-                  Send Message
-                </button>
+          {/* Bulk action bar — appears once one or more clients are checked. VA can't
+              message clients, so the whole bar (and its only action) stays hidden. */}
+          {!isVa && (
+            <div className={`overflow-hidden transition-all duration-200 ease-out ${
+              selectedClientIds.size > 0 ? 'max-h-16 opacity-100' : 'max-h-0 opacity-0'
+            }`}>
+              <div className="flex items-center justify-between gap-3 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+                <p className="text-sm font-semibold text-[#E8670A]">
+                  {selectedClientIds.size} client{selectedClientIds.size === 1 ? '' : 's'} selected
+                </p>
+                <div className="flex items-center gap-3">
+                  <button type="button" onClick={clearSelection} className="text-xs font-medium text-gray-500 hover:text-gray-700">
+                    Clear selection
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBulkMessageOpen(true)}
+                    className="bg-[#E8670A] text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-[#c45e09] transition-colors min-h-[36px]"
+                  >
+                    Send Message
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Check-ins */}
           <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
@@ -2518,19 +2529,23 @@ export default function CoachDashboard({ getToken, userRole }) {
                           </div>
                         </td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
-                          <MessageIconButton
-                            className="mr-1 align-middle"
-                            onClick={e => { e.stopPropagation(); setMessageClient({ id: c.id, name: clientName(c) }) }}
-                          />
-                          {c.client_status === 'deactivated' ? (
-                            <button onClick={e => reactivateClient(e, c.id)}
-                              className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold mr-2">Reactivate</button>
-                          ) : (
-                            <button onClick={e => deactivateClient(e, c.id)}
-                              className="text-xs text-gray-500 hover:text-gray-700 font-medium mr-2">Deactivate</button>
+                          {!isVa && (
+                            <>
+                              <MessageIconButton
+                                className="mr-1 align-middle"
+                                onClick={e => { e.stopPropagation(); setMessageClient({ id: c.id, name: clientName(c) }) }}
+                              />
+                              {c.client_status === 'deactivated' ? (
+                                <button onClick={e => reactivateClient(e, c.id)}
+                                  className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold mr-2">Reactivate</button>
+                              ) : (
+                                <button onClick={e => deactivateClient(e, c.id)}
+                                  className="text-xs text-gray-500 hover:text-gray-700 font-medium mr-2">Deactivate</button>
+                              )}
+                              <button onClick={e => deleteClient(e, c.id, c.first_name ?? 'this client')}
+                                className="text-xs text-red-400 hover:text-red-600 font-medium">Delete</button>
+                            </>
                           )}
-                          <button onClick={e => deleteClient(e, c.id, c.first_name ?? 'this client')}
-                            className="text-xs text-red-400 hover:text-red-600 font-medium">Delete</button>
                         </td>
                       </tr>
                     ))}
@@ -2641,18 +2656,20 @@ export default function CoachDashboard({ getToken, userRole }) {
                         <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${accountStatusBadgeClass(c)}`}>
                           {accountStatusLabel(c)}
                         </span>
-                        <div className="flex items-center gap-3">
-                          <MessageIconButton
-                            className="min-w-[44px] min-h-[44px]"
-                            onClick={e => { e.stopPropagation(); setMessageClient({ id: c.id, name: clientName(c) }) }}
-                          />
-                          {c.client_status === 'deactivated'
-                            ? <button type="button" onClick={e => reactivateClient(e, c.id)} className="text-[11px] text-emerald-600 hover:text-emerald-700 font-semibold min-h-[44px] px-1">Reactivate</button>
-                            : <button type="button" onClick={e => deactivateClient(e, c.id)} className="text-[11px] text-gray-500 hover:text-gray-700 font-medium min-h-[44px] px-1">Deactivate</button>
-                          }
-                          <button type="button" onClick={e => deleteClient(e, c.id, c.first_name ?? 'this client')}
-                            className="text-[11px] text-red-400 hover:text-red-600 font-medium min-h-[44px] px-1">Delete</button>
-                        </div>
+                        {!isVa && (
+                          <div className="flex items-center gap-3">
+                            <MessageIconButton
+                              className="min-w-[44px] min-h-[44px]"
+                              onClick={e => { e.stopPropagation(); setMessageClient({ id: c.id, name: clientName(c) }) }}
+                            />
+                            {c.client_status === 'deactivated'
+                              ? <button type="button" onClick={e => reactivateClient(e, c.id)} className="text-[11px] text-emerald-600 hover:text-emerald-700 font-semibold min-h-[44px] px-1">Reactivate</button>
+                              : <button type="button" onClick={e => deactivateClient(e, c.id)} className="text-[11px] text-gray-500 hover:text-gray-700 font-medium min-h-[44px] px-1">Deactivate</button>
+                            }
+                            <button type="button" onClick={e => deleteClient(e, c.id, c.first_name ?? 'this client')}
+                              className="text-[11px] text-red-400 hover:text-red-600 font-medium min-h-[44px] px-1">Delete</button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </button>

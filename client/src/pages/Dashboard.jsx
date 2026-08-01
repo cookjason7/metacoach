@@ -556,8 +556,8 @@ export default function Dashboard() {
     ? 'Today'
     : selectedDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 
-  // Staff → coaching dashboard
-  if (!loading && (userProfile?.role === 'admin' || userProfile?.role === 'account_owner' || userProfile?.role === 'coach' || userProfile?.role === 'staff')) {
+  // Staff → coaching dashboard (also covers 'va', a scoped onboarding-only role)
+  if (!loading && (userProfile?.role === 'admin' || userProfile?.role === 'account_owner' || userProfile?.role === 'coach' || userProfile?.role === 'staff' || userProfile?.role === 'va')) {
     return <CoachDashboard getToken={getToken} userRole={userProfile.role} />
   }
 

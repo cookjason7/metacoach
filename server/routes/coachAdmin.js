@@ -53,6 +53,15 @@ function isAdminRole(role) {
   return role === 'admin' || role === 'account_owner'
 }
 
+// 'va' — client onboarding/transition role. Narrow scope: can invite clients,
+// view basic client info, and set coaching_type at invite time. Deliberately
+// NOT included in requireStaff/isAdminRole, so every messaging/notes/workouts/
+// forms/assessment/health/payment/lifecycle route stays 403 for it by default.
+// Only the specific routes gated with requireStaffOrVa (below) are reachable.
+function isVaRole(role) {
+  return role === 'va'
+}
+
 // Super admin (platform owner accounts in ADMIN_EMAILS, e.g. Jason) bypasses org
 // scoping entirely and sees/manages every org. This is deliberately NOT the same
 // check as isAdminRole()/'admin' role: under multi-tenancy every org gets its own
@@ -80,6 +89,43 @@ async function requireAdmin(req, res) {
   return ctx
 }
 
+// Like requireStaff, but also admits 'va' — use ONLY on the narrow set of
+// onboarding/transition routes VA is allowed to touch (invite clients, list/
+// view clients, manage pending invites). Never use this in place of
+// requireStaff on messaging/notes/workouts/forms/assessment/health/lifecycle
+// routes — those must stay va-exempt.
+async function requireStaffOrVa(req, res) {
+  const ctx = await getCurrentStaff(req)
+  if (!isAdminRole(ctx.role) && ctx.role !== 'coach' && ctx.role !== 'staff' && !isVaRole(ctx.role)) {
+    res.status(403).json({ error: 'Staff only' })
+    return null
+  }
+  return ctx
+}
+
+// Reduces a full client row down to what a 'va' account may see: identity +
+// coaching type/status + onboarding confirmation signals. Excludes payment,
+// coach assignment, adherence/engagement, and health-assessment detail.
+function basicClientView(row) {
+  return {
+    id:                   row.id,
+    first_name:           row.first_name ?? null,
+    display_first_name:   row.display_first_name ?? row.first_name ?? null,
+    last_name:            row.last_name ?? row.display_last_name ?? null,
+    display_last_name:    row.display_last_name ?? row.last_name ?? null,
+    display_phone:        row.display_phone ?? row.phone_number ?? null,
+    email:                row.email ?? null,
+    coaching_type:        row.coaching_type ?? null,
+    client_status:        row.client_status ?? null,
+    status_tag:           row.status_tag ?? null,
+    onboarding_complete:  row.onboarding_complete ?? false,
+    assessment_complete:  row.assessment_complete ?? false,
+    assessment_has_data:  row.assessment_has_data ?? false,
+    created_at:           row.created_at ?? null,
+    effective_start_date: row.effective_start_date ?? null,
+  }
+}
+
 // Returns true if staff member (admin or coach) can access this client.
 // Super admin bypasses org scoping entirely. Everyone else — including org-level
 // 'admin' role staff — must be in the same org as the client; coaches additionally
@@ -93,6 +139,9 @@ async function canAccessClient(ctx, clientId) {
   if (isSuperAdmin(ctx)) return true
   if (rows[0].org_id !== ctx.orgId) return false
   if (isAdminRole(ctx.role)) return true
+  // VA works onboarding across the whole org, not a single coach's roster —
+  // this only ever matters on the requireStaffOrVa routes VA can reach at all.
+  if (isVaRole(ctx.role)) return true
   return rows[0].assigned_coach_id === ctx.dbUserId
 }
 
@@ -178,7 +227,7 @@ function computeMomentum(adh7, adh30) {
 // GET /api/coach-admin/clients?status=active|invited|pending_access|deactivated|all (default active)
 router.get('/clients', requireAuth(), async (req, res, next) => {
   try {
-    const ctx = await requireStaff(req, res); if (!ctx) return
+    const ctx = await requireStaffOrVa(req, res); if (!ctx) return
     const params = []
     let where = `WHERE u.role = 'client' AND COALESCE(u.client_status, 'active') != 'deleted'`
 
@@ -267,7 +316,8 @@ router.get('/clients', requireAuth(), async (req, res, next) => {
       ) ASC NULLS LAST
     `, params)
 
-    res.json(rows.map(r => ({ ...r, status_tag: computeStatusTag(r) })))
+    const withStatus = rows.map(r => ({ ...r, status_tag: computeStatusTag(r) }))
+    res.json(isVaRole(ctx.role) ? withStatus.map(basicClientView) : withStatus)
   } catch (err) { next(err) }
 })
 
@@ -451,7 +501,7 @@ router.get('/team', requireAuth(), async (req, res, next) => {
         ON c.assigned_coach_id = u.id
        AND c.role = 'client'
        AND COALESCE(c.client_status, 'active') != 'deleted'
-      WHERE u.role IN ('coach', 'admin')
+      WHERE u.role IN ('coach', 'admin', 'va')
         AND COALESCE(u.staff_status, 'active') = $1
         ${orgClause}
       GROUP BY u.id
@@ -493,7 +543,7 @@ router.get('/staff/:id', requireAuth(), async (req, res, next) => {
        AND c.role = 'client'
        AND COALESCE(c.client_status, 'active') != 'deleted'
       WHERE u.id = $1
-        AND u.role IN ('coach', 'admin')
+        AND u.role IN ('coach', 'admin', 'va')
       GROUP BY u.id, ha.street_address, ha.city, ha.state, ha.zip_code, ha.country
     `, [staffId])
 
@@ -513,7 +563,7 @@ router.patch('/staff/:id', requireAuth(), async (req, res, next) => {
 
     // Verify target is staff
     const { rows: target } = await pool.query(
-      'SELECT id, role, org_id FROM users WHERE id = $1 AND role IN (\'coach\', \'admin\')',
+      'SELECT id, role, org_id FROM users WHERE id = $1 AND role IN (\'coach\', \'admin\', \'va\')',
       [staffId],
     )
     if (!target.length) return res.status(404).json({ error: 'Staff member not found' })
@@ -528,8 +578,8 @@ router.patch('/staff/:id', requireAuth(), async (req, res, next) => {
       return res.status(403).json({ error: 'Only admins can change roles' })
     }
     // Only allow valid staff roles
-    if (role !== undefined && !['coach', 'admin'].includes(role)) {
-      return res.status(400).json({ error: 'Role must be coach or admin' })
+    if (role !== undefined && !['coach', 'admin', 'va'].includes(role)) {
+      return res.status(400).json({ error: 'Role must be coach, admin, or va' })
     }
 
     const { rows } = await pool.query(`
@@ -584,7 +634,7 @@ router.patch('/staff/:id/archive', requireAuth(), async (req, res, next) => {
 
     const { rows } = await pool.query(
       `UPDATE users SET staff_status = 'archived'
-       WHERE id = $1 AND role IN ('coach', 'admin')
+       WHERE id = $1 AND role IN ('coach', 'admin', 'va')
        RETURNING id, COALESCE(staff_status, 'active') AS staff_status`,
       [staffId],
     )
@@ -608,7 +658,7 @@ router.patch('/staff/:id/reactivate', requireAuth(), async (req, res, next) => {
 
     const { rows } = await pool.query(
       `UPDATE users SET staff_status = 'active'
-       WHERE id = $1 AND role IN ('coach', 'admin')
+       WHERE id = $1 AND role IN ('coach', 'admin', 'va')
        RETURNING id, COALESCE(staff_status, 'active') AS staff_status`,
       [staffId],
     )
@@ -628,7 +678,7 @@ router.post('/staff/invite', requireAuth(), async (req, res, next) => {
     if (!first_name?.trim()) return res.status(400).json({ error: 'First name is required.' })
     if (!email?.trim())      return res.status(400).json({ error: 'Email is required.' })
 
-    const resolvedRole = ['coach', 'admin'].includes(role) ? role : 'coach'
+    const resolvedRole = ['coach', 'admin', 'va'].includes(role) ? role : 'coach'
 
     const normalizedEmail = email.trim().toLowerCase()
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
@@ -637,7 +687,7 @@ router.post('/staff/invite', requireAuth(), async (req, res, next) => {
 
     // Block if a non-deleted user already exists with this email as staff
     const { rows: existing } = await pool.query(
-      `SELECT id, role FROM users WHERE LOWER(email) = $1 AND role IN ('coach', 'admin')`,
+      `SELECT id, role FROM users WHERE LOWER(email) = $1 AND role IN ('coach', 'admin', 'va')`,
       [normalizedEmail],
     )
     if (existing.length > 0) {
@@ -679,7 +729,7 @@ router.post('/staff/invite', requireAuth(), async (req, res, next) => {
 
 router.post('/clients/invite', requireAuth(), async (req, res, next) => {
   try {
-    const ctx = await requireStaff(req, res); if (!ctx) return
+    const ctx = await requireStaffOrVa(req, res); if (!ctx) return
 
     const { first_name, last_name, email, phone, assigned_coach_id, coaching_type, notes } = req.body
 
@@ -726,7 +776,10 @@ router.post('/clients/invite', requireAuth(), async (req, res, next) => {
       [normalizedEmail],
     )
 
-    const coachId = (['ai', 'hybrid', 'basic'].includes(resolvedType) || !assigned_coach_id) ? null : parseInt(assigned_coach_id, 10)
+    // VA can invite and set coaching_type, but assigning a coach is out of
+    // scope for the role — always leave new clients unassigned when invited by a va.
+    const coachId = (isVaRole(ctx.role) || ['ai', 'hybrid', 'basic'].includes(resolvedType) || !assigned_coach_id)
+      ? null : parseInt(assigned_coach_id, 10)
 
     // A client can only be pre-assigned to a coach within the inviting staff member's org.
     if (coachId !== null && !isSuperAdmin(ctx)) {
@@ -792,7 +845,7 @@ router.post('/clients/invite', requireAuth(), async (req, res, next) => {
 // Must be declared before /clients/:id so Express doesn't treat 'pending-invites' as an id.
 router.get('/clients/pending-invites', requireAuth(), async (req, res, next) => {
   try {
-    const ctx = await requireStaff(req, res); if (!ctx) return
+    const ctx = await requireStaffOrVa(req, res); if (!ctx) return
     const appUrl = getAppBaseUrl()
 
     const params = []
@@ -829,7 +882,7 @@ router.get('/clients/pending-invites', requireAuth(), async (req, res, next) => 
 // POST /api/coach-admin/clients/pending-invites/:id/resend — resend invite email
 router.post('/clients/pending-invites/:id/resend', requireAuth(), async (req, res, next) => {
   try {
-    const ctx = await requireStaff(req, res); if (!ctx) return
+    const ctx = await requireStaffOrVa(req, res); if (!ctx) return
     const id = parseInt(req.params.id, 10)
 
     const { rows } = await pool.query(
@@ -871,7 +924,7 @@ router.post('/clients/pending-invites/:id/resend', requireAuth(), async (req, re
 // DELETE /api/coach-admin/clients/pending-invites/:id — cancel a pending invite
 router.delete('/clients/pending-invites/:id', requireAuth(), async (req, res, next) => {
   try {
-    const ctx = await requireStaff(req, res); if (!ctx) return
+    const ctx = await requireStaffOrVa(req, res); if (!ctx) return
     const id = parseInt(req.params.id, 10)
 
     // Admins cancel any invite in their org; coaches only ones they created or are assigned to
@@ -904,7 +957,7 @@ router.delete('/clients/pending-invites/:id', requireAuth(), async (req, res, ne
 // GET /api/coach-admin/clients/:id
 router.get('/clients/:id', requireAuth(), async (req, res, next) => {
   try {
-    const ctx = await requireStaff(req, res); if (!ctx) return
+    const ctx = await requireStaffOrVa(req, res); if (!ctx) return
     const id = parseInt(req.params.id, 10)
     if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
 
@@ -1028,7 +1081,7 @@ router.get('/clients/:id', requireAuth(), async (req, res, next) => {
     // (The underlying `paid` / `paid_at` data is untouched in the database.)
     delete merged.paid
     delete merged.paid_at
-    res.json(merged)
+    res.json(isVaRole(ctx.role) ? basicClientView(merged) : merged)
   } catch (err) { next(err) }
 })
 
