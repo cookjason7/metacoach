@@ -140,6 +140,7 @@ function friendlySyncError(raw) {
 
 function roleLabel(role) {
   if (!role) return 'Staff'
+  if (role === 'va') return 'VA'
   return role.charAt(0).toUpperCase() + role.slice(1)
 }
 
@@ -1571,6 +1572,7 @@ export default function Settings() {
                       >
                         <option value="coach">Coach</option>
                         <option value="admin">Admin</option>
+                        <option value="va">VA</option>
                       </select>
                     </div>
                     {inviteError && <p className="text-xs text-red-500">{inviteError}</p>}
