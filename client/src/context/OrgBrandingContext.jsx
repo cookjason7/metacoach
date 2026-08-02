@@ -25,7 +25,19 @@ function darken(hex, percent) {
   return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`
 }
 
-const OrgBrandingContext = createContext({ ...DEFAULTS, refreshBranding: () => {} })
+// "Coach <name>" without doubling the word when the org already stored the title
+// as part of the name (org 2 had ai_coach_name = "Coach Alex", which a naive
+// template rendered as "Coach Coach Alex").
+export function coachTitleFor(name) {
+  const n = String(name ?? '').trim() || DEFAULTS.aiCoachName
+  return /^coach\b/i.test(n) ? n : `Coach ${n}`
+}
+
+const OrgBrandingContext = createContext({
+  ...DEFAULTS,
+  coachTitle: coachTitleFor(DEFAULTS.aiCoachName),
+  refreshBranding: () => {},
+})
 
 export function OrgBrandingProvider({ children }) {
   const { getToken } = useAuth()
@@ -62,7 +74,9 @@ export function OrgBrandingProvider({ children }) {
   }, [branding])
 
   return (
-    <OrgBrandingContext.Provider value={{ ...branding, refreshBranding: load }}>
+    <OrgBrandingContext.Provider
+      value={{ ...branding, coachTitle: coachTitleFor(branding.aiCoachName), refreshBranding: load }}
+    >
       {children}
     </OrgBrandingContext.Provider>
   )

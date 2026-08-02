@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../../config.js'
+import { useOrgBranding } from '../../context/OrgBrandingContext.jsx'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -106,6 +107,7 @@ function TrendChart({ rows }) {
 
 export default function UsageAnalytics() {
   const { getToken } = useAuth()
+  const { aiCoachName } = useOrgBranding()
 
   const today   = new Date().toISOString().slice(0, 10)
   const default30 = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)
@@ -385,7 +387,7 @@ export default function UsageAnalytics() {
             <div className="bg-white rounded-2xl border border-gray-200 p-4">
               <h3 className="text-sm font-semibold text-gray-800 mb-3">All Client Engagement</h3>
               <p className="text-[11px] text-gray-400 mb-4">
-                Engagement reflects client-initiated activity (meals logged, Katie chats).
+                Engagement reflects client-initiated activity (meals logged, {aiCoachName} chats).
                 Staff-triggered events (bloodwork summaries) do not inflate client engagement status.
               </p>
               {data.engagement_per_client.length === 0 ? (
@@ -399,7 +401,7 @@ export default function UsageAnalytics() {
                         <th className="pb-2 pr-4 font-medium">Status</th>
                         <th className="pb-2 pr-4 font-medium text-right">Meal Days (14d)</th>
                         <th className="pb-2 pr-4 font-medium text-right">Meal Days (30d)</th>
-                        <th className="pb-2 pr-4 font-medium text-right">Katie Msgs (14d)</th>
+                        <th className="pb-2 pr-4 font-medium text-right">{aiCoachName} Msgs (14d)</th>
                         <th className="pb-2 font-medium text-right">Last Login</th>
                       </tr>
                     </thead>

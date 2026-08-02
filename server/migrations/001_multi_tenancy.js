@@ -52,11 +52,24 @@ const TENANT_TABLES = [
   'staff_channels',
 ]
 
+// Extra backfill predicates, by table. The org_id = 1 backfill below re-runs on
+// every boot, not just first install, so it doubles as a permanent "anything
+// unassigned belongs to LWC" sweep. That is correct for historical rows but
+// wrong for users: a self-signup with no invite has a deliberately NULL org_id
+// (see getOrCreateUser in server/db.js) and is parked at pending_access until an
+// admin claims them into a real org. Sweeping those to org 1 is what made every
+// other org's self-signups vanish from their own admin dashboards, so gated
+// rows are held back here and left NULL until claimed.
+const BACKFILL_EXCLUDE = {
+  users: `AND COALESCE(client_status, 'active') <> 'pending_access'`,
+}
+
 // Adds org_id (FK -> organizations, ON DELETE CASCADE) to tableName and backs
 // fills existing rows to org_id = 1, all inside one existence-guarded DO block
 // so it's a no-op when the table doesn't exist in this environment, and a
 // no-op on the column/backfill when re-run.
 async function migrateTableOrgId(pool, tableName) {
+  const extraWhere = BACKFILL_EXCLUDE[tableName] ?? ''
   await pool.query(`
     DO $$
     BEGIN
@@ -65,7 +78,7 @@ async function migrateTableOrgId(pool, tableName) {
           ALTER TABLE ${tableName} ADD COLUMN org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE;
         EXCEPTION WHEN duplicate_column THEN NULL;
         END;
-        EXECUTE format('UPDATE %I SET org_id = 1 WHERE org_id IS NULL', '${tableName}');
+        EXECUTE format('UPDATE %I SET org_id = 1 WHERE org_id IS NULL ${extraWhere}', '${tableName}');
       END IF;
     END $$;
   `)

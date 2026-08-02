@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
+import { useOrgBranding } from '../context/OrgBrandingContext.jsx'
 import BarcodeScannerWidget from '../components/BarcodeScanner.jsx'
 import FoodSourceBadge from '../components/FoodSourceBadge.jsx'
 import MicronutrientGrid from '../components/MicronutrientGrid.jsx'
@@ -121,6 +122,7 @@ function SavedState({ name, onReset, resetLabel = 'Log Another Meal' }) {
 
 function PhotoMode({ slot, logDate }) {
   const { getToken } = useAuth()
+  const { aiCoachName } = useOrgBranding()
   const inputRef = useRef(null)
 
   const [photo,     setPhoto]     = useState(null)
@@ -287,12 +289,12 @@ function PhotoMode({ slot, logDate }) {
             {analysis.sodium_mg      != null && <span>Sodium: <span className="font-medium text-gray-700">{analysis.sodium_mg}mg</span></span>}
           </div>
 
-          {/* Katie feedback */}
+          {/* AI coach feedback */}
           {analysis.katie_feedback && (
             <div className="bg-[#fff7ed] border border-orange-200 rounded-xl p-4">
-              <p className="text-xs font-semibold text-[#E8670A] mb-1">Katie says</p>
+              <p className="text-xs font-semibold text-[#E8670A] mb-1">{aiCoachName} says</p>
               <p className="text-sm text-gray-700 leading-relaxed">{analysis.katie_feedback}</p>
-              <p className="text-xs text-[#E8670A] font-medium mt-2 text-right">Katie</p>
+              <p className="text-xs text-[#E8670A] font-medium mt-2 text-right">{aiCoachName}</p>
             </div>
           )}
 

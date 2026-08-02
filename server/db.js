@@ -1323,6 +1323,25 @@ export async function migrate() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_invites_token ON client_invites (token)`)
   // Migration: shorten invite expiry from 30 days to 24 hours (idempotent)
   await pool.query(`ALTER TABLE client_invites ALTER COLUMN expires_at SET DEFAULT NOW() + INTERVAL '24 hours'`)
+  // org_id: which org this client is being invited INTO. Without it, claiming an
+  // invite left the new user on getOrCreateUser's org_id = 1 fallback, so every
+  // non-LWC org's invited clients silently landed in (and were only visible to)
+  // org 1 — see claimInvite and getOrCreateUser below. Mirrors staff_invites.org_id.
+  await pool.query(`ALTER TABLE client_invites ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL`)
+  // Backfill legacy rows from whoever issued them (inviting staff member, else the
+  // pre-assigned coach) — the same COALESCE the pending-invite routes in
+  // coachAdmin.js already used to derive an invite's org before this column existed.
+  // Anything still unresolved is org 1, which is where those rows landed anyway.
+  await pool.query(`
+    UPDATE client_invites ci
+    SET org_id = COALESCE(
+      (SELECT u.org_id FROM users u WHERE u.id = ci.invited_by),
+      (SELECT u.org_id FROM users u WHERE u.id = ci.assigned_coach_id),
+      1
+    )
+    WHERE ci.org_id IS NULL
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_invites_org_id ON client_invites (org_id)`)
 
   // ── Staff / Coach Invites ────────────────────────────────────────────────────
   // Invite tokens for new coaches/admins to join without a fake DB row first.
@@ -2310,6 +2329,24 @@ export async function resolveOrgId(userId) {
   return rows[0]?.org_id ?? 1
 }
 
+// The org's AI coach display name, from org_ai_config.coach_name — the canonical
+// field (organizations.ai_coach_name is kept mirrored to it by the PATCH routes
+// in server/routes/organizations.js). Falls back to 'Katie' for orgs with no
+// config row, preserving pre-multi-tenancy behaviour. Used anywhere a generated
+// artifact needs to speak as the coach — see workoutGenerator.js.
+export async function getOrgCoachName(orgId) {
+  if (orgId == null) return 'Katie'
+  try {
+    const { rows } = await pool.query(
+      'SELECT coach_name FROM org_ai_config WHERE org_id = $1 AND is_active = TRUE LIMIT 1',
+      [orgId],
+    )
+    return rows[0]?.coach_name || 'Katie'
+  } catch {
+    return 'Katie'
+  }
+}
+
 // claimInvite: applies a client_invites row to a user and marks it accepted.
 // Shared by the token-based accept route (server/routes/invites.js) and the
 // email-match auto-claim in getOrCreateUser() below, so both paths produce
@@ -2330,12 +2367,20 @@ export async function claimInvite(executor, invite, dbUserId) {
          coaching_type       = CASE WHEN COALESCE($3, 'vip') = 'ai' THEN 'hybrid' ELSE COALESCE($3, 'vip') END,
          coaching_type_source = 'invite',
          assigned_coach_id   = COALESCE(assigned_coach_id, $4),
+         -- The invite is authoritative about which org this client joins: it was
+         -- issued from an admin's own org context. Overwrites rather than
+         -- COALESCEs because a self-signup may already be sitting on the org 1
+         -- fallback (or NULL) from getOrCreateUser, and claiming an org 2 invite
+         -- must move them to org 2 — that mis-assignment is the whole bug this
+         -- column exists to fix. Legacy invites with a NULL org_id keep whatever
+         -- the user already had.
+         org_id              = COALESCE($5, org_id),
          onboarding_complete = TRUE,
          assessment_complete = FALSE,
          client_status       = 'invited',
          paid                = TRUE
-     WHERE id = $5`,
-    [invite.first_name, invite.last_name, invite.coaching_type, invite.assigned_coach_id, dbUserId],
+     WHERE id = $6`,
+    [invite.first_name, invite.last_name, invite.coaching_type, invite.assigned_coach_id, invite.org_id ?? null, dbUserId],
   )
 
   await executor.query(
@@ -2408,11 +2453,23 @@ export async function getOrCreateUser(clerkUserId, email = null) {
       }
     }
   } else {
-    // New users default to org_id = 1 (Life Warrior Coaching) unless a pending,
-    // unaccepted staff invite ties this email to a specific org — set by the
-    // super-admin "invite org owner" flow (server/routes/organizations.js) so a
-    // newly-invited org owner lands in their own org instead of LWC's.
-    let targetOrgId = 1
+    // Which org does this brand-new user belong to? Resolved from a pending
+    // invite addressed to their email, never guessed:
+    //
+    //   1. staff_invites — the super-admin "invite org owner" flow
+    //      (server/routes/organizations.js), so a newly-invited org owner lands
+    //      in their own org instead of LWC's. Checked first: staff outrank
+    //      clients, and a staff invite also exempts them from the access gate.
+    //   2. client_invites — an admin invited this client into their own org
+    //      (org_id stamped from ctx.orgId at invite time, see coachAdmin.js).
+    //   3. Neither → NULL. This used to hard-default to org 1, which is exactly
+    //      how every non-LWC org's self-signups became invisible to their own
+    //      admins: they were filed under org 1 and org-scoped queries never saw
+    //      them again. A user with no invite has no knowable org, and is gated
+    //      at pending_access below regardless, so they wait unassigned until an
+    //      admin invites them (claimInvite sets org_id) or activates them
+    //      (coachAdmin.js adopts the activating admin's org).
+    let targetOrgId = null
     let hasStaffInvite = false
     if (email) {
       const { rows: pendingInvite } = await pool.query(
@@ -2425,6 +2482,15 @@ export async function getOrCreateUser(clerkUserId, email = null) {
       if (pendingInvite.length) {
         targetOrgId    = pendingInvite[0].org_id
         hasStaffInvite = true
+      } else {
+        const { rows: pendingClientInvite } = await pool.query(
+          `SELECT org_id FROM client_invites
+           WHERE LOWER(email) = LOWER($1) AND accepted_at IS NULL AND org_id IS NOT NULL
+             AND (expires_at IS NULL OR expires_at > NOW())
+           ORDER BY created_at DESC LIMIT 1`,
+          [email],
+        )
+        if (pendingClientInvite.length) targetOrgId = pendingClientInvite[0].org_id
       }
     }
 

@@ -970,19 +970,24 @@ const TRIGGER_PROMPTS = {
     (water) => `The client tracked only ${water} oz of water yesterday. One short note about hydration and metabolic health. One small action for today. Life Warrior voice.`,
   consistency_win:
     (streak) => `The client has been logging consistently for ${streak} days in a row. Send a genuine 1-2 sentence acknowledgment. Celebrate the identity behavior, not just the streak number. Life Warrior voice.`,
+  // {{COACH_NAME}} is substituted in buildTriggerPrompt — the system prompt
+  // already establishes the coach's identity, so hardcoding "Katie" here made
+  // non-LWC orgs' proactive messages come from the wrong name.
   general_checkin:
-    'Send a warm proactive check-in from Katie. One short open question or observation to start a coaching conversation. Do not reference data you do not have. Life Warrior voice. 1-2 sentences max.',
+    'Send a warm proactive check-in from {{COACH_NAME}}. One short open question or observation to start a coaching conversation. Do not reference data you do not have. Life Warrior voice. 1-2 sentences max.',
 }
 
-function buildTriggerPrompt(trigger, ctx) {
+function buildTriggerPrompt(trigger, ctx, coachName = 'Katie') {
   const p = TRIGGER_PROMPTS[trigger]
+  let out
   if (typeof p === 'function') {
-    if (trigger === 'low_protein_yesterday')  return p(ctx.protein, ctx.goal)
-    if (trigger === 'low_calories_yesterday') return p(ctx.cal, ctx.goal)
-    if (trigger === 'low_water_yesterday')    return p(ctx.water)
-    if (trigger === 'consistency_win')        return p(ctx.streak)
+    if (trigger === 'low_protein_yesterday')       out = p(ctx.protein, ctx.goal)
+    else if (trigger === 'low_calories_yesterday') out = p(ctx.cal, ctx.goal)
+    else if (trigger === 'low_water_yesterday')    out = p(ctx.water)
+    else if (trigger === 'consistency_win')        out = p(ctx.streak)
   }
-  return p ?? TRIGGER_PROMPTS.general_checkin
+  out ??= (typeof p === 'string' ? p : TRIGGER_PROMPTS.general_checkin)
+  return out.replaceAll('{{COACH_NAME}}', coachName)
 }
 
 // POST /api/coach/check-proactive
@@ -1117,9 +1122,9 @@ router.post('/check-proactive', requireAuth(), async (req, res, next) => {
     if (dupRows.length > 0) return res.json({ generated: false, reason: 'duplicate_trigger' })
 
     // ── Generate proactive message via Claude ─────────────────────────────────
-    const prompt = buildTriggerPrompt(trigger, triggerCtx)
     const orgAiConfig = await getOrgAiConfig(req.orgId)
     const coachName = orgAiConfig.coach_name || 'Katie'
+    const prompt = buildTriggerPrompt(trigger, triggerCtx, coachName)
 
     const proT0 = Date.now()
     const claudeMsg = await anthropic.messages.create({

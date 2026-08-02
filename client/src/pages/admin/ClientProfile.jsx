@@ -4,6 +4,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { API_URL } from '../../config.js'
+import { useOrgBranding } from '../../context/OrgBrandingContext.jsx'
 import BloodworkIntakeForm from '../../components/BloodworkIntakeForm.jsx'
 import LinkifiedText from '../../components/LinkifiedText.jsx'
 import ExerciseThumb from '../../components/ExerciseThumb.jsx'
@@ -4563,6 +4564,7 @@ function NotesTab({ clientId, role, getToken }) {
 // ─── Messaging Tab ────────────────────────────────────────────────────────────
 
 function KatieHistoryPanel({ client, getToken, role }) {
+  const { aiCoachName } = useOrgBranding()
   const [messages, setMessages] = useState([])
   const [loading, setLoading]   = useState(true)
   const [flagged, setFlagged]   = useState(null) // the Katie message object currently being flagged, or null
@@ -4592,7 +4594,7 @@ function KatieHistoryPanel({ client, getToken, role }) {
       {/* Read-only banner */}
       <div className="bg-purple-50 border border-purple-200 rounded-lg px-3 py-2.5">
         <p className="text-xs text-purple-700">
-          🤖 <strong>Katie conversation history — read only.</strong> These are the client's private AI coaching messages. Staff cannot reply here.
+          🤖 <strong>{aiCoachName} conversation history — read only.</strong> These are the client's private AI coaching messages. Staff cannot reply here.
           {isAdmin && ' Flag a wrong answer below to correct it going forward.'}
         </p>
       </div>
@@ -4602,7 +4604,7 @@ function KatieHistoryPanel({ client, getToken, role }) {
         {loading && <p className="text-center text-sm text-gray-400 py-8">Loading…</p>}
         {!loading && messages.length === 0 && (
           <p className="text-center text-sm text-gray-400 py-8">
-            No Katie conversation history yet for this client.
+            No {aiCoachName} conversation history yet for this client.
           </p>
         )}
         <div className="space-y-3">
@@ -4666,6 +4668,7 @@ function KatieHistoryPanel({ client, getToken, role }) {
 // and server/services/katieCorrections.js (which reads this table at chat time).
 
 function FlagCorrectionModal({ flaggedMessage, getToken, onClose }) {
+  const { aiCoachName } = useOrgBranding()
   const [keywordsInput, setKeywordsInput] = useState('')
   const [correctAnswer, setCorrectAnswer] = useState('')
   const [saving, setSaving] = useState(false)
@@ -4714,13 +4717,13 @@ function FlagCorrectionModal({ flaggedMessage, getToken, onClose }) {
           <div className="px-4 py-10 text-center">
             <p className="text-2xl mb-2">✅</p>
             <p className="text-sm font-semibold text-gray-700">Correction saved</p>
-            <p className="text-xs text-gray-400 mt-1">Katie will use it on matching questions going forward.</p>
+            <p className="text-xs text-gray-400 mt-1">{aiCoachName} will use it on matching questions going forward.</p>
           </div>
         ) : (
           <>
             <div className="overflow-y-auto flex-1 p-4 space-y-4">
               <div>
-                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Katie said</p>
+                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">{aiCoachName} said</p>
                 <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-600 whitespace-pre-wrap max-h-32 overflow-y-auto">
                   {flaggedMessage}
                 </div>
@@ -4737,7 +4740,7 @@ function FlagCorrectionModal({ flaggedMessage, getToken, onClose }) {
                   placeholder="e.g. water, log water, hydration"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
                 />
-                <p className="text-[11px] text-gray-400 mt-1">Comma-separated. Katie checks a client's message against these to decide when this correction applies.</p>
+                <p className="text-[11px] text-gray-400 mt-1">Comma-separated. {aiCoachName} checks a client's message against these to decide when this correction applies.</p>
               </div>
 
               <div>
@@ -4748,7 +4751,7 @@ function FlagCorrectionModal({ flaggedMessage, getToken, onClose }) {
                   rows={5}
                   value={correctAnswer}
                   onChange={e => setCorrectAnswer(e.target.value)}
-                  placeholder="What Katie should say instead, and why the answer above was wrong…"
+                  placeholder={`What ${aiCoachName} should say instead, and why the answer above was wrong…`}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none"
                 />
               </div>
@@ -4776,6 +4779,7 @@ function FlagCorrectionModal({ flaggedMessage, getToken, onClose }) {
 }
 
 function MessagingTab({ client, role, meId, getToken }) {
+  const { aiCoachName } = useOrgBranding()
   // AI-coaching clients use the ai_admin thread instead of coach_thread.
   // 'ai' was consolidated into 'hybrid'; it stays matched here so any legacy
   // row still shows the tab it can actually send to.
@@ -4793,7 +4797,7 @@ function MessagingTab({ client, role, meId, getToken }) {
     if (role === 'admin' && !isAssignedCoach) availableThreads.push({ id: 'admin_private', label: 'Admin Private', icon: '🔒' })
   }
   // Katie Chat: available for all client types, admin + coaches (canAccessClient enforced on backend) — read-only
-  availableThreads.push({ id: 'katie_history', label: 'Katie Chat', icon: '🤖' })
+  availableThreads.push({ id: 'katie_history', label: `${aiCoachName} Chat`, icon: '🤖' })
 
   // Default to a writable thread this role can actually send to — never Katie Chat (read-only),
   // and never a thread type this role has no write access to. Previously this defaulted AI-client
@@ -6459,6 +6463,7 @@ function AddSectionControl({ day, dayExs, open, onOpen, onClose, customName, set
 }
 
 function WorkoutsTab({ clientId, clientFirstName, getToken }) {
+  const { aiCoachName } = useOrgBranding()
   const BASE = `${API_URL}/api/coach-admin/clients/${clientId}/workouts`
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -7282,9 +7287,9 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
           <button onClick={() => { setGenFlow(null); setGenForm({ ...WO_EMPTY_FORM }) }}
             className="text-xs text-gray-400 hover:text-gray-600 mb-3 flex items-center gap-1">‹ Back</button>
           <div className="bg-[#fff7ed] border border-orange-200 rounded-xl p-4 mb-5">
-            <p className="text-sm font-semibold text-[#E8670A] mb-0.5">Generate with Katie</p>
+            <p className="text-sm font-semibold text-[#E8670A] mb-0.5">Generate with {aiCoachName}</p>
             <p className="text-sm text-gray-700">
-              Fill in the client's goals and preferences. Katie will build a custom workout program that you can review and edit before assigning.
+              Fill in the client's goals and preferences. {aiCoachName} will build a custom workout program that you can review and edit before assigning.
             </p>
           </div>
         </div>
@@ -7413,7 +7418,7 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
             </label>
             <p className="text-[11px] text-gray-400 mb-1">
               Note any injuries or physical limitations, plus how you want this program structured —
-              Katie factors both into the plan she builds.
+              {aiCoachName} factors both into the plan she builds.
             </p>
             <textarea rows={3} value={genForm.injuries} onChange={e => setGenForm(f => ({ ...f, injuries: e.target.value }))}
               placeholder="e.g. Bad left knee, lower back pain — favor unilateral work over back squats, keep it strength-focused with minimal cardio"
@@ -7423,7 +7428,7 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
           <button type="submit" disabled={generating || !genForm.goals || !genForm.days_per_week || !genForm.fitness_level || !genForm.strength_history || !genForm.floor_transfer || !genForm.supersets || !genForm.circuits}
             className="w-full bg-[#E8670A] text-white py-3 rounded-xl text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
             {generating
-              ? <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />Katie is building the program…</>
+              ? <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />{aiCoachName} is building the program…</>
               : 'Generate Workout Program'}
           </button>
         </form>
@@ -7444,7 +7449,7 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
               onClick={() => { setGenFlow('questionnaire'); setShowCreate(false) }}
               className="bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors"
             >
-              ✨ Generate with Katie
+              ✨ Generate with {aiCoachName}
             </button>
             <button
               onClick={() => setShowCreate(c => !c)}
@@ -7481,10 +7486,10 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
           <div className="text-center py-12 bg-white rounded-xl border border-gray-200">
             <p className="text-3xl mb-2">💪</p>
             <p className="text-sm font-semibold text-gray-700 mb-1">No programs yet</p>
-            <p className="text-xs text-gray-400 mb-4">Generate a workout program with Katie, or create one manually.</p>
+            <p className="text-xs text-gray-400 mb-4">Generate a workout program with {aiCoachName}, or create one manually.</p>
             <button onClick={() => setGenFlow('questionnaire')}
               className="bg-[#E8670A] text-white px-5 py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors">
-              ✨ Generate with Katie
+              ✨ Generate with {aiCoachName}
             </button>
           </div>
         ) : (

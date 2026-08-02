@@ -2,6 +2,7 @@ import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
+import { useOrgBranding } from '../context/OrgBrandingContext.jsx'
 import BarcodeScannerWidget from '../components/BarcodeScanner.jsx'
 import FoodSourceBadge from '../components/FoodSourceBadge.jsx'
 import MicronutrientGrid from '../components/MicronutrientGrid.jsx'
@@ -1188,6 +1189,7 @@ function CopySlotModal({ sourceDate, sourceSlot, getToken, onClose, onSuccess })
 
 function PhotoLogger({ slotName, onSaved, logDate, initialFile = null }) {
   const { getToken } = useAuth()
+  const { aiCoachName } = useOrgBranding()
   const inputRef   = useRef(null)  // camera (capture="environment")
   const galleryRef = useRef(null)  // gallery (no capture)
   const [photo,       setPhoto]       = useState(null)
@@ -1275,7 +1277,7 @@ function PhotoLogger({ slotName, onSaved, logDate, initialFile = null }) {
         {analysis.katie_feedback && (
           <div className="bg-[#fff7ed] border border-orange-200 rounded-xl px-4 py-3">
             <p className="text-sm text-gray-700">{analysis.katie_feedback}</p>
-            <p className="text-xs text-[#E8670A] font-medium mt-1.5 text-right">Katie</p>
+            <p className="text-xs text-[#E8670A] font-medium mt-1.5 text-right">{aiCoachName}</p>
           </div>
         )}
         <button onClick={reset}
@@ -2319,6 +2321,7 @@ const EMPTY_FOOD_FORM = { food_name: '', calories_per_serving: '', protein: '', 
 
 function RecipesLogger({ slotName, onSaved, logDate }) {
   const { getToken } = useAuth()
+  const { aiCoachName } = useOrgBranding()
 
   // My Foods state
   const [myFoods,  setMyFoods]  = useState([])
@@ -2989,7 +2992,7 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
           <p className="text-sm font-semibold text-gray-900">Add Label Photo</p>
         </div>
         <p className="text-xs text-gray-500 leading-relaxed">
-          Upload a nutrition facts or supplement facts label. Katie will read the data and pre-fill a food for you to review before saving.
+          Upload a nutrition facts or supplement facts label. {aiCoachName} will read the data and pre-fill a food for you to review before saving.
         </p>
         {!labelFile ? (
           <div className="grid grid-cols-2 gap-3">
@@ -3049,7 +3052,7 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
           onClick={scanLabel}
           disabled={labelScanning || !labelFile}
           className="w-full py-3 rounded-xl bg-[#E8670A] text-white text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-          {labelScanning ? 'Scanning…' : '✨ Scan with Katie'}
+          {labelScanning ? 'Scanning…' : `✨ Scan with ${aiCoachName}`}
         </button>
       </div>
     )
@@ -3128,10 +3131,10 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
           <button
             onClick={() => { setRecipeView(null); clearImportState() }}
             className="text-sm text-gray-500 hover:text-gray-700">← Back</button>
-          <p className="text-sm font-semibold text-gray-900">✨ Katie Magic</p>
+          <p className="text-sm font-semibold text-gray-900">✨ {aiCoachName} Magic</p>
         </div>
         <p className="text-xs text-gray-500 leading-relaxed">
-          Paste or upload a recipe and Katie will turn it into a saved recipe you can log anytime.
+          Paste or upload a recipe and {aiCoachName} will turn it into a saved recipe you can log anytime.
         </p>
 
         {/* Mode tabs */}
@@ -3152,7 +3155,7 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
         {importMode === 'text' && (
           <>
             <p className="text-xs text-gray-500 leading-relaxed">
-              Paste a recipe — ingredients list, amounts, steps — and Katie will extract the structure for you to review.
+              Paste a recipe — ingredients list, amounts, steps — and {aiCoachName} will extract the structure for you to review.
             </p>
             <textarea
               value={importText}
@@ -3168,7 +3171,7 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
         {importMode === 'image' && (
           <>
             <p className="text-xs text-gray-500 leading-relaxed">
-              Upload a recipe screenshot, photo, or cookbook page. Katie will extract the ingredients and estimate macros.
+              Upload a recipe screenshot, photo, or cookbook page. {aiCoachName} will extract the ingredients and estimate macros.
             </p>
             {!importFile ? (
               <label className="flex flex-col items-center justify-center w-full h-36 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-[#E8670A] hover:bg-orange-50/30 transition-colors">
@@ -3221,7 +3224,7 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
           onClick={importMode === 'text' ? importRecipe : importRecipeFromImage}
           disabled={importing || (importMode === 'text' ? !canParseText : !canParseImage)}
           className="w-full py-3 rounded-xl bg-[#E8670A] text-white text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-          {importing ? 'Analyzing…' : '✨ Parse with Katie'}
+          {importing ? 'Analyzing…' : `✨ Parse with ${aiCoachName}`}
         </button>
       </div>
     )
@@ -3577,7 +3580,7 @@ function RecipesLogger({ slotName, onSaved, logDate }) {
             <button
               onClick={() => { setRecipeView('import'); setImportText(''); setImportError(null) }}
               className="text-xs font-semibold text-gray-500 hover:text-[#E8670A] transition-colors">
-              ✨ Katie Magic
+              ✨ {aiCoachName} Magic
             </button>
             <button onClick={() => setRecipeView('create')}
               className="text-xs font-semibold text-[#E8670A] hover:text-[#c45e09] transition-colors">

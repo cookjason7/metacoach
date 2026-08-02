@@ -125,10 +125,15 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
       [email],
     )
 
+    // org_id 1: this webhook is backed by a single STRIPE_SECRET_KEY — Life
+    // Warrior Coaching's own account selling its own AI coaching — so every
+    // buyer arriving here is an org 1 client. Set explicitly rather than left
+    // NULL so the invite carries a real org into claimInvite; revisit when
+    // per-org billing (org-specific Stripe accounts) exists.
     const { rows: [invite] } = await pool.query(
       `INSERT INTO client_invites
-         (email, first_name, last_name, coaching_type, notes)
-       VALUES ($1, $2, $3, 'hybrid', 'AI coaching — Stripe purchase')
+         (email, first_name, last_name, coaching_type, notes, org_id)
+       VALUES ($1, $2, $3, 'hybrid', 'AI coaching — Stripe purchase', 1)
        RETURNING token, email, first_name`,
       [email, firstName, lastName],
     )
@@ -221,9 +226,10 @@ router.get('/session-setup-link', async (req, res, next) => {
       const parts     = fullName.trim().split(/\s+/)
       const firstName = parts[0] || 'there'
       const lastName  = parts.slice(1).join(' ') || null
+      // org_id 1 for the same reason as the webhook path above.
       const { rows: [invite] } = await pool.query(
-        `INSERT INTO client_invites (email, first_name, last_name, coaching_type, notes)
-         VALUES ($1, $2, $3, 'hybrid', 'AI coaching — Stripe purchase (session lookup)')
+        `INSERT INTO client_invites (email, first_name, last_name, coaching_type, notes, org_id)
+         VALUES ($1, $2, $3, 'hybrid', 'AI coaching — Stripe purchase (session lookup)', 1)
          RETURNING token`,
         [email, firstName, lastName],
       )
