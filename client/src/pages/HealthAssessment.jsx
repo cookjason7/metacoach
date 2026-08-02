@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth, useUser } from '@clerk/clerk-react'
 import { Play } from 'lucide-react'
 import { API_URL } from '../config.js'
+import { useOrgBranding } from '../context/OrgBrandingContext.jsx'
 
 // ── Option data ──────────────────────────────────────────────────────────────
 
@@ -370,6 +371,7 @@ export default function HealthAssessment() {
   const { getToken } = useAuth()
   const { user }     = useUser()
   const navigate     = useNavigate()
+  const { aiCoachName, coachTitle } = useOrgBranding()
 
   const [step,         setStep]        = useState(0) // 0=welcome, 1=S1, 2=S2, 3=S3, 4=S4(identity), 5=complete
   const [form,         setForm]        = useState(EMPTY_FORM)
@@ -735,7 +737,7 @@ export default function HealthAssessment() {
               </div>
               <h1 className="text-2xl font-bold text-white mb-2">Metabolic &amp; Health Assessment</h1>
               <p className="text-white/80 text-sm leading-relaxed">
-                One quick step before you dive in. This helps Coach Katie understand your body,
+                One quick step before you dive in. This helps {coachTitle} understand your body,
                 your life, and your goals — so every recommendation is made just for you.
               </p>
             </div>
@@ -955,7 +957,7 @@ export default function HealthAssessment() {
                   />
                 </Field>
 
-                <Field label="Food allergies &amp; intolerances" hint="Leave blank if none. Katie will never suggest foods that trigger you.">
+                <Field label="Food allergies &amp; intolerances" hint={`Leave blank if none. ${aiCoachName} will never suggest foods that trigger you.`}>
                   <TextArea
                     value={form.food_allergies}
                     onChange={set('food_allergies')}
@@ -964,7 +966,7 @@ export default function HealthAssessment() {
                   />
                 </Field>
 
-                <Field label="Foods I dislike" hint="Leave blank if none. Katie will avoid these in meal plans.">
+                <Field label="Foods I dislike" hint={`Leave blank if none. ${aiCoachName} will avoid these in meal plans.`}>
                   <TextArea
                     value={form.food_dislikes}
                     onChange={set('food_dislikes')}
@@ -1191,7 +1193,7 @@ export default function HealthAssessment() {
                 <p className="text-sm font-semibold text-[#E8670A] mb-1">What happens next?</p>
                 {coachingType === 'hybrid' || coachingType === 'ai' ? (
                   <ul className="space-y-1.5 text-xs text-gray-600">
-                    <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> Be sure to watch the video below — it walks you through how to get the best out of the app using Coach Katie.</li>
+                    <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> Be sure to watch the video below — it walks you through how to get the best out of the app using {coachTitle}.</li>
                     <li className="flex items-start gap-2"><span className="text-[#E8670A] mt-0.5">•</span> You can update your assessment anytime in Settings.</li>
                   </ul>
                 ) : (
@@ -1210,7 +1212,7 @@ export default function HealthAssessment() {
                     <Play className="w-6 h-6 text-[#E8670A] fill-[#E8670A] ml-0.5" />
                   </div>
                 </div>
-                <p className="text-xs text-gray-400 text-center mt-2">Coach Katie walkthrough video — coming soon</p>
+                <p className="text-xs text-gray-400 text-center mt-2">{coachTitle} walkthrough video — coming soon</p>
               </div>
 
               <button

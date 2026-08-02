@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { linkify } from '../utils/linkify'
 import { API_URL } from '../config.js'
+import { useOrgBranding } from '../context/OrgBrandingContext.jsx'
 
 // Monotonically-increasing ID avoids Date.now() collisions between the
 // optimistic user bubble and the assistant streaming bubble created in the
@@ -9,24 +10,24 @@ import { API_URL } from '../config.js'
 let _msgId = 0
 const nextMsgId = () => ++_msgId
 
-function MessageBubble({ role, content }) {
-  const isKatie = role === 'assistant'
+function MessageBubble({ role, content, coachInitial }) {
+  const isCoach = role === 'assistant'
   return (
-    <div className={`flex ${isKatie ? 'justify-start' : 'justify-end'} mb-4`}>
-      {isKatie && (
+    <div className={`flex ${isCoach ? 'justify-start' : 'justify-end'} mb-4`}>
+      {isCoach && (
         <div className="w-8 h-8 rounded-full bg-[#fde8c8] flex items-center justify-center text-[#E8670A] font-bold text-xs mr-2 mt-1 shrink-0">
-          K
+          {coachInitial}
         </div>
       )}
       <div
         className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
-          isKatie
+          isCoach
             ? 'bg-gray-100 text-gray-800 rounded-tl-sm'
             : 'bg-[#E8670A] text-white rounded-tr-sm'
         }`}
       >
         {content
-          ? (isKatie ? linkify(content) : content)
+          ? (isCoach ? linkify(content) : content)
           : <span className="inline-block animate-pulse text-gray-400 text-base tracking-widest">●●●</span>
         }
       </div>
@@ -36,6 +37,10 @@ function MessageBubble({ role, content }) {
 
 export default function AICoach() {
   const { getToken } = useAuth()
+  const { aiCoachName, coachTitle } = useOrgBranding()
+  // Strip a leading "Coach " so the avatar shows the coach's own initial ("A"
+  // for Alex) rather than always "C".
+  const coachInitial = (aiCoachName ?? '').replace(/^coach\s+/i, '').trim().charAt(0).toUpperCase() || 'C'
   const [messages, setMessages]   = useState([])
   const [input, setInput]         = useState('')
   const [loading, setLoading]     = useState(true)
@@ -190,11 +195,11 @@ export default function AICoach() {
 
       {/* Header */}
       <div className="px-6 pt-6 pb-4 border-b border-gray-100 shrink-0">
-        <h1 className="text-xl font-bold text-gray-900">Coach Katie</h1>
+        <h1 className="text-xl font-bold text-gray-900">{coachTitle}</h1>
         <p className="text-sm text-gray-500 mt-0.5">
           {isVip
-            ? 'Ask Katie a question anytime. Your human coach still leads your coaching.'
-            : 'Chat with Katie, your personal coaching engine'}
+            ? `Ask ${aiCoachName} a question anytime. Your human coach still leads your coaching.`
+            : `Chat with ${aiCoachName}, your personal coaching engine`}
         </p>
       </div>
 
@@ -207,7 +212,7 @@ export default function AICoach() {
         ) : (
           <>
             {messages.map(m => (
-              <MessageBubble key={m.id} role={m.role} content={m.content} />
+              <MessageBubble key={m.id} role={m.role} content={m.content} coachInitial={coachInitial} />
             ))}
             {error && (
               <p className="text-center text-xs text-red-500 mt-2 mb-1">{error}</p>
@@ -245,7 +250,7 @@ export default function AICoach() {
             onChange={e => setInput(e.target.value)}
             onKeyDown={onKeyDown}
             disabled={streaming || loading}
-            placeholder="Message Katie…"
+            placeholder={`Message ${aiCoachName}…`}
             className="flex-1 border border-gray-300 rounded-xl px-4 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#E8670A] disabled:opacity-50 overflow-y-auto"
             style={{ minHeight: '42px', maxHeight: '120px' }}
           />

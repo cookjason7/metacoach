@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { Link } from 'react-router-dom'
 import { API_URL } from '../config.js'
+import { useOrgBranding } from '../context/OrgBrandingContext.jsx'
 import CoachDashboard from './CoachDashboard'
 
 // ── Stage colours ─────────────────────────────────────────────────────────────
@@ -218,10 +219,12 @@ function TodayGoals({ userProfile, todayMeals, loading, label, onStepBack }) {
   )
 }
 
-// ── Katie Banner ──────────────────────────────────────────────────────────────
+// ── AI Coach Banner ───────────────────────────────────────────────────────────
 
 function KatieBanner({ message, onDismiss }) {
+  const { aiCoachName, coachTitle } = useOrgBranding()
   if (!message) return null
+  const coachInitial = (aiCoachName ?? '').replace(/^coach\s+/i, '').trim().charAt(0).toUpperCase() || 'C'
   return (
     <Link
       to="/ai-coach"
@@ -229,10 +232,10 @@ function KatieBanner({ message, onDismiss }) {
       onClick={onDismiss}
     >
       <div className="w-8 h-8 rounded-full bg-[#fde8c8] flex items-center justify-center text-[#E8670A] font-bold text-xs shrink-0 mt-0.5">
-        K
+        {coachInitial}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-semibold text-[#E8670A] mb-0.5">New message from Coach Katie</p>
+        <p className="text-xs font-semibold text-[#E8670A] mb-0.5">New message from {coachTitle}</p>
         <p className="text-sm text-gray-700 line-clamp-2">{message}</p>
       </div>
       <svg className="w-4 h-4 text-[#E8670A] shrink-0 mt-1 group-hover:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">

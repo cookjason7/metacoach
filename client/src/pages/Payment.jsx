@@ -2,12 +2,14 @@ import { useState } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { useNavigate } from 'react-router-dom'
 import { API_URL } from '../config.js'
+import { useOrgBranding } from '../context/OrgBrandingContext.jsx'
 
 const STRIPE_URL = 'https://buy.stripe.com/14A00j6qpdwPcnN4zGes00D'
 
 export default function Payment() {
   const { getToken } = useAuth()
   const navigate = useNavigate()
+  const { coachTitle } = useOrgBranding()
 
   const [activating, setActivating] = useState(false)
   const [error,      setError]      = useState(null)
@@ -58,7 +60,7 @@ export default function Payment() {
 
         {/* Subheading */}
         <p className="text-sm text-gray-500 leading-relaxed mb-8 max-w-xs mx-auto">
-          Get unlimited access to Coach Katie, meal tracking, and the Life Warrior community.
+          Get unlimited access to {coachTitle}, meal tracking, and the Life Warrior community.
         </p>
 
         {/* CTA */}

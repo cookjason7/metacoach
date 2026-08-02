@@ -151,9 +151,16 @@ router.post('/', requireAuth(), async (req, res, next) => {
 router.get('/mine', requireAuth(), async (req, res, next) => {
   try {
     const orgId = req.orgId
+    // ai_coach_name is served from org_ai_config.coach_name, the canonical field
+    // (it is what the backend actually feeds the LLM — see getOrgAiConfig in
+    // server/routes/coach.js). organizations.ai_coach_name is kept in sync by the
+    // PATCH routes below and only used as a fallback for orgs with no ai_config
+    // row yet; before this the two drifted independently and the UI read the
+    // stale one, so an org could rename its coach and still be greeted as Katie.
     const { rows } = await pool.query(`
       SELECT
         o.*,
+        COALESCE(ac.coach_name, o.ai_coach_name) AS ai_coach_name,
         ow.first_name AS owner_first_name,
         ow.last_name  AS owner_last_name,
         ow.email      AS owner_email,
@@ -163,6 +170,7 @@ router.get('/mine', requireAuth(), async (req, res, next) => {
           WHERE org_id = o.id AND role IN ('coach', 'admin'))::int AS coach_count
       FROM organizations o
       LEFT JOIN users ow ON ow.id = o.owner_user_id
+      LEFT JOIN org_ai_config ac ON ac.org_id = o.id AND ac.is_active = TRUE
       WHERE o.id = $1
     `, [orgId])
     if (!rows.length) return res.status(404).json({ error: 'Organization not found' })
@@ -217,6 +225,22 @@ router.patch('/mine', requireAuth(), async (req, res, next) => {
       `UPDATE organizations SET ${setClauses.join(', ')} WHERE id = $${params.length} RETURNING *`,
       params,
     )
+
+    // Mirror into org_ai_config.coach_name, the canonical field the LLM reads.
+    // Without this the two names drift and the chat introduces itself as one
+    // name while the UI chrome shows another.
+    if ('ai_coach_name' in req.body) {
+      const mirrored = typeof req.body.ai_coach_name === 'string'
+        ? (req.body.ai_coach_name.trim() || null)
+        : req.body.ai_coach_name
+      if (mirrored) {
+        await pool.query(
+          `INSERT INTO org_ai_config (org_id, coach_name) VALUES ($1, $2)
+           ON CONFLICT (org_id) DO UPDATE SET coach_name = EXCLUDED.coach_name`,
+          [orgId, mirrored],
+        )
+      }
+    }
     res.json(rows[0])
   } catch (err) { next(err) }
 })
@@ -277,6 +301,12 @@ router.patch('/mine/ai-config', requireAuth(), async (req, res, next) => {
       `UPDATE org_ai_config SET ${setClauses.join(', ')} WHERE org_id = $${params.length} RETURNING *`,
       params,
     )
+
+    // Mirror the canonical name back onto organizations.ai_coach_name so the two
+    // columns can't drift (see GET /mine, which reads coach_name first).
+    if (rows[0]?.coach_name) {
+      await pool.query('UPDATE organizations SET ai_coach_name = $1 WHERE id = $2', [rows[0].coach_name, orgId])
+    }
     res.json(rows[0])
   } catch (err) { next(err) }
 })

@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { requireAuth, getAuth } from '@clerk/express'
-import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
+import { pool, getOrCreateUser, isAdminEmail, getOrgCoachName } from '../db.js'
 import { awardAction } from '../gamification.js'
 import { workoutGenLimit } from '../middleware/rateLimits.js'
 import { generateWorkoutPlan } from '../services/workoutGenerator.js'
@@ -41,6 +41,7 @@ router.post('/generate', requireAuth(), workoutGenLimit, async (req, res, next) 
 
     const plan = await generateWorkoutPlan(pool, firstName, answers, {
       healthAssessmentInjuries: assessment?.injuries_limitations ?? null,
+      coachName: await getOrgCoachName(req.orgId),
     })
     res.json(plan)
   } catch (err) {

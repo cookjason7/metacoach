@@ -3,6 +3,7 @@ import { useAuth } from '@clerk/clerk-react'
 import { useUser } from '@clerk/clerk-react'
 import { Link, useLocation } from 'react-router-dom'
 import { API_URL } from '../config.js'
+import { useOrgBranding } from '../context/OrgBrandingContext.jsx'
 import BloodworkIntakeForm from '../components/BloodworkIntakeForm.jsx'
 import { Eye, EyeOff } from 'lucide-react'
 import { Capacitor } from '@capacitor/core'
@@ -399,6 +400,7 @@ export default function Settings() {
   const { getToken }   = useAuth()
   const { user }       = useUser()
   const location       = useLocation()
+  const { aiCoachName } = useOrgBranding()
   const [profile, setProfile]             = useState(null)
   const [profileLoading, setProfileLoading] = useState(true)
   const [profileError, setProfileError]   = useState(null)
@@ -1821,7 +1823,7 @@ export default function Settings() {
           <h2 className="text-sm font-semibold text-gray-700 mb-3">Food Preferences</h2>
           <div className="bg-white rounded-xl border border-gray-200 p-5 mb-8">
             <p className="text-xs text-gray-500 mb-4">
-              Katie uses these when building meal plans. Leave blank if you have none.
+              {aiCoachName} uses these when building meal plans. Leave blank if you have none.
             </p>
             <form onSubmit={savePreferences} className="space-y-4">
               <div>

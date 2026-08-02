@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { API_URL } from '../config.js'
+import { useOrgBranding } from '../context/OrgBrandingContext.jsx'
 import FoodSourceBadge from '../components/FoodSourceBadge.jsx'
 import StaffInbox from '../components/StaffInbox.jsx'
 
@@ -1376,6 +1377,7 @@ function PendingInviteRow({ invite, onResend, onCancel }) {
 // ── Invite Modal ──────────────────────────────────────────────────────────────
 
 function InviteModal({ getToken, coaches = [], isVa = false, onClose, onSuccess }) {
+  const { coachTitle } = useOrgBranding()
   const [form,       setForm]       = useState(EMPTY_INVITE)
   const [saving,     setSaving]     = useState(false)
   const [error,      setError]      = useState(null)
@@ -1521,7 +1523,7 @@ function InviteModal({ getToken, coaches = [], isVa = false, onClose, onSuccess 
                     ))}
                   </select>
                   {isAI && (
-                    <p className="text-[10px] text-gray-400 mt-0.5">AI clients work with Coach Katie — no human coach assignment needed.</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">AI clients work with {coachTitle} — no human coach assignment needed.</p>
                   )}
                 </div>
               )}

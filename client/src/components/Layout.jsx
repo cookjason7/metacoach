@@ -10,7 +10,8 @@ import { useOrgBranding } from '../context/OrgBrandingContext.jsx'
 // Client-facing sidebar nav
 const CLIENT_NAV_ITEMS = [
   { to: '/dashboard',    label: 'Dashboard' },
-  { to: '/ai-coach',     label: 'Coach Katie' },
+  // label is filled in per-org from the AI coach's name — see clientNavWithLabels.
+  { to: '/ai-coach',     label: null, coachLabel: true },
   { to: '/journal',      label: 'Food Log' },
   { to: '/progress',     label: 'Progress' },
   { to: '/calendar',     label: 'Calendar' },
@@ -65,7 +66,7 @@ export default function Layout() {
     }).catch(() => {})
   } catch {}
 
-  const { primaryColor, sidebarColor, logoUrl, brandName, aiCoachName } = useOrgBranding()
+  const { primaryColor, sidebarColor, logoUrl, brandName, aiCoachName, coachTitle } = useOrgBranding()
   const { user, isLoaded }        = useUser()
   const { getToken, isSignedIn }  = useAuth()
   const { signOut }        = useClerk()
@@ -826,10 +827,13 @@ export default function Layout() {
   })
 
   // Non-VIP clients (ai, hybrid, basic) see "Support" instead of "Messages".
+  // The AI coach entry takes its label from the org's configured coach name via
+  // coachTitle, rather than string-replacing 'Katie' inside a hardcoded label —
+  // that older approach turned an org name of "Coach Alex" into "Coach Coach Alex".
   const clientNavWithLabels = (isNonVipClient
     ? baseClientNav.map(item => item.label === 'Messages' ? { ...item, label: 'Support' } : item)
     : baseClientNav
-  ).map(item => item.label.includes('Katie') ? { ...item, label: item.label.replace('Katie', aiCoachName) } : item)
+  ).map(item => item.coachLabel ? { ...item, label: coachTitle } : item)
 
   // Org-level admins/owners (not Jason) get their own fixed nav — no LWC-internal
   // tools (Usage Analytics, Workout Builder Test), but Katie Corrections stays

@@ -813,7 +813,7 @@ export async function buildDaySkeletons(pool, { daysPerWeek, sessionLength, equi
 
 const CIRCUIT_LABELS  = { none: 'No circuits — standard format', some: 'Some circuits — about 1 per workout', full: 'Full circuits — multiple circuits' }
 
-function buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext, injuryFlags = {}) {
+function buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext, injuryFlags = {}, coachName = 'Katie') {
   const goals = Array.isArray(answers.goals) ? answers.goals.join(', ') : answers.goals
   const equipment = Array.isArray(answers.equipment) ? answers.equipment.join(', ') : answers.equipment
   const isBegginer = (FITNESS_LEVEL_MAP[answers.fitness_level] ?? answers.fitness_level) === 'beginner'
@@ -937,14 +937,14 @@ BONUS SLOT — INCLUDE IN THAT DAY'S CIRCUIT
 ${bonusSlotDayNotes}
 ` : ''
 
-  return `You are Katie, the Life Warrior Coaching workout programming assistant for women over 40.
+  return `You are ${coachName}, the Life Warrior Coaching workout programming assistant for women over 40.
 
 YOUR ROLE
 The exercises for each training day have already been selected from the LWC approved library by movement pattern. Your job is to:
 1. Write sets, reps, rest, and one coaching cue per exercise
 2. Write a dynamic warm-up for each day that prepares the exact movement patterns used that day
 3. Write a brief cool-down reminder for each day
-4. Give the program a name and a short Katie-style intro (2-3 sentences)
+4. Give the program a name and a short ${coachName}-style intro (2-3 sentences)
 
 Do NOT change, rename, substitute, or add exercises. The exercise list is final.
 
@@ -1058,7 +1058,7 @@ Respond with raw JSON only. No markdown. No code fences. No prose before or afte
 Return ONLY a valid JSON object with this exact structure (no markdown, no extra text):
 {
   "program_name": "string (creative, motivating LWC-style program name)",
-  "description": "string (2-3 sentences, Katie-style intro using Life Warrior language)",
+  "description": "string (2-3 sentences, ${coachName}-style intro using Life Warrior language)",
   "days": [
     {
       "warmup": {
@@ -1683,7 +1683,7 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
     fitnessLevel: answers.fitness_level,
   })
 
-  const prompt = buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext, injuryFlags)
+  const prompt = buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext, injuryFlags, opts.coachName ?? 'Katie')
   const aiPlan = await requestAndParsePlan(prompt)
 
   const plan = mergeResponse(daySkeletons, aiPlan, { includeCircuit })

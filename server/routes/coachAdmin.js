@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { requireAuth, getAuth, clerkClient } from '@clerk/express'
 import { v2 as cloudinary } from 'cloudinary'
 import Anthropic from '@anthropic-ai/sdk'
-import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
+import { pool, getOrCreateUser, isAdminEmail, getOrgCoachName } from '../db.js'
 import { sendInviteEmail } from '../services/email.js'
 import { getAppBaseUrl } from '../services/appUrl.js'
 import { notifyNewDirectMessage, notifyNewFormDelivery } from '../services/pushService.js'
@@ -165,11 +165,20 @@ function basicClientView(row) {
 // must be that client's assigned coach.
 async function canAccessClient(ctx, clientId) {
   const { rows } = await pool.query(
-    'SELECT org_id, assigned_coach_id FROM users WHERE id = $1',
+    'SELECT org_id, assigned_coach_id, client_status FROM users WHERE id = $1',
     [clientId],
   )
   if (!rows.length) return false
   if (isSuperAdmin(ctx)) return true
+  // Unclaimed self-signup: a user who signed up with no matching invite has a
+  // NULL org_id and sits at pending_access (see getOrCreateUser in server/db.js).
+  // They belong to no org yet, so any org's admin/VA may claim them — the
+  // activate route below stamps their own org on. This is not a cross-org hole:
+  // once org_id is set, the normal equality check applies and no other org can
+  // reach them.
+  if (rows[0].org_id == null && rows[0].client_status === 'pending_access') {
+    return isAdminRole(ctx.role) || isVaRole(ctx.role)
+  }
   if (rows[0].org_id !== ctx.orgId) return false
   if (isAdminRole(ctx.role)) return true
   // VA works onboarding across the whole org, not a single coach's roster —
@@ -823,9 +832,12 @@ router.post('/clients/invite', requireAuth(), async (req, res, next) => {
     }
 
     const { rows: [invite] } = await pool.query(
+      // org_id is stamped from the inviting staff member's own context, never the
+      // request body — it decides which org the client lands in when they claim
+      // this invite (see claimInvite / getOrCreateUser in server/db.js).
       `INSERT INTO client_invites
-         (email, first_name, last_name, phone, assigned_coach_id, coaching_type, notes, invited_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         (email, first_name, last_name, phone, assigned_coach_id, coaching_type, notes, invited_by, org_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING token, email, first_name, last_name, coaching_type, created_at, expires_at`,
       [
         normalizedEmail,
@@ -836,6 +848,7 @@ router.post('/clients/invite', requireAuth(), async (req, res, next) => {
         resolvedType,
         notes?.trim() || null,
         ctx.dbUserId,
+        ctx.orgId,
       ],
     )
 
@@ -891,7 +904,7 @@ router.get('/clients/pending-invites', requireAuth(), async (req, res, next) => 
     // member the invite is tied to (assigned coach, falling back to whoever sent it).
     if (!isSuperAdmin(ctx)) {
       params.push(ctx.orgId)
-      extra += ` AND COALESCE(invcoach.org_id, invstaff.org_id) = $${params.length}`
+      extra += ` AND COALESCE(ci.org_id, invcoach.org_id, invstaff.org_id) = $${params.length}`
     }
 
     const { rows } = await pool.query(`
@@ -919,7 +932,7 @@ router.post('/clients/pending-invites/:id/resend', requireAuth(), async (req, re
     const id = parseInt(req.params.id, 10)
 
     const { rows } = await pool.query(
-      `SELECT ci.*, COALESCE(invcoach.org_id, invstaff.org_id) AS invite_org_id
+      `SELECT ci.*, COALESCE(ci.org_id, invcoach.org_id, invstaff.org_id) AS invite_org_id
        FROM client_invites ci
        LEFT JOIN users invcoach ON invcoach.id = ci.assigned_coach_id
        LEFT JOIN users invstaff ON invstaff.id = ci.invited_by
@@ -963,7 +976,7 @@ router.delete('/clients/pending-invites/:id', requireAuth(), async (req, res, ne
     // Admins cancel any invite in their org; coaches only ones they created or are assigned to
     const { rows: inviteRows } = await pool.query(
       `SELECT ci.id, ci.assigned_coach_id, ci.invited_by,
-              COALESCE(invcoach.org_id, invstaff.org_id) AS invite_org_id
+              COALESCE(ci.org_id, invcoach.org_id, invstaff.org_id) AS invite_org_id
        FROM client_invites ci
        LEFT JOIN users invcoach ON invcoach.id = ci.assigned_coach_id
        LEFT JOIN users invstaff ON invstaff.id = ci.invited_by
@@ -1275,14 +1288,20 @@ router.patch('/clients/:id/activate', requireAuth(), async (req, res, next) => {
       return res.status(400).json({ error: 'Only clients pending access can be activated.' })
     }
 
+    // Adopt an unclaimed signup into the activating admin's org. A self-signup
+    // with no invite has org_id NULL (getOrCreateUser can't know their org), and
+    // activating them here is the moment that gets decided. COALESCE so an
+    // already-assigned client keeps their org — this never moves someone between
+    // orgs, it only fills in a blank.
     const { rows } = await pool.query(`
       UPDATE users
       SET paid          = TRUE,
           paid_at        = COALESCE(paid_at, NOW()),
-          client_status  = 'active'
+          client_status  = 'active',
+          org_id         = COALESCE(org_id, $2)
       WHERE id = $1
-      RETURNING id, client_status, paid, paid_at
-    `, [id])
+      RETURNING id, client_status, paid, paid_at, org_id
+    `, [id, ctx.orgId])
     if (!rows.length) return res.status(404).json({ error: 'Client not found' })
     res.json({ ok: true, ...rows[0] })
   } catch (err) { next(err) }
@@ -4043,6 +4062,7 @@ router.post('/clients/:id/workouts/generate', requireAuth(), async (req, res, ne
     const plan = await generateWorkoutPlan(pool, firstName, answers, {
       healthAssessmentInjuries,
       forceBilateral: false,
+      coachName: await getOrgCoachName(req.orgId),
     })
 
     res.json(plan)
