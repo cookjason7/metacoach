@@ -42,40 +42,156 @@ function fmtDate(iso) {
     month: 'short', day: 'numeric', year: 'numeric',
   })
 }
+function fmtDayLabel(iso) {
+  const d = new Date(`${String(iso).slice(0, 10)}T12:00:00`)
+  return `${d.toLocaleDateString('en-US', { weekday: 'short' })} ${d.getMonth() + 1}/${d.getDate()}`
+}
+
+// Builds one entry per calendar day between startIso/endIso (inclusive), filling
+// in `value: null` for days with no logged entry — this is what lets the chart
+// gap missing days instead of interpolating through them.
+function buildDenseSeries(sparseData, startIso, endIso) {
+  const byDate = new Map()
+  ;(sparseData ?? []).forEach(d => {
+    if (d.value == null) return
+    byDate.set(String(d.date).slice(0, 10), Number(d.value))
+  })
+  const days = []
+  if (!startIso || !endIso) return days
+  const cur = new Date(`${startIso}T12:00:00`)
+  const end = new Date(`${endIso}T12:00:00`)
+  while (cur <= end) {
+    const iso = localIso(cur)
+    days.push({ date: iso, value: byDate.has(iso) ? byDate.get(iso) : null })
+    cur.setDate(cur.getDate() + 1)
+  }
+  return days
+}
 
 // ── Sparkline ─────────────────────────────────────────────────────────────────
+// `data` is a dense, one-entry-per-day array (see buildDenseSeries) — days with
+// no logged value carry value: null, which breaks the line instead of joining
+// across the gap.
 
 function Sparkline({ data, goalValue }) {
   if (!data || data.length < 2) return null
-  const values = data.map(d => Number(d.value))
-  const allVals = goalValue != null ? [...values, Number(goalValue)] : values
+  const nonNull = data.filter(d => d.value != null).map(d => Number(d.value))
+  if (nonNull.length === 0) return null
+  const allVals = goalValue != null ? [...nonNull, Number(goalValue)] : nonNull
   const minV = Math.min(...allVals), maxV = Math.max(...allVals)
   const span = maxV - minV || 1
   const W = 400, H = 72, PX = 6, PY = 6
-  const xs = i  => PX + (i / (data.length - 1)) * (W - PX * 2)
-  const ys = v  => H - PY - ((Number(v) - minV) / span) * (H - PY * 2)
-  const pts  = data.map((d, i) => `${xs(i)},${ys(d.value)}`).join(' ')
-  const fill = `M${xs(0)},${ys(data[0].value)} ` +
-    data.slice(1).map((d, i) => `L${xs(i + 1)},${ys(d.value)}`).join(' ') +
-    ` L${xs(data.length - 1)},${H} L${xs(0)},${H} Z`
-  const last = data[data.length - 1]
+  const n  = data.length
+  const xs = i => PX + (n === 1 ? 0 : (i / (n - 1)) * (W - PX * 2))
+  const ys = v => H - PY - ((Number(v) - minV) / span) * (H - PY * 2)
+
+  // Group into runs of consecutive logged days so the line breaks at gaps.
+  const runs = []
+  let run = []
+  data.forEach((d, i) => {
+    if (d.value != null) {
+      run.push(i)
+    } else if (run.length) {
+      runs.push(run); run = []
+    }
+  })
+  if (run.length) runs.push(run)
+  let lastIdx = null
+  for (let i = n - 1; i >= 0; i--) { if (data[i].value != null) { lastIdx = i; break } }
+
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full" preserveAspectRatio="none" aria-hidden="true">
       {goalValue != null && (
         <line x1={PX} y1={ys(goalValue)} x2={W - PX} y2={ys(goalValue)}
           stroke="#d1d5db" strokeWidth="1.5" strokeDasharray="5 3" />
       )}
-      <path d={fill} fill="#E8670A" fillOpacity="0.08" />
-      <polyline fill="none" stroke="#E8670A" strokeWidth="2.5"
-        strokeLinejoin="round" strokeLinecap="round" points={pts} />
-      <circle cx={xs(data.length - 1)} cy={ys(last.value)} r="4" fill="#E8670A" />
+      {runs.map((idxs, ri) => {
+        if (idxs.length === 1) {
+          const i = idxs[0]
+          return <circle key={ri} cx={xs(i)} cy={ys(data[i].value)} r="3" fill="#E8670A" />
+        }
+        const pts  = idxs.map(i => `${xs(i)},${ys(data[i].value)}`).join(' ')
+        const fill = `M${xs(idxs[0])},${ys(data[idxs[0]].value)} ` +
+          idxs.slice(1).map(i => `L${xs(i)},${ys(data[i].value)}`).join(' ') +
+          ` L${xs(idxs[idxs.length - 1])},${H} L${xs(idxs[0])},${H} Z`
+        return (
+          <g key={ri}>
+            <path d={fill} fill="#E8670A" fillOpacity="0.08" />
+            <polyline fill="none" stroke="#E8670A" strokeWidth="2.5"
+              strokeLinejoin="round" strokeLinecap="round" points={pts} />
+          </g>
+        )
+      })}
+      {lastIdx != null && (
+        <circle cx={xs(lastIdx)} cy={ys(data[lastIdx].value)} r="4" fill="#E8670A" />
+      )}
     </svg>
+  )
+}
+
+// ── X-axis date labels ────────────────────────────────────────────────────────
+// Shows a capped number of evenly-spaced date labels beneath the chart so
+// density stays readable on mobile even at 30/90-day ranges.
+
+function AxisLabels({ data }) {
+  const n = data?.length ?? 0
+  if (n < 2) return null
+  const desired = Math.min(n, 6)
+  const step    = Math.max(1, Math.round((n - 1) / (desired - 1)))
+  const idxs    = []
+  for (let i = 0; i < n; i += step) idxs.push(i)
+  if (idxs[idxs.length - 1] !== n - 1) idxs.push(n - 1)
+  return (
+    <div className="relative h-3.5 mt-1 text-[9px] text-gray-400 select-none">
+      {idxs.map(i => {
+        const align = i === 0 ? 'left' : i === n - 1 ? 'right' : 'center'
+        const left  = n === 1 ? 50 : (i / (n - 1)) * 100
+        return (
+          <span key={i} className="absolute whitespace-nowrap"
+            style={{
+              left: `${left}%`,
+              transform: align === 'left' ? 'translateX(0)' : align === 'right' ? 'translateX(-100%)' : 'translateX(-50%)',
+            }}>
+            {fmtDayLabel(data[i].date)}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Missing entries strip ─────────────────────────────────────────────────────
+
+function MissingEntriesStrip({ missingDates, onLogDate }) {
+  if (!missingDates.length) return null
+  const CAP   = 6
+  const shown = missingDates.slice(0, CAP)
+  const extra = missingDates.length - shown.length
+  return (
+    <div className="bg-amber-50 border border-amber-100 rounded-2xl p-3 mb-4">
+      <p className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide mb-2">
+        Missing {missingDates.length} {missingDates.length === 1 ? 'day' : 'days'}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {shown.map(iso => (
+          <button key={iso} type="button" onClick={() => onLogDate(iso)}
+            className="min-h-[44px] px-3 rounded-full bg-white border border-amber-200 text-xs font-medium text-amber-800 hover:bg-amber-100 active:bg-amber-200 transition-colors">
+            {fmtDayLabel(iso)}
+          </button>
+        ))}
+        {extra > 0 && (
+          <span className="min-h-[44px] px-3 inline-flex items-center text-xs font-medium text-amber-600">
+            +{extra} more
+          </span>
+        )}
+      </div>
+    </div>
   )
 }
 
 // ── ChartCard — used in detail views ─────────────────────────────────────────
 
-function ChartCard({ title, data, goalValue, goalLabel, fmtVal }) {
+function ChartCard({ title, data, goalValue, goalLabel, fmtVal, rangeStart, rangeEnd, quickLogMetric }) {
   const cleanData = (data ?? [])
     .filter(d => d.value != null && Number.isFinite(Number(d.value)))
     // Use timestamp arithmetic — pg returns date columns as JS Date objects,
@@ -83,6 +199,15 @@ function ChartCard({ title, data, goalValue, goalLabel, fmtVal }) {
     .sort((a, b) => new Date(a.date ?? 0).getTime() - new Date(b.date ?? 0).getTime())
   const values    = cleanData.map(d => Number(d.value))
   const hasData   = values.length >= 2
+  const denseData = buildDenseSeries(data, rangeStart, rangeEnd)
+  const missingDates = quickLogMetric
+    ? denseData.filter(d => d.value == null).map(d => d.date)
+    : []
+
+  function onLogDate(iso) {
+    window.dispatchEvent(new CustomEvent('open-quick-log', { detail: { action: quickLogMetric, date: iso } }))
+  }
+
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-4">
       <div className="flex items-center justify-between mb-2">
@@ -97,10 +222,16 @@ function ChartCard({ title, data, goalValue, goalLabel, fmtVal }) {
             <span>{fmtVal ? fmtVal(Math.min(...values)) : fmtNum(Math.min(...values))}</span>
             <span>{fmtVal ? fmtVal(Math.max(...values)) : fmtNum(Math.max(...values))}</span>
           </div>
-          <Sparkline data={cleanData} goalValue={goalValue} />
+          <Sparkline data={denseData} goalValue={goalValue} />
+          <AxisLabels data={denseData} />
         </>
       ) : (
         <p className="text-xs text-gray-400 text-center py-5">Not enough data to chart yet.</p>
+      )}
+      {quickLogMetric && (
+        <div className="mt-3">
+          <MissingEntriesStrip missingDates={missingDates} onLogDate={onLogDate} />
+        </div>
       )}
     </div>
   )
@@ -540,29 +671,35 @@ export default function Progress() {
                 </p>
               </div>
             </div>
-            <ChartCard title="Weight (lbs)" data={data?.weight_series} fmtVal={v => `${v} lbs`} />
+            <ChartCard title="Weight (lbs)" data={data?.weight_series} fmtVal={v => `${v} lbs`}
+              rangeStart={effectiveStart} rangeEnd={effectiveEnd} quickLogMetric="weight" />
           </>
         )
       case 'steps':
-        return <ChartCard title="Daily Steps" data={data?.step_series} fmtVal={v => fmtNum(v)} />
+        return <ChartCard title="Daily Steps" data={data?.step_series} fmtVal={v => fmtNum(v)}
+          rangeStart={effectiveStart} rangeEnd={effectiveEnd} quickLogMetric="steps" />
       case 'sleep':
-        return <ChartCard title="Sleep" data={data?.sleep_series} fmtVal={v => fmtSleep(v)} />
+        return <ChartCard title="Sleep" data={data?.sleep_series} fmtVal={v => fmtSleep(v)}
+          rangeStart={effectiveStart} rangeEnd={effectiveEnd} quickLogMetric="sleep" />
       case 'calories':
         return (
           <ChartCard title="Calories" data={caloriesSeries}
             goalValue={s.goal_calories || null}
             goalLabel={s.goal_calories ? `${fmtNum(s.goal_calories)} kcal` : null}
-            fmtVal={v => fmtNum(v)} />
+            fmtVal={v => fmtNum(v)}
+            rangeStart={effectiveStart} rangeEnd={effectiveEnd} />
         )
       case 'protein':
         return (
           <ChartCard title="Protein (g)" data={proteinSeries}
             goalValue={s.goal_protein || null}
             goalLabel={s.goal_protein ? `${s.goal_protein}g` : null}
-            fmtVal={v => `${v}g`} />
+            fmtVal={v => `${v}g`}
+            rangeStart={effectiveStart} rangeEnd={effectiveEnd} />
         )
       case 'water':
-        return <ChartCard title="Water (oz)" data={data?.water_series} fmtVal={v => `${v} oz`} />
+        return <ChartCard title="Water (oz)" data={data?.water_series} fmtVal={v => `${v} oz`}
+          rangeStart={effectiveStart} rangeEnd={effectiveEnd} quickLogMetric="water" />
       case 'activity':
         return (
           <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center">
