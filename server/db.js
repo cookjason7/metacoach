@@ -1023,6 +1023,22 @@ export async function migrate() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_messages_thread ON client_messages (client_id, thread_type, created_at)`)
   await pool.query(`ALTER TABLE client_messages ADD COLUMN IF NOT EXISTS image_url TEXT`)
 
+  // Message reactions — separate from community post_likes/post_reactions (those are
+  // for community posts/comments; this is per-message reactions in 1:1 client_messages
+  // threads, reactable by both the client and staff). Same emoji set as post_reactions
+  // for visual consistency, but its own table since it hangs off a different parent row.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS message_reactions (
+      id            SERIAL PRIMARY KEY,
+      message_id    INTEGER NOT NULL REFERENCES client_messages(id) ON DELETE CASCADE,
+      user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      reaction_type VARCHAR(10) NOT NULL CHECK (reaction_type IN ('like', 'love', 'laugh', 'care')),
+      created_at    TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (message_id, user_id, reaction_type)
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_message_reactions_message ON message_reactions (message_id)`)
+
   // Comeback events — captures gap-then-return patterns for future Comeback XP
   await pool.query(`
     CREATE TABLE IF NOT EXISTS comeback_events (

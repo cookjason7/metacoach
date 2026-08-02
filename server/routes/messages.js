@@ -57,6 +57,39 @@ function uploadAudioToCloudinary(buffer) {
 
 const router = Router()
 
+// Kept in sync with the CHECK constraint on message_reactions.reaction_type (server/db.js)
+// and with community post_reactions' emoji set, for visual consistency.
+const REACTION_TYPES = ['like', 'love', 'laugh', 'care']
+
+// Batch-attach a { reactions: [{reaction_type, count, mine}] } summary to each message
+// row, for a thread listing. `mine` reflects whether viewerId reacted with that type.
+async function attachReactions(rows, viewerId) {
+  if (!rows.length) return rows
+  const { rows: summary } = await pool.query(
+    `SELECT message_id, reaction_type, COUNT(*)::int AS count, BOOL_OR(user_id = $2) AS mine
+     FROM message_reactions
+     WHERE message_id = ANY($1::int[])
+     GROUP BY message_id, reaction_type`,
+    [rows.map(r => r.id), viewerId],
+  )
+  const byMessage = new Map()
+  for (const r of summary) {
+    const list = byMessage.get(r.message_id) ?? []
+    list.push({ reaction_type: r.reaction_type, count: r.count, mine: r.mine })
+    byMessage.set(r.message_id, list)
+  }
+  return rows.map(r => ({ ...r, reactions: byMessage.get(r.id) ?? [] }))
+}
+
+async function reactionsForMessage(messageId, viewerId) {
+  const { rows } = await pool.query(
+    `SELECT reaction_type, COUNT(*)::int AS count, BOOL_OR(user_id = $2) AS mine
+     FROM message_reactions WHERE message_id = $1 GROUP BY reaction_type`,
+    [messageId, viewerId],
+  )
+  return rows
+}
+
 function visibleThreadTypesForClient(coachingType) {
   return coachingType === 'vip'
     ? ['admin_private', 'coach_thread']
@@ -295,8 +328,10 @@ router.get('/thread/:threadType', requireAuth(), async (req, res, next) => {
         AND read_at IS NULL AND sender_id != $1
     `, [ctx.dbUserId, threadTypes])
 
+    const messagesWithReactions = await attachReactions(rows, ctx.dbUserId)
+
     res.json({
-      messages: rows,
+      messages: messagesWithReactions,
       hasMore,
       nextBeforeId: hasMore ? rows[0].id : null,
     })
@@ -394,6 +429,59 @@ router.delete('/:id', requireAuth(), async (req, res, next) => {
       await pool.query('UPDATE client_messages SET deleted_at = NOW() WHERE id = $1', [id])
     }
     res.json({ ok: true, id })
+  } catch (err) { next(err) }
+})
+
+// POST /api/messages/:id/reactions  body: { reaction_type }
+// A client may react to any message in their own thread — theirs or staff's.
+router.post('/:id/reactions', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await getClientContext(req)
+    const id = parseInt(req.params.id, 10)
+    const { reaction_type } = req.body
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid message id' })
+    if (!REACTION_TYPES.includes(reaction_type)) return res.status(400).json({ error: 'Invalid reaction_type' })
+
+    const { rows } = await pool.query(
+      'SELECT client_id FROM client_messages WHERE id = $1 AND deleted_at IS NULL',
+      [id],
+    )
+    if (!rows.length || rows[0].client_id !== ctx.dbUserId) {
+      return res.status(404).json({ error: 'Message not found' })
+    }
+
+    await pool.query(
+      `INSERT INTO message_reactions (message_id, user_id, reaction_type)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (message_id, user_id, reaction_type) DO NOTHING`,
+      [id, ctx.dbUserId, reaction_type],
+    )
+
+    res.status(201).json({ reactions: await reactionsForMessage(id, ctx.dbUserId) })
+  } catch (err) { next(err) }
+})
+
+// DELETE /api/messages/:id/reactions/:reactionType
+router.delete('/:id/reactions/:reactionType', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await getClientContext(req)
+    const id = parseInt(req.params.id, 10)
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid message id' })
+
+    const { rows } = await pool.query(
+      'SELECT client_id FROM client_messages WHERE id = $1 AND deleted_at IS NULL',
+      [id],
+    )
+    if (!rows.length || rows[0].client_id !== ctx.dbUserId) {
+      return res.status(404).json({ error: 'Message not found' })
+    }
+
+    await pool.query(
+      'DELETE FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND reaction_type = $3',
+      [id, ctx.dbUserId, req.params.reactionType],
+    )
+
+    res.json({ reactions: await reactionsForMessage(id, ctx.dbUserId) })
   } catch (err) { next(err) }
 })
 
