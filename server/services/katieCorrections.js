@@ -3,10 +3,13 @@
 // (match an incoming client message, return only the matched content for this
 // turn) — the difference is corrections live in katie_corrections (server/db.js)
 // instead of a static file, so an admin can fix a wrong answer immediately by
-// inserting a row instead of waiting on a code change.
+// adding a correction instead of waiting on a code change.
 //
-// No admin UI yet — inserting rows directly into katie_corrections is the
-// intended way to add one for now (see server/db.js for the schema).
+// Manage corrections via the admin UI (POST/PATCH/DELETE
+// /api/coach-admin/katie-corrections in coachAdmin.js), not by inserting rows
+// directly — those routes set org_id from the caller's authenticated context,
+// and an unscoped insert gets silently swept to org_id = 1 by
+// 001_multi_tenancy's backfill on the next boot.
 
 import { pool } from '../db.js'
 
