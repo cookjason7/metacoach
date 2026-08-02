@@ -4581,18 +4581,29 @@ router.delete('/clients/:id/tags/:tagName', requireAuth(), async (req, res, next
 // without a code deploy (see server/services/katieCorrections.js, which reads
 // this table at chat time). Quality control here stays admin-level, not coach.
 
-// GET /api/coach-admin/katie-corrections — list all, newest first
+// GET /api/coach-admin/katie-corrections — list this org's, newest first.
+// Scoped by org_id, not just by role: under multi-tenancy every org has its own
+// 'admin' user, so requireAdmin alone would let Org B read Org A's corrections.
+// Super admin (the platform-owner email allowlist) still sees all orgs, matching
+// how the rest of this file treats cross-org support access.
 router.get('/katie-corrections', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireAdmin(req, res); if (!ctx) return
 
+    const params = []
+    let orgWhere = ''
+    if (!isSuperAdmin(ctx)) {
+      params.push(ctx.orgId)
+      orgWhere = `WHERE c.org_id = $${params.length}`
+    }
     const { rows } = await pool.query(`
       SELECT c.id, c.trigger_keywords, c.correct_answer, c.active, c.created_at,
              u.first_name AS created_by_name
       FROM katie_corrections c
       LEFT JOIN users u ON u.id = c.created_by
+      ${orgWhere}
       ORDER BY c.created_at DESC
-    `)
+    `, params)
     res.json(rows)
   } catch (err) { next(err) }
 })
@@ -4609,11 +4620,16 @@ router.post('/katie-corrections', requireAuth(), async (req, res, next) => {
     if (keywords.length === 0) return res.status(400).json({ error: 'At least one trigger keyword is required' })
     if (!correct_answer?.trim()) return res.status(400).json({ error: 'correct_answer is required' })
 
+    // org_id comes from the authenticated caller's context, never the request
+    // body. Leaving it NULL is not a safe default here: 001_multi_tenancy's
+    // backfill re-runs `UPDATE ... SET org_id = 1 WHERE org_id IS NULL` on every
+    // boot, so an unscoped insert would silently become org 1's correction and
+    // be served into that org's Katie answers.
     const { rows } = await pool.query(`
-      INSERT INTO katie_corrections (trigger_keywords, correct_answer, created_by, active)
-      VALUES ($1, $2, $3, TRUE)
+      INSERT INTO katie_corrections (org_id, trigger_keywords, correct_answer, created_by, active)
+      VALUES ($1, $2, $3, $4, TRUE)
       RETURNING id, trigger_keywords, correct_answer, active, created_at
-    `, [keywords, correct_answer.trim(), ctx.dbUserId])
+    `, [ctx.orgId, keywords, correct_answer.trim(), ctx.dbUserId])
     res.status(201).json(rows[0])
   } catch (err) { next(err) }
 })
@@ -4626,10 +4642,19 @@ router.patch('/katie-corrections/:id', requireAuth(), async (req, res, next) => 
     const { active } = req.body
     if (typeof active !== 'boolean') return res.status(400).json({ error: 'active (boolean) is required' })
 
+    // The org guard lives in the WHERE clause so a cross-org id simply matches
+    // no row and falls through to the same 404 a nonexistent id gets — callers
+    // can't probe which ids exist in another org.
+    const params = [active, id]
+    let orgWhere = ''
+    if (!isSuperAdmin(ctx)) {
+      params.push(ctx.orgId)
+      orgWhere = ` AND org_id = $${params.length}`
+    }
     const { rows } = await pool.query(
-      `UPDATE katie_corrections SET active = $1 WHERE id = $2
+      `UPDATE katie_corrections SET active = $1 WHERE id = $2${orgWhere}
        RETURNING id, trigger_keywords, correct_answer, active, created_at`,
-      [active, id],
+      params,
     )
     if (!rows.length) return res.status(404).json({ error: 'Correction not found' })
     res.json(rows[0])
@@ -4642,7 +4667,18 @@ router.delete('/katie-corrections/:id', requireAuth(), async (req, res, next) =>
     const ctx = await requireAdmin(req, res); if (!ctx) return
     const id = parseInt(req.params.id, 10)
 
-    const { rowCount } = await pool.query('DELETE FROM katie_corrections WHERE id = $1', [id])
+    // Same WHERE-clause org guard as PATCH above — a cross-org id deletes
+    // nothing and 404s identically to a nonexistent one.
+    const params = [id]
+    let orgWhere = ''
+    if (!isSuperAdmin(ctx)) {
+      params.push(ctx.orgId)
+      orgWhere = ` AND org_id = $${params.length}`
+    }
+    const { rowCount } = await pool.query(
+      `DELETE FROM katie_corrections WHERE id = $1${orgWhere}`,
+      params,
+    )
     if (!rowCount) return res.status(404).json({ error: 'Correction not found' })
     res.json({ ok: true })
   } catch (err) { next(err) }
