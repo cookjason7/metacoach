@@ -130,6 +130,27 @@ export default function Layout() {
     resetQuickExtras()
   }
 
+  // Lets other pages (e.g. Progress) jump straight into a quick-log form for a
+  // specific metric/date — used by the missing-entries strip's tap-to-log links.
+  useEffect(() => {
+    function onOpenQuickLog(e) {
+      const { action, date } = e.detail || {}
+      if (!action) return
+      overlayPressedRef.current = false
+      setQuickMenuOpen(true)
+      setQuickValue('')
+      setQuickNote('')
+      setQuickWaterMode('add')
+      setQuickDone(false)
+      setQuickError(null)
+      resetQuickExtras()
+      setQuickAction(action)
+      if (date) setQuickActionDate(date)
+    }
+    window.addEventListener('open-quick-log', onOpenQuickLog)
+    return () => window.removeEventListener('open-quick-log', onOpenQuickLog)
+  }, [])
+
   // Backdrop tap-to-close. We only close when a pointer press actually STARTED
   // on the backdrop. The tap that opens the sheet presses on the plus button
   // (the backdrop doesn't exist yet), so its trailing synthetic/"ghost" click —
