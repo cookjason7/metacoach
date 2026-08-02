@@ -1852,9 +1852,9 @@ export async function migrate() {
   `)
 
   // Admin-entered corrections pulled into Katie's context at answer-time so a
-  // wrong/hedged answer can be fixed without a code deploy. org_id is nullable
-  // and unused while the product is single-org — reserved so multi-tenant scoping
-  // can be added later without a migration.
+  // wrong/hedged answer can be fixed without a code deploy. org_id (populated via
+  // the multi-tenancy migration's TENANT_TABLES backfill) scopes each correction
+  // to the org that authored it — see getKatieCorrections in katieCorrections.js.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS katie_corrections (
       id               SERIAL PRIMARY KEY,

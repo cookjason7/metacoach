@@ -16,7 +16,7 @@ import { pool } from '../db.js'
 // against the current message (and the prior client message, so a short
 // follow-up reply still resolves to the right correction — same reasoning as
 // getAppHelpContext's priorUserMessage param).
-export async function getKatieCorrections(message, priorUserMessage = '') {
+export async function getKatieCorrections(message, priorUserMessage = '', orgId = null) {
   if (!message || typeof message !== 'string') return ''
 
   const classifierText = [priorUserMessage, message].filter(Boolean).join(' ').toLowerCase()
@@ -27,7 +27,8 @@ export async function getKatieCorrections(message, priorUserMessage = '') {
     ;({ rows } = await pool.query(
       `SELECT id, trigger_keywords, correct_answer
        FROM katie_corrections
-       WHERE active = TRUE`,
+       WHERE active = TRUE AND org_id = $1`,
+      [orgId],
     ))
   } catch (err) {
     // Never let a corrections-lookup failure break the chat response.

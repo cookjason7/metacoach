@@ -875,7 +875,7 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     // appHelpContext in the same turn; both can fire together. Corrections are
     // appended last and explicitly instructed to take priority if they conflict
     // with the app-help reference above them.
-    const correctionsContext = await getKatieCorrections(message, priorUserMessage)
+    const correctionsContext = await getKatieCorrections(message, priorUserMessage, req.orgId)
     const systemPrompt = `${katiPrompt}${mealPlanAddendum}${restrictedTopicsSection}${appHelpContext}${correctionsContext}\n\n${buildContextBlock(user, meals, logs, nutritionTotalsRows, recentFoods, healthAssessment, phaseData, latestCheckin)}`
 
     // Stream SSE response

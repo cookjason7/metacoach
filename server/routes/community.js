@@ -780,6 +780,7 @@ router.post('/posts/:id/like', requireAuth(), async (req, res, next) => {
     const { userId } = getAuth(req)
     const dbUserId = await getOrCreateUser(userId)
     const postId   = parseInt(req.params.id, 10)
+    if (await checkPostOrgAccess(req, res, postId) === false) return
     if (await checkPostGroupAccess(req, res, postId, dbUserId) === false) return
 
     const { rows: existing } = await pool.query(
@@ -855,6 +856,7 @@ router.post('/posts/:id/reactions', requireAuth(), async (req, res, next) => {
     if (!['like', 'love', 'laugh', 'care'].includes(reaction_type)) {
       return res.status(400).json({ error: 'Invalid reaction_type' })
     }
+    if (await checkPostOrgAccess(req, res, postId) === false) return
     if (await checkPostGroupAccess(req, res, postId, dbUserId) === false) return
 
     const { rows: existing } = await pool.query(
@@ -950,6 +952,7 @@ router.post('/posts/:id/comments', requireAuth(), async (req, res, next) => {
     const postId   = parseInt(req.params.id, 10)
     const { content } = req.body
     if (!content?.trim()) return res.status(400).json({ error: 'Content required' })
+    if (await checkPostOrgAccess(req, res, postId) === false) return
     if (await checkPostGroupAccess(req, res, postId, dbUserId) === false) return
 
     const { rows } = await pool.query(
@@ -1097,6 +1100,7 @@ router.post('/comments/:id/reactions', requireAuth(), async (req, res, next) => 
     if (!['like', 'love', 'laugh', 'care'].includes(reaction_type)) {
       return res.status(400).json({ error: 'Invalid reaction_type' })
     }
+    if (await checkCommentOrgAccess(req, res, commentId) === false) return
     if (await checkCommentGroupAccess(req, res, commentId, dbUserId) === false) return
 
     const { rows: existing } = await pool.query(
