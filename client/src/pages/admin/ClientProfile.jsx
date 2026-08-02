@@ -5805,11 +5805,11 @@ const WO_FLOOR_TRANSFER_OPTIONS = [
 ]
 const WO_EMPTY_FORM = {
   goals: '',
-  days_per_week: '4',
-  session_length: '45 minutes',
-  equipment: ['Full Gym'],
+  days_per_week: '',
+  session_length: '',
+  equipment: [],
   injuries: '',
-  fitness_level: 'Intermediate',
+  fitness_level: '',
   supersets: '',
   circuits: '',
   strength_history: '',
@@ -6621,6 +6621,8 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
   async function generatePlan(e) {
     e.preventDefault()
     if (!genForm.goals) { setGenError('Select a goal.'); return }
+    if (!genForm.days_per_week) { setGenError('Select training days per week.'); return }
+    if (!genForm.fitness_level) { setGenError('Select a fitness level.'); return }
     if (!genForm.strength_history) { setGenError('Select the client\'s strength training history.'); return }
     if (!genForm.floor_transfer) { setGenError('Select the client\'s floor transfer ability.'); return }
     if (!genForm.supersets) { setGenError('Select a superset preference.'); return }
@@ -7308,7 +7310,7 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Training days per week</label>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Training days per week <span className="text-red-400">*</span></label>
             <div className="flex gap-2 flex-wrap">
               {[2,3,4,5,6].map(n => (
                 <button key={n} type="button" onClick={() => setGenForm(f => ({ ...f, days_per_week: String(n) }))}
@@ -7335,7 +7337,7 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Fitness level</label>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Fitness level <span className="text-red-400">*</span></label>
             <div className="flex gap-2">
               {WO_FITNESS_LEVELS.map(lvl => (
                 <button key={lvl} type="button" onClick={() => setGenForm(f => ({ ...f, fitness_level: lvl }))}
@@ -7418,7 +7420,7 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
               className={`${inputCls} resize-none`} />
           </div>
           {genError && <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">{genError}</div>}
-          <button type="submit" disabled={generating || !genForm.goals || !genForm.strength_history || !genForm.floor_transfer || !genForm.supersets || !genForm.circuits}
+          <button type="submit" disabled={generating || !genForm.goals || !genForm.days_per_week || !genForm.fitness_level || !genForm.strength_history || !genForm.floor_transfer || !genForm.supersets || !genForm.circuits}
             className="w-full bg-[#E8670A] text-white py-3 rounded-xl text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
             {generating
               ? <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />Katie is building the program…</>
