@@ -2872,11 +2872,14 @@ router.post('/clients/:id/messages/:messageId/reactions', requireAuth(), async (
     if (!REACTION_TYPES.includes(reaction_type)) return res.status(400).json({ error: 'Invalid reaction_type' })
 
     const { rows } = await pool.query(
-      'SELECT client_id, thread_type FROM client_messages WHERE id = $1 AND deleted_at IS NULL',
+      'SELECT client_id, sender_id, thread_type FROM client_messages WHERE id = $1 AND deleted_at IS NULL',
       [messageId],
     )
     const msg = rows[0]
     if (!msg || msg.client_id !== clientId) return res.status(404).json({ error: 'Message not found' })
+    if (msg.sender_id === ctx.dbUserId) {
+      return res.status(400).json({ error: 'You cannot react to your own message' })
+    }
     // Same thread-visibility gate as GET /clients/:id/messages: coaches can't react in
     // admin-only threads they aren't allowed to view.
     if ((msg.thread_type === 'admin_private' || msg.thread_type === 'ai_admin') && !isAdminRole(ctx.role)) {
@@ -2904,10 +2907,13 @@ router.delete('/clients/:id/messages/:messageId/reactions/:reactionType', requir
     if (!await canAccessClient(ctx, clientId)) return res.status(403).json({ error: 'Forbidden' })
 
     const { rows } = await pool.query(
-      'SELECT client_id FROM client_messages WHERE id = $1',
+      'SELECT client_id, sender_id FROM client_messages WHERE id = $1',
       [messageId],
     )
     if (!rows.length || rows[0].client_id !== clientId) return res.status(404).json({ error: 'Message not found' })
+    if (rows[0].sender_id === ctx.dbUserId) {
+      return res.status(400).json({ error: 'You cannot react to your own message' })
+    }
 
     await pool.query(
       'DELETE FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND reaction_type = $3',

@@ -443,11 +443,14 @@ router.post('/:id/reactions', requireAuth(), async (req, res, next) => {
     if (!REACTION_TYPES.includes(reaction_type)) return res.status(400).json({ error: 'Invalid reaction_type' })
 
     const { rows } = await pool.query(
-      'SELECT client_id FROM client_messages WHERE id = $1 AND deleted_at IS NULL',
+      'SELECT client_id, sender_id FROM client_messages WHERE id = $1 AND deleted_at IS NULL',
       [id],
     )
     if (!rows.length || rows[0].client_id !== ctx.dbUserId) {
       return res.status(404).json({ error: 'Message not found' })
+    }
+    if (rows[0].sender_id === ctx.dbUserId) {
+      return res.status(400).json({ error: 'You cannot react to your own message' })
     }
 
     await pool.query(
@@ -469,11 +472,14 @@ router.delete('/:id/reactions/:reactionType', requireAuth(), async (req, res, ne
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid message id' })
 
     const { rows } = await pool.query(
-      'SELECT client_id FROM client_messages WHERE id = $1 AND deleted_at IS NULL',
+      'SELECT client_id, sender_id FROM client_messages WHERE id = $1 AND deleted_at IS NULL',
       [id],
     )
     if (!rows.length || rows[0].client_id !== ctx.dbUserId) {
       return res.status(404).json({ error: 'Message not found' })
+    }
+    if (rows[0].sender_id === ctx.dbUserId) {
+      return res.status(400).json({ error: 'You cannot react to your own message' })
     }
 
     await pool.query(
