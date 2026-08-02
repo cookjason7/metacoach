@@ -2043,10 +2043,16 @@ export async function runMigrations() {
         UNIQUE(org_id, name)
       )
     `)
+    // Opt-in flag for the default-groups seed below. Defaults TRUE so every
+    // existing org (including LWC/org_id 1) keeps today's behavior unchanged;
+    // new orgs that want a blank slate can flip this off per-org.
+    await pool.query(`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS auto_create_default_groups BOOLEAN NOT NULL DEFAULT TRUE`)
     // Seed every org with the two categories the app used to hardcode, so
     // existing behavior (and existing posts' category labels) is unchanged
     // for orgs that haven't customized anything yet. WHERE NOT EXISTS makes
-    // this idempotent — only orgs with zero rows ever get seeded.
+    // this idempotent — only orgs with zero rows ever get seeded. Gated by
+    // auto_create_default_groups so orgs that opt out never get these two
+    // groups auto-created on startup.
     await pool.query(`
       INSERT INTO community_groups (org_id, name, description, type, display_order)
       SELECT o.id, g.name, g.description, 'public', g.ord
@@ -2056,6 +2062,7 @@ export async function runMigrations() {
         ('Non-Scale Victories', 'Wins that aren''t on the scale',       1)
       ) AS g(name, description, ord)
       WHERE NOT EXISTS (SELECT 1 FROM community_groups cg WHERE cg.org_id = o.id)
+        AND o.auto_create_default_groups = TRUE
     `)
   } catch (err) {
     console.error('[migrations] community_groups setup failed:', err.message)
@@ -2141,6 +2148,58 @@ export async function runMigrations() {
     `)
   } catch (err) {
     console.error('[migrations] client group_members re-backfill failed:', err.message)
+  }
+
+  // Self-healing cleanup for stray cross-org group_members rows, mirroring the
+  // staff_channel_members cleanup above. A group_members row is only valid
+  // when the member's org_id, the group's org_id, and the user's own org_id
+  // all agree — any mismatch means the row was seeded/joined against the
+  // wrong org (e.g. a user or group later moved orgs, or a future seed bug
+  // like the staff_channel_members one). Platform super admins (ADMIN_EMAILS)
+  // are exempt — they legitimately manage groups across every org.
+  try {
+    const placeholders = ADMIN_EMAILS.length > 0
+      ? ADMIN_EMAILS.map((_, i) => `$${i + 1}`).join(', ')
+      : null
+    const adminParams = ADMIN_EMAILS.map(e => e.toLowerCase())
+    const exemptClause = placeholders ? `AND LOWER(u.email) NOT IN (${placeholders})` : ''
+
+    const { rows: countRows } = await pool.query(
+      `SELECT COUNT(*) AS count
+       FROM group_members gm
+       JOIN users u ON gm.user_id = u.id
+       JOIN community_groups cg ON gm.group_id = cg.id
+       WHERE (gm.org_id != u.org_id OR gm.org_id != cg.org_id OR u.org_id != cg.org_id)
+       ${exemptClause}`,
+      adminParams,
+    )
+    const strayCount = Number(countRows[0]?.count || 0)
+
+    if (strayCount > 0) {
+      const { rows: breakdownRows } = await pool.query(
+        `SELECT gm.org_id AS member_org_id, u.org_id AS user_org_id, cg.org_id AS group_org_id, COUNT(*) AS count
+         FROM group_members gm
+         JOIN users u ON gm.user_id = u.id
+         JOIN community_groups cg ON gm.group_id = cg.id
+         WHERE (gm.org_id != u.org_id OR gm.org_id != cg.org_id OR u.org_id != cg.org_id)
+         ${exemptClause}
+         GROUP BY gm.org_id, u.org_id, cg.org_id`,
+        adminParams,
+      )
+      console.log(`[migrations] group_members cleanup: found ${strayCount} stray cross-org row(s)`, breakdownRows)
+
+      const { rowCount: deletedCount } = await pool.query(
+        `DELETE FROM group_members gm
+         USING users u, community_groups cg
+         WHERE gm.user_id = u.id AND gm.group_id = cg.id
+         AND (gm.org_id != u.org_id OR gm.org_id != cg.org_id OR u.org_id != cg.org_id)
+         ${exemptClause}`,
+        adminParams,
+      )
+      console.log(`[migrations] group_members cleanup: deleted ${deletedCount} stray cross-org row(s)`)
+    }
+  } catch (err) {
+    console.error('[migrations] group_members cleanup failed:', err.message)
   }
 
   // One-time backfill: the Main Feed (group_id IS NULL) concept is retired —
