@@ -4093,6 +4093,7 @@ router.post('/clients/:id/workouts', requireAuth(), async (req, res, next) => {
             sets: ex.sets ?? null, reps: ex.reps ?? null, rest_seconds: ex.rest_seconds ?? null,
             notes: ex.notes ?? null, sort_order: dayOrder++,
             image_url: ex.image_url ?? null, instructions: ex.instructions ?? null,
+            section_name: ex.section_name ?? null,
             group_id: ex.group_id ?? null, group_type: ex.group_type ?? 'exercise',
             group_label: ex.group_label ?? null, org_id: workout.org_id,
           })
