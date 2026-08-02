@@ -48,27 +48,34 @@ const REACTION_OPTIONS = [
   { type: 'care',  emoji: '🤗' },
 ]
 
-function ReactionPills({ reactions, onToggle }) {
+// interactive=false on your own message bubbles — you can't react to your own message,
+// so pills there are a read-only count display, not a toggle.
+function ReactionPills({ reactions, onToggle, interactive = true }) {
   const visible = (reactions ?? []).filter(r => r.count > 0)
   if (visible.length === 0) return null
   return (
     <div className="flex flex-wrap gap-1 mt-1">
       {visible.map(r => {
         const opt = REACTION_OPTIONS.find(o => o.type === r.reaction_type)
-        return (
+        const pillClasses = `flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold border transition-colors ${
+          r.mine
+            ? 'bg-orange-50 border-[#E8670A] text-[#E8670A]'
+            : 'bg-white border-gray-200 text-gray-600' + (interactive ? ' hover:border-gray-300' : '')
+        }`
+        return interactive ? (
           <button
             key={r.reaction_type}
             type="button"
             onClick={() => onToggle(r.reaction_type)}
             aria-label={`${r.mine ? 'Remove' : 'Add'} ${r.reaction_type} reaction`}
-            className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold border transition-colors ${
-              r.mine
-                ? 'bg-orange-50 border-[#E8670A] text-[#E8670A]'
-                : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
-            }`}
+            className={pillClasses}
           >
             <span>{opt?.emoji ?? '👍'}</span><span>{r.count}</span>
           </button>
+        ) : (
+          <span key={r.reaction_type} className={pillClasses}>
+            <span>{opt?.emoji ?? '👍'}</span><span>{r.count}</span>
+          </span>
         )
       })}
     </div>
@@ -823,6 +830,7 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
   // Optimistic: updates local state immediately, then reconciles with the server response.
   async function toggleReaction(msg, reactionType) {
     if (!selected) return
+    if (myId != null && msg.sender_id === myId) return // can't react to your own message
     setReactMsgId(null)
     const mine = (msg.reactions ?? []).some(r => r.reaction_type === reactionType && r.mine)
 
@@ -1176,29 +1184,32 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
                           </p>
                         )}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => setReactMsgId(id => id === m.id ? null : m.id)}
-                          onTouchStart={e => { e.stopPropagation(); startReactLongPress(m.id) }}
-                          onTouchEnd={cancelReactLongPress}
-                          onTouchMove={cancelReactLongPress}
-                          aria-label="React to message"
-                          title="React"
-                          className="shrink-0 flex items-center justify-center min-w-[44px] min-h-[44px] rounded-full text-gray-300 hover:text-[#E8670A] hover:bg-gray-100 transition-colors"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                            <circle cx="12" cy="12" r="9" />
-                            <path strokeLinecap="round" d="M9 10h.01M15 10h.01" />
-                            <path strokeLinecap="round" d="M8.5 14.5a4 4 0 007 0" />
-                          </svg>
-                        </button>
+                        {/* Can't react to your own message */}
+                        {!isMine && (
+                          <button
+                            type="button"
+                            onClick={() => setReactMsgId(id => id === m.id ? null : m.id)}
+                            onTouchStart={e => { e.stopPropagation(); startReactLongPress(m.id) }}
+                            onTouchEnd={cancelReactLongPress}
+                            onTouchMove={cancelReactLongPress}
+                            aria-label="React to message"
+                            title="React"
+                            className="shrink-0 flex items-center justify-center min-w-[44px] min-h-[44px] rounded-full text-gray-300 hover:text-[#E8670A] hover:bg-gray-100 transition-colors"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                              <circle cx="12" cy="12" r="9" />
+                              <path strokeLinecap="round" d="M9 10h.01M15 10h.01" />
+                              <path strokeLinecap="round" d="M8.5 14.5a4 4 0 007 0" />
+                            </svg>
+                          </button>
+                        )}
                       </div>
-                      {reactMsgId === m.id && (
+                      {!isMine && reactMsgId === m.id && (
                         <div className="mt-1">
                           <ReactionPicker onPick={type => toggleReaction(m, type)} />
                         </div>
                       )}
-                      <ReactionPills reactions={m.reactions} onToggle={type => toggleReaction(m, type)} />
+                      <ReactionPills reactions={m.reactions} onToggle={type => toggleReaction(m, type)} interactive={!isMine} />
                     </div>
                   </div>
                 )
