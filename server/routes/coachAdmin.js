@@ -62,6 +62,39 @@ function isVaRole(role) {
   return role === 'va'
 }
 
+// Kept in sync with the CHECK constraint on message_reactions.reaction_type (server/db.js)
+// and messages.js's REACTION_TYPES — same emoji set as community post_reactions.
+const REACTION_TYPES = ['like', 'love', 'laugh', 'care']
+
+// Batch-attach a { reactions: [{reaction_type, count, mine}] } summary to each message
+// row, for a thread listing. `mine` reflects whether viewerId reacted with that type.
+async function attachReactions(rows, viewerId) {
+  if (!rows.length) return rows
+  const { rows: summary } = await pool.query(
+    `SELECT message_id, reaction_type, COUNT(*)::int AS count, BOOL_OR(user_id = $2) AS mine
+     FROM message_reactions
+     WHERE message_id = ANY($1::int[])
+     GROUP BY message_id, reaction_type`,
+    [rows.map(r => r.id), viewerId],
+  )
+  const byMessage = new Map()
+  for (const r of summary) {
+    const list = byMessage.get(r.message_id) ?? []
+    list.push({ reaction_type: r.reaction_type, count: r.count, mine: r.mine })
+    byMessage.set(r.message_id, list)
+  }
+  return rows.map(r => ({ ...r, reactions: byMessage.get(r.id) ?? [] }))
+}
+
+async function reactionsForMessage(messageId, viewerId) {
+  const { rows } = await pool.query(
+    `SELECT reaction_type, COUNT(*)::int AS count, BOOL_OR(user_id = $2) AS mine
+     FROM message_reactions WHERE message_id = $1 GROUP BY reaction_type`,
+    [messageId, viewerId],
+  )
+  return rows
+}
+
 // Super admin (platform owner accounts in ADMIN_EMAILS, e.g. Jason) bypasses org
 // scoping entirely and sees/manages every org. This is deliberately NOT the same
 // check as isAdminRole()/'admin' role: under multi-tenancy every org gets its own
@@ -2678,8 +2711,10 @@ router.get('/clients/:id/messages', requireAuth(), async (req, res, next) => {
     }
     await pool.query(`UPDATE client_messages SET read_at = NOW() ${readWhere}`, readParams)
 
+    const messagesWithReactions = await attachReactions(rows, ctx.dbUserId)
+
     res.json({
-      messages: rows,
+      messages: messagesWithReactions,
       hasMore,
       nextBeforeId: hasMore ? rows[0].id : null,
     })
@@ -2821,6 +2856,65 @@ router.delete('/clients/:id/messages/:messageId', requireAuth(), async (req, res
       await pool.query('UPDATE client_messages SET deleted_at = NOW() WHERE id = $1', [messageId])
     }
     res.json({ ok: true, id: messageId })
+  } catch (err) { next(err) }
+})
+
+// POST /api/coach-admin/clients/:id/messages/:messageId/reactions  body: { reaction_type }
+router.post('/clients/:id/messages/:messageId/reactions', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId  = parseInt(req.params.id, 10)
+    const messageId = parseInt(req.params.messageId, 10)
+    if (!Number.isInteger(messageId)) return res.status(400).json({ error: 'Invalid message id' })
+    if (!await canAccessClient(ctx, clientId)) return res.status(403).json({ error: 'Forbidden' })
+
+    const { reaction_type } = req.body
+    if (!REACTION_TYPES.includes(reaction_type)) return res.status(400).json({ error: 'Invalid reaction_type' })
+
+    const { rows } = await pool.query(
+      'SELECT client_id, thread_type FROM client_messages WHERE id = $1 AND deleted_at IS NULL',
+      [messageId],
+    )
+    const msg = rows[0]
+    if (!msg || msg.client_id !== clientId) return res.status(404).json({ error: 'Message not found' })
+    // Same thread-visibility gate as GET /clients/:id/messages: coaches can't react in
+    // admin-only threads they aren't allowed to view.
+    if ((msg.thread_type === 'admin_private' || msg.thread_type === 'ai_admin') && !isAdminRole(ctx.role)) {
+      return res.status(403).json({ error: 'Admin only thread' })
+    }
+
+    await pool.query(
+      `INSERT INTO message_reactions (message_id, user_id, reaction_type)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (message_id, user_id, reaction_type) DO NOTHING`,
+      [messageId, ctx.dbUserId, reaction_type],
+    )
+
+    res.status(201).json({ reactions: await reactionsForMessage(messageId, ctx.dbUserId) })
+  } catch (err) { next(err) }
+})
+
+// DELETE /api/coach-admin/clients/:id/messages/:messageId/reactions/:reactionType
+router.delete('/clients/:id/messages/:messageId/reactions/:reactionType', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId  = parseInt(req.params.id, 10)
+    const messageId = parseInt(req.params.messageId, 10)
+    if (!Number.isInteger(messageId)) return res.status(400).json({ error: 'Invalid message id' })
+    if (!await canAccessClient(ctx, clientId)) return res.status(403).json({ error: 'Forbidden' })
+
+    const { rows } = await pool.query(
+      'SELECT client_id FROM client_messages WHERE id = $1',
+      [messageId],
+    )
+    if (!rows.length || rows[0].client_id !== clientId) return res.status(404).json({ error: 'Message not found' })
+
+    await pool.query(
+      'DELETE FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND reaction_type = $3',
+      [messageId, ctx.dbUserId, req.params.reactionType],
+    )
+
+    res.json({ reactions: await reactionsForMessage(messageId, ctx.dbUserId) })
   } catch (err) { next(err) }
 })
 
