@@ -1015,16 +1015,22 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
         </div>{/* end inner list */}
       </div>
 
-      {/* Conversation panel */}
-      <div className={`flex-1 flex-col bg-white border border-gray-200 rounded-xl overflow-hidden ${selected ? 'flex' : 'hidden lg:flex'}`}>
+      {/* Conversation panel. overflow is visible below md so the sticky header
+          (below) can escape to the page's actual scrolling ancestor (Layout's
+          <main>) instead of being trapped by this panel's own bounds — at md+
+          the panel never needs outer-page scroll, so overflow-hidden (for the
+          rounded corners) is restored there. See the matching md:hidden Back
+          to Messages button below, which rounds the bottom corners in the gap
+          left by overflow-visible on mobile. */}
+      <div className={`flex-1 flex-col bg-white border border-gray-200 rounded-xl overflow-visible md:overflow-hidden ${selected ? 'flex' : 'hidden lg:flex'}`}>
         {!selected ? (
           <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
             Select a client to view messages
           </div>
         ) : (
           <>
-            <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-              <div className="flex items-center gap-2">
+            <div className="sticky top-0 z-10 rounded-t-xl px-4 py-3 border-b border-gray-100 bg-gray-50">
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={backToList}
                   className="lg:hidden -ml-1 min-w-10 h-10 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-200 transition-colors shrink-0"
@@ -1036,7 +1042,7 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
                 </button>
                 <Link
                   to={`/admin/clients/${selected.clientId}`}
-                  className="text-sm font-semibold text-gray-900 flex-1 min-w-0 truncate hover:underline transition-all"
+                  className="text-sm font-semibold text-gray-900 flex-1 min-w-0 break-words hover:underline transition-all"
                 >
                   {selected.clientName}
                 </Link>
@@ -1311,10 +1317,12 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
 
             {/* Back to Messages — mobile only, sits below the compose area so it's
                 the last thing on screen when scrolled to the bottom of the thread.
-                Desktop always shows the thread list alongside, so no back button there. */}
+                Desktop always shows the thread list alongside, so no back button there.
+                rounded-b-xl covers the bottom corners while the panel above is
+                overflow-visible (below md) — see the panel's className comment. */}
             <button
               onClick={backToList}
-              className="md:hidden shrink-0 w-full py-3 text-xs font-medium text-gray-400 hover:text-gray-600 border-t border-gray-100 bg-white transition-colors min-h-[44px]"
+              className="md:hidden shrink-0 w-full py-3 text-xs font-medium text-gray-400 hover:text-gray-600 border-t border-gray-100 bg-white rounded-b-xl transition-colors min-h-[44px]"
             >
               ← Back to Messages
             </button>
