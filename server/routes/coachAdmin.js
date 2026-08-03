@@ -3474,10 +3474,16 @@ router.post('/forms/:id/send', requireAuth(), async (req, res, next) => {
       return res.status(400).json({ error: 'client_ids must be a non-empty array.' })
     }
 
-    // Verify form exists and is published
+    // Verify form exists, is published, and belongs to the caller's org — same
+    // isSuperAdmin(ctx)/org_id-filter pattern as forms.js. Without this, staff
+    // could enumerate template ids and send another org's form: its title
+    // leaked into the client-facing message body and created a cross-org
+    // form_assignments row.
+    const bypassOrgTpl = isSuperAdmin(ctx)
+    const orgFilterTpl = bypassOrgTpl ? '' : ` AND org_id = $2`
     const { rows: [tpl] } = await pool.query(
-      'SELECT id, title, status, current_version_id FROM form_templates WHERE id = $1',
-      [templateId],
+      `SELECT id, title, status, current_version_id FROM form_templates WHERE id = $1${orgFilterTpl}`,
+      bypassOrgTpl ? [templateId] : [templateId, ctx.orgId],
     )
     if (!tpl) return res.status(404).json({ error: 'Form not found' })
     if (tpl.status !== 'published' || !tpl.current_version_id) {
@@ -3607,9 +3613,13 @@ router.post('/forms/:id/schedule', requireAuth(), async (req, res, next) => {
     if (send_mode === 'recurring' && (!recurring_rule || recurring_rule.day_of_week == null || recurring_rule.hour == null))
       return res.status(400).json({ error: 'recurring_rule with day_of_week and hour is required for recurring sends.' })
 
+    // Same org gate as /forms/:id/send above — without it staff could schedule
+    // another org's form for their own clients.
+    const bypassOrgTpl = isSuperAdmin(ctx)
+    const orgFilterTpl = bypassOrgTpl ? '' : ` AND org_id = $2`
     const { rows: [tpl] } = await pool.query(
-      'SELECT id, title, status, current_version_id FROM form_templates WHERE id = $1',
-      [templateId],
+      `SELECT id, title, status, current_version_id FROM form_templates WHERE id = $1${orgFilterTpl}`,
+      bypassOrgTpl ? [templateId] : [templateId, ctx.orgId],
     )
     if (!tpl) return res.status(404).json({ error: 'Form not found' })
     if (tpl.status !== 'published' || !tpl.current_version_id)
