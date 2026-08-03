@@ -215,6 +215,15 @@ async function calendarRequest(path, accessToken, options = {}) {
 // coach_assigned_habits.days_of_week is comma-separated 0-6 with Sun=0.
 const BYDAY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
 
+// Habits carry no time-of-day, so each event needs a default slot. They stack
+// from 5:00 AM in 10-minute steps, giving a client's habits a tidy morning
+// column instead of a pile of events all landing on the same time.
+const EVENT_TIME_ZONE       = 'America/New_York'
+const SLOT_BASE_MINUTES     = 5 * 60   // 05:00
+const SLOT_STEP_MINUTES     = 10
+const SLOT_DURATION_MINUTES = 10
+const MINUTES_PER_DAY       = 24 * 60
+
 /**
  * pg returns DATE columns as a JS Date in the server's local timezone. Using
  * toISOString() here would shift the day for any server west of UTC — take the
@@ -241,6 +250,68 @@ function addDaysISO(isoDate, days) {
   return dt.toISOString().slice(0, 10)
 }
 
+/** "HH:MM:SS" from minutes-since-midnight. */
+function hhmmss(totalMinutes) {
+  const h = String(Math.floor(totalMinutes / 60)).padStart(2, '0')
+  const m = String(totalMinutes % 60).padStart(2, '0')
+  return `${h}:${m}:00`
+}
+
+/**
+ * Wall-clock window for a slot: slot 0 is 05:00-05:10, slot 1 is 05:10-05:20,
+ * and so on.
+ *
+ * The modulo keeps a pathological client (~114+ synced habits) from generating
+ * an invalid "25:10:00" that Google would reject — those slots wrap around the
+ * clock instead. endsNextDay flags the one slot whose window straddles midnight,
+ * since its end date has to roll forward a day.
+ */
+function slotWindow(slotIndex) {
+  const startTotal = (SLOT_BASE_MINUTES + slotIndex * SLOT_STEP_MINUTES) % MINUTES_PER_DAY
+  const rawEnd     = startTotal + SLOT_DURATION_MINUTES
+  return {
+    startTime:   hhmmss(startTotal),
+    endTime:     hhmmss(rawEnd % MINUTES_PER_DAY),
+    endsNextDay: rawEnd >= MINUTES_PER_DAY,
+  }
+}
+
+/**
+ * Offset of `timeZone` from UTC in ms at instant `t` (positive east of UTC).
+ * Intl rather than a date library — Node ships full ICU, and this is the only
+ * timezone arithmetic the module needs.
+ */
+function zoneOffsetMs(t, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone, hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(new Date(t))
+  const get = type => Number(parts.find(p => p.type === type).value)
+  // Some ICU builds render midnight as hour 24 under hour12:false.
+  const hour = get('hour') % 24
+  return Date.UTC(get('year'), get('month') - 1, get('day'), hour, get('minute'), get('second')) - t
+}
+
+/**
+ * The UTC instant at which a given wall-clock time occurs in `timeZone`.
+ * Iterates because the offset to apply depends on the instant being solved for
+ * — the DST-boundary case. Two passes converge for every real-world zone.
+ */
+function zonedWallTimeToUtcMs(isoDate, timeOfDay, timeZone) {
+  const [y, mo, d] = isoDate.split('-').map(Number)
+  const [h, mi, s] = timeOfDay.split(':').map(Number)
+  const target     = Date.UTC(y, mo - 1, d, h, mi, s)
+  let t = target
+  for (let i = 0; i < 2; i++) t = target - zoneOffsetMs(t, timeZone)
+  return t
+}
+
+/** RFC 5545 UTC form: YYYYMMDDTHHMMSSZ */
+function toRruleUtcStamp(ms) {
+  return new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
+}
+
 /**
  * Build the RRULE for a habit, or null for a one-off event.
  *
@@ -249,13 +320,20 @@ function addDaysISO(isoDate, days) {
  *   'weekly'        → weekly on start_date's weekday (implied by DTSTART)
  *   'specific_days' → weekly on days_of_week
  *
- * end_date, if present, becomes UNTIL (inclusive). For an all-day (DATE-valued)
- * event, RFC 5545 requires UNTIL to be a DATE too — so YYYYMMDD, not a datetime.
+ * end_date, if present, becomes UNTIL (inclusive). RFC 5545 §3.3.10 requires
+ * UNTIL to match DTSTART's value type: now that DTSTART is a date-time with a
+ * timezone reference, UNTIL MUST be a UTC date-time. The bare YYYYMMDD that was
+ * correct while these were all-day events is invalid against a timed DTSTART —
+ * this is the one part of the recurrence rule the all-day → timed switch does
+ * change. Anchoring to the end of end_date in EVENT_TIME_ZONE keeps the final
+ * day's occurrence included no matter which slot the habit landed in.
  */
 function buildRecurrence(habit) {
   const frequency = habit.frequency ?? 'daily'
   const endDate   = toISODate(habit.end_date)
-  const until     = endDate ? `;UNTIL=${endDate.replace(/-/g, '')}` : ''
+  const until     = endDate
+    ? `;UNTIL=${toRruleUtcStamp(zonedWallTimeToUtcMs(endDate, '23:59:59', EVENT_TIME_ZONE))}`
+    : ''
 
   if (frequency === 'daily')  return [`RRULE:FREQ=DAILY${until}`]
   if (frequency === 'weekly') return [`RRULE:FREQ=WEEKLY${until}`]
@@ -279,11 +357,14 @@ function buildRecurrence(habit) {
 /**
  * Map a coach_assigned_habits row to a Google Calendar event resource.
  *
- * Habits are day-scoped (there is no time-of-day column), so these are all-day
- * events. Google treats all-day end.date as EXCLUSIVE, hence start + 1 day.
+ * Timed events on a per-client 10-minute slot ladder (see slotWindow). Unlike
+ * the all-day form these replaced, end.dateTime is INCLUSIVE — it's the actual
+ * finish time, so no +1 day fudge.
  */
-function buildEventBody(habit) {
+function buildEventBody(habit, slotIndex = 0) {
   const startDate = toISODate(habit.start_date)
+  const { startTime, endTime, endsNextDay } = slotWindow(slotIndex)
+  const endDate   = endsNextDay ? addDaysISO(startDate, 1) : startDate
 
   const descriptionParts = []
   if (habit.target_value != null) {
@@ -297,8 +378,8 @@ function buildEventBody(habit) {
   return {
     summary:     habit.habit_name,
     description: descriptionParts.join('\n\n'),
-    start:       { date: startDate },
-    end:         { date: addDaysISO(startDate, 1) },
+    start:       { dateTime: `${startDate}T${startTime}`, timeZone: EVENT_TIME_ZONE },
+    end:         { dateTime: `${endDate}T${endTime}`,     timeZone: EVENT_TIME_ZONE },
     // Always send recurrence explicitly (array or null) so that editing a habit
     // from recurring to one-off actually CLEARS the rule rather than leaving the
     // old one in place — PATCH only touches the fields present in the body.
@@ -306,6 +387,41 @@ function buildEventBody(habit) {
     // Habits are self-directed reminders; default popup alerts would be noise.
     reminders:   { useDefault: false },
   }
+}
+
+/**
+ * Which slot on the ladder this habit occupies: the number of the client's
+ * already-synced habits that were created before it.
+ *
+ * Derived rather than stored, and deliberately anchored to creation order so
+ * the same habit resolves to the same slot every time. For a brand-new habit
+ * (always the newest row) it equals the client's count of synced habits, which
+ * is the next free slot. For an existing habit it returns what it resolved to
+ * at creation, so editing one habit never shuffles it onto a slot a later habit
+ * already took.
+ *
+ * Known wrinkle: deleting an early habit frees its slot, so habits created
+ * after it shift down by one the next time they're edited. That only ever
+ * closes a gap the deletion opened, so it's left alone.
+ *
+ * The habit's own created_at is read back out of the table rather than passed
+ * in from the caller's row object: timestamptz keeps microseconds, a JS Date
+ * only milliseconds, so a round-tripped value compares as fractionally EARLIER
+ * than the stored one and the comparison matches nothing — every habit would
+ * silently land on slot 0 (5:00 AM), which is the pile-up this ladder exists to
+ * avoid. Keeping both sides of the comparison in Postgres sidesteps that.
+ */
+async function resolveSlotIndex(dbUserId, habit) {
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS slot
+       FROM coach_assigned_habits h
+       JOIN coach_assigned_habits self ON self.id = $2
+      WHERE h.user_id = $1
+        AND h.google_calendar_event_id IS NOT NULL
+        AND (h.created_at, h.id) < (self.created_at, self.id)`,
+    [dbUserId, habit.id],
+  )
+  return rows[0]?.slot ?? 0
 }
 
 /** Clear a stale event id after Google tells us the event no longer exists. */
@@ -339,9 +455,10 @@ export async function pushHabitToCalendar(dbUserId, habit) {
     const token = await getConnectedToken(dbUserId)
     if (!token) return null
 
+    const slotIndex = await resolveSlotIndex(dbUserId, habit)
     const event = await calendarRequest('/calendars/primary/events', token.access_token, {
       method: 'POST',
-      body: JSON.stringify(buildEventBody(habit)),
+      body: JSON.stringify(buildEventBody(habit, slotIndex)),
     })
     if (!event.id) throw new Error('Google Calendar did not return an event id')
 
@@ -380,10 +497,13 @@ export async function updateHabitCalendarEvent(dbUserId, habit) {
     const token = await getConnectedToken(dbUserId)
     if (!token) return false
 
+    // Resolves to the slot this habit got at creation, not the next free one —
+    // an edit must not move the event onto a later habit's slot.
+    const slotIndex = await resolveSlotIndex(dbUserId, habit)
     await calendarRequest(
       `/calendars/primary/events/${encodeURIComponent(eventId)}`,
       token.access_token,
-      { method: 'PATCH', body: JSON.stringify(buildEventBody(habit)) },
+      { method: 'PATCH', body: JSON.stringify(buildEventBody(habit, slotIndex)) },
     )
     await recordCalendarSyncSuccess(dbUserId)
     console.log('[calendarSync] updated event for habit', habit.id, 'user', dbUserId)
