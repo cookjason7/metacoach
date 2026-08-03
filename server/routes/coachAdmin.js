@@ -743,8 +743,8 @@ router.post('/staff/invite', requireAuth(), async (req, res, next) => {
     )
 
     const { rows: [invite] } = await pool.query(
-      `INSERT INTO staff_invites (email, first_name, last_name, role, invited_by)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO staff_invites (email, first_name, last_name, role, invited_by, org_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING token, email, first_name, last_name, role, created_at, expires_at`,
       [
         normalizedEmail,
@@ -752,6 +752,7 @@ router.post('/staff/invite', requireAuth(), async (req, res, next) => {
         last_name?.trim() || null,
         resolvedRole,
         ctx.dbUserId,
+        ctx.orgId,
       ],
     )
 

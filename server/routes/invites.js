@@ -180,7 +180,14 @@ router.post('/staff/:token/accept', requireAuth(), async (req, res, next) => {
       })
     }
 
-    // Update user with staff profile — no onboarding/assessment required for staff
+    // Update user with staff profile — no onboarding/assessment required for staff.
+    // org_id must always be carried from the invite here (not gated behind a
+    // truthiness check) — a staff invite with no org_id left the new user's
+    // org_id NULL forever, which then 403'd every request behind orgContext's
+    // "Organization context could not be resolved" check until an admin
+    // manually ran the client activate patch on them. COALESCE so a NULL
+    // invite.org_id (a legacy invite created before staff/invite started
+    // stamping it) never overwrites an already-resolved org_id with NULL.
     await pool.query(
       `UPDATE users
        SET first_name          = COALESCE(NULLIF(first_name, ''), $1),
@@ -189,9 +196,10 @@ router.post('/staff/:token/accept', requireAuth(), async (req, res, next) => {
            staff_status        = 'active',
            onboarding_complete = TRUE,
            assessment_complete = TRUE,
-           paid                = TRUE
+           paid                = TRUE,
+           org_id              = COALESCE($5, org_id)
        WHERE id = $4`,
-      [invite.first_name, invite.last_name, invite.role, dbUserId],
+      [invite.first_name, invite.last_name, invite.role, dbUserId, invite.org_id],
     )
 
     await pool.query(
