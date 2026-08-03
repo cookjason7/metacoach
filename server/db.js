@@ -181,6 +181,27 @@ export async function migrate() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS goal_fat      INTEGER`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS goal_fiber    INTEGER`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS goal_water    INTEGER`)
+  // macro_target_history — audit log of users.goal_* changes; one snapshot row per
+  // PATCH /api/admin/users/:id/macros call (coach visibility only, no scheduling).
+  // org_id is added below via TENANT_TABLES in 001_multi_tenancy.js (runs after
+  // this migrate() call, once the organizations table exists) rather than as a
+  // column here, so the existing-install path and the fresh-install path take
+  // the same code — same reasoning as community_resources above.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS macro_target_history (
+      id            SERIAL PRIMARY KEY,
+      user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      goal_calories INTEGER,
+      goal_protein  INTEGER,
+      goal_carbs    INTEGER,
+      goal_fat      INTEGER,
+      goal_fiber    INTEGER,
+      goal_water    INTEGER,
+      changed_at    TIMESTAMPTZ DEFAULT NOW(),
+      changed_by    INTEGER REFERENCES users(id) ON DELETE SET NULL
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_macro_target_history_user ON macro_target_history (user_id, changed_at DESC)`)
   await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS portion_notes TEXT`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_complete BOOLEAN DEFAULT FALSE`)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT`)
