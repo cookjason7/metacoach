@@ -216,12 +216,14 @@ async function calendarRequest(path, accessToken, options = {}) {
 const BYDAY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
 
 // Habits carry no time-of-day, so each event needs a default slot. They stack
-// from 5:00 AM in 10-minute steps, giving a client's habits a tidy morning
+// from 5:00 AM in 15-minute steps, giving a client's habits a tidy morning
 // column instead of a pile of events all landing on the same time.
+// Step and duration are kept equal so consecutive slots butt up against each
+// other with no gap and no overlap.
 const EVENT_TIME_ZONE       = 'America/New_York'
 const SLOT_BASE_MINUTES     = 5 * 60   // 05:00
-const SLOT_STEP_MINUTES     = 10
-const SLOT_DURATION_MINUTES = 10
+const SLOT_STEP_MINUTES     = 15
+const SLOT_DURATION_MINUTES = 15
 const MINUTES_PER_DAY       = 24 * 60
 
 /**
@@ -258,10 +260,10 @@ function hhmmss(totalMinutes) {
 }
 
 /**
- * Wall-clock window for a slot: slot 0 is 05:00-05:10, slot 1 is 05:10-05:20,
+ * Wall-clock window for a slot: slot 0 is 05:00-05:15, slot 1 is 05:15-05:30,
  * and so on.
  *
- * The modulo keeps a pathological client (~114+ synced habits) from generating
+ * The modulo keeps a pathological client (~76+ synced habits) from generating
  * an invalid "25:10:00" that Google would reject — those slots wrap around the
  * clock instead. endsNextDay flags the one slot whose window straddles midnight,
  * since its end date has to roll forward a day.
@@ -357,7 +359,7 @@ function buildRecurrence(habit) {
 /**
  * Map a coach_assigned_habits row to a Google Calendar event resource.
  *
- * Timed events on a per-client 10-minute slot ladder (see slotWindow). Unlike
+ * Timed events on a per-client 15-minute slot ladder (see slotWindow). Unlike
  * the all-day form these replaced, end.dateTime is INCLUSIVE — it's the actual
  * finish time, so no +1 day fudge.
  */
