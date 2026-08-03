@@ -197,6 +197,29 @@ async function fetchTodaySteps(accessToken) {
   return parseNumber(data.rollupDataPoints?.[0]?.steps?.countSum)
 }
 
+// Total calories burned is a cumulative daily metric like steps (not a
+// session/duration metric like sleep), so it uses the same dailyRollUp shape
+// as fetchTodaySteps rather than the interval-filter shape used for sleep.
+async function fetchTodayTotalCalories(accessToken) {
+  const { today, tomorrow } = todayCivilRange()
+  const data = await googleHealthRequest(
+    '/v4/users/me/dataTypes/calories/dataPoints:dailyRollUp',
+    accessToken,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        range: {
+          start: civilDateTime(today),
+          end:   civilDateTime(tomorrow),
+        },
+        windowSizeDays:   1,
+        dataSourceFamily: 'users/me/dataSourceFamilies/all-sources',
+      }),
+    },
+  )
+  return parseNumber(data.rollupDataPoints?.[0]?.calories?.caloriesSum)
+}
+
 async function fetchTodaySleepMinutes(accessToken) {
   const { today, tomorrow } = todayCivilRange()
   const filter = `sleep.interval.civil_end_time >= "${today}" AND sleep.interval.civil_end_time < "${tomorrow}"`
@@ -224,19 +247,22 @@ async function recordSyncError(dbUserId, message) {
 }
 
 /**
- * Sync today's steps and sleep for a connected user.
+ * Sync today's steps, sleep, and calories burned for a connected user.
  *
  * Source-protection rules:
- *   • steps:         fitbit may fill NULL or overwrite a previous fitbit value.
- *                    Manual steps (steps_source='manual') are never overwritten.
- *   • sleep_minutes: fitbit may fill NULL or overwrite a previous fitbit value.
- *                    Manual sleep (sleep_source='manual') is never overwritten.
+ *   • steps:           fitbit may fill NULL or overwrite a previous fitbit value.
+ *                      Manual steps (steps_source='manual') are never overwritten.
+ *   • sleep_minutes:   fitbit may fill NULL or overwrite a previous fitbit value.
+ *                      Manual sleep (sleep_source='manual') is never overwritten.
+ *   • calories_burned: google_health may fill NULL or overwrite a previous
+ *                      automated-sync value. Manual entries (calories_source=
+ *                      'manual') are never overwritten.
  *
  * On success clears last_sync_error.
  * Throws (with .status) on token/API failure — error is also persisted to DB.
  *
  * @param {number} dbUserId  Internal DB users.id (NOT Clerk user id)
- * @returns {{ steps, sleep_minutes, steps_source, sleep_source, synced_at }}
+ * @returns {{ steps, sleep_minutes, calories_burned, steps_source, sleep_source, calories_source, synced_at }}
  */
 export async function syncUser(dbUserId) {
   const { rows } = await pool.query('SELECT * FROM fitbit_tokens WHERE user_id=$1', [dbUserId])
@@ -278,11 +304,12 @@ export async function syncUser(dbUserId) {
     throw err
   }
 
-  let steps, sleepMinutes
+  let steps, sleepMinutes, caloriesBurned
   try {
-    ;[steps, sleepMinutes] = await Promise.all([
+    ;[steps, sleepMinutes, caloriesBurned] = await Promise.all([
       fetchTodaySteps(token.access_token),
       fetchTodaySleepMinutes(token.access_token),
+      fetchTodayTotalCalories(token.access_token),
     ])
   } catch (apiErr) {
     // Full raw Google error, for our logs only.
@@ -311,12 +338,14 @@ export async function syncUser(dbUserId) {
   const SYNC_SOURCES = "('fitbit','google_health','synced','apple_health')"
 
   const { rows: logRows } = await pool.query(
-    `INSERT INTO daily_logs (user_id, logged_date, steps, sleep_minutes, steps_source, sleep_source, steps_source_updated_at, sleep_source_updated_at, org_id)
-     VALUES ($1, CURRENT_DATE, $2, $3,
+    `INSERT INTO daily_logs (user_id, logged_date, steps, sleep_minutes, calories_burned, steps_source, sleep_source, calories_source, steps_source_updated_at, sleep_source_updated_at, calories_source_updated_at, org_id)
+     VALUES ($1, CURRENT_DATE, $2, $3, $4,
              CASE WHEN $2::integer IS NULL THEN 'manual' ELSE 'fitbit' END,
              CASE WHEN $3::integer IS NULL THEN 'manual' ELSE 'fitbit' END,
+             CASE WHEN $4::integer IS NULL THEN 'manual' ELSE 'google_health' END,
              CASE WHEN $2::integer IS NULL THEN NULL ELSE NOW() END,
              CASE WHEN $3::integer IS NULL THEN NULL ELSE NOW() END,
+             CASE WHEN $4::integer IS NULL THEN NULL ELSE NOW() END,
              (SELECT org_id FROM users WHERE id = $1))
      ON CONFLICT (user_id, logged_date) DO UPDATE SET
        steps = CASE
@@ -364,9 +393,32 @@ export async function syncUser(dbUserId) {
                        AND (daily_logs.sleep_source_updated_at IS NULL OR daily_logs.sleep_source_updated_at <= NOW())))
            THEN NOW()
          ELSE daily_logs.sleep_source_updated_at
+       END,
+       calories_burned = CASE
+         WHEN daily_logs.calories_burned IS NULL
+              OR (COALESCE(daily_logs.calories_source, 'manual') IN ${SYNC_SOURCES}
+                  AND (daily_logs.calories_source_updated_at IS NULL OR daily_logs.calories_source_updated_at <= NOW()))
+           THEN COALESCE(EXCLUDED.calories_burned, daily_logs.calories_burned)
+         ELSE daily_logs.calories_burned
+       END,
+       calories_source = CASE
+         WHEN EXCLUDED.calories_burned IS NOT NULL
+              AND (daily_logs.calories_burned IS NULL
+                   OR (COALESCE(daily_logs.calories_source, 'manual') IN ${SYNC_SOURCES}
+                       AND (daily_logs.calories_source_updated_at IS NULL OR daily_logs.calories_source_updated_at <= NOW())))
+           THEN 'google_health'
+         ELSE COALESCE(daily_logs.calories_source, 'manual')
+       END,
+       calories_source_updated_at = CASE
+         WHEN EXCLUDED.calories_burned IS NOT NULL
+              AND (daily_logs.calories_burned IS NULL
+                   OR (COALESCE(daily_logs.calories_source, 'manual') IN ${SYNC_SOURCES}
+                       AND (daily_logs.calories_source_updated_at IS NULL OR daily_logs.calories_source_updated_at <= NOW())))
+           THEN NOW()
+         ELSE daily_logs.calories_source_updated_at
        END
-     RETURNING steps, sleep_minutes, steps_source, sleep_source`,
-    [dbUserId, steps, sleepMinutes],
+     RETURNING steps, sleep_minutes, calories_burned, steps_source, sleep_source, calories_source`,
+    [dbUserId, steps, sleepMinutes, caloriesBurned],
   )
 
   const { rows: syncRows } = await pool.query(
@@ -379,10 +431,12 @@ export async function syncUser(dbUserId) {
   )
 
   return {
-    steps:        logRows[0]?.steps        ?? null,
-    sleep_minutes: logRows[0]?.sleep_minutes ?? null,
-    steps_source:  logRows[0]?.steps_source  ?? null,
-    sleep_source:  logRows[0]?.sleep_source  ?? null,
-    synced_at:     syncRows[0]?.last_synced_at ?? new Date().toISOString(),
+    steps:           logRows[0]?.steps           ?? null,
+    sleep_minutes:   logRows[0]?.sleep_minutes   ?? null,
+    calories_burned: logRows[0]?.calories_burned ?? null,
+    steps_source:    logRows[0]?.steps_source    ?? null,
+    sleep_source:    logRows[0]?.sleep_source    ?? null,
+    calories_source: logRows[0]?.calories_source ?? null,
+    synced_at:       syncRows[0]?.last_synced_at ?? new Date().toISOString(),
   }
 }

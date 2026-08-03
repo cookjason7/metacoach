@@ -994,6 +994,7 @@ export default function Settings() {
       }))
       const parts = []
       if (data.steps != null) parts.push(`${data.steps.toLocaleString()} steps`)
+      if (data.calories_burned != null) parts.push(`${data.calories_burned.toLocaleString()} cal burned`)
       if (data.sleep_minutes != null) parts.push(`${Math.floor(data.sleep_minutes / 60)}h ${data.sleep_minutes % 60}m sleep`)
       setFitbitMessage(parts.length ? `Synced ${parts.join(' and ')}.` : 'Google Health synced.')
       // Fetch the full daily log row and broadcast to Dashboard/Calendar so they

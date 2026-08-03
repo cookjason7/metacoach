@@ -33,7 +33,7 @@ export async function runHealthSync() {
       try {
         const result = await syncUser(user_id)
         console.log(
-          `[healthSync] user ${user_id} OK — steps=${result.steps ?? 'n/a'} sleep=${result.sleep_minutes ?? 'n/a'}min`,
+          `[healthSync] user ${user_id} OK — steps=${result.steps ?? 'n/a'} sleep=${result.sleep_minutes ?? 'n/a'}min calories=${result.calories_burned ?? 'n/a'}`,
         )
       } catch (err) {
         // Error already persisted to fitbit_tokens by syncUser
