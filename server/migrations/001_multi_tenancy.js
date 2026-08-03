@@ -50,6 +50,7 @@ const TENANT_TABLES = [
   'mindset_videos',
   'resources',
   'staff_channels',
+  'community_resources',
 ]
 
 // Extra backfill predicates, by table. The org_id = 1 backfill below re-runs on
@@ -178,6 +179,7 @@ export default async function runMigration(pool) {
     `CREATE INDEX IF NOT EXISTS idx_notifications_org_id ON notifications(org_id)`,
     `CREATE INDEX IF NOT EXISTS idx_progress_photos_org_id ON progress_photos(org_id)`,
     `CREATE INDEX IF NOT EXISTS idx_push_devices_org_id ON push_devices(org_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_community_resources_org_id ON community_resources(org_id)`,
   ]
   for (const stmt of indexStatements) {
     await pool.query(stmt)
