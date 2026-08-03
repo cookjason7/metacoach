@@ -2582,3 +2582,14 @@ export async function getOrCreateUserWithOrg(clerkUserId, email = null) {
   const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [dbUserId])
   return rows[0]
 }
+
+// Read-only lookup by Clerk id — never inserts. Used by the orgContext
+// middleware to decide, *before* a row can be created, whether this request
+// needs an email resolved from Clerk: org resolution in getOrCreateUser is
+// email-gated, and an insert that happens without one strands the user at
+// org_id NULL with no way to self-heal. Cheap enough for the hot path —
+// clerk_user_id is UNIQUE, so this is a single indexed lookup.
+export async function findUserByClerkId(clerkUserId) {
+  const { rows } = await pool.query('SELECT * FROM users WHERE clerk_user_id = $1', [clerkUserId])
+  return rows[0] ?? null
+}

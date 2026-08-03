@@ -1,24 +1,9 @@
 import { Router } from 'express'
-import { requireAuth, getAuth, clerkClient } from '@clerk/express'
+import { requireAuth, getAuth } from '@clerk/express'
 import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
+import { fetchClerkEmail } from '../services/clerkEmail.js'
 
 const router = Router()
-
-// Best-effort fetch of the authenticated user's primary email from Clerk.
-// Returns null on any failure so the route still succeeds.
-async function fetchClerkEmail(clerkUserId) {
-  try {
-    const u = await clerkClient.users.getUser(clerkUserId)
-    return (
-      u?.primaryEmailAddress?.emailAddress ??
-      u?.emailAddresses?.[0]?.emailAddress ??
-      null
-    )
-  } catch (err) {
-    console.warn('[users/me] failed to fetch Clerk email:', err.message)
-    return null
-  }
-}
 
 // GET /api/users/me
 router.get('/me', requireAuth(), async (req, res, next) => {
