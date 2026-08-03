@@ -78,7 +78,17 @@ async function migrateTableOrgId(pool, tableName) {
           ALTER TABLE ${tableName} ADD COLUMN org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE;
         EXCEPTION WHEN duplicate_column THEN NULL;
         END;
-        EXECUTE format('UPDATE %I SET org_id = 1 WHERE org_id IS NULL ${extraWhere}', '${tableName}');
+        -- Written as a direct UPDATE rather than EXECUTE format('...'): the
+        -- predicate above contains its own quoted literals ('active',
+        -- 'pending_access'), and nesting those inside format()'s single-quoted
+        -- template terminated the string early — "syntax error at or near
+        -- active" — which threw out of this DO block and aborted the whole
+        -- migration partway through the TENANT_TABLES loop, skipping every
+        -- later table, all of 2F's indexes and 2G's triggers. The table name is
+        -- already interpolated directly on the ALTER above, and PL/pgSQL defers
+        -- planning until the branch actually runs, so the existence guard still
+        -- holds for environments where the table is absent.
+        UPDATE ${tableName} SET org_id = 1 WHERE org_id IS NULL ${extraWhere};
       END IF;
     END $$;
   `)
