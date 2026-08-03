@@ -481,6 +481,12 @@ export default function Settings() {
   const [fitbitSyncing, setFitbitSyncing] = useState(false)
   const [fitbitMessage, setFitbitMessage] = useState('')
   const [fitbitError, setFitbitError] = useState('')
+  // Google Calendar — one-way push of coach-assigned habits. Opt-in, and
+  // entirely independent of the Google Health connection above.
+  const [calendarStatus, setCalendarStatus] = useState({ connected: false, google_email: null, last_synced_at: null, last_sync_error: null, last_sync_error_at: null })
+  const [calendarLoading, setCalendarLoading] = useState(false)
+  const [calendarMessage, setCalendarMessage] = useState('')
+  const [calendarError, setCalendarError] = useState('')
   // Apple Health
   // isIos: NOTE — Capacitor.getPlatform() returns 'web' when the WebView loads a remote
   // server.url (production mode). Platform detection is handled INSIDE the hook itself.
@@ -539,6 +545,14 @@ export default function Settings() {
       setFitbitMessage('Google Health connected.')
       setFitbitError('')
     }
+    const calendarErrorParam = params.get('calendar_error')
+    if (calendarErrorParam) {
+      setCalendarError(`Google Calendar connection failed: ${calendarErrorParam}`)
+      setCalendarMessage('')
+    } else if (fitbitConnectedParam === 'calendar') {
+      setCalendarMessage('Google Calendar connected.')
+      setCalendarError('')
+    }
   }, [location.search, profile])
 
   useEffect(() => {
@@ -580,11 +594,12 @@ export default function Settings() {
           return
         }
 
-        const [photosRes, assessmentRes, measurementsRes, fitbitRes] = await Promise.all([
+        const [photosRes, assessmentRes, measurementsRes, fitbitRes, calendarRes] = await Promise.all([
           fetch(`${API_URL}/api/progress-photos`,       { headers: { Authorization: `Bearer ${token}` } }),
           fetch(`${API_URL}/api/health-assessment/me`,  { headers: { Authorization: `Bearer ${token}` } }),
           fetch(`${API_URL}/api/measurements`,          { headers: { Authorization: `Bearer ${token}` } }),
           fetch(`${API_URL}/api/fitbit/status`,         { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_URL}/api/calendar/status`,       { headers: { Authorization: `Bearer ${token}` } }),
         ])
         if (cancelled) return
         if (photosRes.ok) {
@@ -598,6 +613,7 @@ export default function Settings() {
         }
         if (measurementsRes.ok) setMeasurements(await measurementsRes.json())
         if (fitbitRes.ok) setFitbitStatus(await fitbitRes.json())
+        if (calendarRes.ok) setCalendarStatus(await calendarRes.json())
         if (assessmentRes.ok) {
           const aData = await assessmentRes.json()
           if (aData) {
@@ -1032,6 +1048,76 @@ export default function Settings() {
       setFitbitError(err.message)
     } finally {
       setFitbitLoading(false)
+    }
+  }
+
+  async function connectCalendar() {
+    setCalendarLoading(true)
+    setCalendarError('')
+    setCalendarMessage('')
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/calendar/connect`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.url) {
+        throw new Error(data.error ?? 'Unable to start Google Calendar connection')
+      }
+      if (Capacitor.isNativePlatform()) {
+        // Native Android: open OAuth in a Chrome Custom Tab so the Capacitor
+        // WebView is never navigated away from the bundled app at https://localhost.
+        // Same approach as the Google Health connect flow above.
+        const listener = await Browser.addListener('browserFinished', async () => {
+          listener.remove()
+          await refreshCalendarStatus()
+        })
+        await Browser.open({ url: data.url })
+      } else {
+        window.location.assign(data.url)
+      }
+    } catch (err) {
+      setCalendarError(err.message)
+      setCalendarLoading(false)
+    }
+  }
+
+  async function refreshCalendarStatus() {
+    setCalendarLoading(true)
+    setCalendarError('')
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/calendar/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error('Unable to load Google Calendar status')
+      setCalendarStatus(await res.json())
+    } catch (err) {
+      setCalendarError(err.message)
+    } finally {
+      setCalendarLoading(false)
+    }
+  }
+
+  async function disconnectCalendar() {
+    setCalendarLoading(true)
+    setCalendarError('')
+    setCalendarMessage('')
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/calendar/disconnect`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error ?? 'Google Calendar disconnect failed')
+      setCalendarStatus({ connected: false, google_email: null, last_synced_at: null, last_sync_error: null, last_sync_error_at: null })
+      setCalendarMessage('Google Calendar disconnected.')
+    } catch (err) {
+      setCalendarError(err.message)
+    } finally {
+      setCalendarLoading(false)
     }
   }
 
@@ -2181,6 +2267,102 @@ export default function Settings() {
                 </div>
               )
             ))}
+
+            {/* Google Calendar — one-way push of coach-assigned habits.
+                Opt-in and independent of the Google Health card above. */}
+            <div className="px-4 py-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex items-start gap-3 min-w-0">
+                  <span className="text-xl shrink-0">📅</span>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-medium text-gray-900">Google Calendar</p>
+                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                        calendarStatus.connected
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                          : 'bg-gray-100 text-gray-400'
+                      }`}>
+                        {calendarStatus.connected ? 'Google Calendar Connected' : 'Not connected'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Add the habits your coach assigns to your Google Calendar. We only add and
+                      update these events — we never read your calendar.
+                    </p>
+                    {calendarStatus.connected && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        {formatConnectedAt(calendarStatus.last_synced_at)
+                          ? `Last updated ${formatConnectedAt(calendarStatus.last_synced_at)}`
+                          : 'No habits added yet'}
+                      </p>
+                    )}
+                    {calendarStatus.connected && (
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {calendarStatus.google_email
+                          ? `Connected as ${calendarStatus.google_email}`
+                          : 'Connected Google account unknown — reconnect to confirm it’s the right one'}
+                      </p>
+                    )}
+                    {calendarStatus.connected && calendarStatus.last_sync_error && (
+                      <div className="mt-2 flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
+                        <span className="text-amber-500 shrink-0 leading-none" aria-hidden="true">⚠️</span>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-amber-800">
+                            We couldn’t update your Google Calendar. Try reconnecting.
+                          </p>
+                          <p className="text-[10px] text-amber-700/70 mt-0.5 break-words">
+                            {calendarStatus.last_sync_error}
+                            {formatConnectedAt(calendarStatus.last_sync_error_at) && ` · ${formatConnectedAt(calendarStatus.last_sync_error_at)}`}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 sm:justify-end">
+                  {calendarStatus.connected ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={connectCalendar}
+                        disabled={calendarLoading}
+                        title="Re-run Google sign-in — use this if the wrong Google account got connected"
+                        className="px-3 py-2 rounded-lg border border-gray-200 text-gray-600 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 transition-colors"
+                      >
+                        Reconnect
+                      </button>
+                      <button
+                        type="button"
+                        onClick={disconnectCalendar}
+                        disabled={calendarLoading}
+                        className="px-3 py-2 rounded-lg border border-gray-200 text-gray-600 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 transition-colors"
+                      >
+                        Disconnect
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={connectCalendar}
+                      disabled={calendarLoading}
+                      className="px-3 py-2 rounded-lg bg-[#1e2a3a] text-white text-xs font-semibold hover:bg-[#111827] disabled:opacity-60 transition-colors"
+                    >
+                      Connect Google Calendar
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={refreshCalendarStatus}
+                    disabled={calendarLoading}
+                    className="px-3 py-2 rounded-lg border border-gray-200 text-gray-500 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60 transition-colors"
+                  >
+                    Refresh
+                  </button>
+                </div>
+              </div>
+              {calendarMessage && <p className="text-xs text-emerald-600 mt-3">{calendarMessage}</p>}
+              {calendarError && <p className="text-xs text-red-500 mt-3">{calendarError}</p>}
+            </div>
           </div>
         </>
       ) : null}

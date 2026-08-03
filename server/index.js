@@ -35,6 +35,7 @@ import brainMappingCommentsRouter from './routes/brainMappingComments.js'
 import communityResourcesRouter from './routes/communityResources.js'
 import stripeRouter from './routes/stripe.js'
 import fitbitRouter from './routes/fitbit.js'
+import googleCalendarRouter from './routes/googleCalendar.js'
 import appleHealthRouter from './routes/appleHealth.js'
 import bloodworkRouter from './routes/bloodwork.js'
 import pushRouter from './routes/push.js'
@@ -117,6 +118,7 @@ app.use('/api/mindset-videos',        clerkMiddleware(), blockDeactivatedClients
 app.use('/api/brain-mapping-comments', clerkMiddleware(), blockDeactivatedClients, orgContext, requireAssessmentComplete, brainMappingCommentsRouter)
 app.use('/api/community-resources',   clerkMiddleware(), blockDeactivatedClients, orgContext, communityResourcesRouter)
 app.use('/api/fitbit',                clerkMiddleware(), blockDeactivatedClients, orgContext, requireAssessmentComplete, fitbitRouter)
+app.use('/api/calendar',              clerkMiddleware(), blockDeactivatedClients, orgContext, requireAssessmentComplete, googleCalendarRouter)
 app.use('/api/apple-health',          clerkMiddleware(), blockDeactivatedClients, orgContext, requireAssessmentComplete, appleHealthRouter)
 app.use('/api/bloodwork',             clerkMiddleware(), blockDeactivatedClients, orgContext, requireAssessmentComplete, bloodworkRouter)
 app.use('/api/push',                  clerkMiddleware(), blockDeactivatedClients, orgContext, pushRouter)
