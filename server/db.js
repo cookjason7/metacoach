@@ -1406,6 +1406,10 @@ export async function migrate() {
   ]) {
     try { await pool.query(idxSql) } catch (e) { console.warn('[migration] index skipped:', e.message) }
   }
+  // org_id is added below via TENANT_TABLES in 001_multi_tenancy.js (runs after
+  // this migrate() call, once the organizations table exists) rather than as a
+  // column here, so the existing-install path and the fresh-install path take
+  // the same code. Every route in routes/communityResources.js filters on it.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS community_resources (
       id            SERIAL PRIMARY KEY,
