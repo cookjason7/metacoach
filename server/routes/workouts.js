@@ -154,14 +154,19 @@ router.post('/', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
     const dbUserId = await getOrCreateUser(userId)
-    const { program_name, description, days } = req.body
+    const { program_name, description, days, requested_circuits } = req.body
 
     if (!program_name?.trim()) return res.status(400).json({ error: 'Program name required' })
     if (!Array.isArray(days) || !days.length) return res.status(400).json({ error: 'Days required' })
 
+    // requested_circuits: round-trips verbatim from the /generate response (see
+    // generateWorkoutPlan in workoutGenerator.js) through the client's plan-review
+    // state back into this save request — undefined/null for anything that didn't
+    // go through AI generation (e.g. a manually-built program).
     const { rows: [workout] } = await pool.query(
-      'INSERT INTO workouts (user_id, name, description, org_id) VALUES ($1, $2, $3, $4) RETURNING *',
-      [dbUserId, program_name.trim(), description ?? null, req.orgId],
+      `INSERT INTO workouts (user_id, name, description, org_id, requested_circuits)
+       VALUES ($1, $2, $3, $4, $5::jsonb) RETURNING *`,
+      [dbUserId, program_name.trim(), description ?? null, req.orgId, requested_circuits != null ? JSON.stringify(requested_circuits) : null],
     )
 
     for (const day of days) {

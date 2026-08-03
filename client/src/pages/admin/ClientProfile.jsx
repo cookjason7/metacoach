@@ -6765,10 +6765,11 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name:        generatedPlan.program_name,
-          description: generatedPlan.description,
-          days:        generatedPlan.days,
+          name:               generatedPlan.program_name,
+          description:        generatedPlan.description,
+          days:               generatedPlan.days,
           status,
+          requested_circuits: generatedPlan.requested_circuits ?? null,
         }),
       })
       if (!res.ok) throw new Error('Failed to save program')

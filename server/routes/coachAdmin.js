@@ -4136,7 +4136,7 @@ router.post('/clients/:id/workouts', requireAuth(), async (req, res, next) => {
     const ctx = await requireStaff(req, res); if (!ctx) return
     const clientId = parseInt(req.params.id, 10)
     if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
-    const { name, description, days, status } = req.body
+    const { name, description, days, status, requested_circuits } = req.body
     if (!name?.trim()) return res.status(400).json({ error: 'name required' })
     if (status && !['draft', 'assigned'].includes(status)) {
       return res.status(400).json({ error: 'status must be draft or assigned' })
@@ -4145,10 +4145,13 @@ router.post('/clients/:id/workouts', requireAuth(), async (req, res, next) => {
     // building a program for another org's client would otherwise stamp their
     // own org (1) onto it. canAccessClient() above already guarantees the
     // client is in ctx's org for everyone except super admin.
+    // requested_circuits: passed through from the /generate response by the
+    // client (see ClientProfile.jsx savePlan) — undefined/null for a manually-
+    // built program that never went through AI generation.
     const { rows: [workout] } = await pool.query(
-      `INSERT INTO workouts (user_id, name, description, status, org_id)
-       VALUES ($1,$2,$3,$4,(SELECT org_id FROM users WHERE id = $1)) RETURNING *`,
-      [clientId, name.trim(), description ?? null, status === 'draft' ? 'draft' : 'assigned'],
+      `INSERT INTO workouts (user_id, name, description, status, org_id, requested_circuits)
+       VALUES ($1,$2,$3,$4,(SELECT org_id FROM users WHERE id = $1),$5::jsonb) RETURNING *`,
+      [clientId, name.trim(), description ?? null, status === 'draft' ? 'draft' : 'assigned', requested_circuits != null ? JSON.stringify(requested_circuits) : null],
     )
     // If a full plan with days was provided (e.g. from Katie generation), save exercises too
     if (Array.isArray(days) && days.length > 0) {
