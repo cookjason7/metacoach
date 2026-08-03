@@ -479,7 +479,7 @@ function buildContextBlock(user, meals, logs, nutritionTotals = [], recentFoods 
 
   const logsText = logs.length
     ? logs.map(l =>
-        `  - ${l.logged_date}: ${l.water_oz ?? '?'} oz water, ${l.steps ?? '?'} steps, ${l.weight_lbs ?? '?'} lbs`
+        `  - ${l.logged_date}: ${l.water_oz ?? '?'} oz water, ${l.steps ?? '?'} steps, ${l.weight_lbs ?? '?'} lbs, ${l.sleep_minutes != null ? (l.sleep_minutes / 60).toFixed(1) : '?'} hrs sleep`
       ).join('\n')
     : '  None logged in the last 14 days'
 
@@ -664,7 +664,7 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
         [dbUserId],
       ),
       pool.query(
-        `SELECT logged_date, water_oz, steps, weight_lbs
+        `SELECT logged_date, water_oz, steps, weight_lbs, sleep_minutes
          FROM daily_logs
          WHERE user_id = $1 AND logged_date >= CURRENT_DATE - INTERVAL '14 days'
          ORDER BY logged_date DESC`,
