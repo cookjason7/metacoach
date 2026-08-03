@@ -23,22 +23,64 @@ async function fetchClerkEmail(clerkUserId) {
 
 const router = Router()
 
+/**
+ * A non-null `accepted_at` does NOT by itself mean the invite was consumed by
+ * someone else. `client_invites.accepted_at` has three writers, and only one of
+ * them is this file's explicit accept route:
+ *
+ *   1. claimInvite() via POST /:token/accept below — the intended path.
+ *   2. getOrCreateUser()'s auto-claim (server/db.js, both the new-user and the
+ *      pending_access branches) — fires as a side effect of the invited person's
+ *      FIRST authenticated request, which happens *before* this route's own
+ *      claimInvite() call ever runs.
+ *   3. server/routes/healthAssessment.js's auto-close on assessment submission.
+ *
+ * So if writer #2 lands and the request is then interrupted (Clerk lookup
+ * timeout in fetchClerkEmail, navigation away, network drop), the invite is left
+ * stamped accepted while its rightful owner never got through — and every later
+ * visit to their own link 410'd forever, with no recovery path. That is the bug
+ * this guard fixes: it is the consumption layer that has to tolerate a claim it
+ * may have made itself, rather than the writers being made stricter.
+ *
+ * Only a claim held by a demonstrably DIFFERENT email is genuinely invalid.
+ * Anything not positively attributable to another person (no accepted_by_user_id,
+ * a deleted claimant row, a blank email) is treated as self-claimed and allowed
+ * through — the accept route still runs its own email-match check before
+ * applying anything, so a real mismatch is caught there with a clearer 403.
+ */
+async function isClaimedByDifferentEmail(invite) {
+  if (!invite.accepted_by_user_id) return false
+  const { rows } = await pool.query(
+    'SELECT email FROM users WHERE id = $1',
+    [invite.accepted_by_user_id],
+  )
+  const claimantEmail = (rows[0]?.email ?? '').trim().toLowerCase()
+  if (!claimantEmail) return false
+  return claimantEmail !== (invite.email ?? '').trim().toLowerCase()
+}
+
 // GET /api/client-invites/:token — public, no auth required
-// Returns invite details if token is valid and not yet accepted/expired.
+// Returns invite details if the token is valid and still usable by its owner —
+// see isClaimedByDifferentEmail for why "already accepted" is not the same as
+// "accepted_at is set".
 router.get('/:token', async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT token, email, first_name, last_name, coaching_type, expires_at, accepted_at
+      `SELECT token, email, first_name, last_name, coaching_type, expires_at, accepted_at, accepted_by_user_id
        FROM client_invites WHERE token = $1`,
       [req.params.token],
     )
     if (!rows.length) return res.status(404).json({ error: 'Invite not found. The link may be invalid.' })
 
     const invite = rows[0]
-    if (invite.accepted_at) {
+    const alreadyClaimed = !!invite.accepted_at
+    if (alreadyClaimed && await isClaimedByDifferentEmail(invite)) {
       return res.status(410).json({ error: 'This invite has already been accepted.' })
     }
-    if (invite.expires_at && new Date() > new Date(invite.expires_at)) {
+    // Expiry only bars an invite nobody has claimed yet. Once the invited person
+    // has claimed it their account is already provisioned (claimInvite ran), so
+    // lapsing afterwards must not lock them out of their own link a second time.
+    if (!alreadyClaimed && invite.expires_at && new Date() > new Date(invite.expires_at)) {
       return res.status(410).json({ error: 'This invite has expired. Please contact your coach.' })
     }
 
@@ -64,10 +106,13 @@ router.post('/:token/accept', requireAuth(), async (req, res, next) => {
     if (!inviteRows.length) return res.status(404).json({ error: 'Invite not found.' })
 
     const invite = inviteRows[0]
-    if (invite.accepted_at) {
+    // See isClaimedByDifferentEmail: accepted_at may well have been stamped by
+    // this very user's own auto-claim moments ago, before this request ran.
+    const alreadyClaimed = !!invite.accepted_at
+    if (alreadyClaimed && await isClaimedByDifferentEmail(invite)) {
       return res.status(410).json({ error: 'This invite has already been accepted.' })
     }
-    if (invite.expires_at && new Date() > new Date(invite.expires_at)) {
+    if (!alreadyClaimed && invite.expires_at && new Date() > new Date(invite.expires_at)) {
       return res.status(410).json({ error: 'This invite has expired. Please contact your coach.' })
     }
 
@@ -82,7 +127,7 @@ router.post('/:token/accept', requireAuth(), async (req, res, next) => {
     // Email must match — prevent invite hijacking.
     // Trust the Clerk-verified email; fall back to the DB email if Clerk lookup failed.
     const { rows: userRows } = await pool.query(
-      'SELECT id, email, role FROM users WHERE id = $1',
+      'SELECT id, email, role, assessment_complete, client_status FROM users WHERE id = $1',
       [dbUserId],
     )
     const resolvedEmail = (clerkEmail ?? userRows[0]?.email ?? '').trim().toLowerCase()
@@ -101,9 +146,34 @@ router.post('/:token/accept', requireAuth(), async (req, res, next) => {
       })
     }
 
+    // Never let an invite link reinstate a removed account. claimInvite() below
+    // sets paid = TRUE and client_status = 'invited', so re-claiming would quietly
+    // undo an admin's deactivate/delete. This mattered less while a claimed invite
+    // always 410'd above; now that the owner can reach their own claimed link, an
+    // explicit guard is required rather than relying on the assessment_complete
+    // short-circuit below happening to cover it.
+    const removedStatus = userRows[0]?.client_status
+    if (removedStatus === 'deleted' || removedStatus === 'deactivated') {
+      return res.status(403).json({
+        error: 'This account is no longer active. Please contact your coach to be reinstated.',
+      })
+    }
+
+    // Past this point the caller is provably the invited person (email matched),
+    // so an already-claimed invite is theirs. If they have ALSO already finished
+    // their health assessment they're a fully onboarded client revisiting an old
+    // link — re-running claimInvite would reset assessment_complete to FALSE and
+    // client_status back to 'invited', rewinding them into onboarding. Send them
+    // in instead. Only reachable now that a self-claim no longer 410s above.
+    if (alreadyClaimed && userRows[0]?.assessment_complete) {
+      return res.json({ ok: true, redirect_to: '/dashboard' })
+    }
+
     // Update user profile from invite data and mark the invite accepted.
     // Shared with the email-match auto-claim in getOrCreateUser() so both paths
-    // leave the user in identical state.
+    // leave the user in identical state. Safe to re-run for a self-claimed
+    // invite: every column it writes is derived from the invite row, so a repeat
+    // application is idempotent.
     await claimInvite(pool, invite, dbUserId)
 
     res.json({ ok: true, redirect_to: '/health-assessment' })
