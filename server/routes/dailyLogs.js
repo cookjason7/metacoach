@@ -81,7 +81,7 @@ router.get('/progress', requireAuth(), async (req, res, next) => {
 
     const md = `COALESCE(log_date, logged_at::date)`
 
-    const [sumR, wtR, stpR, slpR, macR, waterR, photoR] = await Promise.all([
+    const [sumR, wtR, stpR, slpR, macR, waterR, cbR, photoR] = await Promise.all([
       pool.query(`
         SELECT
           (SELECT ROUND(weight_lbs::numeric,1) FROM daily_logs WHERE user_id=$1
@@ -105,6 +105,8 @@ router.get('/progress', requireAuth(), async (req, res, next) => {
              AND water_oz IS NOT NULL AND logged_date BETWEEN $2::date AND $3::date) AS avg_water_oz,
           (SELECT ROUND(AVG(sleep_minutes)) FROM daily_logs WHERE user_id=$1
              AND sleep_minutes IS NOT NULL AND logged_date BETWEEN $2::date AND $3::date) AS avg_sleep_minutes,
+          (SELECT ROUND(AVG(calories_burned)) FROM daily_logs WHERE user_id=$1
+             AND calories_burned IS NOT NULL AND logged_date BETWEEN $2::date AND $3::date) AS avg_calories_burned,
           (SELECT COUNT(*)::int FROM workout_logs WHERE user_id=$1
              AND completed_at::date BETWEEN $2::date AND $3::date) AS workouts_completed,
           (SELECT COUNT(*)::int FROM activity_logs WHERE user_id=$1
@@ -154,6 +156,13 @@ router.get('/progress', requireAuth(), async (req, res, next) => {
       `, [dbUserId, startDate, endDate]),
 
       pool.query(`
+        SELECT logged_date AS date, calories_burned AS value
+        FROM daily_logs WHERE user_id=$1 AND calories_burned IS NOT NULL
+          AND logged_date BETWEEN $2::date AND $3::date
+        ORDER BY logged_date
+      `, [dbUserId, startDate, endDate]),
+
+      pool.query(`
         SELECT photo_session_id AS session_id, MIN(taken_at) AS session_date,
           json_agg(json_build_object(
             'id', id, 'photo_url', photo_url, 'angle', angle, 'taken_at', taken_at
@@ -192,6 +201,7 @@ router.get('/progress', requireAuth(), async (req, res, next) => {
       sleep_series:    slpR.rows,
       macro_series:    macR.rows,
       water_series:    waterR.rows,
+      calories_burned_series: cbR.rows,
       progress_photos: photoSessions,
     })
   } catch (err) {

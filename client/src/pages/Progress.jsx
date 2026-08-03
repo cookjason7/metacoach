@@ -692,6 +692,9 @@ export default function Progress() {
       case 'steps':
         return <ChartCard title="Daily Steps" data={data?.step_series} fmtVal={v => fmtNum(v)}
           rangeStart={effectiveStart} rangeEnd={effectiveEnd} quickLogMetric="steps" />
+      case 'calories_burned':
+        return <ChartCard title="Calories Burned" data={data?.calories_burned_series} fmtVal={v => `${fmtNum(v)} cal`}
+          rangeStart={effectiveStart} rangeEnd={effectiveEnd} />
       case 'sleep':
         return <ChartCard title="Sleep" data={data?.sleep_series} fmtVal={v => fmtSleep(v)}
           rangeStart={effectiveStart} rangeEnd={effectiveEnd} quickLogMetric="sleep" />
@@ -752,7 +755,7 @@ export default function Progress() {
   }
 
   const DETAIL_LABELS = {
-    weight: 'Weight', steps: 'Steps', sleep: 'Sleep',
+    weight: 'Weight', steps: 'Steps', calories_burned: 'Calories Burned', sleep: 'Sleep',
     calories: 'Calories', protein: 'Protein', water: 'Water',
     activity: 'Activity', measurements: 'Measurements', photos: 'Progress Photos',
   }
@@ -786,7 +789,7 @@ export default function Progress() {
 
       {loading && (
         <div className="grid grid-cols-2 gap-3 mb-4">
-          {[...Array(6)].map((_, i) => (
+          {[...Array(7)].map((_, i) => (
             <div key={i} className="bg-white rounded-2xl border border-gray-200 p-4 h-24 animate-pulse">
               <div className="h-2.5 bg-gray-100 rounded w-14 mb-3" />
               <div className="h-6 bg-gray-100 rounded w-20" />
@@ -827,6 +830,12 @@ export default function Progress() {
                   value={fmtNum(s.avg_steps)}
                   sub="avg / day"
                   onClick={() => setSelectedMetric('steps')}
+                />
+                <MetricCard
+                  label="Cal Burned"
+                  value={fmtNum(s.avg_calories_burned)}
+                  sub="avg / day"
+                  onClick={() => setSelectedMetric('calories_burned')}
                 />
                 <MetricCard
                   label="Sleep"
