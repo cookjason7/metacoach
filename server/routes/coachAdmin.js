@@ -1677,7 +1677,7 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
               end.setUTCDate(end.getUTCDate() + 6)
               return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}-${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}`
             })()
-            : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+            : d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
         return r
       })
 
