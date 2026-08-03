@@ -37,13 +37,6 @@ router.post('/app-load-debug', (req, res) => {
   res.json({ ok: true, stored: true })
 })
 
-// GET /api/push/app-load-debug/recent — returns last 25 stored events.
-// TEMPORARY: unauthenticated because it contains no tokens, emails, or names.
-// Remove this route after Android push debugging is complete.
-router.get('/app-load-debug/recent', (req, res) => {
-  res.json({ ok: true, count: appLoadEvents.length, events: [...appLoadEvents].reverse() })
-})
-
 // POST /api/push/register — store a device token for the authenticated user
 // Body: { token: string, platform?: 'android' | 'ios' | 'web' }
 router.post('/register', requireAuth(), async (req, res, next) => {
@@ -98,13 +91,6 @@ router.post('/debug', requireAuth(), async (req, res, next) => {
 
     res.status(204).end()
   } catch (err) { next(err) }
-})
-
-// GET /api/push/debug/recent — returns last 100 stored push-registration step events.
-// TEMPORARY: unauthenticated, same as /app-load-debug/recent — contains no tokens,
-// emails, or names, only internal numeric user ids. Remove once push debugging is complete.
-router.get('/debug/recent', (req, res) => {
-  res.json({ ok: true, count: pushDebugEvents.length, events: [...pushDebugEvents].reverse() })
 })
 
 // POST /api/push/unregister — remove a device token for the authenticated user
