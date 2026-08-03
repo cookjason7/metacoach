@@ -560,6 +560,10 @@ export default function Dashboard() {
   const headerLabel = isToday
     ? 'Today'
     : selectedDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const selectedDayOfWeek = selectedDateObj.getDay()
+  const isWeekend = selectedDayOfWeek === 0 || selectedDayOfWeek === 6
+  const weekdayAbbrev = selectedDateObj.toLocaleDateString('en-US', { weekday: 'short' })
+  const numericDate = selectedDateObj.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
 
   // Staff → coaching dashboard (also covers 'va', a scoped onboarding-only role)
   if (!loading && (userProfile?.role === 'admin' || userProfile?.role === 'account_owner' || userProfile?.role === 'coach' || userProfile?.role === 'staff' || userProfile?.role === 'va')) {
@@ -605,8 +609,11 @@ export default function Dashboard() {
               </button>
             )}
           </div>
-          <p className="text-sm text-gray-400 mt-0.5">
-            {selectedDateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+          <p className="text-sm mt-0.5">
+            <span className={`block font-semibold ${isWeekend ? 'text-[#f97316]' : 'text-gray-500'}`}>
+              {weekdayAbbrev}
+            </span>
+            <span className="text-gray-400">{numericDate}</span>
           </p>
           {!isToday && (
             <button
