@@ -51,6 +51,7 @@ const TENANT_TABLES = [
   'resources',
   'staff_channels',
   'community_resources',
+  'macro_target_history',
 ]
 
 // Extra backfill predicates, by table. The org_id = 1 backfill below re-runs on

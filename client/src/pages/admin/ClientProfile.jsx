@@ -907,6 +907,96 @@ function NutritionTargetsCard({ client, getToken, onUpdate }) {
   )
 }
 
+// ─── Target History Panel (coach/admin, read-only audit log) ─────────────────
+
+const TARGET_HISTORY_FIELDS = [
+  { key: 'goal_calories', label: 'Cal',     unit: 'kcal' },
+  { key: 'goal_protein',  label: 'Protein', unit: 'g' },
+  { key: 'goal_carbs',    label: 'Carbs',   unit: 'g' },
+  { key: 'goal_fat',      label: 'Fat',     unit: 'g' },
+  { key: 'goal_fiber',    label: 'Fiber',   unit: 'g' },
+  { key: 'goal_water',    label: 'Water',   unit: 'oz' },
+]
+
+function TargetHistoryPanel({ client, getToken }) {
+  const [open, setOpen] = useState(false)
+  const [history, setHistory] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    if (!open || loaded) return
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/admin/users/${client.id}/macro-history`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.ok && !cancelled) { setHistory(await res.json()); setLoaded(true) }
+      } catch {}
+      if (!cancelled) setLoading(false)
+    }
+    load()
+    return () => { cancelled = true }
+  }, [open, loaded, client.id, getToken])
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-gray-50 transition-colors">
+        <div>
+          <p className="text-sm font-semibold text-gray-800">Target History</p>
+          <p className="text-xs text-gray-400 mt-0.5">Past changes to this client's macro targets</p>
+        </div>
+        <span className="text-gray-400 text-sm ml-3">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="border-t border-gray-100 px-5 pb-5 pt-3">
+          {loading && <p className="text-xs text-gray-400 text-center py-4">Loading…</p>}
+          {!loading && loaded && history.length === 0 && (
+            <p className="text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg px-3 py-2">
+              No target changes recorded yet.
+            </p>
+          )}
+          {!loading && history.length > 0 && (
+            <div className="overflow-x-auto -mx-4 px-4">
+              <table className="w-full text-xs min-w-[560px]">
+                <thead>
+                  <tr className="bg-gray-50 text-gray-500 text-[10px] uppercase tracking-wide">
+                    <th className="px-3 py-2 text-left font-semibold">Date</th>
+                    {TARGET_HISTORY_FIELDS.map(({ key, label }) => (
+                      <th key={key} className="px-3 py-2 text-right font-semibold">{label}</th>
+                    ))}
+                    <th className="px-3 py-2 text-left font-semibold">Changed by</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {history.map((h, i) => (
+                    <tr key={h.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}>
+                      <td className="px-3 py-2 text-gray-700 font-medium whitespace-nowrap">
+                        {new Date(h.changed_at).toLocaleString()}
+                      </td>
+                      {TARGET_HISTORY_FIELDS.map(({ key, unit }) => (
+                        <td key={key} className="px-3 py-2 text-right text-gray-600 tabular-nums">
+                          {h[key] != null ? `${h[key]} ${unit}` : '—'}
+                        </td>
+                      ))}
+                      <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{h.changed_by_name ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Food Log Section (coach view) ───────────────────────────────────────────
 
 const SLOT_DISPLAY_ORDER = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
@@ -1654,6 +1744,9 @@ function NutritionTab({ client, clientId, getToken, onUpdate }) {
 
       {/* 3. Nutrition Targets */}
       <NutritionTargetsCard client={client} getToken={getToken} onUpdate={onUpdate} />
+
+      {/* 3b. Target History (audit log, staff-only) */}
+      <TargetHistoryPanel client={client} getToken={getToken} />
 
       {/* 4. Selected Day Summary */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">

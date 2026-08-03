@@ -126,12 +126,71 @@ router.patch('/users/:id/macros', requireAuth(), async (req, res, next) => {
     }
     if (!setClauses.length) return res.status(400).json({ error: 'No fields provided' })
     params.push(targetId)
+
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      const { rows } = await client.query(`
+        UPDATE users SET ${setClauses.join(', ')}
+        WHERE id = $${params.length}
+        RETURNING id, first_name, goal_calories, goal_protein, goal_carbs, goal_fat, goal_fiber, goal_water
+      `, params)
+      const updated = rows[0]
+      // One snapshot row per PATCH call capturing the full macro state after this
+      // update (not one row per changed field) — coach-visible audit log only.
+      await client.query(`
+        INSERT INTO macro_target_history
+          (user_id, org_id, goal_calories, goal_protein, goal_carbs, goal_fat, goal_fiber, goal_water, changed_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `, [
+        targetId, clientRows[0].org_id,
+        updated.goal_calories, updated.goal_protein, updated.goal_carbs,
+        updated.goal_fat, updated.goal_fiber, updated.goal_water,
+        ctx.dbUserId,
+      ])
+      await client.query('COMMIT')
+      res.json(updated)
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
+  } catch (err) {
+    next(err)
+  }
+})
+
+// GET /api/admin/users/:id/macro-history  (admin or assigned coach)
+router.get('/users/:id/macro-history', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await getCallerCtx(req)
+    const targetId = parseInt(req.params.id, 10)
+
+    // Target must be in the caller's own org unless the caller is the true super admin.
+    const { rows: clientRows } = await pool.query('SELECT org_id, assigned_coach_id FROM users WHERE id = $1', [targetId])
+    if (!clientRows.length) return res.status(404).json({ error: 'User not found' })
+    if (!isSuperAdmin(ctx) && clientRows[0].org_id !== ctx.orgId) {
+      return res.status(404).json({ error: 'User not found' })
+    }
+
+    // Allow admin, or the coach assigned to this specific client
+    if (!isAdminRole(ctx.role)) {
+      if (clientRows[0].assigned_coach_id !== ctx.dbUserId) {
+        return res.status(403).json({ error: 'Not authorized' })
+      }
+    }
+
     const { rows } = await pool.query(`
-      UPDATE users SET ${setClauses.join(', ')}
-      WHERE id = $${params.length}
-      RETURNING id, first_name, goal_calories, goal_protein, goal_carbs, goal_fat, goal_fiber, goal_water
-    `, params)
-    res.json(rows[0])
+      SELECT mth.id, mth.goal_calories, mth.goal_protein, mth.goal_carbs, mth.goal_fat,
+             mth.goal_fiber, mth.goal_water, mth.changed_at,
+             NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), '') AS changed_by_name
+      FROM macro_target_history mth
+      LEFT JOIN users u ON u.id = mth.changed_by
+      WHERE mth.user_id = $1
+      ORDER BY mth.changed_at DESC
+    `, [targetId])
+    res.json(rows)
   } catch (err) {
     next(err)
   }
