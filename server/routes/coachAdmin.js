@@ -1863,12 +1863,12 @@ router.post('/clients/:id/weight', requireAuth(), async (req, res, next) => {
     const w = Math.round(Number(weight_lbs) * 10) / 10
 
     const { rows } = await pool.query(`
-      INSERT INTO daily_logs (user_id, logged_date, weight_lbs)
-      VALUES ($1, $2::date, $3)
+      INSERT INTO daily_logs (user_id, logged_date, weight_lbs, org_id)
+      VALUES ($1, $2::date, $3, $4)
       ON CONFLICT (user_id, logged_date)
       DO UPDATE SET weight_lbs = EXCLUDED.weight_lbs
       RETURNING logged_date, weight_lbs
-    `, [id, date, w])
+    `, [id, date, w, ctx.orgId])
 
     res.json(rows[0])
   } catch (err) { next(err) }
@@ -2233,8 +2233,8 @@ router.post('/clients/:id/habits', requireAuth(), async (req, res, next) => {
     const { rows } = await pool.query(`
       INSERT INTO coach_assigned_habits
         (user_id, assigned_by_user_id, habit_name, habit_type, target_value, unit,
-         frequency, start_date, end_date, days_of_week, notes, identity_category)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         frequency, start_date, end_date, days_of_week, notes, identity_category, org_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *
     `, [
       id, ctx.dbUserId,
@@ -2245,6 +2245,7 @@ router.post('/clients/:id/habits', requireAuth(), async (req, res, next) => {
       days_of_week ?? null,
       notes?.trim() || null,
       identity_category ?? null,
+      ctx.orgId,
     ])
     res.status(201).json(rows[0])
   } catch (err) { next(err) }
@@ -2434,9 +2435,9 @@ router.post('/clients/:id/notes', requireAuth(), async (req, res, next) => {
       : visibility
 
     const { rows } = await pool.query(`
-      INSERT INTO client_notes (client_id, author_id, note_body, visibility)
-      VALUES ($1, $2, $3, $4) RETURNING *
-    `, [id, ctx.dbUserId, note_body.trim(), finalVisibility])
+      INSERT INTO client_notes (client_id, author_id, note_body, visibility, org_id)
+      VALUES ($1, $2, $3, $4, $5) RETURNING *
+    `, [id, ctx.dbUserId, note_body.trim(), finalVisibility, ctx.orgId])
     res.status(201).json(rows[0])
   } catch (err) { next(err) }
 })
@@ -2777,9 +2778,9 @@ router.post('/clients/:id/messages', requireAuth(), async (req, res, next) => {
 
     const { rows } = await pool.query(`
       INSERT INTO client_messages
-        (client_id, sender_id, sender_role, message_body, thread_type, visibility, image_url, audio_url)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *
-    `, [id, ctx.dbUserId, ctx.role, message_body.trim(), canonicalThreadType, visibility, image_url ?? null, audio_url ?? null])
+        (client_id, sender_id, sender_role, message_body, thread_type, visibility, image_url, audio_url, org_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *
+    `, [id, ctx.dbUserId, ctx.role, message_body.trim(), canonicalThreadType, visibility, image_url ?? null, audio_url ?? null, ctx.orgId])
 
     // Push: notify the client — fire-and-forget
     notifyNewDirectMessage(id).catch(() => {})
@@ -2833,9 +2834,9 @@ router.post('/messages/bulk', requireAuth(), async (req, res, next) => {
 
         await pool.query(`
           INSERT INTO client_messages
-            (client_id, sender_id, sender_role, message_body, thread_type, visibility)
-          VALUES ($1, $2, $3, $4, $5, $6)
-        `, [clientId, ctx.dbUserId, ctx.role, trimmedBody, canonicalThreadType, visibility])
+            (client_id, sender_id, sender_role, message_body, thread_type, visibility, org_id)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `, [clientId, ctx.dbUserId, ctx.role, trimmedBody, canonicalThreadType, visibility, ctx.orgId])
 
         notifyNewDirectMessage(clientId).catch(() => {})
         sent++
@@ -3139,9 +3140,9 @@ router.post('/clients/:id/comeback', requireAuth(), async (req, res, next) => {
     const { gap_start_date, gap_end_date, comeback_date, comeback_type = 'returned_to_logging' } = req.body
     if (!comeback_date) return res.status(400).json({ error: 'comeback_date required' })
     const { rows } = await pool.query(`
-      INSERT INTO comeback_events (user_id, gap_start_date, gap_end_date, comeback_date, comeback_type)
-      VALUES ($1, $2, $3, $4, $5) RETURNING *
-    `, [id, gap_start_date ?? null, gap_end_date ?? null, comeback_date, comeback_type])
+      INSERT INTO comeback_events (user_id, gap_start_date, gap_end_date, comeback_date, comeback_type, org_id)
+      VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
+    `, [id, gap_start_date ?? null, gap_end_date ?? null, comeback_date, comeback_type, ctx.orgId])
     res.status(201).json(rows[0])
   } catch (err) { next(err) }
 })
@@ -3540,10 +3541,10 @@ router.post('/forms/:id/send', requireAuth(), async (req, res, next) => {
 
       const { rows: [message] } = await pool.query(`
         INSERT INTO client_messages
-          (client_id, sender_id, sender_role, message_body, thread_type, visibility, metadata)
-        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+          (client_id, sender_id, sender_role, message_body, thread_type, visibility, metadata, org_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
         RETURNING id, metadata
-      `, [clientId, ctx.dbUserId, ctx.role, messageBody, thread_type, visibility, JSON.stringify(metadata)])
+      `, [clientId, ctx.dbUserId, ctx.role, messageBody, thread_type, visibility, JSON.stringify(metadata), ctx.orgId])
 
       console.log('[formSend] message inserted', {
         message_id: message.id,

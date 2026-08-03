@@ -253,10 +253,10 @@ export async function processFormSchedules() {
       } else {
       const { rows: [message] } = await pool.query(`
         INSERT INTO client_messages
-          (client_id, sender_id, sender_role, message_body, thread_type, visibility, metadata)
-        VALUES ($1, $2, 'admin', $3, $4, $5, $6::jsonb)
+          (client_id, sender_id, sender_role, message_body, thread_type, visibility, metadata, org_id)
+        VALUES ($1, $2, 'admin', $3, $4, $5, $6::jsonb, $7)
         RETURNING id, metadata
-      `, [fa.client_id, fa.assigned_by, messageBody, thread_type, visibility, JSON.stringify(metadata)])
+      `, [fa.client_id, fa.assigned_by, messageBody, thread_type, visibility, JSON.stringify(metadata), fa.org_id])
       console.log('[formScheduler] message inserted', {
         message_id: message.id,
         schedule_assignment_id: fa.id,
