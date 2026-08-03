@@ -139,10 +139,23 @@ router.patch('/users/:id/macros', requireAuth(), async (req, res, next) => {
 
 // ── Coach Foods ───────────────────────────────────────────────────────────────
 
+// Org-scoping note: custom_foods rows in this section (is_global = TRUE AND
+// is_coach_food = TRUE) previously had no org_id filter anywhere — any org's
+// coach/staff could list, create, edit, or deactivate every other org's
+// coach-food library. custom_foods already has org_id (see customFoods.js);
+// closed below with the same isSuperAdmin(ctx)/org_id-filter pattern used
+// there and in mindsetVideos.js. getCoachFood() itself stays unfiltered: it's
+// only ever called with an id that has already passed an org check in the
+// query above it (a freshly-inserted row, or a row a WHERE org_id = $n query
+// just matched), never with a raw caller-supplied id.
+
 // GET /api/admin/coach-foods — list all admin-curated coach foods (active first)
 router.get('/coach-foods', requireAuth(), async (req, res, next) => {
   try {
-    if (await requireStaff(req, res) === null) return
+    const ctx = await requireStaff(req, res)
+    if (!ctx) return
+    const bypassOrg = isSuperAdmin(ctx)
+    const orgFilter = bypassOrg ? '' : ` AND cf.org_id = $1`
     const { rows } = await pool.query(`
       SELECT cf.id, cf.food_name, cf.calories_per_serving, cf.protein, cf.carbs, cf.fat, cf.fiber,
              cf.sugar, cf.sodium_mg,
@@ -152,9 +165,9 @@ router.get('/coach-foods', requireAuth(), async (req, res, next) => {
              u.first_name AS created_by_name
       FROM custom_foods cf
       LEFT JOIN users u ON u.id = cf.created_by
-      WHERE cf.is_global = TRUE AND cf.is_coach_food = TRUE
+      WHERE cf.is_global = TRUE AND cf.is_coach_food = TRUE${orgFilter}
       ORDER BY COALESCE(cf.is_active, TRUE) DESC, cf.food_name ASC
-    `)
+    `, bypassOrg ? [] : [ctx.orgId])
     res.json(rows)
   } catch (err) { next(err) }
 })
@@ -174,8 +187,8 @@ router.post('/coach-foods', requireAuth(), async (req, res, next) => {
     const { rows } = await pool.query(`
       INSERT INTO custom_foods
         (is_global, is_coach_food, is_active, food_name, calories_per_serving, protein, carbs, fat, fiber,
-         sugar, sodium_mg, serving_size, serving_unit, notes, created_by, review_status)
-      VALUES (TRUE, TRUE, TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'approved')
+         sugar, sodium_mg, serving_size, serving_unit, notes, created_by, review_status, org_id)
+      VALUES (TRUE, TRUE, TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'approved', $13)
       RETURNING id
     `, [
       food_name.trim(),
@@ -189,6 +202,7 @@ router.post('/coach-foods', requireAuth(), async (req, res, next) => {
       ss, su,
       notes?.trim() || null,
       callerId,
+      ctx.orgId,
     ])
     res.status(201).json(await getCoachFood(rows[0].id))
   } catch (err) { next(err) }
@@ -197,7 +211,8 @@ router.post('/coach-foods', requireAuth(), async (req, res, next) => {
 // PATCH /api/admin/coach-foods/:id — update any fields on a coach food
 router.patch('/coach-foods/:id', requireAuth(), async (req, res, next) => {
   try {
-    if (await requireStaff(req, res) === null) return
+    const ctx = await requireStaff(req, res)
+    if (!ctx) return
     const id = parseInt(req.params.id, 10)
     const { food_name, calories, protein, carbs, fat, fiber, sugar, sodium_mg, serving_size, serving_unit, notes, is_active } = req.body
 
@@ -221,10 +236,19 @@ router.patch('/coach-foods/:id', requireAuth(), async (req, res, next) => {
     if (!sets.length) return res.status(400).json({ error: 'No fields to update' })
 
     params.push(id)
+    const idParamIndex = params.length
+
+    const bypassOrg = isSuperAdmin(ctx)
+    let orgFilter = ''
+    if (!bypassOrg) {
+      params.push(ctx.orgId)
+      orgFilter = ` AND org_id = $${params.length}`
+    }
+
     const { rows } = await pool.query(`
       UPDATE custom_foods
       SET ${sets.join(', ')}, updated_at = NOW()
-      WHERE id = $${params.length} AND is_global = TRUE AND is_coach_food = TRUE
+      WHERE id = $${idParamIndex} AND is_global = TRUE AND is_coach_food = TRUE${orgFilter}
       RETURNING id
     `, params)
     if (!rows.length) return res.status(404).json({ error: 'Coach food not found' })
@@ -235,14 +259,17 @@ router.patch('/coach-foods/:id', requireAuth(), async (req, res, next) => {
 // DELETE /api/admin/coach-foods/:id — remove a coach food
 router.delete('/coach-foods/:id', requireAuth(), async (req, res, next) => {
   try {
-    if (await requireStaff(req, res) === null) return
+    const ctx = await requireStaff(req, res)
+    if (!ctx) return
     const id = parseInt(req.params.id, 10)
+    const bypassOrg = isSuperAdmin(ctx)
+    const orgFilter = bypassOrg ? '' : ` AND org_id = $2`
     const { rows } = await pool.query(
       `UPDATE custom_foods
        SET is_active = FALSE, updated_at = NOW()
-       WHERE id = $1 AND is_global = TRUE AND is_coach_food = TRUE
+       WHERE id = $1 AND is_global = TRUE AND is_coach_food = TRUE${orgFilter}
        RETURNING id`,
-      [id],
+      bypassOrg ? [id] : [id, ctx.orgId],
     )
     if (!rows.length) return res.status(404).json({ error: 'Coach food not found' })
     res.json(await getCoachFood(rows[0].id))
