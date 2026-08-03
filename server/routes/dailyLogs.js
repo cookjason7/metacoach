@@ -12,7 +12,7 @@ router.get('/today', requireAuth(), async (req, res, next) => {
     const { date } = req.query
 
     const { rows } = await pool.query(
-      `SELECT dl.water_oz, dl.steps, dl.weight_lbs, dl.sleep_minutes,
+      `SELECT dl.water_oz, dl.steps, dl.weight_lbs, dl.sleep_minutes, dl.calories_burned,
               dl.weight_note, dl.water_note, dl.sleep_note
        FROM daily_logs dl
        JOIN users u ON u.id = dl.user_id
@@ -23,7 +23,7 @@ router.get('/today', requireAuth(), async (req, res, next) => {
 
     res.set('Cache-Control', 'no-store')
     res.json(rows[0] ?? {
-      water_oz: null, steps: null, weight_lbs: null, sleep_minutes: null,
+      water_oz: null, steps: null, weight_lbs: null, sleep_minutes: null, calories_burned: null,
       weight_note: null, water_note: null, sleep_note: null,
     })
   } catch (err) {

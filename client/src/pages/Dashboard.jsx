@@ -283,12 +283,13 @@ function StatPill({ icon, label, value, note }) {
 }
 
 function TodayStatsStrip({ todayLog, label, onStepBack }) {
-  const steps   = todayLog?.steps       != null ? todayLog.steps       : null
-  const sleep   = todayLog?.sleep_minutes != null ? fmtSleepMins(todayLog.sleep_minutes) : null
-  const water   = todayLog?.water_oz    != null ? `${todayLog.water_oz} oz` : null
-  const weight  = todayLog?.weight_lbs  != null ? `${todayLog.weight_lbs} lb` : null
+  const steps    = todayLog?.steps           != null ? todayLog.steps           : null
+  const sleep    = todayLog?.sleep_minutes   != null ? fmtSleepMins(todayLog.sleep_minutes) : null
+  const water    = todayLog?.water_oz        != null ? `${todayLog.water_oz} oz` : null
+  const weight   = todayLog?.weight_lbs      != null ? `${todayLog.weight_lbs} lb` : null
+  const calories = todayLog?.calories_burned != null ? todayLog.calories_burned : null
 
-  if (steps == null && sleep == null && water == null && weight == null) return null
+  if (steps == null && sleep == null && water == null && weight == null && calories == null) return null
 
   return (
     <div
@@ -301,10 +302,11 @@ function TodayStatsStrip({ todayLog, label, onStepBack }) {
     >
       <h2 className="text-sm font-bold text-gray-900 mb-3">{label}</h2>
       <div className="flex flex-wrap gap-2">
-        {steps  != null && <StatPill icon="👟" label="Steps"  value={steps.toLocaleString()} />}
-        {water  != null && <StatPill icon="💧" label="Water"  value={water} note={todayLog?.water_note} />}
-        {weight != null && <StatPill icon="⚖️" label="Weight" value={weight} note={todayLog?.weight_note} />}
-        {sleep  != null && <StatPill icon="😴" label="Sleep"  value={sleep} note={todayLog?.sleep_note} />}
+        {steps    != null && <StatPill icon="👟" label="Steps"        value={steps.toLocaleString()} />}
+        {calories != null && <StatPill icon="🔥" label="Cal Burned"   value={calories.toLocaleString()} />}
+        {water    != null && <StatPill icon="💧" label="Water"        value={water} note={todayLog?.water_note} />}
+        {weight   != null && <StatPill icon="⚖️" label="Weight"       value={weight} note={todayLog?.weight_note} />}
+        {sleep    != null && <StatPill icon="😴" label="Sleep"        value={sleep} note={todayLog?.sleep_note} />}
       </div>
     </div>
   )

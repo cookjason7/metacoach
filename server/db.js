@@ -79,6 +79,13 @@ export async function migrate() {
   // catches rows created before the column existed or via raw INSERT paths.
   await pool.query(`UPDATE daily_logs SET steps_source = 'manual' WHERE steps IS NOT NULL AND steps_source IS NULL`)
   await pool.query(`UPDATE daily_logs SET sleep_source = 'manual' WHERE sleep_minutes IS NOT NULL AND sleep_source IS NULL`)
+  // Google Health-only for now (see googleHealthSync.js) — mirrors the
+  // steps_source/sleep_source precedence pattern so a future manual-entry path
+  // or another sync source can't be permanently locked out.
+  await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS calories_burned INTEGER`)
+  await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS calories_source TEXT DEFAULT 'manual'`)
+  await pool.query(`ALTER TABLE daily_logs ADD COLUMN IF NOT EXISTS calories_source_updated_at TIMESTAMPTZ`)
+  await pool.query(`UPDATE daily_logs SET calories_source = 'manual' WHERE calories_burned IS NOT NULL AND calories_source IS NULL`)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS fitbit_tokens (
       id               SERIAL PRIMARY KEY,
