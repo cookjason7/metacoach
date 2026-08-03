@@ -191,9 +191,14 @@ async function calendarRequest(path, accessToken, options = {}) {
     },
   })
 
-  // 204/empty body is normal for DELETE.
+  // 204/empty body is normal for DELETE, and an upstream proxy can return HTML
+  // rather than JSON on a bad day — neither should surface as a parse error
+  // instead of the actual failure.
   const text = await res.text()
-  const data = text ? JSON.parse(text) : {}
+  let data = {}
+  if (text) {
+    try { data = JSON.parse(text) } catch { data = {} }
+  }
 
   if (!res.ok) {
     const err = new Error(data.error?.message || 'Google Calendar API request failed')
