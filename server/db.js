@@ -488,6 +488,17 @@ export async function migrate() {
   // existing rows) | 'draft' (coach-only, saved but not yet assigned to the client)
   await pool.query(`ALTER TABLE workouts ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'assigned'`)
 
+  // requested_circuits: the client's raw answers.circuits value ('none'/'some'/
+  // 'full') at generation time, captured in generateWorkoutPlan() before
+  // mergeResponse() runs so it reflects what was actually asked for, regardless
+  // of what Claude returned or how mergeResponse salvaged/dropped circuits (see
+  // workout_circuit_diagnostics below and onCircuitDiagnostic in
+  // workoutGenerator.js, added in 6db5815). Nullable — only ever set on plans
+  // that went through AI generation; manually-built workouts never had a
+  // circuits answer to begin with. JSONB rather than TEXT to leave room for
+  // richer captured context later without another migration.
+  await pool.query(`ALTER TABLE workouts ADD COLUMN IF NOT EXISTS requested_circuits JSONB`)
+
   // ── Exercise library ─────────────────────────────────────────────────────────
   // Categorized exercise catalog, seeded from free-exercise-db (see
   // server/scripts/import-exercises.js). movement_pattern drives Katie's

@@ -1740,7 +1740,16 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
       events: circuitDiagnosticEvents,
     }).catch(err => console.error('[workoutGenerator] TEMP circuit diagnostics insert failed (non-fatal):', err.message))
   }
-  return validateWorkoutPlan(plan, { equipmentList, blockedNamePattern })
+  const validatedPlan = validateWorkoutPlan(plan, { equipmentList, blockedNamePattern })
+  // requested_circuits: the raw answers.circuits value, captured up at the top of
+  // this function (see includeCircuit above) — well before mergeResponse ran —
+  // so it reflects exactly what was asked for regardless of what Claude returned
+  // or how mergeResponse salvaged/dropped circuits. Merged in last, after
+  // validateWorkoutPlan, so neither it nor mergeResponse can alter this value.
+  // Persisted by the save routes (routes/workouts.js, routes/coachAdmin.js) onto
+  // workouts.requested_circuits for failure-rate analysis against
+  // workout_circuit_diagnostics. Purely additive — not read by any generation logic.
+  return { ...validatedPlan, requested_circuits: answers.circuits }
 }
 
 // TEMPORARY (see workout_circuit_diagnostics in db.js) — persists
