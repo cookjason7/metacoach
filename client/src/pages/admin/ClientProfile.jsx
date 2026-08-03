@@ -331,6 +331,7 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 <InfoRow label="Height"              value={fmtHeight(client.height_inches)} />
                 <InfoRow label="Gender"              value={client.gender ? client.gender.charAt(0).toUpperCase() + client.gender.slice(1) : null} />
                 <InfoRow label="Activity level"      value={fmtActivityLevel(client.activity_level ?? client.assessment_activity_level)} />
+                <InfoRow label="Identity anchors"    value={client.identity_anchors?.length ? client.identity_anchors.join(', ') : null} />
                 <InfoRow label="Food allergies"      value={client.food_allergies || null} />
                 <InfoRow label="Foods disliked"      value={client.food_dislikes || null} />
                 <InfoRow label="Program start date" value={displayStartDate} />
