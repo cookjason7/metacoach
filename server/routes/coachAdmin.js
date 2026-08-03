@@ -4115,6 +4115,9 @@ router.post('/clients/:id/workouts/generate', requireAuth(), async (req, res, ne
       healthAssessmentInjuries,
       forceBilateral: false,
       coachName: await getOrgCoachName(req.orgId),
+      // TEMPORARY — see workout_circuit_diagnostics in db.js
+      userId: clientId,
+      orgId: req.orgId,
     })
 
     res.json(plan)

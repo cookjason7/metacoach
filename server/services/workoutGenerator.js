@@ -1105,7 +1105,12 @@ Include exactly ${daySkeletons.length} days in the same order as given. Echo eac
 // 'A'/'B' by push/pull order for supersets, '1'/'2'/… by in-day appearance
 // order for circuits. Keep both in sync if either changes.
 
-function mergeResponse(daySkeletons, aiPlan, { includeCircuit = false } = {}) {
+// onCircuitDiagnostic (TEMPORARY, see workout_circuit_diagnostics in db.js): fires
+// for every detected circuit-formation anomaly. Purely observational — never
+// reads its return value, never affects group_type/group_id/continue decisions
+// below. Added to investigate the ~2.8% "requested circuits, got none" failure
+// rate; remove alongside the table once root-caused.
+function mergeResponse(daySkeletons, aiPlan, { includeCircuit = false, onCircuitDiagnostic = () => {} } = {}) {
   const days = daySkeletons.map((skeleton, i) => {
     const aiDay = aiPlan.days?.[i] ?? {}
     const aiBySlot = new Map((aiDay.exercises ?? []).map(e => [e.slot_id, e]))
@@ -1171,8 +1176,17 @@ function mergeResponse(daySkeletons, aiPlan, { includeCircuit = false } = {}) {
         if (!buckets.has(tag)) buckets.set(tag, [])
         buckets.get(tag).push({ slotId: slot.slot_id, quotaSlot: slot.quotaSlot })
       }
-      for (const members of buckets.values()) {
-        if (members.length < 2) continue // a "circuit" of one exercise isn't a real group — leave it standalone
+      for (const [tag, members] of buckets.entries()) {
+        if (members.length < 2) {
+          // TEMPORARY diagnostic — this case previously had no logging at all.
+          // Purely observational: still `continue`s exactly as before.
+          onCircuitDiagnostic({
+            dayIndex: i,
+            reason: 'single_member_bucket_dropped',
+            detail: { tag, members },
+          })
+          continue // a "circuit" of one exercise isn't a real group — leave it standalone
+        }
         // The AI is told the per-slot pattern and the no-squat-with-hinge rule
         // (see buildWorkoutPrompt), but never trust it to have respected that — a
         // circuit holding both would force them back-to-back within the circuit's
@@ -1211,13 +1225,16 @@ function mergeResponse(daySkeletons, aiPlan, { includeCircuit = false } = {}) {
           if (coreAvailable) {
             kept.push({ slotId: coreSlot.slot_id, quotaSlot: coreSlot.quotaSlot })
             console.warn(`[workoutGenerator] Salvaged AI circuit_group for day ${i + 1} by pulling in the untagged core slot (${coreSlot.slot_id}) as the second member, after removing ${demoted.length || members.length - 1} conflicting lower-body slot(s): ${members.map(m => m.slotId).join(', ')}`)
+            onCircuitDiagnostic({ dayIndex: i, reason: 'salvaged_with_core', detail: { tag, members, coreSlotId: coreSlot.slot_id } })
           } else {
             console.warn(`[workoutGenerator] Dropping AI circuit_group for day ${i + 1} — contains ${members.length - kept.length + 1} lower-body (squat/hinge) slots, fewer than 2 members would remain after removing the conflict, and no untagged core slot was available to salvage with: ${members.map(m => m.slotId).join(', ')}`)
+            onCircuitDiagnostic({ dayIndex: i, reason: 'dropped_no_salvage', detail: { tag, members } })
             continue
           }
         }
         if (demoted.length) {
           console.warn(`[workoutGenerator] Salvaged AI circuit_group for day ${i + 1} — removed ${demoted.length} conflicting lower-body slot(s) (${demoted.map(m => `${m.slotId}/${m.quotaSlot}`).join(', ')}) and kept the circuit as ${kept.map(m => m.slotId).join(', ')}`)
+          onCircuitDiagnostic({ dayIndex: i, reason: 'demoted_lower_body_conflict', detail: { tag, kept, demoted } })
           // Explicit reset: these were already 'exercise'/null (the bucket builder
           // skips anything superset-claimed), but state it so a demoted slot can
           // never inherit stale grouping if that ever changes.
@@ -1236,6 +1253,23 @@ function mergeResponse(daySkeletons, aiPlan, { includeCircuit = false } = {}) {
           ex.group_type = 'circuit'
           ex.group_id = groupId
           ex.group_label = String(idx + 1)
+        })
+      }
+      // TEMPORARY diagnostic — the case this codebase had zero visibility into:
+      // circuits were requested but every bucket above got dropped/never tagged,
+      // so the day silently comes back with no circuit at all. Read-only check
+      // against the already-finalized quotaExercises; changes nothing.
+      if (!quotaExercises.some(ex => ex.group_type === 'circuit')) {
+        onCircuitDiagnostic({
+          dayIndex: i,
+          reason: 'day_zero_circuits_after_request',
+          detail: {
+            proposedTags: skeleton.slots.map(s => ({
+              slotId: s.slot_id,
+              quotaSlot: s.quotaSlot,
+              circuit_group: (aiBySlot.get(s.slot_id) ?? {}).circuit_group ?? null,
+            })),
+          },
         })
       }
     }
@@ -1686,6 +1720,46 @@ export async function generateWorkoutPlan(pool, firstName, answers, opts = {}) {
   const prompt = buildWorkoutPrompt(firstName, answers, daySkeletons, beginnerBlockList, floorTransferContext, injuryFlags, opts.coachName ?? 'Katie')
   const aiPlan = await requestAndParsePlan(prompt)
 
-  const plan = mergeResponse(daySkeletons, aiPlan, { includeCircuit })
+  // TEMPORARY (see workout_circuit_diagnostics in db.js) — collects the
+  // onCircuitDiagnostic events emitted above so they can be recorded for
+  // frequency analysis of the ~2.8% circuit failure rate. mergeResponse itself
+  // stays synchronous/pure; the array is only ever appended to, never read by
+  // generation logic.
+  const circuitDiagnosticEvents = []
+  const plan = mergeResponse(daySkeletons, aiPlan, {
+    includeCircuit,
+    onCircuitDiagnostic: event => circuitDiagnosticEvents.push(event),
+  })
+  if (circuitDiagnosticEvents.length) {
+    // Fire-and-forget: never awaited, so a DB hiccup here can never delay or
+    // fail the actual plan response. Errors are caught and logged only.
+    recordCircuitDiagnostics(pool, {
+      userId: opts.userId ?? null,
+      orgId: opts.orgId ?? null,
+      answers,
+      events: circuitDiagnosticEvents,
+    }).catch(err => console.error('[workoutGenerator] TEMP circuit diagnostics insert failed (non-fatal):', err.message))
+  }
   return validateWorkoutPlan(plan, { equipmentList, blockedNamePattern })
+}
+
+// TEMPORARY (see workout_circuit_diagnostics in db.js) — persists
+// onCircuitDiagnostic events for later frequency analysis. Insert-only: nothing
+// in generation ever reads this table back. Remove this function and the table
+// once the ~2.8% circuit failure rate is root-caused and fixed.
+async function recordCircuitDiagnostics(pool, { userId, orgId, answers, events }) {
+  for (const event of events) {
+    await pool.query(
+      `INSERT INTO workout_circuit_diagnostics
+         (user_id, org_id, circuits_answer, supersets_answer, days_per_week, session_length, day_index, day_name, reason, detail)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        userId, orgId,
+        answers.circuits ?? null, answers.supersets ?? null,
+        answers.days_per_week ?? null, answers.session_length ?? null,
+        event.dayIndex, `Day ${event.dayIndex + 1}`,
+        event.reason, JSON.stringify(event.detail ?? {}),
+      ],
+    )
+  }
 }

@@ -2074,6 +2074,33 @@ export async function migrate() {
     }
   }
 
+  // ── TEMPORARY: circuit generation diagnostics ────────────────────────────────
+  // Investigating a ~2.8% failure rate where a client requests circuits
+  // (answers.circuits != 'none') but the generated plan silently comes back
+  // with no circuit-grouped exercises on one or more days — see
+  // onCircuitDiagnostic / recordCircuitDiagnostics in workoutGenerator.js.
+  // Insert-only from the app's perspective: nothing in generation ever reads
+  // this table back, so it cannot affect what a client is handed. Staging only
+  // for now — remove this table and its call sites once the root cause behind
+  // the failure rate is confirmed and fixed.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS workout_circuit_diagnostics (
+      id               SERIAL PRIMARY KEY,
+      user_id          INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      org_id           INTEGER,
+      created_at       TIMESTAMPTZ DEFAULT NOW(),
+      circuits_answer  TEXT,
+      supersets_answer TEXT,
+      days_per_week    INTEGER,
+      session_length   TEXT,
+      day_index        INTEGER,
+      day_name         TEXT,
+      reason           TEXT NOT NULL,
+      detail           JSONB
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_workout_circuit_diagnostics_reason ON workout_circuit_diagnostics (reason, created_at)`)
+
   await runMigrations()
 }
 
