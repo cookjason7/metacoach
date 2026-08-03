@@ -184,6 +184,15 @@ router.post('/staff/:token/accept', requireAuth(), async (req, res, next) => {
     // For org owner invites (invite.org_id is set), set org_id on the user row IMMEDIATELY
     // so the health assessment gate can detect the org admin role before any guard runs.
     // Also set assessment_complete=TRUE for org admins to skip health assessment entirely.
+    //
+    // This same `if (invite.org_id)` conditional is also what fixes the coach/admin/va
+    // invite path (staging commit 2f28219): coachAdmin.js's POST /staff/invite now
+    // stamps org_id on the staff_invites row at creation time (from the inviting
+    // admin's ctx.orgId), so invite.org_id is non-null here for those invites too —
+    // this block already carries it onto the new user's row with no further change
+    // needed. Previously coachAdmin.js left org_id NULL on the invite, so this
+    // condition was never true for a coach invite, and the new user's org_id stayed
+    // NULL until an admin manually ran the client activate patch on them.
     const setClauses = [
       'first_name = COALESCE(NULLIF(first_name, \'\'), $1)',
       'last_name = COALESCE(NULLIF(last_name, \'\'), $2)',
