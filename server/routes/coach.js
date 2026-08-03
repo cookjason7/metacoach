@@ -431,7 +431,7 @@ function calcPhaseAndWeek(startDate, daysLoggedThisWeek, totalCheckins, latestCh
   return { weekNum, phase, phaseNum, progressionEarned, complianceThisWeek, daysLoggedThisWeek }
 }
 
-function buildContextBlock(user, meals, logs, nutritionTotals = [], recentFoods = [], healthAssessment = null, phaseData = null, latestCheckin = null) {
+function buildContextBlock(user, meals, logs, nutritionTotals = [], recentFoods = [], healthAssessment = null, phaseData = null, checkins = []) {
   const h = user.height_inches
   const heightStr = h ? `${Math.floor(h / 12)}'${h % 12}"` : 'not set'
 
@@ -497,6 +497,7 @@ function buildContextBlock(user, meals, logs, nutritionTotals = [], recentFoods 
     : '  None logged yet'
 
   const isAiClient = user.coaching_type !== 'vip'
+  const isVipClient = user.coaching_type === 'vip'
 
   const aiSections = isAiClient && phaseData ? `
 COACHING PHASE & PROGRESSION
@@ -522,14 +523,37 @@ ${Array.isArray(user.identity_anchors) && user.identity_anchors.length > 0
   ? user.identity_anchors.map((a, i) => `Anchor ${i + 1}: ${a}`).join('\n')
   : 'Not yet selected — do not reference anchors until client has chosen them'}
 When coaching, tie observations and encouragement back to these anchors. Example: "That's exactly what [Anchor 1] looks like in action."
+` : ''
 
-LATEST CHECK-IN SUMMARY
-${latestCheckin ? `Submitted: ${new Date(latestCheckin.submitted_at).toLocaleDateString()}
-Days Food Logged (self-reported): ${latestCheckin.days_food_logged ?? 'Not answered'}
-Days Hit Protein: ${latestCheckin.days_hit_protein ?? 'Not answered'}
-Current Weight: ${latestCheckin.current_weight ?? 'Not reported'}
-Biggest Win: ${latestCheckin.biggest_win || 'Not provided'}
-Biggest Struggle: ${latestCheckin.biggest_struggle || 'Not provided'}` : 'No check-in submitted yet.'}
+  // Check-in history (VIP only — check-ins only exist for VIP clients). Each
+  // submission's answers are matched against its own version's schema, since
+  // the form (and its fields) can change between submissions — same qaText
+  // pattern used for the admin AI-feedback route in coachAdmin.js.
+  const buildCheckinHistory = () => {
+    if (checkins.length === 0) {
+      return 'No check-ins in the last 30 days.'
+    }
+    return checkins.map(sub => {
+      const schema  = Array.isArray(sub.version_schema) ? sub.version_schema : []
+      const answers = sub.answers ?? {}
+      const qaText = schema
+        .filter(f => f.type !== 'text_block')
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+        .map(f => {
+          const val = answers[f.id]
+          const empty = val === undefined || val === null || val === '' ||
+                        (Array.isArray(val) && val.length === 0)
+          const formatted = empty ? 'No response' : Array.isArray(val) ? val.join(', ') : String(val)
+          return `  Q: ${f.label}\n  A: ${formatted}`
+        })
+        .join('\n')
+      return `- ${new Date(sub.submitted_at).toLocaleDateString()}:\n${qaText}`
+    }).join('\n\n')
+  }
+
+  const checkinHistorySection = isVipClient ? `
+CHECK-IN HISTORY (last 30 days, oldest to newest)
+${buildCheckinHistory()}
 ` : ''
 
   return `
@@ -542,7 +566,7 @@ USER PROFILE:
 - What they've tried before: ${user.tried_before ?? 'Not provided'}
 ${isAiClient ? '' : `- Identity anchors: ${user.identity_anchors?.join(' | ') ?? 'Not yet selected'}`}
 - Current phase: ${isAiClient && phaseData ? phaseData.phase : 'Phase 1 — Awareness'}
-${aiSections}
+${aiSections}${checkinHistorySection}
 NUTRITION GOALS:
 ${goalsText}
 
@@ -607,6 +631,7 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     ])
     const user = userRows[0] ?? {}
     const isAiClient = user.coaching_type !== 'vip'
+    const isVipClient = user.coaching_type === 'vip'
     const coachName = orgAiConfig.coach_name || 'Katie'
     console.debug(`[coach] org_id=${req.orgId} coach_name=${coachName}`)
 
@@ -670,12 +695,19 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
             [dbUserId],
           )
         : Promise.resolve({ rows: [{ days_logged_this_week: 0 }] }),
-      // Query C — most recent weekly check-in (AI/Hybrid only)
-      isAiClient
+      // Query C — check-in history, last 30 days, oldest first (VIP only — check-ins
+      // only exist for VIP clients). Pulls from the forms engine (form_submissions),
+      // not the legacy weekly_checkins table, which no client can write to.
+      isVipClient
         ? pool.query(
-            `SELECT days_food_logged, days_hit_protein, biggest_win, biggest_struggle,
-                    current_weight, submitted_at
-             FROM weekly_checkins WHERE user_id = $1 ORDER BY submitted_at DESC LIMIT 1`,
+            `SELECT fs.id, fs.answers, fs.submitted_at, fv.schema AS version_schema
+             FROM form_submissions fs
+             JOIN form_versions  fv ON fv.id = fs.version_id
+             JOIN form_templates ft ON ft.id = fs.template_id
+             WHERE fs.user_id = $1
+               AND fs.submitted_at >= NOW() - INTERVAL '30 days'
+               AND ft.title ILIKE '%check%in%'
+             ORDER BY fs.submitted_at ASC`,
             [dbUserId],
           )
         : Promise.resolve({ rows: [] }),
@@ -696,17 +728,16 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
       { rows: recentFoodRows },
       { rows: assessmentRows },
       { rows: complianceRows },
-      { rows: checkinRows },
+      { rows: checkinSubmissions },
       { rows: submissionCountRows },
     ] = await Promise.all(baseQueries)
 
     const recentFoods = recentFoodRows.map(r => r.meal_name)
     const healthAssessment = assessmentRows[0] ?? null
     const daysLoggedThisWeek = parseInt(complianceRows[0]?.days_logged_this_week ?? 0, 10)
-    const latestCheckin = checkinRows[0] ?? null
     const totalCheckins = parseInt(submissionCountRows[0]?.total_checkins ?? 0, 10)
     const phaseData = isAiClient
-      ? calcPhaseAndWeek(user.start_date, daysLoggedThisWeek, totalCheckins, latestCheckin)
+      ? calcPhaseAndWeek(user.start_date, daysLoggedThisWeek, totalCheckins, checkinSubmissions[0] ?? null)
       : null
 
     // Load conversation history (last 40 messages = last 20 turns).
@@ -876,7 +907,7 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
     // appended last and explicitly instructed to take priority if they conflict
     // with the app-help reference above them.
     const correctionsContext = await getKatieCorrections(message, priorUserMessage, req.orgId)
-    const systemPrompt = `${katiPrompt}${mealPlanAddendum}${restrictedTopicsSection}${appHelpContext}${correctionsContext}\n\n${buildContextBlock(user, meals, logs, nutritionTotalsRows, recentFoods, healthAssessment, phaseData, latestCheckin)}`
+    const systemPrompt = `${katiPrompt}${mealPlanAddendum}${restrictedTopicsSection}${appHelpContext}${correctionsContext}\n\n${buildContextBlock(user, meals, logs, nutritionTotalsRows, recentFoods, healthAssessment, phaseData, checkinSubmissions)}`
 
     // Stream SSE response
     res.setHeader('Content-Type', 'text/event-stream')
