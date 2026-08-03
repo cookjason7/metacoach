@@ -311,12 +311,13 @@ export async function syncUser(dbUserId) {
   const SYNC_SOURCES = "('fitbit','google_health','synced','apple_health')"
 
   const { rows: logRows } = await pool.query(
-    `INSERT INTO daily_logs (user_id, logged_date, steps, sleep_minutes, steps_source, sleep_source, steps_source_updated_at, sleep_source_updated_at)
+    `INSERT INTO daily_logs (user_id, logged_date, steps, sleep_minutes, steps_source, sleep_source, steps_source_updated_at, sleep_source_updated_at, org_id)
      VALUES ($1, CURRENT_DATE, $2, $3,
              CASE WHEN $2::integer IS NULL THEN 'manual' ELSE 'fitbit' END,
              CASE WHEN $3::integer IS NULL THEN 'manual' ELSE 'fitbit' END,
              CASE WHEN $2::integer IS NULL THEN NULL ELSE NOW() END,
-             CASE WHEN $3::integer IS NULL THEN NULL ELSE NOW() END)
+             CASE WHEN $3::integer IS NULL THEN NULL ELSE NOW() END,
+             (SELECT org_id FROM users WHERE id = $1))
      ON CONFLICT (user_id, logged_date) DO UPDATE SET
        steps = CASE
          WHEN daily_logs.steps IS NULL

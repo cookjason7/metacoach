@@ -32,12 +32,13 @@ export async function initPush() {
 // Register a device token for a user. Upserts on token to update last_used_at.
 export async function registerDevice(userId, token, platform = 'android') {
   const { rows, rowCount } = await pool.query(`
-    INSERT INTO push_devices (user_id, token, platform, last_used_at)
-    VALUES ($1, $2, $3, NOW())
+    INSERT INTO push_devices (user_id, token, platform, last_used_at, org_id)
+    VALUES ($1, $2, $3, NOW(), (SELECT org_id FROM users WHERE id = $1))
     ON CONFLICT (token) DO UPDATE
       SET user_id      = EXCLUDED.user_id,
           platform     = EXCLUDED.platform,
-          last_used_at = NOW()
+          last_used_at = NOW(),
+          org_id       = EXCLUDED.org_id
     RETURNING id, user_id, platform
   `, [userId, token, platform])
   const device = rows[0] ?? null

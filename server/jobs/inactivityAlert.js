@@ -29,13 +29,13 @@ export async function runInactivityAlert() {
   }
   try {
     const { rows: inactive } = await pool.query(`
-      SELECT u.id, u.first_name, u.email, MAX(m.logged_at) AS last_meal_at
+      SELECT u.id, u.first_name, u.email, u.org_id, MAX(m.logged_at) AS last_meal_at
       FROM users u
       LEFT JOIN meals m ON m.user_id = u.id
       WHERE u.paid = TRUE AND u.onboarding_complete = TRUE
         AND u.coaching_type IN ('ai', 'hybrid', 'basic')
         AND u.created_at < NOW() - INTERVAL '${INACTIVE_DAYS} days'
-      GROUP BY u.id, u.first_name, u.email
+      GROUP BY u.id, u.first_name, u.email, u.org_id
       HAVING MAX(m.logged_at) < NOW() - INTERVAL '${INACTIVE_DAYS} days'
           OR MAX(m.logged_at) IS NULL
     `)
@@ -76,8 +76,8 @@ export async function runInactivityAlert() {
       )
       if (recent.length === 0) {
         await pool.query(
-          `INSERT INTO coaching_conversations (user_id, role, message) VALUES ($1, 'assistant', $2)`,
-          [user.id, CHECK_IN_MESSAGE],
+          `INSERT INTO coaching_conversations (user_id, role, message, org_id) VALUES ($1, 'assistant', $2, $3)`,
+          [user.id, CHECK_IN_MESSAGE, user.org_id],
         )
       }
     }
