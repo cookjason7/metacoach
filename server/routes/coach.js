@@ -507,6 +507,16 @@ Days Logged This Week: ${phaseData.daysLoggedThisWeek} of 7
 80% Compliance Met: ${phaseData.complianceThisWeek ? 'Yes — client has earned phase progression' : 'No — client has not yet met 80% tracking compliance. Stay in current phase focus.'}
 ${!phaseData.complianceThisWeek ? 'IMPORTANT: Do not introduce new phase goals or macro targets until 80% compliance is achieved. Keep the focus simple: track every meal, every day.' : ''}
 
+IDENTITY ANCHORS (client's chosen Life Warrior traits)
+${Array.isArray(user.identity_anchors) && user.identity_anchors.length > 0
+  ? user.identity_anchors.map((a, i) => `Anchor ${i + 1}: ${a}`).join('\n')
+  : 'Not yet selected — do not reference anchors until client has chosen them'}
+When coaching, tie observations and encouragement back to these anchors. Example: "That's exactly what [Anchor 1] looks like in action."
+` : ''
+
+  // Health history (all clients, VIP included — every coaching_type completes
+  // the same onboarding health assessment, so this is no longer AI/Hybrid-only).
+  const healthHistorySection = `
 HEALTH HISTORY (from onboarding)
 6-Month Goals: ${healthAssessment?.goals_6_months || 'Not provided'}
 Injuries / Limitations: ${healthAssessment?.injuries_limitations || 'None listed'}
@@ -517,13 +527,7 @@ Sleep Quality (1-5): ${healthAssessment?.sleep_quality || 'Not provided'}
 Stress (1-5): ${healthAssessment?.stress_management || 'Not provided'}
 Daily Water: ${healthAssessment?.daily_water || 'Not provided'}
 Supplements: ${healthAssessment?.supplements || 'None listed'}
-
-IDENTITY ANCHORS (client's chosen Life Warrior traits)
-${Array.isArray(user.identity_anchors) && user.identity_anchors.length > 0
-  ? user.identity_anchors.map((a, i) => `Anchor ${i + 1}: ${a}`).join('\n')
-  : 'Not yet selected — do not reference anchors until client has chosen them'}
-When coaching, tie observations and encouragement back to these anchors. Example: "That's exactly what [Anchor 1] looks like in action."
-` : ''
+`
 
   // Check-in history (VIP only — check-ins only exist for VIP clients). Each
   // submission's answers are matched against its own version's schema, since
@@ -566,7 +570,7 @@ USER PROFILE:
 - What they've tried before: ${user.tried_before ?? 'Not provided'}
 ${isAiClient ? '' : `- Identity anchors: ${user.identity_anchors?.join(' | ') ?? 'Not yet selected'}`}
 - Current phase: ${isAiClient && phaseData ? phaseData.phase : 'Phase 1 — Awareness'}
-${aiSections}${checkinHistorySection}
+${aiSections}${healthHistorySection}${checkinHistorySection}
 NUTRITION GOALS:
 ${goalsText}
 
@@ -676,15 +680,14 @@ router.post('/chat', requireAuth(), chatLimit, async (req, res, next) => {
          LIMIT 20`,
         [dbUserId],
       ),
-      // Query A — health assessment context (AI/Hybrid only; null sentinel for VIP)
-      isAiClient
-        ? pool.query(
-            `SELECT goals_6_months, injuries_limitations, occupation, energy_level,
-                    sleep_hours, stress_management, sleep_quality, daily_water, supplements
-             FROM health_assessments WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
-            [dbUserId],
-          )
-        : Promise.resolve({ rows: [] }),
+      // Query A — health assessment context (all clients, VIP included — HEALTH
+      // HISTORY renders for every coaching_type in buildContextBlock())
+      pool.query(
+        `SELECT goals_6_months, injuries_limitations, occupation, energy_level,
+                sleep_hours, stress_management, sleep_quality, daily_water, supplements
+         FROM health_assessments WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [dbUserId],
+      ),
       // Query B — days logged this week (AI/Hybrid only)
       isAiClient
         ? pool.query(
