@@ -51,10 +51,12 @@ async function handleSessionRequest(req, res, next) {
     const { userId } = getAuth(req)
     await getOrCreateUser(userId)
 
+    if (req.orgId == null) return res.status(403).json({ error: 'Organization context could not be resolved.' })
+
     const parsed = getSessionOptions(req.query)
     if (parsed.error) return res.status(400).json({ error: parsed.error })
 
-    const session = await assembleSession(pool, parsed.options)
+    const session = await assembleSession(pool, { ...parsed.options, orgId: req.orgId })
     res.json(session)
   } catch (err) {
     next(err)

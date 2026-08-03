@@ -26,16 +26,19 @@
  * `equipmentMismatch: true` so the caller can surface a warning instead of
  * silently assigning an unusable lift.
  */
-async function pickMainLift(pool, movementPattern, { rotationIndex = 0, equipment = null } = {}) {
+async function pickMainLift(pool, movementPattern, { orgId, rotationIndex = 0, equipment = null } = {}) {
+  if (orgId == null) {
+    throw new Error('pickMainLift requires orgId — exercise_library is org-scoped')
+  }
   const { rows } = await pool.query(
     `SELECT * FROM exercise_library
-     WHERE category = 'main_lift' AND movement_pattern = $1 AND active = TRUE
+     WHERE category = 'main_lift' AND movement_pattern = $1 AND active = TRUE AND org_id = $2
      ORDER BY id`,
-    [movementPattern],
+    [movementPattern, orgId],
   )
   if (rows.length === 0) {
     throw new Error(
-      `No main_lift rows found for pattern "${movementPattern}" — run seed-main-lifts.js and seed-main-lifts-final.js`,
+      `No main_lift rows found for pattern "${movementPattern}" (org ${orgId}) — run seed-main-lifts.js and seed-main-lifts-final.js`,
     )
   }
 

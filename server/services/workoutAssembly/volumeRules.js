@@ -57,10 +57,13 @@ const INVENTED_REP_SCHEMES = {
 }
 
 /** Real — reads volume_rules (goal, rep_range, sets_min, sets_max). */
-async function getMainLiftVolume(pool, goal = DEFAULT_GOAL) {
-  const { rows } = await pool.query('SELECT * FROM volume_rules WHERE goal = $1', [goal])
+async function getMainLiftVolume(pool, goal = DEFAULT_GOAL, orgId) {
+  if (orgId == null) {
+    throw new Error('getMainLiftVolume requires orgId — volume_rules is org-scoped')
+  }
+  const { rows } = await pool.query('SELECT * FROM volume_rules WHERE goal = $1 AND org_id = $2', [goal, orgId])
   if (rows.length === 0) {
-    throw new Error(`No volume_rules row for goal "${goal}" — check server/db.js seed`)
+    throw new Error(`No volume_rules row for goal "${goal}" (org ${orgId}) — check server/db.js seed`)
   }
   const { rep_range, sets_min, sets_max } = rows[0]
   return { goal, rep_range, sets_min, sets_max, sets: sets_max }
@@ -71,13 +74,16 @@ async function getMainLiftVolume(pool, goal = DEFAULT_GOAL) {
  * goal is optional; when 'mobility', INVENTED_MOBILITY_SLOT_BOOST is layered
  * on top (see comment above the constant).
  */
-async function getWarmupSlotCounts(pool, sessionLength = 60, goal = null) {
+async function getWarmupSlotCounts(pool, sessionLength = 60, goal = null, orgId) {
+  if (orgId == null) {
+    throw new Error('getWarmupSlotCounts requires orgId — program_templates is org-scoped')
+  }
   const { rows } = await pool.query(
-    'SELECT block_type, slot_count FROM program_templates WHERE session_length = $1',
-    [sessionLength],
+    'SELECT block_type, slot_count FROM program_templates WHERE session_length = $1 AND org_id = $2',
+    [sessionLength, orgId],
   )
   if (rows.length === 0) {
-    throw new Error(`No program_templates rows for session_length=${sessionLength} — check server/db.js seed`)
+    throw new Error(`No program_templates rows for session_length=${sessionLength} (org ${orgId}) — check server/db.js seed`)
   }
   const counts = rows.reduce((acc, r) => {
     acc[r.block_type] = r.slot_count

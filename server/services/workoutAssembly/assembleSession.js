@@ -30,22 +30,25 @@ import { getMainLiftVolume, getWarmupSlotCounts, getRepScheme, INVENTED_SLOT_COU
 
 const CORE_SUBTYPES = ['anti_extension', 'anti_rotation', 'anti_lateral_flexion']
 
-async function getDayPattern(pool, dayLabel) {
+async function getDayPattern(pool, dayLabel, orgId) {
+  if (orgId == null) {
+    throw new Error('getDayPattern requires orgId — program_day_patterns is org-scoped')
+  }
   const { rows } = await pool.query(
-    'SELECT movement_pattern, sequence FROM program_day_patterns WHERE day_label = $1 ORDER BY sequence',
-    [dayLabel],
+    'SELECT movement_pattern, sequence FROM program_day_patterns WHERE day_label = $1 AND org_id = $2 ORDER BY sequence',
+    [dayLabel, orgId],
   )
   if (rows.length === 0) {
-    throw new Error(`No program_day_patterns rows for day_label "${dayLabel}" — check server/db.js seed`)
+    throw new Error(`No program_day_patterns rows for day_label "${dayLabel}" (org ${orgId}) — check server/db.js seed`)
   }
   return rows.map(r => r.movement_pattern)
 }
 
-async function buildWarmup(pool, { equipment, level, slotCounts }) {
+async function buildWarmup(pool, { orgId, equipment, level, slotCounts }) {
   const [mobility, bands, plyo] = await Promise.all([
-    pickMobility(pool, { equipment, level, count: slotCounts.mobility }),
-    pickBands(pool, { equipment, count: INVENTED_SLOT_COUNTS.bands }),
-    pickPlyo(pool, { equipment, level, count: slotCounts.plyo }),
+    pickMobility(pool, { orgId, equipment, level, count: slotCounts.mobility }),
+    pickBands(pool, { orgId, equipment, count: INVENTED_SLOT_COUNTS.bands }),
+    pickPlyo(pool, { orgId, equipment, level, count: slotCounts.plyo }),
   ])
   // foam_roll and activation are intentionally left empty — coach-filled
   // slots, not auto-assigned (see module header). Keys stay present so
@@ -59,7 +62,7 @@ async function buildWarmup(pool, { equipment, level, slotCounts }) {
   }
 }
 
-async function buildMainWork(pool, { dayLabel, rotationIndex, volume, equipment }) {
+async function buildMainWork(pool, { orgId, dayLabel, rotationIndex, volume, equipment }) {
   // volume.sets === 0 (currently only the 'mobility' goal — see volume_rules
   // seed in server/db.js) means this goal carries no main-lift work at all.
   // Skip program_day_patterns entirely rather than force a squat/hinge pick
@@ -68,11 +71,11 @@ async function buildMainWork(pool, { dayLabel, rotationIndex, volume, equipment 
   if (volume.sets === 0) {
     return { slots: [], warnings: [] }
   }
-  const patterns = await getDayPattern(pool, dayLabel)
+  const patterns = await getDayPattern(pool, dayLabel, orgId)
   const slots = []
   const warnings = []
   for (const movementPattern of patterns) {
-    const { exercise, equipmentMismatch } = await pickMainLift(pool, movementPattern, { rotationIndex, equipment })
+    const { exercise, equipmentMismatch } = await pickMainLift(pool, movementPattern, { orgId, rotationIndex, equipment })
     slots.push({ movementPattern, exercise, prescription: { sets: volume.sets, repRange: volume.rep_range } })
     if (equipmentMismatch) {
       warnings.push(`No main_lift option for "${movementPattern}" fits available equipment — defaulted to "${exercise.name}" (needs ${exercise.equipment_required.join(', ')}).`)
@@ -81,12 +84,12 @@ async function buildMainWork(pool, { dayLabel, rotationIndex, volume, equipment 
   return { slots, warnings }
 }
 
-async function buildCooldown(pool, { equipment, slotCounts }) {
+async function buildCooldown(pool, { orgId, equipment, slotCounts }) {
   const excludeNames = []
   const core = []
   for (let i = 0; i < slotCounts.core; i++) {
     const coreSubtype = CORE_SUBTYPES[i % CORE_SUBTYPES.length]
-    const [picked] = await pickCore(pool, { equipment, coreSubtype, count: 1, excludeNames })
+    const [picked] = await pickCore(pool, { orgId, equipment, coreSubtype, count: 1, excludeNames })
     if (picked) {
       core.push({ exercise: picked, prescription: getRepScheme('core') })
       excludeNames.push(picked.name)
@@ -104,6 +107,8 @@ async function buildCooldown(pool, { equipment, slotCounts }) {
 }
 
 /**
+ * @param {number} orgId - tenant scoping every exercise_library/volume_rules/
+ *   program_templates/program_day_patterns read; required, no default.
  * @param {string} dayLabel - 'A' | 'B'
  * @param {number} [sessionLength] - 20|30|45|60|90, matches program_templates.session_length
  * @param {string} [goal] - strength|power|hypertrophy|endurance|mobility, matches volume_rules.goal
@@ -113,6 +118,7 @@ async function buildCooldown(pool, { equipment, slotCounts }) {
  * @param {number} [rotationIndex] - cycles main-lift pool selection (e.g. pass week number)
  */
 async function assembleSession(pool, {
+  orgId,
   dayLabel,
   sessionLength = 60,
   goal = 'hypertrophy',
@@ -120,20 +126,23 @@ async function assembleSession(pool, {
   equipment = ['bodyweight'],
   rotationIndex = 0,
 } = {}) {
+  if (orgId == null) {
+    throw new Error('assembleSession requires orgId — exercise_library/volume_rules/program_templates/program_day_patterns are all org-scoped')
+  }
   if (dayLabel !== 'A' && dayLabel !== 'B') {
     throw new Error(`dayLabel must be "A" or "B", got "${dayLabel}"`)
   }
   const equipmentWithBodyweight = equipment.includes('bodyweight') ? equipment : [...equipment, 'bodyweight']
 
   const [slotCounts, volume] = await Promise.all([
-    getWarmupSlotCounts(pool, sessionLength, goal),
-    getMainLiftVolume(pool, goal),
+    getWarmupSlotCounts(pool, sessionLength, goal, orgId),
+    getMainLiftVolume(pool, goal, orgId),
   ])
 
   const [warmup, mainResult, cooldown] = await Promise.all([
-    buildWarmup(pool, { equipment: equipmentWithBodyweight, level, slotCounts }),
-    buildMainWork(pool, { dayLabel, rotationIndex, volume, equipment: equipmentWithBodyweight }),
-    buildCooldown(pool, { equipment: equipmentWithBodyweight, slotCounts }),
+    buildWarmup(pool, { orgId, equipment: equipmentWithBodyweight, level, slotCounts }),
+    buildMainWork(pool, { orgId, dayLabel, rotationIndex, volume, equipment: equipmentWithBodyweight }),
+    buildCooldown(pool, { orgId, equipment: equipmentWithBodyweight, slotCounts }),
   ])
 
   return {
