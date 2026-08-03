@@ -42,6 +42,9 @@ router.post('/generate', requireAuth(), workoutGenLimit, async (req, res, next) 
     const plan = await generateWorkoutPlan(pool, firstName, answers, {
       healthAssessmentInjuries: assessment?.injuries_limitations ?? null,
       coachName: await getOrgCoachName(req.orgId),
+      // TEMPORARY — see workout_circuit_diagnostics in db.js
+      userId: dbUserId,
+      orgId: req.orgId,
     })
     res.json(plan)
   } catch (err) {
