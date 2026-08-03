@@ -14,6 +14,7 @@ const LEVEL_RANK = { beginner: 1, intermediate: 2, advanced: 3 }
 /** Generic query builder shared by every category-specific picker below. */
 async function filterExercises(pool, {
   categories,
+  orgId,
   equipment = ['bodyweight'],
   level = 'advanced',
   plane = null,
@@ -23,8 +24,11 @@ async function filterExercises(pool, {
   excludeNames = [],
   limit = 1,
 }) {
-  const clauses = ['category = ANY($1)', 'active = TRUE', 'equipment_required <@ $2::text[]']
-  const params = [categories, equipment]
+  if (orgId == null) {
+    throw new Error('filterExercises requires orgId — exercise_library is org-scoped')
+  }
+  const clauses = ['category = ANY($1)', 'active = TRUE', 'equipment_required <@ $2::text[]', 'org_id = $3']
+  const params = [categories, equipment, orgId]
 
   const levelRank = LEVEL_RANK[level] ?? LEVEL_RANK.advanced
   clauses.push(`CASE level_min WHEN 'beginner' THEN 1 WHEN 'intermediate' THEN 2 ELSE 3 END <= $${params.length + 1}`)
@@ -63,27 +67,27 @@ async function filterExercises(pool, {
   return rows
 }
 
-const pickFoamRoll = (pool, { equipment, count = 1, excludeNames = [] } = {}) =>
-  filterExercises(pool, { categories: ['foam_roll'], equipment, limit: count, excludeNames })
+const pickFoamRoll = (pool, { orgId, equipment, count = 1, excludeNames = [] } = {}) =>
+  filterExercises(pool, { categories: ['foam_roll'], orgId, equipment, limit: count, excludeNames })
 
-const pickMobility = (pool, { equipment, level, count = 1, excludeNames = [] } = {}) =>
-  filterExercises(pool, { categories: ['mobility'], equipment, level, limit: count, excludeNames })
+const pickMobility = (pool, { orgId, equipment, level, count = 1, excludeNames = [] } = {}) =>
+  filterExercises(pool, { categories: ['mobility'], orgId, equipment, level, limit: count, excludeNames })
 
-const pickBands = (pool, { equipment, count = 1, excludeNames = [] } = {}) =>
-  filterExercises(pool, { categories: ['mini_band', 'big_band'], equipment, limit: count, excludeNames })
+const pickBands = (pool, { orgId, equipment, count = 1, excludeNames = [] } = {}) =>
+  filterExercises(pool, { categories: ['mini_band', 'big_band'], orgId, equipment, limit: count, excludeNames })
 
 // Beginner clients cap at plyo_level 2; intermediate/advanced can see all 4.
-const pickPlyo = (pool, { equipment, level, plane = null, count = 1, excludeNames = [] } = {}) =>
+const pickPlyo = (pool, { orgId, equipment, level, plane = null, count = 1, excludeNames = [] } = {}) =>
   filterExercises(pool, {
-    categories: ['plyo'], equipment, level, plane, excludeNames,
+    categories: ['plyo'], orgId, equipment, level, plane, excludeNames,
     maxPlyoLevel: level === 'beginner' ? 2 : 4,
     limit: count,
   })
 
-const pickCore = (pool, { equipment, coreSubtype = null, count = 1, excludeNames = [] } = {}) =>
-  filterExercises(pool, { categories: ['core'], equipment, coreSubtype, limit: count, excludeNames })
+const pickCore = (pool, { orgId, equipment, coreSubtype = null, count = 1, excludeNames = [] } = {}) =>
+  filterExercises(pool, { categories: ['core'], orgId, equipment, coreSubtype, limit: count, excludeNames })
 
-const pickFinisher = (pool, { equipment, count = 1, excludeNames = [] } = {}) =>
-  filterExercises(pool, { categories: ['finisher'], equipment, limit: count, excludeNames })
+const pickFinisher = (pool, { orgId, equipment, count = 1, excludeNames = [] } = {}) =>
+  filterExercises(pool, { categories: ['finisher'], orgId, equipment, limit: count, excludeNames })
 
 export { filterExercises, pickFoamRoll, pickMobility, pickBands, pickPlyo, pickCore, pickFinisher, LEVEL_RANK }

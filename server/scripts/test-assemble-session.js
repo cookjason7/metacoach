@@ -62,7 +62,7 @@ async function runProfile(profile, noBwPatterns) {
 
   for (const dayLabel of ['A', 'B']) {
     const session = await assembleSession(pool, {
-      dayLabel, sessionLength: 60, goal: 'hypertrophy', level: profile.level, equipment: profile.equipment,
+      orgId: 1, dayLabel, sessionLength: 60, goal: 'hypertrophy', level: profile.level, equipment: profile.equipment,
     })
 
     console.log(`\n--- DAY ${dayLabel} ---`)
