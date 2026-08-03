@@ -116,6 +116,40 @@ export async function migrate() {
     )
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_fitbit_oauth_state_expires ON fitbit_oauth_state (expires_at)`)
+
+  // ── Google Calendar (one-way, write-only habit push) ────────────────────────
+  // Modelled directly on fitbit_tokens above. Separate OAuth client and separate
+  // token row from Google Health — a client may connect either, both, or neither,
+  // and revoking one must never disturb the other. access_token / refresh_token
+  // hold AES-256-GCM envelopes (see server/utils/tokenEncryption.js), never
+  // plaintext. We only ever WRITE to the user's calendar; nothing here reads it.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS google_calendar_tokens (
+      id                 SERIAL PRIMARY KEY,
+      user_id            INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      access_token       TEXT NOT NULL,
+      refresh_token      TEXT NOT NULL,
+      scope              TEXT,
+      expires_at         TIMESTAMPTZ NOT NULL,
+      google_email       TEXT,
+      last_synced_at     TIMESTAMPTZ,
+      last_sync_error    TEXT,
+      last_sync_error_at TIMESTAMPTZ,
+      created_at         TIMESTAMPTZ DEFAULT NOW(),
+      updated_at         TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_google_calendar_tokens_user ON google_calendar_tokens (user_id)`)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS google_calendar_oauth_state (
+      state       TEXT PRIMARY KEY,
+      user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at  TIMESTAMPTZ NOT NULL,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_google_calendar_oauth_state_expires ON google_calendar_oauth_state (expires_at)`)
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS coaching_conversations (
       id         SERIAL PRIMARY KEY,
@@ -983,6 +1017,11 @@ export async function migrate() {
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_habits_user_date ON coach_assigned_habits (user_id, start_date)`)
   await pool.query(`ALTER TABLE coach_assigned_habits ADD COLUMN IF NOT EXISTS identity_category TEXT`)
+  // The Google Calendar event this habit was pushed to, for clients who opted in
+  // to Calendar sync. NULL means "no event exists" — either the client never
+  // connected Calendar, or the push failed, or they deleted the event on their
+  // side (we clear the id when Google reports it gone). Never assume non-NULL.
+  await pool.query(`ALTER TABLE coach_assigned_habits ADD COLUMN IF NOT EXISTS google_calendar_event_id TEXT`)
 
   // Daily habit completion records — one row per (habit, date)
   // status: 'not_started' (0-49%) | 'partial' (50-79%) | 'complete' (80%+)

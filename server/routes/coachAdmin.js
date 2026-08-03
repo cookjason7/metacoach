@@ -10,6 +10,11 @@ import { generateWorkoutPlan, ExerciseLibraryError } from '../services/workoutGe
 import { getWorkoutDayNotes } from '../services/workoutDayNotes.js'
 import { insertWorkoutExercise } from '../services/workoutExerciseInsert.js'
 import { trackEvent } from '../services/usageTracker.js'
+import {
+  pushHabitToCalendar,
+  updateHabitCalendarEvent,
+  deleteHabitCalendarEvent,
+} from '../services/googleCalendarSync.js'
 
 const router = Router()
 const anthropic = new Anthropic()
@@ -2248,6 +2253,17 @@ router.post('/clients/:id/habits', requireAuth(), async (req, res, next) => {
       identity_category ?? null,
       ctx.orgId,
     ])
+
+    // Opt-in Google Calendar push. Silently skipped when the client hasn't
+    // connected Calendar. A Calendar failure must never fail the assignment —
+    // the habit is already committed above and is the thing that matters.
+    try {
+      const eventId = await pushHabitToCalendar(id, rows[0])
+      if (eventId) rows[0].google_calendar_event_id = eventId
+    } catch (calErr) {
+      console.error('[coachAdmin] calendar push failed for new habit', rows[0].id, calErr.message)
+    }
+
     res.status(201).json(rows[0])
   } catch (err) { next(err) }
 })
@@ -2296,6 +2312,16 @@ router.patch('/habits/:habitId', requireAuth(), async (req, res, next) => {
       identity_category ?? null,
       habitId,
     ])
+
+    // Mirror the edit onto the client's calendar. rows[0] carries the stored
+    // google_calendar_event_id (RETURNING *); the helper no-ops when it's NULL
+    // or the client isn't connected, and never throws into this handler.
+    try {
+      await updateHabitCalendarEvent(hRows[0].user_id, rows[0])
+    } catch (calErr) {
+      console.error('[coachAdmin] calendar update failed for habit', habitId, calErr.message)
+    }
+
     res.json(rows[0])
   } catch (err) { next(err) }
 })
@@ -2306,11 +2332,25 @@ router.delete('/habits/:habitId', requireAuth(), async (req, res, next) => {
     const ctx = await requireStaff(req, res); if (!ctx) return
     const habitId = parseInt(req.params.habitId, 10)
 
-    const { rows: hRows } = await pool.query('SELECT user_id FROM coach_assigned_habits WHERE id = $1', [habitId])
+    // Read the calendar event id BEFORE the row is gone — it's the only place
+    // the link between habit and Google event is stored.
+    const { rows: hRows } = await pool.query(
+      'SELECT user_id, google_calendar_event_id FROM coach_assigned_habits WHERE id = $1',
+      [habitId],
+    )
     if (!hRows.length) return res.status(404).json({ error: 'Habit not found' })
     if (!await canAccessClient(ctx, hRows[0].user_id)) return res.status(403).json({ error: 'Forbidden' })
 
     await pool.query('DELETE FROM coach_assigned_habits WHERE id = $1', [habitId])
+
+    // Remove the matching calendar event. Best-effort and after the fact: the
+    // habit deletion is already committed and must stand regardless of Google.
+    try {
+      await deleteHabitCalendarEvent(hRows[0].user_id, hRows[0].google_calendar_event_id)
+    } catch (calErr) {
+      console.error('[coachAdmin] calendar delete failed for habit', habitId, calErr.message)
+    }
+
     res.json({ ok: true })
   } catch (err) { next(err) }
 })
