@@ -44,6 +44,14 @@ function buildDenseSeries(sparseData, startIso, endIso) {
   return days
 }
 
+// pg returns date columns as JS Date objects, not plain strings — String(Date)
+// gives "Mon Aug 04 2026 …", so slicing it produces garbage. Normalize to ISO.
+function dateKey(d) {
+  const raw = d?.date
+  if (raw instanceof Date) return localIso(raw)
+  return String(raw ?? '').slice(0, 10)
+}
+
 function cleanSort(arr) {
   return (arr ?? [])
     .filter(d => d.value != null && Number.isFinite(Number(d.value)))
@@ -52,12 +60,35 @@ function cleanSort(arr) {
     .sort((a, b) => new Date(a.date ?? 0).getTime() - new Date(b.date ?? 0).getTime())
 }
 
+// Projects two series onto one shared, ordered date domain (the union of the
+// dates present in either), filling `value: null` where a series has no entry
+// for that date. Non-dense (week/month-bucketed) callers need this: filtering
+// each series independently and then spreading each across the full chart width
+// by its own point count put bucket i of data2 at a different X than bucket i of
+// data whenever one series had a null the other didn't. A missing value now
+// leaves a gap at that date's position instead of compressing the array.
+function alignSeries(a, b) {
+  const dates = new Set()
+  const clean = arr => cleanSort(arr).map(d => [dateKey(d), Number(d.value)])
+  const ca = clean(a), cb = clean(b)
+  ca.forEach(([iso]) => dates.add(iso))
+  cb.forEach(([iso]) => dates.add(iso))
+  const domain = [...dates].sort((x, y) => x.localeCompare(y))
+  const project = pairs => {
+    const byDate = new Map(pairs)
+    return domain.map(iso => ({ date: iso, value: byDate.has(iso) ? byDate.get(iso) : null }))
+  }
+  return [project(ca), project(cb)]
+}
+
 // ── Sparkline ─────────────────────────────────────────────────────────────────
 // `data` is a dense, one-entry-per-day array (see buildDenseSeries) — days with
 // no logged value carry value: null, which breaks the line instead of joining
 // across the gap. `data2`/`color2` draw an optional dashed overlay series (e.g.
-// protein over a calories primary line) — it is scaled independently on the
-// x-axis by its own point count, so it doesn't need to share data's length.
+// protein over a calories primary line). `data2` is expected to be aligned to
+// `data` — same length, same date at each index, `value: null` for gaps — so
+// both series share one x-scale (ChartCard guarantees this via buildDenseSeries
+// or alignSeries). A mismatched length falls back to independent scaling.
 
 export function Sparkline({ data, goalValue, color = '#E8670A', data2, color2 = '#10b981' }) {
   if (!data || data.length < 2) return null
@@ -97,8 +128,8 @@ export function Sparkline({ data, goalValue, color = '#E8670A', data2, color2 = 
   for (let i = n - 1; i >= 0; i--) { if (data[i].value != null) { lastIdx = i; break } }
 
   const n2    = data2?.length ?? 0
-  const xs2   = scaleX(n2)
-  const runs2 = data2 && n2 >= 2 ? buildRuns(data2) : []
+  const xs2   = n2 === n ? xs : scaleX(n2)
+  const runs2 = data2 && n2 >= 1 ? buildRuns(data2) : []
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full" preserveAspectRatio="none" aria-hidden="true">
@@ -124,7 +155,12 @@ export function Sparkline({ data, goalValue, color = '#E8670A', data2, color2 = 
         )
       })}
       {runs2.map((idxs, ri) => {
-        if (idxs.length < 2) return null
+        // Isolated points can't form a polyline — mark them the same way the
+        // primary series does, so single-day overlay values stay visible.
+        if (idxs.length === 1) {
+          const i = idxs[0]
+          return <circle key={`s2-${ri}`} cx={xs2(i)} cy={ys(data2[i].value)} r="3" fill={color2} />
+        }
         const pts = idxs.map(i => `${xs2(i)},${ys(data2[i].value)}`).join(' ')
         return (
           <polyline key={`s2-${ri}`} fill="none" stroke={color2} strokeWidth="2"
@@ -221,8 +257,18 @@ export function ChartCard({
   const values    = cleanData.map(d => Number(d.value))
   const hasData   = values.length >= 2
 
-  const chartData  = dense ? buildDenseSeries(data, rangeStart, rangeEnd) : cleanData
-  const chartData2 = data2 ? (dense ? buildDenseSeries(data2, rangeStart, rangeEnd) : cleanSort(data2)) : null
+  // Both series must share one X domain or the overlay drifts horizontally.
+  // Dense mode gets that for free (every day between rangeStart/rangeEnd);
+  // non-dense mode has to derive it from the union of both series' dates.
+  let chartData, chartData2 = null
+  if (dense) {
+    chartData  = buildDenseSeries(data, rangeStart, rangeEnd)
+    chartData2 = data2 ? buildDenseSeries(data2, rangeStart, rangeEnd) : null
+  } else if (data2) {
+    ;[chartData, chartData2] = alignSeries(data, data2)
+  } else {
+    chartData = cleanData
+  }
 
   const missingDates = (quickLogMetric && dense)
     ? chartData.filter(d => d.value == null).map(d => d.date)
