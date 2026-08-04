@@ -10,6 +10,7 @@ import LinkifiedText from '../../components/LinkifiedText.jsx'
 import ExerciseThumb from '../../components/ExerciseThumb.jsx'
 import { Sparkline, ChartCard } from '../../components/charts/ProgressChart.jsx'
 import { SECTION_PRESETS, buildGroups, sectionOrderFor, groupLabelFor, GROUP_TYPE_META } from '../../utils/workoutGrouping.js'
+import { SLEEP_HOURS_OPTIONS, WATER_OPTIONS } from '../HealthAssessment.jsx'
 
 // Display-only: "Day 1" -> "Day 1 Workout". Sequential day labels are the stored
 // identifier (used to match exercises/schedules); this never touches that value.
@@ -319,27 +320,29 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 ].filter(Boolean).join(' · ')
               : null
             const dob = client.display_dob ? fmtDob(String(client.display_dob)) : null
-            const identityAnchors = client.identity_anchors?.length ? client.identity_anchors.join(', ') : null
+            // Anchor strings are stored verbatim from the onboarding form's IDENTITY_TRAITS
+            // list — no key→label mapping needed, unlike the enum fields below.
+            const identityAnswer = client.identity_anchors?.length ? client.identity_anchors.join(' · ') : null
             const goalsFields = [
-              { label: '6-month goals',    value: client.assessment_goals_6_months },
-              { label: 'Identity anchors', value: identityAnchors, wrap: true },
+              { question: 'Your #1 goal in the next 6 months', answer: client.assessment_goals_6_months || null },
+              { question: "Choose 2 traits that feel most true to who you're becoming.", answer: identityAnswer },
             ]
             const healthFields = [
-              { label: 'Injuries / limitations', value: client.assessment_injuries_limitations, wrap: true },
-              { label: 'Supplements',            value: client.assessment_supplements, wrap: true },
+              { question: 'Injuries or physical limitations', answer: client.assessment_injuries_limitations || null },
+              { question: 'Current supplements',              answer: client.assessment_supplements || null },
             ]
             const lifestyleFields = [
-              { label: 'Occupation',          value: client.assessment_occupation },
-              { label: 'Number of kids',      value: client.assessment_num_kids },
-              { label: 'Energy level',        value: fmtRating(client.assessment_energy_level) },
-              { label: 'Sleep hours',         value: client.assessment_sleep_hours },
-              { label: 'Sleep quality',       value: fmtRating(client.assessment_sleep_quality) },
-              { label: 'Stress management',   value: fmtRating(client.assessment_stress_management) },
-              { label: 'Daily water',         value: client.assessment_daily_water },
-              { label: 'Alcohol (weekdays)',  value: client.assessment_alcohol_weekdays },
-              { label: 'Alcohol (weekends)',  value: client.assessment_alcohol_weekends },
-              { label: 'Happiness level',     value: fmtRating(client.assessment_happiness_level) },
-              { label: 'Confidence level',    value: fmtRating(client.assessment_confidence_level) },
+              { question: 'Occupation',                                          answer: client.assessment_occupation || null },
+              { question: 'Number of kids',                                      answer: countAnswer(client.assessment_num_kids) },
+              { question: 'How would you rate your typical energy level?',       answer: fmtRating(client.assessment_energy_level) },
+              { question: 'How many hours of sleep do you get most nights?',     answer: optionLabel(SLEEP_HOURS_OPTIONS, client.assessment_sleep_hours) },
+              { question: 'Rate your sleep quality',                             answer: fmtRating(client.assessment_sleep_quality) },
+              { question: 'How well do you manage stress?',                      answer: fmtRating(client.assessment_stress_management) },
+              { question: 'How much water do you drink daily?',                  answer: optionLabel(WATER_OPTIONS, client.assessment_daily_water) },
+              { question: 'Alcoholic drinks per weekday',                        answer: countAnswer(client.assessment_alcohol_weekdays) },
+              { question: 'Alcoholic drinks per weekend day',                    answer: countAnswer(client.assessment_alcohol_weekends) },
+              { question: 'Rate your overall happiness',                         answer: fmtRating(client.assessment_happiness_level) },
+              { question: 'Rate your self-confidence',                           answer: fmtRating(client.assessment_confidence_level) },
             ]
             return (
               <>
@@ -769,15 +772,32 @@ function InfoRow({ label, value, emptyText = 'Not provided yet', wrap = false })
   )
 }
 
-// Collapsible sub-section of the Client Info card (health_assessments fields
-// grouped by topic). Defaults open on desktop, collapsed on mobile so the card
-// doesn't dump a huge scroll on small screens. Hides entirely when every field
-// in the section is empty — no dangling section header for a client with no data.
+// Looks up the client-facing label for a bucketed onboarding answer (e.g. sleep
+// hours, daily water) from the same options list HealthAssessment.jsx presents to
+// the client, so staff see "8–9h" rather than the raw stored key "8_to_9".
+function optionLabel(options, value) {
+  if (!hasValue(value)) return null
+  return options.find(o => o.value === value)?.label ?? value
+}
+
+// alcohol_weekdays/alcohol_weekends are free numeric counts on the onboarding form
+// (plain number inputs, not a bucketed selector) — render the stored count as-is.
+function countAnswer(value) {
+  return hasValue(value) ? String(value) : null
+}
+
+// Read-only Q&A sub-section of the Client Info card (health_assessments fields
+// grouped by topic, sourced from the client's own onboarding answers — no Edit
+// button here). Each field renders the exact onboarding question text above the
+// client's actual answer, stacked single-column since question text runs long.
+// Defaults open on desktop, collapsed on mobile so the card doesn't dump a huge
+// scroll on small screens. Hides entirely when every field is empty — no dangling
+// section header for a client with no data.
 function InfoSection({ title, fields }) {
   const [open, setOpen] = useState(() =>
     typeof window !== 'undefined' ? window.matchMedia('(min-width: 640px)').matches : true
   )
-  if (!fields.some(f => hasValue(f.value))) return null
+  if (!fields.some(f => hasValue(f.answer))) return null
   return (
     <div className="border border-gray-200 rounded-lg overflow-hidden mt-3">
       <button
@@ -789,9 +809,9 @@ function InfoSection({ title, fields }) {
         <span className="text-gray-400 text-xs">{open ? '▲' : '▼'}</span>
       </button>
       {open && (
-        <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+        <div className="p-3 grid grid-cols-1 gap-3 text-sm">
           {fields.map(f => (
-            <InfoRow key={f.label} label={f.label} value={f.value ?? null} emptyText="—" wrap={f.wrap} />
+            <InfoRow key={f.question} label={f.question} value={f.answer ?? null} emptyText="—" wrap />
           ))}
         </div>
       )}
