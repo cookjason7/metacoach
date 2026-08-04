@@ -62,7 +62,7 @@ router.get('/', requireAuth(), async (req, res) => {
     const orgFilter = bypassOrg ? '' : ` AND org_id = $2`
     const { rows } = await pool.query(
       `SELECT * FROM mindset_videos
-       WHERE ($1 OR published = TRUE)${orgFilter}
+       WHERE ($1 OR published = TRUE) AND deleted_at IS NULL${orgFilter}
        ORDER BY created_at DESC`,
       bypassOrg ? [isStaff] : [isStaff, ctx.orgId],
     )
@@ -167,7 +167,11 @@ router.post('/:id/progress', requireAuth(), async (req, res) => {
   }
 })
 
-// DELETE /api/mindset-videos/:id — staff only
+// DELETE /api/mindset-videos/:id — staff only. Soft-delete: archives the video
+// (deleted_at = NOW()) rather than hard-deleting it, so video_watch_progress /
+// brain_mapping_comments / brain_mapping_reactions / brain_mapping_video_reactions
+// — all ON DELETE CASCADE off mindset_videos(id) — keep client watch/engagement
+// history intact instead of being wiped.
 router.delete('/:id', requireAuth(), async (req, res) => {
   try {
     if (!await requireStaff(req, res)) return
@@ -175,7 +179,9 @@ router.delete('/:id', requireAuth(), async (req, res) => {
     const ctx = { orgId: req.orgId, email: req.internalUser?.email }
     const bypassOrg = isSuperAdmin(ctx)
     const { rowCount } = await pool.query(
-      bypassOrg ? 'DELETE FROM mindset_videos WHERE id = $1' : 'DELETE FROM mindset_videos WHERE id = $1 AND org_id = $2',
+      bypassOrg
+        ? 'UPDATE mindset_videos SET deleted_at = NOW() WHERE id = $1'
+        : 'UPDATE mindset_videos SET deleted_at = NOW() WHERE id = $1 AND org_id = $2',
       bypassOrg ? [id] : [id, ctx.orgId],
     )
     if (!rowCount) return res.status(404).json({ error: 'Not found' })
