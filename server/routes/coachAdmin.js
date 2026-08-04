@@ -4162,6 +4162,94 @@ router.get('/clients/:id/workouts/:wid', requireAuth(), async (req, res, next) =
   } catch (err) { next(err) }
 })
 
+// ── Saved workout-builder settings (client_workout_profile) ──────────────────
+// The coach's last-saved answers to the "Generate with Katie" questionnaire for
+// this client, so the form pre-fills instead of starting blank. Purely a
+// convenience store: the generate route below still takes its answers from the
+// request body and never reads this table, so a coach can tweak the form for a
+// one-off session without overwriting the client's saved default.
+
+const WORKOUT_PROFILE_COLUMNS = `id, user_id, goals, secondary_goal, days_per_week, session_length,
+                                 equipment, fitness_level, strength_history, floor_transfer,
+                                 supersets, circuits, injuries, updated_at, updated_by`
+
+// Values are persisted exactly as the form's own option strings — no lowercasing
+// or normalizing — so a saved row can be spread straight back into the form:
+// equipment stays ['Kettlebell', 'Body Weight', …], session_length stays
+// '30 minutes'. days_per_week is the one coerced field (integer, or NULL when
+// blank/unparseable).
+function normalizeWorkoutProfileBody(body = {}) {
+  const text = v => (typeof v === 'string' && v.trim() ? v : v === 0 ? String(v) : (v ?? null))
+  const days = parseInt(body.days_per_week, 10)
+  return {
+    goals:            text(body.goals),
+    secondary_goal:   text(body.secondary_goal),
+    days_per_week:    Number.isFinite(days) ? days : null,
+    session_length:   text(body.session_length),
+    equipment:        Array.isArray(body.equipment) ? body.equipment.filter(e => typeof e === 'string' && e.trim()) : [],
+    fitness_level:    text(body.fitness_level),
+    strength_history: text(body.strength_history),
+    floor_transfer:   text(body.floor_transfer),
+    supersets:        text(body.supersets),
+    circuits:         text(body.circuits),
+    injuries:         text(body.injuries),
+  }
+}
+
+// GET /api/coach-admin/clients/:id/workout-profile — saved builder settings, or null
+router.get('/clients/:id/workout-profile', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId = parseInt(req.params.id, 10)
+    if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
+    const { rows } = await pool.query(
+      `SELECT ${WORKOUT_PROFILE_COLUMNS} FROM client_workout_profile WHERE user_id = $1`,
+      [clientId],
+    )
+    // First-time use is the common case — respond 200 with null rather than 404
+    // so the client can treat "no saved profile" as "leave the form blank".
+    res.json(rows[0] ?? null)
+  } catch (err) { next(err) }
+})
+
+// PUT /api/coach-admin/clients/:id/workout-profile — upsert the saved builder settings
+router.put('/clients/:id/workout-profile', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId = parseInt(req.params.id, 10)
+    if (!(await canAccessClient(ctx, clientId))) return res.status(403).json({ error: 'Access denied' })
+    const p = normalizeWorkoutProfileBody(req.body)
+    // ON CONFLICT (user_id) is what keeps this one row per client — the UNIQUE
+    // constraint in db.js's client_workout_profile migration backs it.
+    const { rows } = await pool.query(
+      `INSERT INTO client_workout_profile
+         (user_id, goals, secondary_goal, days_per_week, session_length, equipment,
+          fitness_level, strength_history, floor_transfer, supersets, circuits, injuries,
+          updated_at, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13)
+       ON CONFLICT (user_id) DO UPDATE SET
+         goals            = EXCLUDED.goals,
+         secondary_goal   = EXCLUDED.secondary_goal,
+         days_per_week    = EXCLUDED.days_per_week,
+         session_length   = EXCLUDED.session_length,
+         equipment        = EXCLUDED.equipment,
+         fitness_level    = EXCLUDED.fitness_level,
+         strength_history = EXCLUDED.strength_history,
+         floor_transfer   = EXCLUDED.floor_transfer,
+         supersets        = EXCLUDED.supersets,
+         circuits         = EXCLUDED.circuits,
+         injuries         = EXCLUDED.injuries,
+         updated_at       = NOW(),
+         updated_by       = EXCLUDED.updated_by
+       RETURNING ${WORKOUT_PROFILE_COLUMNS}`,
+      [clientId, p.goals, p.secondary_goal, p.days_per_week, p.session_length, p.equipment,
+       p.fitness_level, p.strength_history, p.floor_transfer, p.supersets, p.circuits,
+       p.injuries, ctx.dbUserId],
+    )
+    res.json(rows[0])
+  } catch (err) { next(err) }
+})
+
 // POST /api/coach-admin/clients/:id/workouts/generate — generate a Katie plan for a client
 // Must be defined BEFORE the /:wid route so Express doesn't treat "generate" as a wid.
 router.post('/clients/:id/workouts/generate', requireAuth(), async (req, res, next) => {

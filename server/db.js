@@ -2518,6 +2518,56 @@ export async function runMigrations() {
   } catch (err) {
     console.error('[migrations] meal_items setup failed:', err.message)
   }
+
+  // client_workout_profile: the coach's last-saved "Generate with Katie" builder
+  // settings for a client, so the questionnaire pre-fills instead of starting
+  // blank every time (see client/src/pages/admin/ClientProfile.jsx WorkoutsTab
+  // and the /clients/:id/workout-profile routes in server/routes/coachAdmin.js).
+  //
+  // One row per client — UNIQUE on user_id is what makes the PUT an upsert
+  // (ON CONFLICT (user_id) DO UPDATE) rather than an append.
+  //
+  // Values are stored exactly as the form's own option strings, NOT normalized:
+  // equipment holds the label strings ('Kettlebell', 'Body Weight', …) and
+  // session_length the literal '30 minutes' form, so a saved row can be spread
+  // straight back into genForm with no translation layer. days_per_week is the
+  // one field kept as an integer (the form holds it as a string and parses on
+  // submit, which the routes mirror).
+  //
+  // Deliberately NO program_direction column — that field is dead in the form
+  // and unused by the generator; its intent now lives in the free-text injuries
+  // box ("Injuries/limitations & program direction").
+  //
+  // Pure settings memory: nothing here feeds generation directly. The generate
+  // route still reads its answers from the request body, so a coach can tweak
+  // the form for a one-off session without the saved default changing.
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS client_workout_profile (
+        id               SERIAL PRIMARY KEY,
+        user_id          INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+        goals            TEXT,
+        secondary_goal   TEXT,
+        days_per_week    INTEGER,
+        session_length   TEXT,
+        equipment        TEXT[],
+        fitness_level    TEXT,
+        strength_history TEXT,
+        floor_transfer   TEXT,
+        supersets        TEXT,
+        circuits         TEXT,
+        injuries         TEXT,
+        updated_at       TIMESTAMP DEFAULT NOW(),
+        updated_by       INTEGER REFERENCES users(id) ON DELETE SET NULL
+      )
+    `)
+    // Redundant with the UNIQUE constraint's implicit index for lookups, but
+    // kept explicit for the same reason the other tables here do it — the only
+    // access pattern is "the row for this client".
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_client_workout_profile_user ON client_workout_profile (user_id)`)
+  } catch (err) {
+    console.error('[migrations] client_workout_profile setup failed:', err.message)
+  }
 }
 
 // Resolves the organization an internal user id belongs to. Falls back to 1
