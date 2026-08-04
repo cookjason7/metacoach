@@ -2207,7 +2207,11 @@ export default function CoachDashboard({ getToken, userRole }) {
                 className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E8670A]">
                 <option value="all">All statuses</option>
                 <option value="active">Active</option>
-                <option value="invited">Awaiting Setup</option>
+                {/* Value stays 'invited' to match accountStatus(); label leads with
+                    "Invited" so it matches the purple badge on the rows themselves,
+                    with the old wording kept to distinguish it from Pending Invites
+                    (people who haven't signed up at all). */}
+                <option value="invited">Invited (Awaiting Setup)</option>
                 <option value="pending_access">Pending Access</option>
                 <option value="inactive">Inactive</option>
                 <option value="deactivated">Deactivated</option>
@@ -2339,7 +2343,7 @@ export default function CoachDashboard({ getToken, userRole }) {
               <p className="text-sm text-gray-700 font-medium mb-1">No clients match your filters.</p>
               {statusFilter === 'invited' && pendingInvites.length > 0 ? (
                 <p className="text-xs text-gray-500 max-w-xs mx-auto">
-                  <strong>Awaiting Setup</strong> shows clients who signed up but haven't completed health assessment yet.
+                  <strong>Invited (Awaiting Setup)</strong> shows clients who signed up but haven't completed health assessment yet.
                   Clients who haven't signed up yet appear above in <strong>Pending Invites</strong>.
                 </p>
               ) : (
