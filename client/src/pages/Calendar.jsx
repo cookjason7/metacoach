@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@clerk/clerk-react'
+import { DndContext, DragOverlay, closestCenter } from '@dnd-kit/core'
 import { API_URL } from '../config.js'
 import ExerciseThumb from '../components/ExerciseThumb.jsx'
+import {
+  DraggableWorkout, DroppableDay, useWorkoutDragSensors, dropIdToDate,
+} from '../components/WorkoutDragDrop.jsx'
 
 // Same mapping as Dashboard's getProgressCurrent — keeps both pages in sync.
 // Returns the current live value for a progress habit, or null for plain checkboxes.
@@ -238,18 +242,23 @@ function WorkoutPill({ entry, dateISO, onOpen, compact = false }) {
   const done = !!log
   const exCount = exercises?.length ?? 0
   const base = done ? 'bg-indigo-50 border-indigo-300' : 'bg-white border-indigo-200'
+  // min-h-[44px] in the 7d list: these pills are now drag handles as well as
+  // buttons, so they need a full-size tap target on mobile. The 14d/month grid
+  // cells stay compact — there the whole day cell is the drop target.
 
   return (
     <button
       type="button"
       onClick={() => onOpen(entry, dateISO)}
-      className={`w-full flex items-center gap-1.5 rounded-md border px-1.5 ${compact ? 'py-1' : 'py-1.5'} text-left transition-colors hover:border-indigo-400 hover:bg-indigo-50 ${base}`}
+      className={`w-full flex items-center gap-1.5 rounded-md border px-1.5 ${compact ? 'py-1' : 'py-1.5 min-h-[44px]'} text-left transition-colors hover:border-indigo-400 hover:bg-indigo-50 ${base}`}
       title={`${formatDayLabel(assignment.day_label)} · ${assignment.workout_name}`}
     >
       <WorkoutBadge done={done} />
       <span className="min-w-0 flex-1">
         <span className={`block text-[11px] truncate font-medium ${done ? 'text-indigo-800' : 'text-gray-800'}`}>
           {formatDayLabel(assignment.day_label)}
+          {/* entry.moved: this occurrence sits on an overridden date, not its rule date */}
+          {entry.moved && <span className="ml-1 text-[9px] font-semibold text-[#E8670A]">· moved</span>}
         </span>
         {!compact && (
           <span className="block text-[10px] text-gray-400 truncate">{assignment.workout_name}</span>
@@ -261,6 +270,19 @@ function WorkoutPill({ entry, dateISO, onOpen, compact = false }) {
           ? <span className="ml-auto text-[9px] text-gray-400 shrink-0">{exCount} ex</span>
           : null}
     </button>
+  )
+}
+
+// ─── Drag-and-drop: move one scheduled workout occurrence to another day ──────
+
+// Drag behaviour lives in components/WorkoutDragDrop.jsx; this just wraps the pill
+// visual. Under the sensors' activation thresholds the gesture stays a plain
+// click/tap and the inner button's onClick still opens the log modal.
+function DraggableWorkoutPill({ entry, dateISO, onOpen, compact = false }) {
+  return (
+    <DraggableWorkout assignmentId={entry.assignment.id} dateISO={dateISO} entry={entry}>
+      <WorkoutPill entry={entry} dateISO={dateISO} onOpen={onOpen} compact={compact} />
+    </DraggableWorkout>
   )
 }
 
@@ -486,7 +508,8 @@ function DayCell({ date, inMonth, entries, workoutEntries = [], onComplete, onOp
   const isPast = date < new Date(new Date().toDateString())
 
   return (
-    <div
+    <DroppableDay
+      dateISO={dateISO}
       className={`min-h-[90px] sm:min-h-[110px] border border-gray-100 p-1 sm:p-1.5 flex flex-col gap-1 ${
         !inMonth ? 'bg-gray-50/50' : 'bg-white'
       } ${isToday ? 'ring-2 ring-[#E8670A] ring-inset' : ''}`}
@@ -513,7 +536,7 @@ function DayCell({ date, inMonth, entries, workoutEntries = [], onComplete, onOp
           />
         ))}
         {workoutEntries.map((wEntry, i) => (
-          <WorkoutPill
+          <DraggableWorkoutPill
             key={`w-${wEntry.assignment.id}-${i}`}
             entry={wEntry}
             dateISO={dateISO}
@@ -522,7 +545,7 @@ function DayCell({ date, inMonth, entries, workoutEntries = [], onComplete, onOp
           />
         ))}
       </div>
-    </div>
+    </DroppableDay>
   )
 }
 
@@ -550,6 +573,9 @@ export default function Calendar() {
   const [toast,       setToast]       = useState(null)
   const [todayLog,    setTodayLog]    = useState(null)   // live daily_logs row for today
   const [todayMeals,  setTodayMeals]  = useState(null)   // live meal totals for today
+  const [dragging,    setDragging]    = useState(null)   // { entry, dateISO } while a pill is held
+
+  const sensors = useWorkoutDragSensors()
 
   // Compute the visible window based on view mode
   let gridStart, gridEnd, gridCells
@@ -722,6 +748,73 @@ export default function Calendar() {
     showToast('Workout logged 💪')
   }
 
+  // ── Drag-and-drop rescheduling ──────────────────────────────────────────────
+  // Moves a single occurrence. The server records it as a workout_schedule_overrides
+  // row; the assignment's recurrence rule is never rewritten. If the target day
+  // already holds another workout the two swap, so nothing is dropped.
+  function handleDragStart(event) {
+    const d = event.active?.data?.current
+    if (d) setDragging({ entry: d.entry, dateISO: d.dateISO })
+  }
+
+  async function handleDragEnd(event) {
+    setDragging(null)
+    const { active, over } = event
+    if (!over) return
+    const toISO = dropIdToDate(over.id)
+    const src   = active.data?.current
+    if (!toISO || !src || src.dateISO === toISO) return
+
+    const fromISO      = src.dateISO
+    const assignmentId = src.assignmentId
+    const rangeStart   = isoDate(gridStart)
+    const rangeEnd     = isoDate(gridEnd)
+
+    // Optimistic swap so the pill lands instantly, then reconcile with the server.
+    const before = workoutCal
+    setWorkoutCal(prev => {
+      const fromList = (prev[fromISO] ?? []).slice()
+      const toList   = (prev[toISO]   ?? []).slice()
+      const idx = fromList.findIndex(e => e.assignment.id === assignmentId)
+      if (idx === -1) return prev
+      const [moved] = fromList.splice(idx, 1)
+      // Everything already on the target day goes back to the source day.
+      const displaced = toList.splice(0, toList.length)
+      return {
+        ...prev,
+        [fromISO]: [...fromList, ...displaced],
+        [toISO]:   [...toList, moved],
+      }
+    })
+
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/client-workouts/me/reschedule`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assignment_id: assignmentId,
+          original_date: fromISO,
+          new_date:      toISO,
+          range_start:   rangeStart,
+          range_end:     rangeEnd,
+        }),
+      })
+      if (!res.ok) {
+        const { error: msg } = await res.json().catch(() => ({}))
+        throw new Error(msg || `Server error ${res.status}`)
+      }
+      const data = await res.json()
+      showToast(data.swapped?.length ? 'Workouts swapped 🔁' : 'Workout moved 📅')
+    } catch (err) {
+      setWorkoutCal(before)   // revert the optimistic move
+      showToast(err.message || 'Could not move that workout')
+    } finally {
+      // Always resync: the server is the authority on which occurrence moved where.
+      loadCalendar()
+    }
+  }
+
   function prev() {
     if (viewMode === 'month') {
       setAnchor(new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1))
@@ -794,7 +887,10 @@ export default function Calendar() {
       <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Calendar</h1>
-          <p className="text-sm text-gray-500">Tap a circle to complete a habit, or a workout to log your sets.</p>
+          <p className="text-sm text-gray-500">
+            Tap a circle to complete a habit, or a workout to log your sets.
+            Drag a workout to another day to reschedule it — on mobile, press and hold first.
+          </p>
         </div>
         {/* View mode switcher */}
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
@@ -824,6 +920,13 @@ export default function Calendar() {
         <button onClick={goToday} className="text-xs text-[#E8670A] hover:text-[#c45e09] font-semibold px-2">Today</button>
       </div>
 
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragCancel={() => setDragging(null)}
+        onDragEnd={handleDragEnd}
+      >
       {/* ── 7-day view: vertical list (mobile-friendly) ── */}
       {viewMode === '7d' && (
         <div className="space-y-2">
@@ -834,7 +937,7 @@ export default function Calendar() {
             const total = entries.length + wEntries.length
             const isToday = dKey === todayISO_
             return (
-              <div key={i} className={`bg-white border rounded-xl p-3 ${
+              <DroppableDay key={i} dateISO={dKey} className={`bg-white border rounded-xl p-3 ${
                 isToday ? 'border-[#E8670A] ring-2 ring-orange-100' : 'border-gray-200'
               }`}>
                 <div className="flex items-center justify-between mb-2">
@@ -855,7 +958,9 @@ export default function Calendar() {
                   )}
                 </div>
                 {total === 0 ? (
-                  <p className="text-xs text-gray-400 italic">Nothing scheduled</p>
+                  // Kept as a real (min-h) block rather than a bare line so an empty
+                  // day is still a comfortable drop target on a 375px screen.
+                  <p className="text-xs text-gray-400 italic min-h-[44px] flex items-center">Nothing scheduled</p>
                 ) : (
                   <div className="space-y-1.5">
                     {entries.map((entry, j) => (
@@ -868,7 +973,7 @@ export default function Calendar() {
                       />
                     ))}
                     {wEntries.map((wEntry, j) => (
-                      <WorkoutPill
+                      <DraggableWorkoutPill
                         key={`w-${wEntry.assignment.id}-${j}`}
                         entry={wEntry}
                         dateISO={dKey}
@@ -877,7 +982,7 @@ export default function Calendar() {
                     ))}
                   </div>
                 )}
-              </div>
+              </DroppableDay>
             )
           })}
         </div>
@@ -951,6 +1056,16 @@ export default function Calendar() {
           </div>
         </>
       )}
+
+      {/* Floating copy of the pill that follows the cursor/finger */}
+      <DragOverlay dropAnimation={null}>
+        {dragging && (
+          <div className="w-48 opacity-95 shadow-lg rounded-md rotate-1">
+            <WorkoutPill entry={dragging.entry} dateISO={dragging.dateISO} onOpen={() => {}} compact />
+          </div>
+        )}
+      </DragOverlay>
+      </DndContext>
 
       {loading && (
         <p className="text-center text-xs text-gray-400 mt-3">Loading…</p>

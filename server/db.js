@@ -629,6 +629,35 @@ export async function migrate() {
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_workout_set_logs_log ON workout_set_logs (workout_log_id)`)
 
+  // ── Workout schedule overrides (drag-and-drop rescheduling) ──────────────────
+  // coach_assigned_workouts stores a recurrence RULE, not per-occurrence rows —
+  // clientWorkouts.js's expandCalendar() computes the dates at request time. To let
+  // a client move ONE occurrence without touching frequency/days_of_week, we store
+  // an exception row here: "this assignment's occurrence on original_date happens on
+  // new_date instead". expandCalendar suppresses original_date and injects new_date.
+  // One row per moved occurrence; UNIQUE(assignment_id, original_date) so re-moving
+  // the same occurrence updates in place rather than stacking exceptions.
+  // No org_id: rows are reachable only through user_id, and this block runs before
+  // runMigrations() creates organizations, so an FK here would break a fresh DB.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS workout_schedule_overrides (
+      id            SERIAL PRIMARY KEY,
+      user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      assignment_id INTEGER NOT NULL REFERENCES coach_assigned_workouts(id) ON DELETE CASCADE,
+      original_date DATE NOT NULL,
+      new_date      DATE NOT NULL,
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS workout_schedule_overrides_assignment_orig_uq
+      ON workout_schedule_overrides (assignment_id, original_date)
+  `)
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_workout_schedule_overrides_user
+      ON workout_schedule_overrides (user_id, new_date)
+  `)
+
   // ── Workout day notes ────────────────────────────────────────────────────────
   // Coach-authored note shown above the Warm-Up section of one day of a program.
   // Keyed by (workout_id, day) — the same "a day is just a distinct
