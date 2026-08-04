@@ -6626,6 +6626,9 @@ function AddSectionControl({ day, dayExs, open, onOpen, onClose, customName, set
 function WorkoutsTab({ clientId, clientFirstName, getToken }) {
   const { aiCoachName } = useOrgBranding()
   const BASE = `${API_URL}/api/coach-admin/clients/${clientId}/workouts`
+  // Saved builder settings for this client (client_workout_profile). Separate
+  // endpoint from BASE — it stores the questionnaire's answers, not a program.
+  const PROFILE_URL = `${API_URL}/api/coach-admin/clients/${clientId}/workout-profile`
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [workouts,     setWorkouts]     = useState([])
@@ -6643,6 +6646,14 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
   const [genError,       setGenError]       = useState(null)
   const [savingPlan,     setSavingPlan]     = useState(false)
   const [assigningDraft, setAssigningDraft] = useState(false)
+  // Saved workout profile (pre-fill of the questionnaire). profilePrefilled is a
+  // ref, not state, because it must gate the fetch without causing a re-render:
+  // it makes the pre-fill happen once per client, so a coach who edits the form,
+  // jumps to the review panel and comes back doesn't have their edits overwritten.
+  const profilePrefilled = useRef(false)
+  const [profileLoading, setProfileLoading] = useState(false)
+  const [savingProfile,  setSavingProfile]  = useState(false)
+  const [profileMsg,     setProfileMsg]     = useState(null)   // { kind: 'ok'|'error', text }
   // Inline edit state for the pre-save review table (operates on generatedPlan state)
   const [reviewEdit,     setReviewEdit]     = useState(null)   // { dayIdx, exIdx, field }
   const [reviewEditVal,  setReviewEditVal]  = useState('')
@@ -6775,6 +6786,82 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
     } catch {
       setError('Could not save the note for this day.')
     } finally { setSavingDayNote(null) }
+  }
+
+  // ── Saved workout profile (questionnaire pre-fill) ─────────────────────────
+  // Runs whenever the builder's questionnaire is opened — from the empty state,
+  // the list header, or the "Generate" button on an open program — so every
+  // entry point (desktop and mobile alike) gets the pre-fill without each having
+  // to remember to ask for it. A client with no saved profile gets 200/null back
+  // and the form is left blank, exactly as it behaves today.
+  useEffect(() => { profilePrefilled.current = false }, [clientId])
+  useEffect(() => {
+    if (genFlow !== 'questionnaire' || profilePrefilled.current) return
+    profilePrefilled.current = true
+    let cancelled = false
+    ;(async () => {
+      setProfileLoading(true)
+      try {
+        const token = await getToken()
+        const res   = await fetch(PROFILE_URL, { headers: { Authorization: `Bearer ${token}` } })
+        if (!res.ok) return
+        const saved = await res.json()
+        if (cancelled || !saved) return
+        setGenForm(f => ({
+          ...f,
+          goals:            saved.goals            ?? f.goals,
+          secondary_goal:   saved.secondary_goal   ?? f.secondary_goal,
+          // Stored as an integer; the form's pills compare against strings.
+          days_per_week:    saved.days_per_week != null ? String(saved.days_per_week) : f.days_per_week,
+          session_length:   saved.session_length   ?? f.session_length,
+          equipment:        Array.isArray(saved.equipment) ? saved.equipment : f.equipment,
+          fitness_level:    saved.fitness_level    ?? f.fitness_level,
+          strength_history: saved.strength_history ?? f.strength_history,
+          floor_transfer:   saved.floor_transfer   ?? f.floor_transfer,
+          supersets:        saved.supersets        ?? f.supersets,
+          circuits:         saved.circuits         ?? f.circuits,
+          injuries:         saved.injuries         ?? f.injuries,
+        }))
+      } catch { /* pre-fill is best-effort — a failure just leaves the form blank */ }
+      finally { if (!cancelled) setProfileLoading(false) }
+    })()
+    return () => { cancelled = true }
+  }, [genFlow, clientId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Explicit save only — generatePlan() deliberately does NOT call this, so a
+  // coach can tweak the questionnaire for a one-off session without overwriting
+  // the client's saved default. program_direction is excluded: it's dead in the
+  // form and has no column.
+  async function saveWorkoutProfile() {
+    setSavingProfile(true); setProfileMsg(null)
+    try {
+      const token = await getToken()
+      const days  = parseInt(genForm.days_per_week, 10)
+      const res   = await fetch(PROFILE_URL, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          goals:            genForm.goals,
+          secondary_goal:   genForm.secondary_goal,
+          days_per_week:    Number.isFinite(days) ? days : null,
+          // Exact label / literal strings, unnormalized — see the route's
+          // normalizeWorkoutProfileBody in server/routes/coachAdmin.js.
+          session_length:   genForm.session_length,
+          equipment:        genForm.equipment,
+          fitness_level:    genForm.fitness_level,
+          strength_history: genForm.strength_history,
+          floor_transfer:   genForm.floor_transfer,
+          supersets:        genForm.supersets,
+          circuits:         genForm.circuits,
+          injuries:         genForm.injuries,
+        }),
+      })
+      if (!res.ok) throw new Error('save failed')
+      setProfileMsg({ kind: 'ok', text: 'Profile saved — this client\'s form will pre-fill next time.' })
+      setTimeout(() => setProfileMsg(null), 4000)
+    } catch {
+      setProfileMsg({ kind: 'error', text: 'Could not save the profile. Try again.' })
+    } finally { setSavingProfile(false) }
   }
 
   // ── Katie generation ───────────────────────────────────────────────────────
@@ -7597,12 +7684,27 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
               className={`${inputCls} resize-none`} />
           </div>
           {genError && <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">{genError}</div>}
-          <button type="submit" disabled={generating || !genForm.goals || !genForm.days_per_week || !genForm.fitness_level || !genForm.strength_history || !genForm.floor_transfer || !genForm.supersets || !genForm.circuits}
-            className="w-full bg-[#E8670A] text-white py-3 rounded-xl text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
-            {generating
-              ? <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />{aiCoachName} is building the program…</>
-              : 'Generate Workout Program'}
-          </button>
+          {/* Stacks on mobile, sits beside Generate from sm up — both buttons keep
+              a 44px minimum tap target either way. type="button" on Save Profile
+              matters: inside this <form>, the default would submit and generate. */}
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button type="submit" disabled={generating || !genForm.goals || !genForm.days_per_week || !genForm.fitness_level || !genForm.strength_history || !genForm.floor_transfer || !genForm.supersets || !genForm.circuits}
+              className="w-full sm:flex-1 min-h-[44px] bg-[#E8670A] text-white py-3 rounded-xl text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
+              {generating
+                ? <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />{aiCoachName} is building the program…</>
+                : 'Generate Workout Program'}
+            </button>
+            <button type="button" onClick={saveWorkoutProfile} disabled={savingProfile || profileLoading}
+              title="Save these settings as this client's default — generating alone does not save them"
+              className="w-full sm:w-auto min-h-[44px] px-5 py-3 rounded-xl text-sm font-semibold text-[#E8670A] border border-[#E8670A] hover:bg-orange-50 disabled:opacity-60 disabled:cursor-not-allowed transition-colors">
+              {savingProfile ? 'Saving…' : 'Save Profile'}
+            </button>
+          </div>
+          {profileMsg && (
+            <p className={`text-xs ${profileMsg.kind === 'ok' ? 'text-green-600' : 'text-red-600'}`}>
+              {profileMsg.text}
+            </p>
+          )}
         </form>
       </div>
     )
