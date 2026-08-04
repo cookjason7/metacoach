@@ -8,6 +8,7 @@ import { useOrgBranding } from '../../context/OrgBrandingContext.jsx'
 import BloodworkIntakeForm from '../../components/BloodworkIntakeForm.jsx'
 import LinkifiedText from '../../components/LinkifiedText.jsx'
 import ExerciseThumb from '../../components/ExerciseThumb.jsx'
+import { Sparkline, ChartCard } from '../../components/charts/ProgressChart.jsx'
 import { SECTION_PRESETS, buildGroups, sectionOrderFor, groupLabelFor, GROUP_TYPE_META } from '../../utils/workoutGrouping.js'
 
 // Display-only: "Day 1" -> "Day 1 Workout". Sequential day labels are the stored
@@ -2757,6 +2758,14 @@ function MeasurementsSection({ clientId, getToken, startDate, endDate }) {
     return { d, from: f.toFixed(1), to: l.toFixed(1) }
   }
 
+  function trendFor(key) {
+    return measurements
+      .filter(m => m[key] != null && m[key] !== '')
+      .slice()
+      .sort((a, b) => new Date(a.measurement_date ?? 0).getTime() - new Date(b.measurement_date ?? 0).getTime())
+      .map(m => ({ date: m.measurement_date, value: Number(m[key]) }))
+  }
+
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4">
       <div className="flex items-center justify-between mb-3">
@@ -2828,6 +2837,22 @@ function MeasurementsSection({ clientId, getToken, startDate, endDate }) {
             })}
           </div>
 
+          {/* Per-field trend sparklines — same shared Sparkline the client-facing
+              Progress page uses for these fields. */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mb-4">
+            {MFIELDS.map(({ key, label }) => {
+              const trend = trendFor(key)
+              return (
+                <div key={key} className="bg-gray-50 rounded-lg p-2.5 sm:p-3">
+                  <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide mb-1 truncate">{label}</p>
+                  {trend.length >= 2
+                    ? <Sparkline data={trend} />
+                    : <p className="text-[10px] text-gray-300 text-center py-4">Need 2+ entries to chart.</p>}
+                </div>
+              )
+            })}
+          </div>
+
           {/* History table */}
           <div className="overflow-x-auto -mx-4 px-4">
             <table className="w-full text-xs min-w-[280px]">
@@ -2857,69 +2882,6 @@ function MeasurementsSection({ clientId, getToken, startDate, endDate }) {
             </table>
           </div>
         </>
-      )}
-    </div>
-  )
-}
-
-function MiniChart({ series, valueKey = 'value', series2, valueKey2, color = '#E8670A', color2 = '#10b981' }) {
-  // Sort oldest→newest using timestamp — pg returns date columns as JS Date
-  // objects, so String().localeCompare() gives wrong (alphabetical weekday) order.
-  const sorted1 = (series  ?? []).slice().sort((a, b) => new Date(a.date ?? 0).getTime() - new Date(b.date ?? 0).getTime())
-  const sorted2 = (series2 ?? []).slice().sort((a, b) => new Date(a.date ?? 0).getTime() - new Date(b.date ?? 0).getTime())
-  const vals1 = sorted1.map(d => Number(d[valueKey]) || 0)
-  const vals2 = series2 ? sorted2.map(d => Number(d[valueKey2 ?? valueKey]) || 0) : []
-  if (vals1.length < 2) return <p className="text-[11px] text-gray-300 text-center py-6">Not enough data</p>
-  const all = [...vals1, ...vals2].filter(v => v > 0)
-  const mn = all.length ? Math.min(...all) : 0
-  const mx = all.length ? Math.max(...all) : 1
-  const sp = mx - mn || 1
-  const W = 300, H = 72
-  function pts(vals) {
-    return vals.map((v, i) => {
-      const x = (i / Math.max(vals.length - 1, 1)) * W
-      const y = H - 4 - ((v - mn) / sp) * (H - 12)
-      return `${x.toFixed(1)},${y.toFixed(1)}`
-    }).join(' ')
-  }
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" preserveAspectRatio="none" style={{ height: 72 }}>
-      <polyline points={pts(vals1)} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-      {vals2.length >= 2 && (
-        <polyline points={pts(vals2)} fill="none" stroke={color2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="5 3" />
-      )}
-    </svg>
-  )
-}
-
-function ChartCard({ title, legend, series, valueKey, series2, valueKey2, color, color2, fmtVal }) {
-  const points = (series ?? [])
-    .filter(d => d[valueKey] != null && Number.isFinite(Number(d[valueKey])))
-    .sort((a, b) => new Date(a.date ?? 0).getTime() - new Date(b.date ?? 0).getTime())
-  const hasEnoughData = points.length >= 2
-  const vals1   = points.map(d => Number(d[valueKey]))
-  const minVal  = hasEnoughData ? Math.min(...vals1) : null
-  const maxVal  = hasEnoughData ? Math.max(...vals1) : null
-  const fmt     = v => fmtVal ? fmtVal(v) : (Number.isInteger(v) ? v.toLocaleString() : v.toFixed(1))
-  return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4">
-      <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
-        <p className="text-xs font-semibold text-gray-700">{title}</p>
-        {legend && <div className="flex items-center gap-3 text-[10px] text-gray-400">{legend}</div>}
-      </div>
-      {hasEnoughData ? (
-        <>
-          {/* Min/max labels — matches the client-facing ChartCard style */}
-          {!series2 && minVal != null && (
-            <div className="flex justify-between text-[10px] text-gray-400 mb-0.5">
-              <span>{fmt(minVal)}</span>
-              <span>{fmt(maxVal)}</span>
-            </div>
-          )}
-          <MiniChart series={series} valueKey={valueKey} series2={series2} valueKey2={valueKey2} color={color} color2={color2} />
-        </>
-      ) : (
-        <p className="text-[11px] text-gray-300 text-center py-6">Need 2+ entries to chart.</p>
       )}
     </div>
   )
@@ -2980,10 +2942,14 @@ function ProgressTab({ clientId, clientName, getToken, role }) {
   const mac    = data?.macro_series   ?? []
   const stp    = data?.step_series    ?? []
   const slp    = data?.sleep_series   ?? []
+  const wat    = data?.water_series   ?? []
   const rows   = data?.table_rows     ?? []
   const photoSessions = data?.progress_photos ?? []
   const effectiveStart = data?.start_date ?? startDate
   const effectiveEnd   = data?.end_date ?? endDate
+  // Week/month-bucketed ranges aren't day-granular, so the shared ChartCard's
+  // gap-breaking dense-day fill (and quick-log affordance) only applies here.
+  const isDailyRange = range === 'daily' || range === 'custom'
 
   const weightCurrent      = data?.weight_current      ?? data?.starting_weight_lbs ?? null
   const profileAge         = data?.age                 ?? null
@@ -3040,6 +3006,10 @@ function ProgressTab({ clientId, clientName, getToken, role }) {
   }
   // Convert sleep series minutes → hours for chart display
   const slpHrs = slp.map(d => ({ date: d.date, value: d.value ? +(Number(d.value) / 60).toFixed(1) : 0 }))
+  // ChartCard expects pre-mapped { date, value } series (same shape the client-facing
+  // Progress page uses for its calories/protein detail cards).
+  const caloriesSeries = mac.map(d => ({ date: d.date, value: d.calories }))
+  const proteinSeries  = mac.map(d => ({ date: d.date, value: d.protein }))
 
   async function deleteProgressPhoto(photoId) {
     if (!window.confirm('Delete this progress photo? This cannot be undone.')) return
@@ -3240,15 +3210,20 @@ function ProgressTab({ clientId, clientName, getToken, role }) {
 
           {/* Charts — no Movement per Period */}
           <div className="grid sm:grid-cols-2 gap-4">
-            <ChartCard title="Weight (lbs)" series={wt} valueKey="value" fmtVal={v => `${v} lbs`} />
+            <ChartCard title="Weight (lbs)" data={wt} fmtVal={v => `${v} lbs`}
+              rangeStart={effectiveStart} rangeEnd={effectiveEnd} dense={isDailyRange} />
             <ChartCard
               title="Calories & Protein"
               legend={<><span style={{ color: '#E8670A' }}>— Cal</span><span style={{ color: '#10b981' }}>- - Prot</span></>}
-              series={mac} valueKey="calories"
-              series2={mac} valueKey2="protein" color2="#10b981"
+              data={caloriesSeries} data2={proteinSeries} color2="#10b981"
+              rangeStart={effectiveStart} rangeEnd={effectiveEnd} dense={isDailyRange}
             />
-            <ChartCard title="Daily Steps" series={stp} valueKey="value" fmtVal={v => Number(v).toLocaleString()} />
-            <ChartCard title="Sleep (hrs)" series={slpHrs} valueKey="value" color="#6366f1" fmtVal={v => `${v}h`} />
+            <ChartCard title="Daily Steps" data={stp} fmtVal={v => Number(v).toLocaleString()}
+              rangeStart={effectiveStart} rangeEnd={effectiveEnd} dense={isDailyRange} />
+            <ChartCard title="Sleep (hrs)" data={slpHrs} color="#6366f1" fmtVal={v => `${v}h`}
+              rangeStart={effectiveStart} rangeEnd={effectiveEnd} dense={isDailyRange} />
+            <ChartCard title="Water (oz)" data={wat} fmtVal={v => `${v} oz`}
+              rangeStart={effectiveStart} rangeEnd={effectiveEnd} dense={isDailyRange} className="sm:col-span-2" />
           </div>
 
           {/* Measurements */}

@@ -1699,7 +1699,7 @@ router.get('/clients/:id/progress', requireAuth(), async (req, res, next) => {
     const weight_current = wtCurR.rows[0]?.weight_current ?? prof.starting_weight_lbs ?? null
     const weight_current_source = wtCurR.rows[0]?.weight_current_source ?? (prof.starting_weight_lbs != null ? 'starting_weight' : null)
     res.json({ range, start_date: startDate, end_date: endDate, summary, weight_series: wtR.rows, macro_series: macR.rows,
-               step_series: stpR.rows, sleep_series: slpR.rows, movement_series: movR.rows,
+               step_series: stpR.rows, sleep_series: slpR.rows, movement_series: movR.rows, water_series: watR.rows,
                checkin_series: chkR.rows, table_rows, progress_photos: photoSessions,
                weight_current,
                weight_current_source,
