@@ -238,18 +238,23 @@ function WorkoutPill({ entry, dateISO, onOpen, compact = false }) {
   const done = !!log
   const exCount = exercises?.length ?? 0
   const base = done ? 'bg-indigo-50 border-indigo-300' : 'bg-white border-indigo-200'
+  // min-h-[44px] in the 7d list: these pills are now drag handles as well as
+  // buttons, so they need a full-size tap target on mobile. The 14d/month grid
+  // cells stay compact — there the whole day cell is the drop target.
 
   return (
     <button
       type="button"
       onClick={() => onOpen(entry, dateISO)}
-      className={`w-full flex items-center gap-1.5 rounded-md border px-1.5 ${compact ? 'py-1' : 'py-1.5'} text-left transition-colors hover:border-indigo-400 hover:bg-indigo-50 ${base}`}
+      className={`w-full flex items-center gap-1.5 rounded-md border px-1.5 ${compact ? 'py-1' : 'py-1.5 min-h-[44px]'} text-left transition-colors hover:border-indigo-400 hover:bg-indigo-50 ${base}`}
       title={`${formatDayLabel(assignment.day_label)} · ${assignment.workout_name}`}
     >
       <WorkoutBadge done={done} />
       <span className="min-w-0 flex-1">
         <span className={`block text-[11px] truncate font-medium ${done ? 'text-indigo-800' : 'text-gray-800'}`}>
           {formatDayLabel(assignment.day_label)}
+          {/* entry.moved: this occurrence sits on an overridden date, not its rule date */}
+          {entry.moved && <span className="ml-1 text-[9px] font-semibold text-[#E8670A]">· moved</span>}
         </span>
         {!compact && (
           <span className="block text-[10px] text-gray-400 truncate">{assignment.workout_name}</span>
@@ -266,7 +271,7 @@ function WorkoutPill({ entry, dateISO, onOpen, compact = false }) {
 
 // ─── Workout detail modal (log actual sets for a scheduled day) ───────────────
 
-function WorkoutDetailModal({ entry, dateISO, getToken, onClose, onSaved }) {
+function WorkoutDetailModal({ entry, dateISO, getToken, onClose, onSaved, onReschedule }) {
   const { assignment, exercises } = entry
 
   // Each exercise gets max(sets,1) editable set rows: { reps, weight }
@@ -285,6 +290,24 @@ function WorkoutDetailModal({ entry, dateISO, getToken, onClose, onSaved }) {
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState(null)
   const done = !!entry.log
+
+  // Move/reschedule: a simple date picker, not a drag gesture.
+  const [moving,      setMoving]      = useState(false)
+  const [moveDate,    setMoveDate]    = useState(dateISO)
+  const [movePending, setMovePending] = useState(false)
+  const [moveError,   setMoveError]   = useState(null)
+
+  async function confirmMove() {
+    if (!moveDate || moveDate === dateISO) { setMoving(false); return }
+    setMovePending(true); setMoveError(null)
+    try {
+      await onReschedule(assignment.id, dateISO, moveDate)
+      onClose()
+    } catch (err) {
+      setMoveError(err.message || 'Could not move that workout')
+      setMovePending(false)
+    }
+  }
 
   // Prefill from an existing log for this (assignment, date)
   useEffect(() => {
@@ -388,8 +411,54 @@ function WorkoutDetailModal({ entry, dateISO, getToken, onClose, onSaved }) {
             </div>
             <p className="text-[11px] text-gray-400 truncate">{assignment.workout_name} · {dateLabel}</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1.5 leading-none shrink-0 text-lg">✕</button>
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              onClick={() => { setMoving(m => !m); setMoveError(null) }}
+              className={`text-xs font-semibold rounded-lg px-2.5 min-h-[44px] border transition-colors ${
+                moving
+                  ? 'bg-orange-100 border-orange-300 text-[#c45e09]'
+                  : 'bg-orange-50 border-orange-200 text-[#E8670A] hover:bg-orange-100'
+              }`}
+            >
+              Move
+            </button>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1.5 min-h-[44px] min-w-[44px] flex items-center justify-center leading-none text-lg">✕</button>
+          </div>
         </div>
+
+        {/* Move/reschedule panel */}
+        {moving && (
+          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 shrink-0">
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={moveDate}
+                onChange={e => setMoveDate(e.target.value)}
+                className="flex-1 min-w-0 border border-gray-300 rounded-lg px-2 py-2 text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-[#E8670A]/30"
+              />
+              <button
+                type="button"
+                onClick={confirmMove}
+                disabled={movePending}
+                className="px-3 min-h-[44px] rounded-lg text-sm font-semibold bg-[#E8670A] text-white hover:bg-[#c45e09] disabled:opacity-60 shrink-0"
+              >
+                {movePending ? 'Moving…' : 'Confirm'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMoving(false); setMoveError(null) }}
+                disabled={movePending}
+                className="px-3 min-h-[44px] rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-100 disabled:opacity-60 shrink-0"
+              >
+                Cancel
+              </button>
+            </div>
+            {moveError && (
+              <p className="mt-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{moveError}</p>
+            )}
+          </div>
+        )}
 
         {/* Body */}
         <div className="overflow-y-auto flex-1 p-4 space-y-4">
@@ -547,7 +616,6 @@ export default function Calendar() {
   const [workoutCal,  setWorkoutCal]  = useState({})   // scheduled workouts by date
   const [activeWorkout, setActiveWorkout] = useState(null)  // { entry, dateISO } → modal
   const [loading,     setLoading]     = useState(true)
-  const [loadError,   setLoadError]   = useState(false)
   const [toast,       setToast]       = useState(null)
   const [todayLog,    setTodayLog]    = useState(null)   // live daily_logs row for today
   const [todayMeals,  setTodayMeals]  = useState(null)   // live meal totals for today
@@ -580,7 +648,6 @@ export default function Calendar() {
 
   const loadCalendar = useCallback(async () => {
     setLoading(true)
-    setLoadError(false)
     try {
       const token = await getToken()
       const start = isoDate(gridStart)
@@ -593,15 +660,15 @@ export default function Calendar() {
       if (habitRes.ok) {
         setCalendar((await habitRes.json()).calendar ?? {})
       } else {
-        setLoadError(true)
+        console.warn('[calendar] habit load failed:', habitRes.status)
       }
       if (workoutRes.ok) {
         setWorkoutCal((await workoutRes.json()).calendar ?? {})
       } else {
         console.warn('[calendar] workout load failed:', workoutRes.status)
       }
-    } catch {
-      setLoadError(true)
+    } catch (e) {
+      console.warn('[calendar] load error:', e.message)
     } finally { setLoading(false) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, anchor.getTime(), getToken])
@@ -724,6 +791,36 @@ export default function Calendar() {
     showToast('Workout logged 💪')
   }
 
+  // ── Tap-to-move rescheduling ────────────────────────────────────────────────
+  // Moves a single occurrence. The server records it as a workout_schedule_overrides
+  // row; the assignment's recurrence rule is never rewritten. If the target day
+  // already holds another workout the two swap, so nothing is dropped.
+  async function handleReschedule(assignmentId, fromISO, toISO) {
+    const rangeStart = isoDate(gridStart)
+    const rangeEnd   = isoDate(gridEnd)
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/client-workouts/me/reschedule`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        assignment_id: assignmentId,
+        original_date: fromISO,
+        new_date:      toISO,
+        range_start:   rangeStart,
+        range_end:     rangeEnd,
+      }),
+    })
+    if (!res.ok) {
+      const { error: msg } = await res.json().catch(() => ({}))
+      throw new Error(msg || `Server error ${res.status}`)
+    }
+    const data = await res.json()
+    // Server is the authority on which occurrence moved where — resync fully.
+    await loadCalendar()
+    showToast(data.swapped?.length ? 'Workouts swapped 🔁' : 'Workout moved 📅')
+    return data
+  }
+
   function prev() {
     if (viewMode === 'month') {
       setAnchor(new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1))
@@ -796,7 +893,10 @@ export default function Calendar() {
       <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Calendar</h1>
-          <p className="text-sm text-gray-500">Tap a circle to complete a habit, or a workout to log your sets.</p>
+          <p className="text-sm text-gray-500">
+            Tap a circle to complete a habit, or a workout to log your sets.
+            Open a workout and tap "Move" to reschedule it to another day.
+          </p>
         </div>
         {/* View mode switcher */}
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
@@ -857,7 +957,9 @@ export default function Calendar() {
                   )}
                 </div>
                 {total === 0 ? (
-                  <p className="text-xs text-gray-400 italic">Nothing scheduled</p>
+                  // Kept as a real (min-h) block rather than a bare line so an empty
+                  // day is still a comfortable drop target on a 375px screen.
+                  <p className="text-xs text-gray-400 italic min-h-[44px] flex items-center">Nothing scheduled</p>
                 ) : (
                   <div className="space-y-1.5">
                     {entries.map((entry, j) => (
@@ -958,19 +1060,6 @@ export default function Calendar() {
         <p className="text-center text-xs text-gray-400 mt-3">Loading…</p>
       )}
 
-      {!loading && loadError && (
-        <div className="mt-3 bg-red-50 border border-red-200 rounded-lg p-4 text-center">
-          <p className="text-sm font-medium text-red-700 mb-1">Could not load habit data</p>
-          <p className="text-xs text-red-500 mb-3">Check your connection and try again.</p>
-          <button
-            onClick={loadCalendar}
-            className="bg-[#E8670A] text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg-[#c45e09] transition-colors"
-          >
-            Retry
-          </button>
-        </div>
-      )}
-
       {/* Legend */}
       <div className="mt-4 flex flex-wrap gap-3 text-xs">
         <span className="flex items-center gap-1.5">
@@ -1003,6 +1092,7 @@ export default function Calendar() {
           getToken={getToken}
           onClose={() => setActiveWorkout(null)}
           onSaved={handleWorkoutSaved}
+          onReschedule={handleReschedule}
         />
       )}
 
