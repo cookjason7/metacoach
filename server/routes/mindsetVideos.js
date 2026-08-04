@@ -139,7 +139,9 @@ router.post('/:id/progress', requireAuth(), async (req, res) => {
     const ctx = { orgId: req.orgId, email: req.internalUser?.email }
     const bypassOrg = isSuperAdmin(ctx)
     const { rows: vidRows } = await pool.query(
-      bypassOrg ? 'SELECT id FROM mindset_videos WHERE id = $1' : 'SELECT id FROM mindset_videos WHERE id = $1 AND org_id = $2',
+      bypassOrg
+        ? 'SELECT id FROM mindset_videos WHERE id = $1 AND deleted_at IS NULL'
+        : 'SELECT id FROM mindset_videos WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL',
       bypassOrg ? [videoId] : [videoId, ctx.orgId],
     )
     if (!vidRows.length) return res.status(404).json({ error: 'Video not found' })
