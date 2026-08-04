@@ -559,20 +559,12 @@ export async function migrate() {
   await pool.query(`ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS group_type TEXT NOT NULL DEFAULT 'exercise'`)
   await pool.query(`ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS group_label TEXT`)
 
-  // Backfill org_id on workout rows. Required, not cosmetic: coachAdmin.js's
-  // INSERTs used to omit org_id entirely, so every coach-built program and
-  // exercise carries org_id IS NULL. Now that the UPDATE/DELETE routes there
-  // filter on org_id, those legacy rows would be uneditable and undeletable
-  // without this. Derived from the owning user (workouts.user_id), which is the
-  // same source the INSERTs now use. Idempotent — only touches NULL rows.
-  await pool.query(`
-    UPDATE workouts w SET org_id = u.org_id
-    FROM users u WHERE u.id = w.user_id AND w.org_id IS NULL AND u.org_id IS NOT NULL
-  `)
-  await pool.query(`
-    UPDATE workout_exercises we SET org_id = w.org_id
-    FROM workouts w WHERE w.id = we.workout_id AND we.org_id IS NULL AND w.org_id IS NOT NULL
-  `)
+  // org_id backfill for workouts/workout_exercises moved below runMigrations() —
+  // see the block right after that call. workouts.org_id/workout_exercises.org_id/
+  // users.org_id don't exist yet at this point in a fresh bootstrap (they're added
+  // by 001_multi_tenancy.js's TENANT_TABLES loop, which only runs at the very end
+  // of migrate()), so referencing w.org_id here threw "column w.org_id does not
+  // exist" on any genuinely fresh DB.
 
   // ── Workout scheduling ───────────────────────────────────────────────────────
   // Mirrors the coach_assigned_habits / habit_completions pattern, but assigns a
@@ -1309,19 +1301,11 @@ export async function migrate() {
   `)
 
   // ── Multi-tenancy: org_id scoping for forms (critical security isolation) ────
-  await pool.query(`ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE`)
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_form_templates_org ON form_templates (org_id)`)
-  await pool.query(`ALTER TABLE form_versions ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE`)
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_form_versions_org ON form_versions (org_id)`)
-  await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE`)
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_form_submissions_org ON form_submissions (org_id)`)
-  await pool.query(`ALTER TABLE form_assignments ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE`)
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_form_assignments_org ON form_assignments (org_id)`)
-  // Backfill: assign existing forms to org_id = 1 (seed org)
-  await pool.query(`UPDATE form_templates SET org_id = 1 WHERE org_id IS NULL`)
-  await pool.query(`UPDATE form_versions SET org_id = 1 WHERE org_id IS NULL`)
-  await pool.query(`UPDATE form_submissions SET org_id = 1 WHERE org_id IS NULL`)
-  await pool.query(`UPDATE form_assignments SET org_id = 1 WHERE org_id IS NULL`)
+  // Moved below runMigrations() — see the block after that call. The FK here
+  // targets organizations(id), which doesn't exist yet at this point in a fresh
+  // bootstrap (organizations is created by 001_multi_tenancy.js, only run via
+  // runMigrations() at the very end of migrate()), so this threw "relation
+  // organizations does not exist" on any genuinely fresh DB.
 
   // ── Grandfather existing users ───────────────────────────────────────────────
   // Any user who already completed onboarding before the assessment feature was
@@ -1401,25 +1385,15 @@ export async function migrate() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_invites_token ON client_invites (token)`)
   // Migration: shorten invite expiry from 30 days to 24 hours (idempotent)
   await pool.query(`ALTER TABLE client_invites ALTER COLUMN expires_at SET DEFAULT NOW() + INTERVAL '24 hours'`)
-  // org_id: which org this client is being invited INTO. Without it, claiming an
-  // invite left the new user on getOrCreateUser's org_id = 1 fallback, so every
-  // non-LWC org's invited clients silently landed in (and were only visible to)
-  // org 1 — see claimInvite and getOrCreateUser below. Mirrors staff_invites.org_id.
-  await pool.query(`ALTER TABLE client_invites ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL`)
-  // Backfill legacy rows from whoever issued them (inviting staff member, else the
-  // pre-assigned coach) — the same COALESCE the pending-invite routes in
-  // coachAdmin.js already used to derive an invite's org before this column existed.
-  // Anything still unresolved is org 1, which is where those rows landed anyway.
-  await pool.query(`
-    UPDATE client_invites ci
-    SET org_id = COALESCE(
-      (SELECT u.org_id FROM users u WHERE u.id = ci.invited_by),
-      (SELECT u.org_id FROM users u WHERE u.id = ci.assigned_coach_id),
-      1
-    )
-    WHERE ci.org_id IS NULL
-  `)
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_invites_org_id ON client_invites (org_id)`)
+  // org_id: which org this client is being invited INTO — moved below
+  // runMigrations() — see the block after that call. Depends on both
+  // organizations(id) (the FK target) and users.org_id (read in the backfill's
+  // COALESCE), neither of which exist yet at this point in a fresh bootstrap
+  // (both come from 001_multi_tenancy.js's TENANT_TABLES loop), so this threw on
+  // any genuinely fresh DB. Without it, claiming an invite left the new user on
+  // getOrCreateUser's org_id = 1 fallback, so every non-LWC org's invited clients
+  // silently landed in (and were only visible to) org 1 — see claimInvite and
+  // getOrCreateUser below. Mirrors staff_invites.org_id.
 
   // ── Staff / Coach Invites ────────────────────────────────────────────────────
   // Invite tokens for new coaches/admins to join without a fake DB row first.
@@ -2015,38 +1989,11 @@ export async function migrate() {
   // #coachingteam channel already in the DB (e.g. LWC/org_id 1) is untouched;
   // this just stops the seed from running for orgs that don't have one.
   //
-  // The cleanup below is unrelated and stays: it's a one-time (self-healing)
-  // fix for stray cross-org membership rows left over from a past bug where
-  // the seed above CROSS JOINed every staff user against a single globally
-  // name-guarded channel, so every org's admins got auto-joined into
-  // whichever org created "coachingteam" first — confirmed exploited on
-  // staging (org 2 admins were members of org 1's private channel). Platform
-  // super admins are allowed cross-org membership (they manage channels
-  // across every org via the app), so they're exempt.
-  if (ADMIN_EMAILS.length > 0) {
-    const placeholders = ADMIN_EMAILS.map((_, i) => `$${i + 1}`).join(', ')
-    await pool.query(
-      `DELETE FROM staff_channel_members cm
-       USING staff_channels c, users u
-       WHERE cm.channel_id = c.id
-         AND cm.user_id = u.id
-         AND c.org_id IS NOT NULL
-         AND u.org_id IS NOT NULL
-         AND c.org_id != u.org_id
-         AND LOWER(u.email) NOT IN (${placeholders})`,
-      ADMIN_EMAILS.map(e => e.toLowerCase()),
-    )
-  } else {
-    await pool.query(`
-      DELETE FROM staff_channel_members cm
-      USING staff_channels c, users u
-      WHERE cm.channel_id = c.id
-        AND cm.user_id = u.id
-        AND c.org_id IS NOT NULL
-        AND u.org_id IS NOT NULL
-        AND c.org_id != u.org_id
-    `)
-  }
+  // The stray cross-org membership cleanup that used to run here (self-healing
+  // fix for a past bug where the seed above CROSS JOINed every staff user
+  // against a single globally name-guarded channel) is now below runMigrations()
+  // — see the block after that call — since it reads staff_channels.org_id and
+  // users.org_id, neither of which exist yet at this point in a fresh bootstrap.
   // ── Admin allowlist bootstrap ───────────────────────────────────────────────
   // Force role=admin for the hard-coded ADMIN_EMAILS list on every startup.
   // Existing user data (meals, workouts, journal, etc.) is preserved — this
@@ -2121,6 +2068,130 @@ export async function runMigrations() {
     await pool.query(`ALTER TABLE staff_invites ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL`)
   } catch (err) {
     console.error('[migrations] 001_multi_tenancy failed:', err.message)
+  }
+
+  // One-time (self-healing) cleanup for stray cross-org staff_channel_members
+  // rows left over from a past bug where a since-removed #coachingteam auto-seed
+  // CROSS JOINed every staff user against a single globally name-guarded channel,
+  // so every org's admins got auto-joined into whichever org created
+  // "coachingteam" first — confirmed exploited on staging (org 2 admins were
+  // members of org 1's private channel). Platform super admins are allowed
+  // cross-org membership (they manage channels across every org via the app), so
+  // they're exempt. Moved here (from migrate()'s main body, before this function
+  // was ever called) — reads staff_channels.org_id and users.org_id, neither of
+  // which exist until 001_multi_tenancy just above adds them, so this threw
+  // "column c.org_id does not exist" on any genuinely fresh DB.
+  try {
+    if (ADMIN_EMAILS.length > 0) {
+      const placeholders = ADMIN_EMAILS.map((_, i) => `$${i + 1}`).join(', ')
+      await pool.query(
+        `DELETE FROM staff_channel_members cm
+         USING staff_channels c, users u
+         WHERE cm.channel_id = c.id
+           AND cm.user_id = u.id
+           AND c.org_id IS NOT NULL
+           AND u.org_id IS NOT NULL
+           AND c.org_id != u.org_id
+           AND LOWER(u.email) NOT IN (${placeholders})`,
+        ADMIN_EMAILS.map(e => e.toLowerCase()),
+      )
+    } else {
+      await pool.query(`
+        DELETE FROM staff_channel_members cm
+        USING staff_channels c, users u
+        WHERE cm.channel_id = c.id
+          AND cm.user_id = u.id
+          AND c.org_id IS NOT NULL
+          AND u.org_id IS NOT NULL
+          AND c.org_id != u.org_id
+      `)
+    }
+  } catch (err) {
+    console.error('[migrations] stray cross-org staff_channel_members cleanup failed:', err.message)
+  }
+
+  // Backfill org_id on workout rows. Required, not cosmetic: coachAdmin.js's
+  // INSERTs used to omit org_id entirely, so every coach-built program and
+  // exercise carries org_id IS NULL. Now that the UPDATE/DELETE routes there
+  // filter on org_id, those legacy rows would be uneditable and undeletable
+  // without this. Derived from the owning user (workouts.user_id), which is the
+  // same source the INSERTs now use. Idempotent — only touches NULL rows. Moved
+  // here (from migrate()'s main body, before this function was ever called) —
+  // workouts.org_id/workout_exercises.org_id/users.org_id don't exist until
+  // 001_multi_tenancy just above adds them, so this threw "column w.org_id does
+  // not exist" on any genuinely fresh DB. Every current INSERT INTO
+  // workouts/workout_exercises already sets org_id explicitly (routes/workouts.js,
+  // routes/coachAdmin.js), so this only ever affects pre-multi-tenancy legacy
+  // rows, not new ones — running it after TENANT_TABLES' own blanket "org_id = 1
+  // WHERE org_id IS NULL" backfill (just above, inside 001_multi_tenancy) doesn't
+  // leave anything for this more precise pass to correct today, but it's kept
+  // here (rather than deleted) as a no-op safety net in case that assumption
+  // ever changes.
+  try {
+    await pool.query(`
+      UPDATE workouts w SET org_id = u.org_id
+      FROM users u WHERE u.id = w.user_id AND w.org_id IS NULL AND u.org_id IS NOT NULL
+    `)
+    await pool.query(`
+      UPDATE workout_exercises we SET org_id = w.org_id
+      FROM workouts w WHERE w.id = we.workout_id AND we.org_id IS NULL AND w.org_id IS NOT NULL
+    `)
+  } catch (err) {
+    console.error('[migrations] workouts org_id backfill failed:', err.message)
+  }
+
+  // ── Multi-tenancy: org_id scoping for forms (critical security isolation) ────
+  // Moved here (from migrate()'s main body, before this function was ever
+  // called) for the same reason as the workouts backfill above — organizations,
+  // the FK target, doesn't exist until 001_multi_tenancy just above creates it.
+  // Unlike workouts/workout_exercises, none of these 4 tables are in
+  // TENANT_TABLES, so there's no competing blanket backfill to worry about
+  // ordering against here.
+  try {
+    await pool.query(`ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_form_templates_org ON form_templates (org_id)`)
+    await pool.query(`ALTER TABLE form_versions ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_form_versions_org ON form_versions (org_id)`)
+    await pool.query(`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_form_submissions_org ON form_submissions (org_id)`)
+    await pool.query(`ALTER TABLE form_assignments ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_form_assignments_org ON form_assignments (org_id)`)
+    // Backfill: assign existing forms to org_id = 1 (seed org)
+    await pool.query(`UPDATE form_templates SET org_id = 1 WHERE org_id IS NULL`)
+    await pool.query(`UPDATE form_versions SET org_id = 1 WHERE org_id IS NULL`)
+    await pool.query(`UPDATE form_submissions SET org_id = 1 WHERE org_id IS NULL`)
+    await pool.query(`UPDATE form_assignments SET org_id = 1 WHERE org_id IS NULL`)
+  } catch (err) {
+    console.error('[migrations] forms org_id scoping failed:', err.message)
+  }
+
+  // org_id: which org an invited client is being invited INTO — moved here (from
+  // migrate()'s main body, before this function was ever called) for the same
+  // reason: depends on organizations (the FK target) and users.org_id (read in
+  // the backfill's COALESCE below), neither of which exist until
+  // 001_multi_tenancy just above runs. Without it, claiming an invite left the
+  // new user on getOrCreateUser's org_id = 1 fallback, so every non-LWC org's
+  // invited clients silently landed in (and were only visible to) org 1 — see
+  // claimInvite and getOrCreateUser below. Mirrors staff_invites.org_id.
+  try {
+    await pool.query(`ALTER TABLE client_invites ADD COLUMN IF NOT EXISTS org_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL`)
+    // Backfill legacy rows from whoever issued them (inviting staff member, else
+    // the pre-assigned coach) — the same COALESCE the pending-invite routes in
+    // coachAdmin.js already used to derive an invite's org before this column
+    // existed. Anything still unresolved is org 1, which is where those rows
+    // landed anyway.
+    await pool.query(`
+      UPDATE client_invites ci
+      SET org_id = COALESCE(
+        (SELECT u.org_id FROM users u WHERE u.id = ci.invited_by),
+        (SELECT u.org_id FROM users u WHERE u.id = ci.assigned_coach_id),
+        1
+      )
+      WHERE ci.org_id IS NULL
+    `)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_invites_org_id ON client_invites (org_id)`)
+  } catch (err) {
+    console.error('[migrations] client_invites org_id backfill failed:', err.message)
   }
 
   // community_groups: org-manageable categories/channels backing the community
