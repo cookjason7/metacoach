@@ -15,7 +15,9 @@ const SUPER_ADMIN_EMAILS = ['jason@lwcvip.com', 'jason@efcfit.com']
 
 const SHIRT_SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL']
 
-const SLEEP_HOURS_OPTIONS = [
+// Exported so staff-facing views (e.g. ClientProfile.jsx's Client Info card) can
+// render the client's actual answer label instead of the raw stored key.
+export const SLEEP_HOURS_OPTIONS = [
   { value: 'less_than_5', label: 'Under 5h' },
   { value: '5_to_6',      label: '5–6h' },
   { value: '6_to_7',      label: '6–7h' },
@@ -24,7 +26,7 @@ const SLEEP_HOURS_OPTIONS = [
   { value: '9_plus',      label: '9h+' },
 ]
 
-const WATER_OPTIONS = [
+export const WATER_OPTIONS = [
   { value: 'less_than_32',  label: '<32 oz' },
   { value: '32_to_64',      label: '32–64 oz' },
   { value: '64_to_96',      label: '64–96 oz' },

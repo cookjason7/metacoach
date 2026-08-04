@@ -10,6 +10,7 @@ import LinkifiedText from '../../components/LinkifiedText.jsx'
 import ExerciseThumb from '../../components/ExerciseThumb.jsx'
 import { Sparkline, ChartCard } from '../../components/charts/ProgressChart.jsx'
 import { SECTION_PRESETS, buildGroups, sectionOrderFor, groupLabelFor, GROUP_TYPE_META } from '../../utils/workoutGrouping.js'
+import { SLEEP_HOURS_OPTIONS, WATER_OPTIONS } from '../HealthAssessment.jsx'
 
 // Display-only: "Day 1" -> "Day 1 Workout". Sequential day labels are the stored
 // identifier (used to match exercises/schedules); this never touches that value.
@@ -91,6 +92,17 @@ function fmtActivityLevel(value) {
     extra_active:      'Extra Active',
   }
   return map[String(value).trim().toLowerCase()] ?? value
+}
+
+// 1-5 self-reported scale fields (energy/sleep quality/stress/happiness/confidence).
+function fmtRating(value) {
+  if (value === null || value === undefined || value === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) ? `${n}/5` : null
+}
+
+function hasValue(v) {
+  return v !== null && v !== undefined && v !== ''
 }
 
 // 'ai' was consolidated into 'hybrid' — legacy rows label as Hybrid, which is
@@ -308,7 +320,32 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 ].filter(Boolean).join(' · ')
               : null
             const dob = client.display_dob ? fmtDob(String(client.display_dob)) : null
+            // Anchor strings are stored verbatim from the onboarding form's IDENTITY_TRAITS
+            // list — no key→label mapping needed, unlike the enum fields below.
+            const identityAnswer = client.identity_anchors?.length ? client.identity_anchors.join(' · ') : null
+            const goalsFields = [
+              { question: 'Your #1 goal in the next 6 months', answer: client.assessment_goals_6_months || null },
+              { question: "Choose 2 traits that feel most true to who you're becoming.", answer: identityAnswer },
+            ]
+            const healthFields = [
+              { question: 'Injuries or physical limitations', answer: client.assessment_injuries_limitations || null },
+              { question: 'Current supplements',              answer: client.assessment_supplements || null },
+            ]
+            const lifestyleFields = [
+              { question: 'Occupation',                                          answer: client.assessment_occupation || null },
+              { question: 'Number of kids',                                      answer: countAnswer(client.assessment_num_kids) },
+              { question: 'How would you rate your typical energy level?',       answer: fmtRating(client.assessment_energy_level) },
+              { question: 'How many hours of sleep do you get most nights?',     answer: optionLabel(SLEEP_HOURS_OPTIONS, client.assessment_sleep_hours) },
+              { question: 'Rate your sleep quality',                             answer: fmtRating(client.assessment_sleep_quality) },
+              { question: 'How well do you manage stress?',                      answer: fmtRating(client.assessment_stress_management) },
+              { question: 'How much water do you drink daily?',                  answer: optionLabel(WATER_OPTIONS, client.assessment_daily_water) },
+              { question: 'Alcoholic drinks per weekday',                        answer: countAnswer(client.assessment_alcohol_weekdays) },
+              { question: 'Alcoholic drinks per weekend day',                    answer: countAnswer(client.assessment_alcohol_weekends) },
+              { question: 'Rate your overall happiness',                         answer: fmtRating(client.assessment_happiness_level) },
+              { question: 'Rate your self-confidence',                           answer: fmtRating(client.assessment_confidence_level) },
+            ]
             return (
+              <>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                 <InfoRow label="Full name"       value={fullName} />
                 <InfoRow label="Email"           value={client.email} />
@@ -332,7 +369,6 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 <InfoRow label="Height"              value={fmtHeight(client.height_inches)} />
                 <InfoRow label="Gender"              value={client.gender ? client.gender.charAt(0).toUpperCase() + client.gender.slice(1) : null} />
                 <InfoRow label="Activity level"      value={fmtActivityLevel(client.activity_level ?? client.assessment_activity_level)} />
-                <InfoRow label="Identity anchors"    value={client.identity_anchors?.length ? client.identity_anchors.join(', ') : null} wrap />
                 <InfoRow label="Food allergies"      value={client.food_allergies || null} />
                 <InfoRow label="Foods disliked"      value={client.food_dislikes || null} />
                 <InfoRow label="Program start date" value={displayStartDate} />
@@ -350,6 +386,10 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 <InfoRow label="Client status"   value={(() => { const s = client.client_status ?? 'active'; return s.charAt(0).toUpperCase() + s.slice(1) })()} />
                 <InfoRow label="Role"            value={client.role} />
               </div>
+              <InfoSection title="Goals & Identity" fields={goalsFields} />
+              <InfoSection title="Health & Limitations" fields={healthFields} />
+              <InfoSection title="Lifestyle" fields={lifestyleFields} />
+              </>
             )
           })()
         ) : (
@@ -732,6 +772,52 @@ function InfoRow({ label, value, emptyText = 'Not provided yet', wrap = false })
   )
 }
 
+// Looks up the client-facing label for a bucketed onboarding answer (e.g. sleep
+// hours, daily water) from the same options list HealthAssessment.jsx presents to
+// the client, so staff see "8–9h" rather than the raw stored key "8_to_9".
+function optionLabel(options, value) {
+  if (!hasValue(value)) return null
+  return options.find(o => o.value === value)?.label ?? value
+}
+
+// alcohol_weekdays/alcohol_weekends are free numeric counts on the onboarding form
+// (plain number inputs, not a bucketed selector) — render the stored count as-is.
+function countAnswer(value) {
+  return hasValue(value) ? String(value) : null
+}
+
+// Read-only Q&A sub-section of the Client Info card (health_assessments fields
+// grouped by topic, sourced from the client's own onboarding answers — no Edit
+// button here). Each field renders the exact onboarding question text above the
+// client's actual answer, stacked single-column since question text runs long.
+// Defaults open on desktop, collapsed on mobile so the card doesn't dump a huge
+// scroll on small screens. Hides entirely when every field is empty — no dangling
+// section header for a client with no data.
+function InfoSection({ title, fields }) {
+  const [open, setOpen] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(min-width: 640px)').matches : true
+  )
+  if (!fields.some(f => hasValue(f.answer))) return null
+  return (
+    <div className="border border-gray-200 rounded-lg overflow-hidden mt-3">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-3 py-2.5 min-h-[44px] bg-gray-50 hover:bg-gray-100 text-left transition-colors"
+      >
+        <p className="text-xs font-semibold text-gray-700">{title}</p>
+        <span className="text-gray-400 text-xs">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="p-3 grid grid-cols-1 gap-3 text-sm">
+          {fields.map(f => (
+            <InfoRow key={f.question} label={f.question} value={f.answer ?? null} emptyText="—" wrap />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 // ─── Nutrition Targets Card ───────────────────────────────────────────────────
 
 const MACRO_TARGET_FIELDS = [
