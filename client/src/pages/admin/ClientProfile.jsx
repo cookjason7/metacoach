@@ -93,6 +93,17 @@ function fmtActivityLevel(value) {
   return map[String(value).trim().toLowerCase()] ?? value
 }
 
+// 1-5 self-reported scale fields (energy/sleep quality/stress/happiness/confidence).
+function fmtRating(value) {
+  if (value === null || value === undefined || value === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) ? `${n}/5` : null
+}
+
+function hasValue(v) {
+  return v !== null && v !== undefined && v !== ''
+}
+
 // 'ai' was consolidated into 'hybrid' — legacy rows label as Hybrid, which is
 // the tier they actually behave as everywhere else.
 function coachingTypeLabel(type) {
@@ -308,7 +319,30 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 ].filter(Boolean).join(' · ')
               : null
             const dob = client.display_dob ? fmtDob(String(client.display_dob)) : null
+            const identityAnchors = client.identity_anchors?.length ? client.identity_anchors.join(', ') : null
+            const goalsFields = [
+              { label: '6-month goals',    value: client.assessment_goals_6_months },
+              { label: 'Identity anchors', value: identityAnchors, wrap: true },
+            ]
+            const healthFields = [
+              { label: 'Injuries / limitations', value: client.assessment_injuries_limitations, wrap: true },
+              { label: 'Supplements',            value: client.assessment_supplements, wrap: true },
+            ]
+            const lifestyleFields = [
+              { label: 'Occupation',          value: client.assessment_occupation },
+              { label: 'Number of kids',      value: client.assessment_num_kids },
+              { label: 'Energy level',        value: fmtRating(client.assessment_energy_level) },
+              { label: 'Sleep hours',         value: client.assessment_sleep_hours },
+              { label: 'Sleep quality',       value: fmtRating(client.assessment_sleep_quality) },
+              { label: 'Stress management',   value: fmtRating(client.assessment_stress_management) },
+              { label: 'Daily water',         value: client.assessment_daily_water },
+              { label: 'Alcohol (weekdays)',  value: client.assessment_alcohol_weekdays },
+              { label: 'Alcohol (weekends)',  value: client.assessment_alcohol_weekends },
+              { label: 'Happiness level',     value: fmtRating(client.assessment_happiness_level) },
+              { label: 'Confidence level',    value: fmtRating(client.assessment_confidence_level) },
+            ]
             return (
+              <>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                 <InfoRow label="Full name"       value={fullName} />
                 <InfoRow label="Email"           value={client.email} />
@@ -332,7 +366,6 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 <InfoRow label="Height"              value={fmtHeight(client.height_inches)} />
                 <InfoRow label="Gender"              value={client.gender ? client.gender.charAt(0).toUpperCase() + client.gender.slice(1) : null} />
                 <InfoRow label="Activity level"      value={fmtActivityLevel(client.activity_level ?? client.assessment_activity_level)} />
-                <InfoRow label="Identity anchors"    value={client.identity_anchors?.length ? client.identity_anchors.join(', ') : null} wrap />
                 <InfoRow label="Food allergies"      value={client.food_allergies || null} />
                 <InfoRow label="Foods disliked"      value={client.food_dislikes || null} />
                 <InfoRow label="Program start date" value={displayStartDate} />
@@ -350,6 +383,10 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 <InfoRow label="Client status"   value={(() => { const s = client.client_status ?? 'active'; return s.charAt(0).toUpperCase() + s.slice(1) })()} />
                 <InfoRow label="Role"            value={client.role} />
               </div>
+              <InfoSection title="Goals & Identity" fields={goalsFields} />
+              <InfoSection title="Health & Limitations" fields={healthFields} />
+              <InfoSection title="Lifestyle" fields={lifestyleFields} />
+              </>
             )
           })()
         ) : (
@@ -728,6 +765,36 @@ function InfoRow({ label, value, emptyText = 'Not provided yet', wrap = false })
     <div>
       <p className="text-xs text-gray-400">{label}</p>
       <p className={`text-sm font-medium text-gray-800 ${wrap ? 'whitespace-normal break-words' : 'truncate'}`}>{value ?? emptyText}</p>
+    </div>
+  )
+}
+
+// Collapsible sub-section of the Client Info card (health_assessments fields
+// grouped by topic). Defaults open on desktop, collapsed on mobile so the card
+// doesn't dump a huge scroll on small screens. Hides entirely when every field
+// in the section is empty — no dangling section header for a client with no data.
+function InfoSection({ title, fields }) {
+  const [open, setOpen] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(min-width: 640px)').matches : true
+  )
+  if (!fields.some(f => hasValue(f.value))) return null
+  return (
+    <div className="border border-gray-200 rounded-lg overflow-hidden mt-3">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-3 py-2.5 min-h-[44px] bg-gray-50 hover:bg-gray-100 text-left transition-colors"
+      >
+        <p className="text-xs font-semibold text-gray-700">{title}</p>
+        <span className="text-gray-400 text-xs">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+          {fields.map(f => (
+            <InfoRow key={f.label} label={f.label} value={f.value ?? null} emptyText="—" wrap={f.wrap} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
