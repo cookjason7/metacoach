@@ -2410,6 +2410,7 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
             {video.description && (
               <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{video.description}</p>
             )}
+            {isStaff && <VideoWatchStats videoId={video.id} getToken={getToken} />}
           </div>
           {/* Staff controls */}
           {isStaff && (
@@ -2487,6 +2488,43 @@ function VideoCard({ video, isStaff, onEdit, onDelete, onTogglePublish, expanded
         )}
       </div>
     </div>
+  )
+}
+
+// ── VideoWatchStats (staff-only aggregate watch counts, one fetch per card) ──
+// Reuses the existing GET /coach-admin/mindset-videos/:id/watch-stats endpoint —
+// no batch endpoint exists, and the video library here is small/curated (same
+// per-card fetch pattern as VideoReactionRow/CommentSection below), so one call
+// per rendered card on mount is the right fit rather than adding new plumbing.
+
+function VideoWatchStats({ videoId, getToken }) {
+  const [stats, setStats] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/coach-admin/mindset-videos/${videoId}/watch-stats`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!cancelled && res.ok) setStats(await res.json())
+      } catch { /* silent — stats are non-critical to the management list */ }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [videoId, getToken])
+
+  // Default to 0s (not blank) so a brand-new video with no watches yet reads
+  // cleanly rather than showing nothing while the fetch is in flight.
+  const started   = stats?.startedCount   ?? 0
+  const watched50 = stats?.watched50Count ?? 0
+  const completed = stats?.completedCount ?? 0
+
+  return (
+    <p className="text-[11px] text-gray-400 mt-1">
+      {started} started · {watched50} watched 50%+ · {completed} completed
+    </p>
   )
 }
 
