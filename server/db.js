@@ -1925,20 +1925,6 @@ export async function migrate() {
     ON CONFLICT (goal) DO NOTHING
   `)
 
-  // INVENTED — 'mobility' has no source in the guide's volume/intensity table
-  // (that table only covers strength/power/hypertrophy/endurance main-lift
-  // work). sets_min/sets_max = 0 is a deliberate signal, not a placeholder
-  // gap: getMainLiftVolume() returns sets: 0 for this goal with no code
-  // change, and buildMainWork() (workoutAssembly/assembleSession.js) treats
-  // sets === 0 as "skip main-lift work for this session" so a mobility
-  // session never forces a squat/hinge pick. rep_range is unused when
-  // sets = 0 but kept non-null to satisfy the NOT NULL constraint.
-  await pool.query(`
-    INSERT INTO volume_rules (goal, rep_range, sets_min, sets_max) VALUES
-      ('mobility', 'n/a', 0, 0)
-    ON CONFLICT (goal) DO NOTHING
-  `)
-
   // Admin-entered corrections pulled into Katie's context at answer-time so a
   // wrong/hedged answer can be fixed without a code deploy. org_id (populated via
   // the multi-tenancy migration's TENANT_TABLES backfill) scopes each correction
