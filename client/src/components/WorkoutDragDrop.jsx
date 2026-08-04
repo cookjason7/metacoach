@@ -29,9 +29,11 @@ export const dropIdToDate = id => (String(id).startsWith('day:') ? String(id).sl
 // One draggable workout occurrence, identified by (assignment, the date it is
 // currently shown on).
 //
-// touch-action: manipulation — not `none` — so the page still scrolls under a
-// finger that is merely swiping past a pill. The TouchSensor's delay constraint,
-// not touch-action, is what separates a drag from a scroll.
+// touch-action: none — Android's native pan/scroll gesture otherwise preempts
+// dnd-kit's TouchSensor before its 500ms activation delay can fire, so the pill
+// itself must block native panning entirely and let the delay constraint be
+// the sole gesture arbiter. Scrolling between/around pills still works because
+// this is scoped to the pill wrapper only, not the day cell or any ancestor.
 export function DraggableWorkout({ assignmentId, dateISO, entry, children }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `w:${assignmentId}:${dateISO}`,
@@ -45,7 +47,7 @@ export function DraggableWorkout({ assignmentId, dateISO, entry, children }) {
       data-drag-date={dateISO}
       data-drag-assignment={assignmentId}
       onContextMenu={e => e.preventDefault()}
-      style={{ touchAction: 'manipulation', WebkitTouchCallout: 'none' }}
+      style={{ touchAction: 'none', WebkitTouchCallout: 'none' }}
       className={`select-none ${isDragging ? 'opacity-30' : ''}`}
     >
       {children}
