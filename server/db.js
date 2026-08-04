@@ -1539,6 +1539,11 @@ export async function migrate() {
   // tables created before this migration.
   await pool.query(`ALTER TABLE mindset_videos DROP COLUMN IF EXISTS module_name`)
   await pool.query(`ALTER TABLE mindset_videos DROP COLUMN IF EXISTS display_order`)
+  // Soft-delete: staff "delete" archives a video instead of hard-deleting it, so
+  // video_watch_progress / brain_mapping_comments / brain_mapping_reactions /
+  // brain_mapping_video_reactions (all ON DELETE CASCADE off mindset_videos) keep
+  // client watch/engagement history intact. NULL = active; non-null = archived.
+  await pool.query(`ALTER TABLE mindset_videos ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`)
 
   // ── Video watch progress ─────────────────────────────────────────────────────
   await pool.query(`

@@ -2045,7 +2045,7 @@ router.get('/clients/:id/mindset-progress', requireAuth(), async (req, res, next
         AND vwp.last_watched_at >= $2
     `, [clientId, weekStartISO])
 
-    // 3 most recent published in-app videos with progress if it exists
+    // 5 most recent published in-app videos with progress if it exists
     const { rows: videoRows } = await pool.query(`
       SELECT
         mv.id, mv.title,
@@ -2056,9 +2056,9 @@ router.get('/clients/:id/mindset-progress', requireAuth(), async (req, res, next
       FROM mindset_videos mv
       LEFT JOIN video_watch_progress vwp
         ON vwp.video_id = mv.id AND vwp.user_id = $1
-      WHERE mv.published = TRUE
+      WHERE mv.published = TRUE AND mv.deleted_at IS NULL
       ORDER BY mv.created_at DESC
-      LIMIT 3
+      LIMIT 5
     `, [clientId])
 
     const week = weekRows[0]
@@ -2083,6 +2083,74 @@ router.get('/clients/:id/mindset-progress', requireAuth(), async (req, res, next
         started:        r.started,
         last_watched_at: r.last_watched_at ?? null,
       })),
+    })
+  } catch (err) { next(err) }
+})
+
+// GET /api/coach-admin/mindset-videos/:id/watch-stats
+// Aggregated watch stats for ONE video across ALL clients. Looked up by id
+// regardless of deleted_at — staff archiving a video (soft-delete, see
+// DELETE /api/mindset-videos/:id) still want to see its stats afterward.
+router.get('/mindset-videos/:id/watch-stats', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const videoId = parseInt(req.params.id, 10)
+    if (!videoId || Number.isNaN(videoId)) return res.status(400).json({ error: 'Invalid video id' })
+
+    // Same super-admin org bypass as mindsetVideos.js — everyone else is scoped
+    // to their own org's video.
+    const bypassOrg = isAdminEmail(ctx.email)
+    const { rows: videoRows } = await pool.query(
+      bypassOrg
+        ? 'SELECT id FROM mindset_videos WHERE id = $1'
+        : 'SELECT id FROM mindset_videos WHERE id = $1 AND org_id = $2',
+      bypassOrg ? [videoId] : [videoId, ctx.orgId],
+    )
+    if (!videoRows.length) return res.status(404).json({ error: 'Video not found' })
+
+    const { rows } = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE vwp.started = TRUE)::int    AS started_count,
+        COUNT(*) FILTER (WHERE vwp.highest_pct >= 50)::int AS watched50_count,
+        COUNT(*) FILTER (WHERE vwp.completed = TRUE)::int  AS completed_count
+      FROM video_watch_progress vwp
+      WHERE vwp.video_id = $1
+    `, [videoId])
+    const r = rows[0]
+
+    res.json({
+      videoId,
+      startedCount:   r.started_count ?? 0,
+      watched50Count: r.watched50_count ?? 0,
+      completedCount: r.completed_count ?? 0,
+    })
+  } catch (err) { next(err) }
+})
+
+// GET /api/coach-admin/clients/:id/videos-watched-total
+// Aggregated watch totals for ONE client across ALL videos (not just the recent-5
+// shown on mindset-progress above).
+router.get('/clients/:id/videos-watched-total', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, clientId)) return res.status(403).json({ error: 'Forbidden' })
+
+    const { rows } = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE vwp.started = TRUE)::int    AS started_count,
+        COUNT(*) FILTER (WHERE vwp.highest_pct >= 50)::int AS watched50_count,
+        COUNT(*) FILTER (WHERE vwp.completed = TRUE)::int  AS completed_count
+      FROM video_watch_progress vwp
+      WHERE vwp.user_id = $1
+    `, [clientId])
+    const r = rows[0]
+
+    res.json({
+      clientId,
+      startedCount:   r.started_count ?? 0,
+      watched50Count: r.watched50_count ?? 0,
+      completedCount: r.completed_count ?? 0,
     })
   } catch (err) { next(err) }
 })
