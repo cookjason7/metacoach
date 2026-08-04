@@ -6794,6 +6794,17 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
   // entry point (desktop and mobile alike) gets the pre-fill without each having
   // to remember to ask for it. A client with no saved profile gets 200/null back
   // and the form is left blank, exactly as it behaves today.
+  //
+  // profilePrefilled.current is set true immediately (synchronously, before the
+  // fetch resolves) purely to block a second overlapping fetch if this effect
+  // re-runs while the first is still in flight. It is NOT the final word on
+  // whether the pre-fill succeeded: `succeeded` tracks that, and the `finally`
+  // below resets the ref back to false unless the fetch actually completed
+  // (parsed a response) without being cancelled. Without that reset, closing the
+  // questionnaire before the GET resolves — which flips `cancelled` and
+  // correctly skips the setGenForm call — left the ref stuck at true forever for
+  // that client, so reopening the questionnaire never retried the GET and the
+  // form silently stayed blank for the rest of the session.
   useEffect(() => { profilePrefilled.current = false }, [clientId])
   useEffect(() => {
     if (genFlow !== 'questionnaire' || profilePrefilled.current) return
@@ -6801,11 +6812,13 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
     let cancelled = false
     ;(async () => {
       setProfileLoading(true)
+      let succeeded = false
       try {
         const token = await getToken()
         const res   = await fetch(PROFILE_URL, { headers: { Authorization: `Bearer ${token}` } })
         if (!res.ok) return
         const saved = await res.json()
+        succeeded = true // response parsed — no retry needed even if cancelled or null
         if (cancelled || !saved) return
         setGenForm(f => ({
           ...f,
@@ -6823,7 +6836,12 @@ function WorkoutsTab({ clientId, clientFirstName, getToken }) {
           injuries:         saved.injuries         ?? f.injuries,
         }))
       } catch { /* pre-fill is best-effort — a failure just leaves the form blank */ }
-      finally { if (!cancelled) setProfileLoading(false) }
+      finally {
+        // Cancelled (questionnaire closed early) or never got a usable response
+        // (network/parse error, non-OK status) — un-gate so the next open retries.
+        if (cancelled || !succeeded) profilePrefilled.current = false
+        if (!cancelled) setProfileLoading(false)
+      }
     })()
     return () => { cancelled = true }
   }, [genFlow, clientId]) // eslint-disable-line react-hooks/exhaustive-deps
