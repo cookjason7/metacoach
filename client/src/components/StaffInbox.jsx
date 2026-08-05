@@ -1095,6 +1095,21 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
         ) : (
           <>
             <div className="sticky top-0 z-10 rounded-t-xl px-4 py-3 border-b border-gray-100 bg-gray-50">
+              {/* On iOS/WKWebView, this header only sticks flush with <main>'s padding
+                  edge — Layout's <main> reserves pt-[calc(1rem+env(safe-area-inset-top))]
+                  above that edge for the notch/status bar, and that reserved strip isn't
+                  itself painted by anything, so scrolled-past message bubbles can bleed
+                  through it above the header. This filler carries the header's own
+                  background up to cover that strip too. It's absolutely positioned (this
+                  header is its containing block via position:sticky) so it doesn't add to
+                  the header's own box/height at rest — only visible once actually stuck
+                  and scrolled, exactly where the gap would otherwise show through.
+                  md+ never needs it (panel's own bounded overflow-hidden, no outer-page
+                  scroll — see the panel's className comment above). */}
+              <div
+                aria-hidden="true"
+                className="md:hidden absolute inset-x-0 -top-[calc(1rem+env(safe-area-inset-top))] h-[calc(1rem+env(safe-area-inset-top))] bg-gray-50"
+              />
               <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={backToList}
