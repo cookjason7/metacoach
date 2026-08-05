@@ -260,6 +260,7 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
   const [sending,     setSending]     = useState(false)
   const [toast,       setToast]       = useState(null) // { msg: string, type: 'error'|'info' }
   const scrollRef      = useRef(null)
+  const bottomRef      = useRef(null) // sentinel after the last message — scrollIntoView works regardless of which ancestor is the actual scrolling container (panel's own overflow-y-auto at md+, the page at mobile)
   const threadListRef  = useRef(null) // scrollable thread-list container — scrolled to top on "back"
   const backToListPendingRef = useRef(false) // set by backToList(), consumed once selected actually clears
   const selectedRef    = useRef(null)
@@ -758,7 +759,10 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
 
   useEffect(() => {
     if (messages.length > 0 && messages.length >= msgCountRef.current) {
-      if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      // scrollIntoView (not scrollRef.scrollTop) so this works whether the message
+      // list scrolls internally (md+, bounded panel) or the page itself is the
+      // scrolling ancestor (mobile — see the panel's overflow-visible comment below).
+      bottomRef.current?.scrollIntoView({ block: 'end' })
     }
   }, [messages])
 
@@ -1061,7 +1065,11 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
           (below) can escape to the page's actual scrolling ancestor (Layout's
           <main>) instead of being trapped by this panel's own bounds — at md+
           the panel never needs outer-page scroll, so overflow-hidden (for the
-          rounded corners) is restored there. See the matching md:hidden Back
+          rounded corners) is restored there. Below md the message list (further
+          down) also drops its own internal max-h/scroll so there's exactly one
+          scrolling context feeding the sticky header, not two stacked ones —
+          the earlier two-scroll-context setup was what made the header visually
+          overlap scrolling message content. See the matching md:hidden Back
           to Messages button below, which rounds the bottom corners in the gap
           left by overflow-visible on mobile. */}
       <div className={`flex-1 flex-col bg-white border border-gray-200 rounded-xl overflow-visible md:overflow-hidden ${selected ? 'flex' : 'hidden lg:flex'}`}>
@@ -1072,6 +1080,21 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
         ) : (
           <>
             <div className="sticky top-0 z-10 rounded-t-xl px-4 py-3 border-b border-gray-100 bg-gray-50">
+              {/* On iOS/WKWebView, this header only sticks flush with <main>'s padding
+                  edge — Layout's <main> reserves pt-[calc(1rem+env(safe-area-inset-top))]
+                  above that edge for the notch/status bar, and that reserved strip isn't
+                  itself painted by anything, so scrolled-past message bubbles can bleed
+                  through it above the header. This filler carries the header's own
+                  background up to cover that strip too. It's absolutely positioned (this
+                  header is its containing block via position:sticky) so it doesn't add to
+                  the header's own box/height at rest — only visible once actually stuck
+                  and scrolled, exactly where the gap would otherwise show through.
+                  md+ never needs it (panel's own bounded overflow-hidden, no outer-page
+                  scroll — see the panel's className comment above). */}
+              <div
+                aria-hidden="true"
+                className="md:hidden absolute inset-x-0 -top-[calc(1rem+env(safe-area-inset-top))] h-[calc(1rem+env(safe-area-inset-top))] bg-gray-50"
+              />
               <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={backToList}
@@ -1154,7 +1177,14 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
                 )
               })()}
             </div>
-            <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 bg-gray-50 space-y-3 max-h-[500px]">
+            {/* Below md, no max-h/internal scroll — the list grows in normal flow so
+                the page (Layout's <main>) is the single scrolling ancestor the sticky
+                header above anchors to. At md+ the panel is bounded (overflow-hidden,
+                see above) so the list scrolls internally within its own 500px cap as
+                before. Two independent scroll contexts stacked under one sticky header
+                is what caused the header to visually overlap scrolling content — see
+                1ea4c4e and the fix that reconciled this. */}
+            <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 bg-gray-50 space-y-3 md:max-h-[500px]">
               {hasMore && !loadingMsgs && (
                 <div className="text-center pb-1">
                   <button
@@ -1308,6 +1338,7 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
                   </div>
                 )
               })}
+              <div ref={bottomRef} />
             </div>
             {/* Read-only notice: admin viewing another coach's thread (not their own) */}
             {role === 'admin' && selected?.threadType === 'coach_thread' && !selected?.isAssignedCoach ? (
