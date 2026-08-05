@@ -3039,6 +3039,47 @@ router.delete('/clients/:id/messages/:messageId', requireAuth(), async (req, res
   } catch (err) { next(err) }
 })
 
+// PUT /api/coach-admin/clients/:id/messages/:messageId  body: { message_body }
+// Only the original sender (this staff member) may edit their own message, within 1 hour of sending.
+router.put('/clients/:id/messages/:messageId', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId  = parseInt(req.params.id, 10)
+    const messageId = parseInt(req.params.messageId, 10)
+    if (!Number.isInteger(messageId)) return res.status(400).json({ error: 'Invalid message id' })
+    if (!await canAccessClient(ctx, clientId)) return res.status(403).json({ error: 'Forbidden' })
+
+    const { message_body } = req.body
+    if (!message_body?.trim()) return res.status(400).json({ error: 'message_body required' })
+
+    const { rows } = await pool.query(
+      'SELECT client_id, sender_id, sender_role, deleted_at FROM client_messages WHERE id = $1',
+      [messageId],
+    )
+    const msg = rows[0]
+    if (!msg || msg.client_id !== clientId) return res.status(404).json({ error: 'Message not found' })
+
+    // Sender identity check: must be a staff message this exact user sent.
+    if (msg.sender_role === 'client' || msg.sender_id !== ctx.dbUserId) {
+      return res.status(403).json({ error: 'You can only edit your own messages' })
+    }
+    if (msg.deleted_at) return res.status(400).json({ error: 'Cannot edit a deleted message' })
+
+    const { rows: updated } = await pool.query(
+      `UPDATE client_messages
+       SET message_body = $2, edited_at = NOW()
+       WHERE id = $1 AND created_at > NOW() - INTERVAL '1 hour'
+       RETURNING id, message_body, edited_at`,
+      [messageId, message_body.trim()],
+    )
+    if (!updated.length) {
+      return res.status(400).json({ error: 'Messages can only be edited within 1 hour of sending' })
+    }
+
+    res.json(updated[0])
+  } catch (err) { next(err) }
+})
+
 // POST /api/coach-admin/clients/:id/messages/:messageId/reactions  body: { reaction_type }
 router.post('/clients/:id/messages/:messageId/reactions', requireAuth(), async (req, res, next) => {
   try {

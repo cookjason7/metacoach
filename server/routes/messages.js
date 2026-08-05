@@ -432,6 +432,45 @@ router.delete('/:id', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// PUT /api/messages/:id  body: { message_body }
+// Only the original sender (this client) may edit their own message, within 1 hour of sending.
+router.put('/:id', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await getClientContext(req)
+    const id = parseInt(req.params.id, 10)
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid message id' })
+
+    const { message_body } = req.body
+    if (!message_body?.trim()) return res.status(400).json({ error: 'message_body required' })
+
+    const { rows } = await pool.query(
+      'SELECT client_id, sender_id, sender_role, deleted_at FROM client_messages WHERE id = $1',
+      [id],
+    )
+    const msg = rows[0]
+    if (!msg) return res.status(404).json({ error: 'Message not found' })
+
+    // Sender identity check: must be a client message the requester sent, in their own thread.
+    if (msg.sender_role !== 'client' || msg.sender_id !== ctx.dbUserId || msg.client_id !== ctx.dbUserId) {
+      return res.status(403).json({ error: 'You can only edit your own messages' })
+    }
+    if (msg.deleted_at) return res.status(400).json({ error: 'Cannot edit a deleted message' })
+
+    const { rows: updated } = await pool.query(
+      `UPDATE client_messages
+       SET message_body = $2, edited_at = NOW()
+       WHERE id = $1 AND created_at > NOW() - INTERVAL '1 hour'
+       RETURNING id, message_body, edited_at`,
+      [id, message_body.trim()],
+    )
+    if (!updated.length) {
+      return res.status(400).json({ error: 'Messages can only be edited within 1 hour of sending' })
+    }
+
+    res.json(updated[0])
+  } catch (err) { next(err) }
+})
+
 // POST /api/messages/:id/reactions  body: { reaction_type }
 // A client may react to any message in their own thread — theirs or staff's.
 router.post('/:id/reactions', requireAuth(), async (req, res, next) => {
