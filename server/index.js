@@ -108,7 +108,7 @@ app.use('/api/gamification',      clerkMiddleware(), blockDeactivatedClients, or
 app.use('/api/health-assessment', clerkMiddleware(), blockDeactivatedClients, orgContext, healthAssessmentRouter)
 app.use('/api/coach-admin',       clerkMiddleware(), blockDeactivatedClients, orgContext, coachAdminRouter)
 app.use('/api/client-habits',     clerkMiddleware(), blockDeactivatedClients, orgContext, resolveViewAs, blockWritesInViewMode, requireAssessmentComplete, clientHabitsRouter)
-app.use('/api/client-workouts',   clerkMiddleware(), blockDeactivatedClients, orgContext, requireAssessmentComplete, clientWorkoutsRouter)
+app.use('/api/client-workouts',   clerkMiddleware(), blockDeactivatedClients, orgContext, resolveViewAs, blockWritesInViewMode, requireAssessmentComplete, clientWorkoutsRouter)
 app.use('/api/messages',          clerkMiddleware(), blockDeactivatedClients, orgContext, resolveViewAs, blockWritesInViewMode, messagesRouter)
 app.use('/api/client-invites',    clerkMiddleware(), blockDeactivatedClients, orgContext, invitesRouter)
 app.use('/api/staff-invites',     clerkMiddleware(), blockDeactivatedClients, orgContext, invitesRouter)

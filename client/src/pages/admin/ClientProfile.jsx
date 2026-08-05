@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { API_URL } from '../../config.js'
 import { useOrgBranding } from '../../context/OrgBrandingContext.jsx'
+import { useViewMode } from '../../context/ViewModeContext.jsx'
 import BloodworkIntakeForm from '../../components/BloodworkIntakeForm.jsx'
 import LinkifiedText from '../../components/LinkifiedText.jsx'
 import ExerciseThumb from '../../components/ExerciseThumb.jsx'
@@ -8116,6 +8117,7 @@ export default function ClientProfile() {
   const { getToken } = useAuth()
   const { id } = useParams()
   const navigate = useNavigate()
+  const { enterViewMode } = useViewMode()
   const [searchParams, setSearchParams] = useSearchParams()
   const [client, setClient] = useState(null)
   const [meRole, setMeRole] = useState(null)
@@ -8183,6 +8185,20 @@ export default function ClientProfile() {
   if (error)   return <p className="text-center text-red-500 py-8 text-sm">{error}</p>
   if (!client) return null
 
+  const clientDisplayName =
+    [client.display_first_name || client.first_name, client.display_last_name || client.last_name].filter(Boolean).join(' ')
+    || client.email?.split('@')[0] || 'Client'
+
+  // Reaching this page at all already proves canAccessClient passed (the load
+  // effect above redirects to /dashboard on a 403) — so no extra client-side
+  // permission check is needed here beyond hiding it for 'va', which the
+  // server's resolveViewAs never recognizes as staff and would silently fall
+  // back to the requester's own identity for, making the banner misleading.
+  function handleViewAsClient() {
+    enterViewMode({ ...client, id: client.id, name: clientDisplayName })
+    navigate('/dashboard')
+  }
+
   return (
     <div className={pinnedSubmission ? 'max-w-7xl' : 'max-w-5xl'}>
       {/* Back link */}
@@ -8191,11 +8207,20 @@ export default function ClientProfile() {
       </button>
 
       {/* Header */}
-      <div className="mb-3">
-        <h1 className="text-2xl font-bold text-gray-900">
-          {[client.display_first_name || client.first_name, client.display_last_name || client.last_name].filter(Boolean).join(' ') || client.email?.split('@')[0] || 'Client'}
-        </h1>
-        <p className="text-sm text-gray-500">{client.email}</p>
+      <div className="mb-3 flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">{clientDisplayName}</h1>
+          <p className="text-sm text-gray-500">{client.email}</p>
+        </div>
+        {meRole !== 'va' && (
+          <button
+            onClick={handleViewAsClient}
+            title="Browse the app exactly as this client would see it — read only"
+            className="shrink-0 inline-flex items-center gap-1.5 min-h-[44px] px-4 py-2 rounded-lg text-sm font-semibold border border-[#E8670A] text-[#E8670A] hover:bg-orange-50 transition-colors"
+          >
+            👁️ View as this client
+          </button>
+        )}
       </div>
 
       {/* ── Client snapshot bar ── */}

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 import ExerciseThumb from '../components/ExerciseThumb.jsx'
+import { useViewMode } from '../context/ViewModeContext.jsx'
 
 // Same mapping as Dashboard's getProgressCurrent — keeps both pages in sync.
 // Returns the current live value for a progress habit, or null for plain checkboxes.
@@ -599,6 +600,7 @@ function DayCell({ date, inMonth, entries, workoutEntries = [], onComplete, onOp
 
 export default function Calendar() {
   const { getToken } = useAuth()
+  const { viewing } = useViewMode()
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
@@ -926,6 +928,12 @@ export default function Calendar() {
         <button onClick={goToday} className="text-xs text-[#E8670A] hover:text-[#c45e09] font-semibold px-2">Today</button>
       </div>
 
+      {/* Habit-completion taps, drag-to-reschedule, and workout logging are all
+          writes — already 403'd server-side while viewing (blockWritesInViewMode),
+          this just stops the tap/drag from registering at all so it reads as
+          read-only rather than a pile of failed-request errors. Date nav above
+          stays live since it isn't a write. */}
+      <div className={viewing ? 'pointer-events-none select-none' : undefined}>
       {/* ── 7-day view: vertical list (mobile-friendly) ── */}
       {viewMode === '7d' && (
         <div className="space-y-2">
@@ -1082,6 +1090,7 @@ export default function Calendar() {
           </span>
           <span className="text-gray-500">Scheduled workout</span>
         </span>
+      </div>
       </div>
 
       {/* Workout detail modal */}

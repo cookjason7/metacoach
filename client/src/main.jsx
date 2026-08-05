@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client'
 import { ClerkProvider } from '@clerk/clerk-react'
 import './index.css'
 import App from './App.jsx'
+import { installViewModeFetchPatch } from './viewModeFetchPatch.js'
+
+installViewModeFetchPatch()
 
 const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 

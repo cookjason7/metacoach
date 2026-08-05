@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { requireAuth, getAuth } from '@clerk/express'
+import { requireAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 
 const router = Router()
@@ -147,7 +147,7 @@ function expandCalendar(schedules, logs, exByKey, startDate, endDate, overrides 
 // existing log if one has been recorded.
 router.get('/me/calendar', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
 
     const start = req.query.start ?? new Date().toISOString().slice(0, 10)
@@ -230,7 +230,7 @@ router.get('/me/calendar', requireAuth(), async (req, res, next) => {
 // back onto original_date in the same transaction, so nothing is dropped.
 router.post('/me/reschedule', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
 
     const { assignment_id, original_date, new_date, range_start, range_end } = req.body ?? {}
@@ -370,7 +370,7 @@ router.post('/me/reschedule', requireAuth(), async (req, res, next) => {
 // child workout_set_logs with the provided sets. `sets` is optional.
 router.post('/me/logs', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
 
     const { assignment_id, scheduled_date, notes, sets } = req.body
@@ -439,7 +439,7 @@ router.post('/me/logs', requireAuth(), async (req, res, next) => {
 // its set logs for prefill when the client reopens a day they already logged.
 router.get('/me/logs/:assignmentId/:date', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const assignmentId = parseInt(req.params.assignmentId, 10)
     const date = req.params.date

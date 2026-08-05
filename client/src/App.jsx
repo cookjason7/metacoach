@@ -42,6 +42,7 @@ import Organizations from './pages/admin/Organizations'
 import OrgDashboard from './pages/org/OrgDashboard'
 import OrgSetup from './pages/org/OrgSetup'
 import { OrgBrandingProvider } from './context/OrgBrandingContext'
+import { ViewModeProvider } from './context/ViewModeContext.jsx'
 import { API_URL } from './config.js'
 
 // Mirrors ADMIN_EMAILS in server/db.js — route gating only, the real gate is
@@ -177,9 +178,15 @@ function ProtectedLayout() {
   // Payment gate disabled — open access
   // if (!userState?.paid) return <Navigate to="/payment" replace />
   return (
-    <OrgBrandingProvider>
-      <Layout />
-    </OrgBrandingProvider>
+    // Scoped to ProtectedLayout so it resets on every sign-out/sign-in cycle —
+    // view mode must never survive into a different session. HealthAssessmentRoute
+    // (below) is deliberately OUTSIDE this tree and keyed only off userStateCache.role,
+    // never off view mode — Health Assessment stays staff-blocked regardless.
+    <ViewModeProvider>
+      <OrgBrandingProvider>
+        <Layout />
+      </OrgBrandingProvider>
+    </ViewModeProvider>
   )
 }
 
@@ -238,6 +245,9 @@ function PaymentRoute() {
 // since this route is normally reached via ProtectedLayout's redirect) bounce
 // them straight to their dashboard instead. HealthAssessment.jsx itself has a
 // second check for the cold-navigation case where the cache isn't populated yet.
+// Deliberately keyed off userStateCache.role only, never off view-as-client
+// mode — Health Assessment is explicitly out of scope for "view as client"
+// (per design) and must stay blocked for staff even while viewing a client.
 function HealthAssessmentRoute() {
   const { isSignedIn, isLoaded } = useAuth()
   if (!isLoaded) return <LoadingScreen />

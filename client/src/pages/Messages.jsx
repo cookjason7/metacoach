@@ -7,6 +7,7 @@ import { API_URL } from '../config.js'
 import StaffInbox from '../components/StaffInbox.jsx'
 import LinkifiedText from '../components/LinkifiedText.jsx'
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder.js'
+import { useViewMode } from '../context/ViewModeContext.jsx'
 
 // Only these three thread types are shown to clients.
 // ai_coach, proactive_ai, and any other automated threads are intentionally excluded.
@@ -255,6 +256,7 @@ export default function Messages() {
   const { getToken } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
+  const { viewing, viewedClient } = useViewMode()
   const [deepLinkClientId, setDeepLinkClientId] = useState(null)
   const [isStaff,     setIsStaff]     = useState(null) // null = loading
   const [staffRole,   setStaffRole]   = useState(null) // 'admin' | 'coach' | null
@@ -389,9 +391,18 @@ export default function Messages() {
     }
   }, [location])
 
-  // Detect role once on mount
+  // Detect role once on mount. While viewing is true, force the client thread
+  // view (StaffInbox is a staff-only tool, not part of the client experience) —
+  // coachingType comes from the viewedClient snapshot since /api/users/me is
+  // never view-as aware and would otherwise return the staff member's own row.
   useEffect(() => {
     async function checkRole() {
+      if (viewing) {
+        setIsStaff(false)
+        setStaffRole(null)
+        setCoachingType(viewedClient?.coaching_type ?? 'vip')
+        return
+      }
       try {
         const token = await getToken()
         const res = await fetch(`${API_URL}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
@@ -406,7 +417,7 @@ export default function Messages() {
       } catch { setIsStaff(false) }
     }
     checkRole()
-  }, [getToken])
+  }, [getToken, viewing, viewedClient])
 
   const loadThreads = useCallback(async () => {
     const token = await getToken()
@@ -614,6 +625,7 @@ export default function Messages() {
   }
 
   function startLongPress(id) {
+    if (viewing) return // read-only — no delete/edit affordance while viewing as a client
     if (longPressTimer.current) clearTimeout(longPressTimer.current)
     longPressTimer.current = setTimeout(() => setMenuMsgId(id), 500)
   }
@@ -622,6 +634,7 @@ export default function Messages() {
   }
 
   function startReactLongPress(id) {
+    if (viewing) return // read-only — no reaction picker while viewing as a client
     if (reactLongPressTimer.current) clearTimeout(reactLongPressTimer.current)
     reactLongPressTimer.current = setTimeout(() => setReactMsgId(id), 500)
   }
@@ -920,7 +933,7 @@ export default function Messages() {
                             )}
                             </div>
                             {/* Can't react to your own message */}
-                            {!isMe && (
+                            {!isMe && !viewing && (
                               <button
                                 type="button"
                                 onClick={() => setReactMsgId(id => id === m.id ? null : m.id)}
@@ -951,8 +964,11 @@ export default function Messages() {
                   })}
                 </div>
 
-                {/* Reply box */}
-                {displayMeta.canReply && (
+                {/* Reply box — hidden while viewing, not just disabled: server-side
+                    blockWritesInViewMode already 403s any of these, but showing the
+                    composer at all would invite a failed-request error instead of a
+                    clean read-only view. */}
+                {displayMeta.canReply && !viewing && (
                   <div className="border-t border-gray-100 p-3 space-y-2">
                     {/* Image preview */}
                     {imgPreview && (

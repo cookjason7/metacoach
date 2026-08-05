@@ -4,6 +4,7 @@ import { useUser } from '@clerk/clerk-react'
 import { Link, useLocation } from 'react-router-dom'
 import { API_URL } from '../config.js'
 import { useOrgBranding } from '../context/OrgBrandingContext.jsx'
+import { useViewMode } from '../context/ViewModeContext.jsx'
 import BloodworkIntakeForm from '../components/BloodworkIntakeForm.jsx'
 import { Eye, EyeOff } from 'lucide-react'
 import { Capacitor } from '@capacitor/core'
@@ -401,6 +402,7 @@ export default function Settings() {
   const { user }       = useUser()
   const location       = useLocation()
   const { aiCoachName } = useOrgBranding()
+  const { viewing, viewedClient } = useViewMode()
   const [profile, setProfile]             = useState(null)
   const [profileLoading, setProfileLoading] = useState(true)
   const [profileError, setProfileError]   = useState(null)
@@ -565,7 +567,13 @@ export default function Settings() {
         const profileRes = await fetch(`${API_URL}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
         if (!profileRes.ok) throw new Error(`Could not load profile (${profileRes.status})`)
         let loadedProfile = null
-        const data = await profileRes.json()
+        // /api/users/me is never view-as aware — while viewing, layer the viewed
+        // client's own snapshot (captured on "View as this client", see
+        // ClientProfile.jsx) over the staff member's own row so Account/name/goal
+        // fields read as the client's, not the staff member's own.
+        const data = viewing && viewedClient
+          ? { ...(await profileRes.json()), ...viewedClient }
+          : await profileRes.json()
         loadedProfile = data
         if (cancelled) return
         setProfile(data)
@@ -589,7 +597,11 @@ export default function Settings() {
           notif_community_enabled: data.notif_community_enabled ?? true,
         })
 
-        if (loadedProfile?.role === 'admin' || loadedProfile?.role === 'account_owner' || loadedProfile?.role === 'coach' || loadedProfile?.role === 'staff') {
+        // /api/users/me is never view-as aware (see Build A's Settings.jsx audit) —
+        // it always describes the staff member themselves, so this early-return
+        // must be skipped while viewing or the client-data fetches just below
+        // (progress photos, measurements, fitbit, calendar) would never run at all.
+        if (!viewing && (loadedProfile?.role === 'admin' || loadedProfile?.role === 'account_owner' || loadedProfile?.role === 'coach' || loadedProfile?.role === 'staff')) {
           loadTeam(token, false)
           return
         }
@@ -655,7 +667,7 @@ export default function Settings() {
     }
     load()
     return () => { cancelled = true }
-  }, [getToken, profileLoadKey])
+  }, [getToken, profileLoadKey, viewing, viewedClient])
 
   function set(e) {
     const { name, value } = e.target
@@ -1280,7 +1292,11 @@ export default function Settings() {
   }
 
   const anglesWithComparison = ANGLES.filter(a => photos[a].length >= 2)
-  const isStaff = profile?.role === 'admin' || profile?.role === 'account_owner' || profile?.role === 'coach' || profile?.role === 'staff'
+  // While viewing, force the client branch below regardless of the staff
+  // member's own role — this is what makes Settings show the client's actual
+  // measurements/fitbit/calendar/progress-photos sections instead of the
+  // staff Team/Coaches panel.
+  const isStaff = !viewing && (profile?.role === 'admin' || profile?.role === 'account_owner' || profile?.role === 'coach' || profile?.role === 'staff')
 
   return (
     <div className="w-full max-w-lg mx-auto pb-6">
@@ -1322,7 +1338,12 @@ export default function Settings() {
       {/* Account */}
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold text-gray-700">Account</h2>
-        {!nameEditing && (
+        {/* Edit hidden while viewing — unlike the wired routers from Build A,
+            /api/users/me has no blockWritesInViewMode protection (deliberately
+            excluded, see Build A's Settings.jsx audit), so a save here would
+            silently succeed against the STAFF member's own row, not the
+            viewed client's. Hiding Edit is what actually keeps this read-only. */}
+        {!nameEditing && !viewing && (
           <button
             type="button"
             onClick={() => { setNameEditing(true); setNameSaved(false); setNameError(null) }}
@@ -1370,7 +1391,12 @@ export default function Settings() {
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500 cursor-not-allowed"
             />
           </Field>
-          {!isStaff && (
+          {/* Change Password calls Clerk's user.updatePassword() directly against the
+              real browser session — it isn't routed through our backend at all, so
+              blockWritesInViewMode can't touch it. Hiding it here is the ONLY thing
+              stopping a staff member from accidentally changing their own Clerk
+              password while thinking they're looking at the client's account. */}
+          {!isStaff && !viewing && (
             <div className="pt-1">
               {!pwOpen ? (
                 <button
@@ -1806,7 +1832,11 @@ export default function Settings() {
             </Link>
           </div>
 
-          {profile?.bloodwork_enabled && (
+          {/* Bloodwork is explicitly out of scope for "view as client" — this feature
+              is for walking a client through app usage issues, not reviewing their
+              health data, so it stays hidden even though the server-side route
+              itself technically honors view-as (see Build A). */}
+          {profile?.bloodwork_enabled && !viewing && (
             <div className="bg-white rounded-xl border border-gray-200 mb-8 overflow-hidden">
               <button
                 type="button"
@@ -1837,6 +1867,10 @@ export default function Settings() {
             {measurementsOpen && (
               <div className="border-t border-gray-100 p-4">
             <p className="text-sm text-gray-500 mb-4">Track chest, waist, and hip measurements over time.</p>
+            {/* Add-measurement form is a write — inert while viewing, but the
+                accordion toggle and the history table below stay interactive
+                so the client's actual measurement history is still browsable. */}
+            {!viewing && (
             <form onSubmit={saveMeasurement} className="space-y-3 mb-5">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
@@ -1871,6 +1905,7 @@ export default function Settings() {
                 {mSaved ? 'Saved!' : mSaving ? 'Saving…' : 'Save Measurement'}
               </button>
             </form>
+            )}
 
             {measurements.length > 0 && (
               <div className="overflow-x-auto -mx-4 px-4">
@@ -1893,8 +1928,12 @@ export default function Settings() {
                         <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.waist ? `${Number(m.waist).toFixed(1)}"` : '-'}</td>
                         <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{m.hips  ? `${Number(m.hips).toFixed(1)}"` : '-'}</td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
-                          <button type="button" onClick={() => editMeasurement(m)} className="text-[#E8670A] font-semibold mr-3">Edit</button>
-                          <button type="button" onClick={() => deleteMeasurement(m.id)} className="text-red-500 font-semibold">Delete</button>
+                          {!viewing && (
+                            <>
+                              <button type="button" onClick={() => editMeasurement(m)} className="text-[#E8670A] font-semibold mr-3">Edit</button>
+                              <button type="button" onClick={() => deleteMeasurement(m.id)} className="text-red-500 font-semibold">Delete</button>
+                            </>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -1906,9 +1945,11 @@ export default function Settings() {
             )}
           </div>
 
-          {/* Food Preferences */}
+          {/* Food Preferences — also writes to the unprotected /api/users/me (see the
+              Account section note above), so this needs the same treatment: fully
+              inert while viewing, not just server-blocked. */}
           <h2 className="text-sm font-semibold text-gray-700 mb-3">Food Preferences</h2>
-          <div className="bg-white rounded-xl border border-gray-200 p-5 mb-8">
+          <div className={`bg-white rounded-xl border border-gray-200 p-5 mb-8 ${viewing ? 'pointer-events-none select-none' : ''}`}>
             <p className="text-xs text-gray-500 mb-4">
               {aiCoachName} uses these when building meal plans. Leave blank if you have none.
             </p>
@@ -1948,9 +1989,9 @@ export default function Settings() {
             </form>
           </div>
 
-          {/* Notifications */}
+          {/* Notifications — same /api/users/me exposure as Food Preferences above. */}
           <h2 className="text-sm font-semibold text-gray-700 mb-3">Notifications</h2>
-          <div className="bg-white rounded-xl border border-gray-200 p-5 mb-8 space-y-4">
+          <div className={`bg-white rounded-xl border border-gray-200 p-5 mb-8 space-y-4 ${viewing ? 'pointer-events-none select-none' : ''}`}>
             {/* Master toggle */}
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -2083,7 +2124,9 @@ export default function Settings() {
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2 sm:justify-end">
-                      {fitbitStatus.connected ? (
+                      {/* Sync/reconnect/disconnect/connect are all writes — hidden while
+                          viewing. Refresh (below) is a plain status re-fetch, stays live. */}
+                      {!viewing && (fitbitStatus.connected ? (
                         <>
                           <button
                             type="button"
@@ -2120,7 +2163,7 @@ export default function Settings() {
                         >
                           Connect Google Health
                         </button>
-                      )}
+                      ))}
                       <button
                         type="button"
                         onClick={refreshFitbitStatus}
@@ -2320,7 +2363,9 @@ export default function Settings() {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2 sm:justify-end">
-                  {calendarStatus.connected ? (
+                  {/* Reconnect/disconnect/connect are writes — hidden while viewing.
+                      Refresh (below) is a plain status re-fetch, stays live. */}
+                  {!viewing && (calendarStatus.connected ? (
                     <>
                       <button
                         type="button"
@@ -2349,7 +2394,7 @@ export default function Settings() {
                     >
                       Connect Google Calendar
                     </button>
-                  )}
+                  ))}
                   <button
                     type="button"
                     onClick={refreshCalendarStatus}
