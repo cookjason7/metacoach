@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { linkify } from '../utils/linkify'
@@ -279,7 +279,11 @@ function PollDisplay({ postId, getToken }) {
 
 // ── CommentItem ───────────────────────────────────────────────────────────────
 
-function CommentItem({ comment, getToken, isAdmin, onDelete, members }) {
+// `isReply` renders the nested variant and suppresses the Reply affordance —
+// threading is capped at one level, so a reply is never itself replyable.
+// Reactions are keyed off comment.id either way, so a reply reacts as its own
+// comment (comment_reactions.comment_id) with no special-casing.
+function CommentItem({ comment, getToken, isAdmin, onDelete, members, isReply = false, onReplyClick }) {
   const [reactions, setReactions] = useState({
     like_count:  comment.like_count  ?? 0,
     love_count:  comment.love_count  ?? 0,
@@ -345,7 +349,7 @@ function CommentItem({ comment, getToken, isAdmin, onDelete, members }) {
   }
 
   return (
-    <div className="flex gap-2.5 py-2">
+    <div className={`flex gap-2.5 ${isReply ? 'py-1.5' : 'py-2'}`}>
       <Avatar name={comment.first_name} size="sm" />
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-1.5">
@@ -371,6 +375,14 @@ function CommentItem({ comment, getToken, isAdmin, onDelete, members }) {
               <span>{reactions[countKey]}</span>
             </button>
           ))}
+          {!isReply && onReplyClick && (
+            <button
+              onClick={() => onReplyClick(comment.id)}
+              className="text-xs px-1.5 py-0.5 rounded text-gray-500 hover:text-gray-700 font-semibold transition-colors"
+            >
+              Reply
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -385,6 +397,9 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
   const [loadingComments,setLoadingComments]= useState(false)
   const [commentText,    setCommentText]    = useState('')
   const [submitting,     setSubmitting]     = useState(false)
+  const [replyingTo,     setReplyingTo]     = useState(null)  // top-level comment id, or null
+  const [replyText,      setReplyText]      = useState('')
+  const [replySubmitting,setReplySubmitting]= useState(false)
   const [localCount,     setLocalCount]     = useState(post.comment_count)
   const [postReactions,  setPostReactions]  = useState({
     like_count: 0, love_count: 0, laugh_count: 0, care_count: 0,
@@ -451,6 +466,25 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
     }
   }
 
+  // Server returns a flat list carrying parent_comment_id (see GET
+  // /posts/:id/comments). Group it into one level of nesting here. A reply whose
+  // parent isn't in the list (possible only at the server's LIMIT boundary) is
+  // promoted to top level rather than dropped.
+  const threadedComments = useMemo(() => {
+    const list = comments ?? []
+    const topLevel = list.filter(c => !c.parent_comment_id)
+    const byId = new Set(topLevel.map(c => c.id))
+    const orphans = list.filter(c => c.parent_comment_id && !byId.has(c.parent_comment_id))
+    return [...topLevel, ...orphans]
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at) || a.id - b.id)
+      .map(c => ({
+        comment: c,
+        replies: list
+          .filter(r => r.parent_comment_id === c.id)
+          .sort((a, b) => new Date(a.created_at) - new Date(b.created_at) || a.id - b.id),
+      }))
+  }, [comments])
+
   async function toggleComments() {
     const next = !expanded
     setExpanded(next)
@@ -480,6 +514,26 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
     } finally { setSubmitting(false) }
   }
 
+  function openReply(commentId) {
+    setReplyingTo(prev => (prev === commentId ? null : commentId))
+    setReplyText('')
+  }
+
+  async function submitReply(e) {
+    e.preventDefault()
+    if (!replyText.trim() || replySubmitting || !replyingTo) return
+    setReplySubmitting(true)
+    try {
+      const reply = await onCommentSubmit(post.id, replyText.trim(), replyingTo)
+      if (reply) {
+        setComments(prev => [...(prev ?? []), reply])
+        setLocalCount(c => c + 1)
+        setReplyText('')
+        setReplyingTo(null)
+      }
+    } finally { setReplySubmitting(false) }
+  }
+
   async function deleteComment(commentId) {
     if (!window.confirm('Delete this comment?')) return
     try {
@@ -489,8 +543,14 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
         headers: { Authorization: `Bearer ${token}` },
       })
       if (res.ok) {
-        setComments(prev => prev.filter(c => c.id !== commentId))
-        setLocalCount(c => c - 1)
+        // Deleting a top-level comment cascades to its replies server-side
+        // (post_comments.parent_comment_id ON DELETE CASCADE) — mirror that here
+        // so the count and list stay in sync without a refetch.
+        const isGone = c => c.id === commentId || c.parent_comment_id === commentId
+        const removedCount = (comments ?? []).filter(isGone).length
+        setComments(prev => (prev ?? []).filter(c => !isGone(c)))
+        setLocalCount(n => n - (removedCount || 1))
+        if (replyingTo === commentId) setReplyingTo(null)
       }
     } catch {}
   }
@@ -696,8 +756,54 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
             {comments?.length === 0 && !loadingComments && (
               <p className="text-xs text-gray-400 py-1">No comments yet. Be the first.</p>
             )}
-            {comments?.map(c => (
-              <CommentItem key={c.id} comment={c} getToken={getToken} isAdmin={isAdmin} onDelete={deleteComment} members={members} />
+            {threadedComments.map(({ comment: c, replies }) => (
+              <div key={c.id}>
+                <CommentItem
+                  comment={c} getToken={getToken} isAdmin={isAdmin}
+                  onDelete={deleteComment} members={members} onReplyClick={openReply}
+                />
+                {(replies.length > 0 || replyingTo === c.id) && (
+                  <div className="ml-9 pl-3 border-l border-gray-100">
+                    {replies.map(r => (
+                      <CommentItem
+                        key={r.id} comment={r} getToken={getToken} isAdmin={isAdmin}
+                        onDelete={deleteComment} members={members} isReply
+                      />
+                    ))}
+                    {replyingTo === c.id && (
+                      <form onSubmit={submitReply} className="flex gap-2 mt-1.5 mb-1 items-end">
+                        {/* min-w-0 lets the input shrink inside the indented row
+                            instead of forcing horizontal scroll at 375px */}
+                        <div className="flex-1 min-w-0">
+                          <MentionInput
+                            value={replyText}
+                            onChange={setReplyText}
+                            members={members}
+                            placeholder={`Reply to ${c.first_name ?? 'Member'}…`}
+                            rows={1}
+                            inputClassName="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none"
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          disabled={!replyText.trim() || replySubmitting}
+                          className="text-white px-2.5 py-2 rounded-lg text-xs font-semibold disabled:opacity-40 transition-colors shrink-0"
+                          style={{ background: 'var(--color-accent)' }}
+                        >
+                          Reply
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setReplyingTo(null)}
+                          className="text-xs text-gray-400 hover:text-gray-600 px-1.5 py-2 shrink-0"
+                        >
+                          Cancel
+                        </button>
+                      </form>
+                    )}
+                  </div>
+                )}
+              </div>
             ))}
             <form onSubmit={submitComment} className="flex gap-2 mt-3 items-end">
               <MentionInput
@@ -1201,13 +1307,13 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
     setPosts(prev => prev.map(p => p.id === data.id ? { ...p, ...data } : p))
   }, [])
 
-  const submitComment = useCallback(async (postId, content) => {
+  const submitComment = useCallback(async (postId, content, parentCommentId = null) => {
     try {
       const token = await getToken()
       const res   = await fetch(`${API_URL}/api/community/posts/${postId}/comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify(parentCommentId ? { content, parent_comment_id: parentCommentId } : { content }),
       })
       if (!res.ok) throw new Error()
       return await res.json()

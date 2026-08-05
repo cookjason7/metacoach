@@ -916,6 +916,15 @@ router.get('/posts/:id/reactors', requireAuth(), async (req, res, next) => {
 })
 
 // GET/POST /api/community/posts/:id/comments
+//
+// Comments come back as a FLAT list carrying parent_comment_id (NULL = top-level),
+// not server-nested — the client groups replies under their parent. Chosen over a
+// nested shape because it leaves the existing reaction-aggregation query and the
+// client's comment_count/append logic untouched.
+//
+// ORDER BY COALESCE(parent_comment_id, id) keeps each reply adjacent to its parent,
+// so the LIMIT 200 truncates whole threads rather than orphaning replies from
+// parents that fell outside the window.
 router.get('/posts/:id/comments', requireAuth(), async (req, res, next) => {
   try {
     const { userId } = getAuth(req)
@@ -925,7 +934,7 @@ router.get('/posts/:id/comments', requireAuth(), async (req, res, next) => {
     if (await checkPostGroupAccess(req, res, postId, dbUserId) === false) return
 
     const { rows } = await pool.query(
-      `SELECT pc.id, pc.content, pc.created_at, u.first_name,
+      `SELECT pc.id, pc.parent_comment_id, pc.content, pc.created_at, u.first_name,
               COUNT(CASE WHEN cr.reaction_type = 'like'  THEN 1 END)::int  AS like_count,
               COUNT(CASE WHEN cr.reaction_type = 'love'  THEN 1 END)::int  AS love_count,
               COUNT(CASE WHEN cr.reaction_type = 'laugh' THEN 1 END)::int  AS laugh_count,
@@ -937,7 +946,9 @@ router.get('/posts/:id/comments', requireAuth(), async (req, res, next) => {
        LEFT JOIN comment_reactions cr ON cr.comment_id = pc.id
        WHERE pc.post_id = $1
        GROUP BY pc.id, pc.content, pc.created_at, u.first_name
-       ORDER BY pc.created_at ASC
+       ORDER BY COALESCE(pc.parent_comment_id, pc.id) ASC,
+                (pc.parent_comment_id IS NOT NULL) ASC,
+                pc.created_at ASC, pc.id ASC
        LIMIT 200`,
       [postId, dbUserId],
     )
@@ -955,11 +966,31 @@ router.post('/posts/:id/comments', requireAuth(), async (req, res, next) => {
     if (await checkPostOrgAccess(req, res, postId) === false) return
     if (await checkPostGroupAccess(req, res, postId, dbUserId) === false) return
 
+    // Optional reply target. Threading is capped at one level: you may reply to a
+    // top-level comment, never to a reply.
+    let parentCommentId = null
+    if (req.body.parent_comment_id !== undefined && req.body.parent_comment_id !== null) {
+      parentCommentId = parseInt(req.body.parent_comment_id, 10)
+      if (!Number.isInteger(parentCommentId)) {
+        return res.status(400).json({ error: 'Invalid parent_comment_id' })
+      }
+      const { rows: parent } = await pool.query(
+        'SELECT post_id, parent_comment_id FROM post_comments WHERE id = $1',
+        [parentCommentId],
+      )
+      if (!parent.length || parent[0].post_id !== postId) {
+        return res.status(404).json({ error: 'Parent comment not found on this post' })
+      }
+      if (parent[0].parent_comment_id !== null) {
+        return res.status(400).json({ error: 'Cannot reply to a reply — replies are one level deep' })
+      }
+    }
+
     const { rows } = await pool.query(
-      `INSERT INTO post_comments (post_id, user_id, content, org_id)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, content, created_at`,
-      [postId, dbUserId, content.trim(), req.orgId],
+      `INSERT INTO post_comments (post_id, user_id, content, org_id, parent_comment_id)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, parent_comment_id, content, created_at`,
+      [postId, dbUserId, content.trim(), req.orgId, parentCommentId],
     )
 
     // Notify post owner (unless commenting on own post)

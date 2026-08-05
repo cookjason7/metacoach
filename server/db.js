@@ -188,6 +188,15 @@ export async function migrate() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `)
+  // One-level-deep reply threading. NULL = top-level comment; non-NULL = a reply
+  // to that top-level comment. Replies to replies are rejected in the route
+  // (POST /posts/:id/comments) — the column itself can't express that depth cap.
+  // CASCADE so deleting a parent comment takes its replies with it.
+  await pool.query(`
+    ALTER TABLE post_comments
+    ADD COLUMN IF NOT EXISTS parent_comment_id INTEGER
+    REFERENCES post_comments(id) ON DELETE CASCADE
+  `)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS post_reactions (
       id            SERIAL PRIMARY KEY,
@@ -1478,6 +1487,7 @@ export async function migrate() {
     `CREATE INDEX IF NOT EXISTS idx_client_messages_sender_unread  ON client_messages (client_id, sender_role, read_at)`,
     `CREATE INDEX IF NOT EXISTS idx_community_posts_feed           ON community_posts (channel, pinned, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_post_comments_post_created     ON post_comments (post_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_post_comments_parent           ON post_comments (parent_comment_id)`,
     `CREATE INDEX IF NOT EXISTS idx_post_likes_post                ON post_likes (post_id)`,
     `CREATE INDEX IF NOT EXISTS idx_post_reactions_post_created    ON post_reactions (post_id, created_at)`,
     `CREATE INDEX IF NOT EXISTS idx_notifications_user_read        ON notifications (user_id, read)`,
