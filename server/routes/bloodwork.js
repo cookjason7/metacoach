@@ -3,7 +3,7 @@ import { Router } from 'express'
 import multer from 'multer'
 import { v2 as cloudinary } from 'cloudinary'
 import Anthropic from '@anthropic-ai/sdk'
-import { requireAuth, getAuth } from '@clerk/express'
+import { requireAuth } from '@clerk/express'
 import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
 import { bloodworkUploadLimit } from '../middleware/rateLimits.js'
 import { trackEvent } from '../services/usageTracker.js'
@@ -58,8 +58,7 @@ async function getCtx(req) {
       email:    req.internalUser.email ?? null,
     }
   }
-  const { userId } = getAuth(req)
-  const dbUserId = await getOrCreateUser(userId)
+  const dbUserId = await getOrCreateUser(req.effectiveClerkUserId)
   const { rows } = await pool.query('SELECT role, org_id, email FROM users WHERE id = $1', [dbUserId])
   return {
     dbUserId,
@@ -459,7 +458,11 @@ Do not add extra sections. Do not add follow-up questions. Do not use tables exc
 router.get('/', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await getCtx(req)
-    if (!isPrivileged(ctx.role) && !(await isBloodworkEnabled(ctx.dbUserId))) {
+    // getCtx() resolves req.internalUser directly (the real caller) rather than going
+    // through getAuth(), so it never picks up a view-as target on its own — read the
+    // resolved target id explicitly here so "view as client" actually scopes this list.
+    const targetUserId = req.effectiveUserId ?? ctx.dbUserId
+    if (!isPrivileged(ctx.role) && !(await isBloodworkEnabled(targetUserId))) {
       return res.status(403).json({ error: 'Bloodwork feature not yet available.' })
     }
     const { rows } = await pool.query(
@@ -471,7 +474,7 @@ router.get('/', requireAuth(), async (req, res, next) => {
        FROM bloodwork_uploads
        WHERE user_id = $1 AND deleted = FALSE
        ORDER BY COALESCE(lab_date, created_at::date) DESC, created_at DESC`,
-      [ctx.dbUserId],
+      [targetUserId],
     )
     res.json(rows)
   } catch (err) { next(err) }
@@ -529,14 +532,15 @@ router.post('/', requireAuth(), bloodworkUploadLimit, upload.single('file'), asy
 router.get('/intake', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await getCtx(req)
-    if (!isPrivileged(ctx.role) && !(await isBloodworkEnabled(ctx.dbUserId))) {
+    const targetUserId = req.effectiveUserId ?? ctx.dbUserId
+    if (!isPrivileged(ctx.role) && !(await isBloodworkEnabled(targetUserId))) {
       return res.status(403).json({ error: 'Bloodwork feature not yet available.' })
     }
     const { rows } = await pool.query(
       `SELECT conditions, medication_categories, confirmed_age, confirmed_sex,
               confirmed_height_inches, confirmed_weight_lbs, notes, updated_at
        FROM bloodwork_intake WHERE user_id = $1`,
-      [ctx.dbUserId],
+      [targetUserId],
     )
     res.json(rows[0] ?? null)
   } catch (err) { next(err) }

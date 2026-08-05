@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { requireAuth, getAuth } from '@clerk/express'
+import { requireAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 
 const router = Router()
@@ -17,7 +17,7 @@ function currentWeekStart() {
 // GET /api/weekly-checkins/me — client fetches all their own check-ins
 router.get('/me', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const { rows } = await pool.query(
       'SELECT * FROM weekly_checkins WHERE user_id = $1 ORDER BY week_start DESC',
@@ -30,7 +30,7 @@ router.get('/me', requireAuth(), async (req, res, next) => {
 // POST /api/weekly-checkins — upsert this week's check-in (client only)
 router.post('/', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
 
     const {

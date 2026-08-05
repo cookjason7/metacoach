@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { requireAuth, getAuth } from '@clerk/express'
+import { requireAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 
 const router = Router()
@@ -25,7 +25,7 @@ const router = Router()
  */
 router.post('/sync', requireAuth(), async (req, res, next) => {
   try {
-    const { userId }  = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId    = await getOrCreateUser(userId)
     const steps         = req.body.steps         != null ? Math.round(Number(req.body.steps))         : null
     const sleep_minutes = req.body.sleep_minutes != null ? Math.round(Number(req.body.sleep_minutes)) : null

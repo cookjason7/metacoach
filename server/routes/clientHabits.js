@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { requireAuth, getAuth } from '@clerk/express'
+import { requireAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 
 const router = Router()
@@ -76,7 +76,7 @@ function expandCalendar(habits, completions, startDate, endDate) {
 // Returns the calling client's assigned habits expanded for the window.
 router.get('/me/calendar', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
 
     const start = req.query.start ?? new Date().toISOString().slice(0, 10)
@@ -108,7 +108,7 @@ router.get('/me/calendar', requireAuth(), async (req, res, next) => {
 // Inserts/updates a completion row; computes percentage + status server-side.
 router.post('/me/completions', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
 
     const { habit_id, completion_date, completed_value } = req.body
@@ -161,7 +161,7 @@ router.post('/me/completions', requireAuth(), async (req, res, next) => {
 // DELETE /api/client-habits/me/completions/:habitId/:date — clear a completion
 router.delete('/me/completions/:habitId/:date', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const habitId = parseInt(req.params.habitId, 10)
     const date = req.params.date

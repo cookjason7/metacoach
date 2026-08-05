@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { requireAuth, getAuth } from '@clerk/express'
+import { requireAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 import { RANKS, BADGE_DEFS, getRankForXP, getNextRank } from '../gamification.js'
 
@@ -8,7 +8,7 @@ const router = Router()
 // GET /api/gamification/me — rank, XP, streaks, recent badges
 router.get('/me', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId   = await getOrCreateUser(userId)
 
     // XP
@@ -74,7 +74,7 @@ router.get('/me', requireAuth(), async (req, res, next) => {
 // GET /api/gamification/badges — all badge definitions with earned status
 router.get('/badges', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId   = await getOrCreateUser(userId)
 
     const { rows: earnedRows } = await pool.query(
@@ -128,7 +128,7 @@ function getIdentityStage(activeWeeks, isComeback) {
 // GET /api/gamification/momentum — weekly identity momentum (5 pillars)
 router.get('/momentum', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId   = await getOrCreateUser(userId)
 
     // Monday midnight UTC as week start

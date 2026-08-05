@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { requireAuth, getAuth } from '@clerk/express'
+import { requireAuth } from '@clerk/express'
 import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
 import multer from 'multer'
 import { v2 as cloudinary } from 'cloudinary'
@@ -99,7 +99,7 @@ function visibleThreadTypesForClient(coachingType) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function getClientContext(req) {
-  const { userId } = getAuth(req)
+  const userId = req.effectiveClerkUserId
   const dbUserId = await getOrCreateUser(userId)
   const { rows } = await pool.query(
     `SELECT u.id, u.org_id, u.email, u.coaching_type, u.assigned_coach_id,
@@ -209,7 +209,7 @@ async function listThreadsForClient(ctx) {
 router.post('/upload', requireAuth(), upload.single('image'), async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No image file received' })
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const result = await uploadToCloudinary(req.file.buffer)
     // Track upload (non-blocking)
@@ -231,7 +231,7 @@ router.post('/upload', requireAuth(), upload.single('image'), async (req, res, n
 router.post('/upload-audio', requireAuth(), uploadAudioMulter.single('audio'), async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No audio file received' })
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const result = await uploadAudioToCloudinary(req.file.buffer)
     trackEvent({
