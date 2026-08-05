@@ -519,11 +519,6 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
           full_name:          fullName,
           totalUnread:        Number(row.unread) || 0,
           totalMarkedUnread:  row.marked_unread ? 1 : 0,
-          last_message_at:    row.last_message_at,
-          last_message_body:  row.last_message_body,
-          last_sender_role:   row.last_sender_role,
-          last_sender_id:     row.last_sender_id,
-          latestThreadType:   row.thread_type,
           isAssignedCoach:    row.is_assigned_coach === true,
           threads:            [row],
         })
@@ -531,32 +526,21 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
         existing.threads.push(row)
         existing.totalUnread       += Number(row.unread) || 0
         existing.totalMarkedUnread += row.marked_unread ? 1 : 0
-        if (row.last_message_at && (!existing.last_message_at || new Date(row.last_message_at) > new Date(existing.last_message_at))) {
-          existing.last_message_at   = row.last_message_at
-          existing.last_message_body = row.last_message_body
-          existing.last_sender_role  = row.last_sender_role
-          existing.last_sender_id    = row.last_sender_id
-          existing.latestThreadType  = row.thread_type
-        }
       }
     }
-    // Default thread selection, mirroring openClientConversation() (below) and
-    // ClientProfile's MessagingTab: when the logged-in admin IS the assigned coach,
-    // default to coach_thread so clicking the client card doesn't open the
-    // admin_private (Jason) thread first. Otherwise (admin, not the assigned coach)
-    // default to admin_private — not whichever thread happened to have the most
-    // recent message — so the card doesn't silently land the admin on the
-    // read-only coach_thread view when the coach messaged more recently.
+    // The card preview (message snippet, timestamp) and the thread the card opens into
+    // must always come from the same row, or a client with two separate conversations
+    // (coach_thread + admin_private) can show one conversation's text while clicking
+    // into the other — see e28b308, which fixed the click target but left the preview
+    // on independent "most recent message" logic. is_preview_thread is computed once,
+    // server-side (markPreviewThread in coachAdmin.js), so both are always in sync.
     for (const g of map.values()) {
-      if (g.isAssignedCoach && g.threads.some(t => t.thread_type === 'coach_thread')) {
-        g.latestThreadType = 'coach_thread'
-      } else if (
-        (role === 'admin' || role === 'account_owner') &&
-        !g.isAssignedCoach &&
-        g.threads.some(t => t.thread_type === 'admin_private')
-      ) {
-        g.latestThreadType = 'admin_private'
-      }
+      const previewRow = g.threads.find(t => t.is_preview_thread) ?? g.threads[0]
+      g.last_message_at   = previewRow.last_message_at
+      g.last_message_body = previewRow.last_message_body
+      g.last_sender_role  = previewRow.last_sender_role
+      g.last_sender_id    = previewRow.last_sender_id
+      g.latestThreadType  = previewRow.thread_type
     }
     const list = [...map.values()]
     // Mirror the server's ORDER BY: unread/marked-unread first, then most-recent.
@@ -569,7 +553,7 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
       return bTime - aTime
     })
     return list
-  }, [inbox, role])
+  }, [inbox])
 
   // Consume a pending focusClientId once inbox data is available: prefer a real
   // match from groupedInbox (correct thread type, name, and coach-assignment),
