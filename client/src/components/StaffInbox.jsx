@@ -272,6 +272,9 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
   const [myId,        setMyId]        = useState(null) // current staff user's db id — identifies own messages
   const [menuMsgId,   setMenuMsgId]   = useState(null) // message id with delete affordance revealed (mobile long-press)
   const [reactMsgId,  setReactMsgId]  = useState(null) // message id with reaction picker open
+  const [editingMsgId, setEditingMsgId] = useState(null) // message id currently being edited
+  const [editText,     setEditText]     = useState('')
+  const [savingEdit,   setSavingEdit]   = useState(false)
   const longPressTimer = useRef(null)
   const reactLongPressTimer = useRef(null)
 
@@ -807,6 +810,47 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
     finally { setMenuMsgId(null) }
   }
 
+  const EDIT_WINDOW_MS = 60 * 60 * 1000
+
+  // Client-side UX gate only — the server re-checks the 1-hour window authoritatively.
+  function canEditMessage(m) {
+    return Date.now() - new Date(m.created_at).getTime() < EDIT_WINDOW_MS
+  }
+
+  function startEdit(m) {
+    setEditingMsgId(m.id)
+    setEditText(m.message_body ?? '')
+    setMenuMsgId(null)
+  }
+  function cancelEdit() {
+    setEditingMsgId(null)
+    setEditText('')
+  }
+
+  async function saveEdit(id) {
+    if (!selected) return
+    const trimmed = editText.trim()
+    if (!trimmed) return
+    setSavingEdit(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/${selected.clientId}/messages/${id}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message_body: trimmed }),
+      })
+      if (res.ok) {
+        const updated = await res.json()
+        setMessages(prev => prev.map(m => m.id === id ? { ...m, message_body: updated.message_body, edited_at: updated.edited_at } : m))
+        cancelEdit()
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.error ?? 'Could not edit message')
+      }
+    } catch { alert('Could not edit message') }
+    finally { setSavingEdit(false) }
+  }
+
   function startLongPress(id) {
     if (longPressTimer.current) clearTimeout(longPressTimer.current)
     longPressTimer.current = setTimeout(() => setMenuMsgId(id), 500)
@@ -1140,7 +1184,7 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
                         onTouchMove={isMine ? cancelLongPress : undefined}
                         onContextMenu={isMine ? e => { e.preventDefault(); setMenuMsgId(m.id) } : undefined}
                       >
-                        {isMine && (
+                        {isMine && editingMsgId !== m.id && (
                           <button
                             type="button"
                             onClick={() => deleteMessage(m.id)}
@@ -1157,13 +1201,61 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
                             </svg>
                           </button>
                         )}
+                        {isMine && canEditMessage(m) && editingMsgId !== m.id && (
+                          <button
+                            type="button"
+                            onClick={() => startEdit(m)}
+                            aria-label="Edit message"
+                            title="Edit message"
+                            className={`shrink-0 flex items-center justify-center min-w-[44px] min-h-[44px] rounded-full text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-opacity ${
+                              menuMsgId === m.id
+                                ? 'opacity-100 pointer-events-auto'
+                                : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto'
+                            }`}
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                          </button>
+                        )}
                         <div className={`min-w-0 rounded-2xl px-4 py-2 ${
                           isStaff ? 'bg-[#E8670A] text-white' : 'bg-blue-500 text-white'
                         }`}>
                         <p className="text-[10px] font-semibold text-white/70 mb-0.5">
                           {m.sender_name ?? m.sender_role} · {fmtFull(m.created_at)}
+                          {m.edited_at && <span className="italic"> · edited</span>}
                         </p>
-                        {m.message_body && <p className="text-sm whitespace-pre-wrap"><LinkifiedText text={m.message_body} /></p>}
+                        {editingMsgId === m.id ? (
+                          <div className="space-y-1.5">
+                            <textarea
+                              autoFocus
+                              value={editText}
+                              onChange={e => setEditText(e.target.value)}
+                              className="w-full min-w-[200px] text-sm text-gray-800 rounded-lg px-2 py-1.5 bg-white/95"
+                              rows={2}
+                            />
+                            <div className="flex items-center gap-2 justify-end">
+                              <button
+                                type="button"
+                                onClick={cancelEdit}
+                                disabled={savingEdit}
+                                className="min-h-[44px] px-3 rounded-md text-xs font-semibold text-white/90 hover:bg-white/10 disabled:opacity-40"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => saveEdit(m.id)}
+                                disabled={savingEdit || !editText.trim()}
+                                className="min-h-[44px] px-3 rounded-md text-xs font-semibold bg-white/90 text-gray-800 hover:bg-white disabled:opacity-40"
+                              >
+                                {savingEdit ? 'Saving…' : 'Save'}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          m.message_body && <p className="text-sm whitespace-pre-wrap"><LinkifiedText text={m.message_body} /></p>
+                        )}
                         {m.image_url && (
                           <img src={m.image_url} alt="attachment" className="max-w-[240px] rounded-lg mt-1 cursor-pointer" onClick={() => window.open(m.image_url, '_blank')} />
                         )}

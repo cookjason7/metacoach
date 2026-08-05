@@ -1297,6 +1297,8 @@ export async function migrate() {
   await pool.query(`ALTER TABLE client_messages  ADD COLUMN IF NOT EXISTS audio_url TEXT`)
   // Soft-delete: a sender may delete their own message; the row is retained with deleted_at set.
   await pool.query(`ALTER TABLE client_messages  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`)
+  // Edit tracking: a sender may edit their own message within 1 hour of sending.
+  await pool.query(`ALTER TABLE client_messages  ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ`)
   // Per-staff conversation state: archive conversations, mark as unread
   await pool.query(`
     CREATE TABLE IF NOT EXISTS staff_inbox_states (
