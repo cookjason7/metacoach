@@ -31,6 +31,16 @@ function fmtShort(iso) {
   return l.dateStr
 }
 
+// Local YYYY-MM-DD for <input type="date"> — same helper shape the forms
+// scheduling UI uses (client/src/pages/admin/FormsList.jsx). Deliberately not
+// toISOString().slice(0,10), which shifts to UTC and can hand back yesterday.
+function localDateInputValue(date = new Date()) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
 // Full format with time: "Today 8:32 PM", "Yesterday 8:32 PM", "May 15 8:32 PM"
 function fmtFull(iso) {
   const l = _labels(iso); if (!l) return ''
@@ -268,6 +278,16 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
   }
   const [sending,     setSending]     = useState(false)
   const [toast,       setToast]       = useState(null) // { msg: string, type: 'error'|'info' }
+  // ── Scheduled sends ────────────────────────────────────────────────────────
+  // Queued messages live in their own table (scheduled_messages) and only appear
+  // in `messages` once the server job actually delivers them — nothing here
+  // filters or otherwise touches the client_messages fetch above.
+  const [scheduling,      setScheduling]      = useState(false) // date/time panel open
+  const [schedDate,       setSchedDate]       = useState('')
+  const [schedTime,       setSchedTime]       = useState('09:00')
+  const [savingSchedule,  setSavingSchedule]  = useState(false)
+  const [scheduled,       setScheduled]       = useState([])    // pending rows for this thread
+  const [scheduleNotice,  setScheduleNotice]  = useState(null)  // lightweight post-schedule confirmation
   const scrollRef      = useRef(null)
   const bottomRef      = useRef(null) // sentinel after the last message — scrollIntoView works regardless of which ancestor is the actual scrolling container (panel's own overflow-y-auto at md+, the page at mobile)
   const threadListRef  = useRef(null) // scrollable thread-list container — scrolled to top on "back"
@@ -706,8 +726,35 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
 
   useEffect(() => { loadConversation(selected) }, [selected, loadConversation])
 
+  // Pending scheduled sends for the open conversation. Keyed on clientId/threadType
+  // rather than the `selected` object so unrelated re-selects don't refetch.
+  const fetchScheduled = useCallback(async () => {
+    if (!selected?.clientId || !selected?.threadType) { setScheduled([]); return }
+    try {
+      const token = await getToken()
+      const res = await fetch(
+        `${API_URL}/api/coach-admin/clients/${selected.clientId}/scheduled-messages?thread=${selected.threadType}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      if (res.ok) {
+        const data = await res.json()
+        setScheduled(data.pending ?? [])
+      }
+    } catch {}
+  }, [selected?.clientId, selected?.threadType, getToken])
+
+  useEffect(() => { fetchScheduled() }, [fetchScheduled])
+
   // Close any open reaction picker / delete affordance when switching conversations
   useEffect(() => { setReactMsgId(null); setMenuMsgId(null) }, [selected?.clientId, selected?.threadType])
+
+  // Reset the schedule panel and its confirmation when switching conversations,
+  // so a draft time never carries over to a different client.
+  useEffect(() => {
+    setScheduling(false)
+    setSchedDate(''); setSchedTime('09:00')
+    setScheduleNotice(null)
+  }, [selected?.clientId, selected?.threadType])
 
   // Poll conversation every 20 s — merge/dedupe so older loaded messages are not dropped
   useEffect(() => {
@@ -729,11 +776,14 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
           msgCountRef.current = merged.length
           return merged
         })
+        // Keep the pending list in step: once the job delivers a queued message
+        // it arrives above as a normal message and must drop out of "Scheduled".
+        fetchScheduled()
       } catch {}
     }
     const id = setInterval(poll, 20_000)
     return () => clearInterval(id)
-  }, [selected, getToken])
+  }, [selected, getToken, fetchScheduled])
 
   // Fetch all thread types for the selected client, ignoring archive state.
   // This lets the tab row show threads even if one is active and another is archived.
@@ -800,6 +850,70 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
       }
     } catch { showToast('Failed to send. Please try again.') }
     finally { setSending(false) }
+  }
+
+  // Queue the composed message for later instead of sending it now. Mirrors
+  // send() — same upload path, same clear-on-success — but hits the
+  // scheduled-messages endpoint and leaves the thread untouched until the job runs.
+  async function scheduleMessage() {
+    if (!selected) return
+    if (!body.trim() && !imgFile && !audioBlob) return
+    if (savingSchedule || uploading) return
+    if (!schedDate || !schedTime) { showToast('Please pick a date and time.'); return }
+
+    // Parsed as local time (no trailing Z) so the picker means what the staff
+    // member sees; toISOString() then hands the server an unambiguous UTC instant.
+    const sendAt = new Date(`${schedDate}T${schedTime}:00`)
+    if (Number.isNaN(sendAt.getTime())) { showToast('That date and time is not valid.'); return }
+    if (sendAt.getTime() <= Date.now()) { showToast('Pick a date and time in the future.'); return }
+
+    setSavingSchedule(true)
+    try {
+      let image_url = null, audio_url = null
+      if (imgFile)   image_url = await uploadImage(imgFile)
+      if (audioBlob) audio_url = await uploadAudio(audioBlob)
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/${selected.clientId}/scheduled-messages`, {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          message_body: body,
+          thread_type:  selected.threadType,
+          send_at:      sendAt.toISOString(),
+          image_url,
+          audio_url,
+        }),
+      })
+      if (res.ok) {
+        setBody(''); clearImage(); clearAudio()
+        setScheduling(false); setSchedDate(''); setSchedTime('09:00')
+        setScheduleNotice(`Scheduled for ${fmtFull(sendAt.toISOString())}`)
+        fetchScheduled()
+      } else {
+        const err = await res.json().catch(() => ({}))
+        showToast(err.error ?? 'Could not schedule message')
+      }
+    } catch { showToast('Could not schedule message') }
+    finally { setSavingSchedule(false) }
+  }
+
+  async function cancelScheduled(scheduledId) {
+    if (!selected) return
+    if (!window.confirm('Cancel this scheduled message?')) return
+    try {
+      const token = await getToken()
+      const res = await fetch(
+        `${API_URL}/api/coach-admin/clients/${selected.clientId}/scheduled-messages/${scheduledId}`,
+        { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
+      )
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        showToast(err.error ?? 'Could not cancel this scheduled message')
+      }
+      // Resync either way — a 409 means the job delivered it just now, so the
+      // list is stale and should drop the row rather than keep offering Cancel.
+      fetchScheduled()
+    } catch { showToast('Could not cancel this scheduled message') }
   }
 
   // Delete own message (soft-delete on the server). Confirm first.
@@ -1358,6 +1472,39 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
               </div>
             ) : (
             <div className="border-t border-gray-100 p-3 space-y-2">
+              {/* Pending scheduled sends for this thread — not yet delivered, so
+                  they live outside the message list above until the job runs. */}
+              {scheduled.length > 0 && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 space-y-1.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                    Scheduled ({scheduled.length})
+                  </p>
+                  {scheduled.map(s => (
+                    <div key={s.id} className="flex items-start gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-gray-700 truncate">
+                          {s.message_body || (s.image_url ? '📷 Photo' : '🎤 Voice message')}
+                        </p>
+                        <p className="text-[11px] text-gray-400">🕒 {fmtFull(s.send_at)}</p>
+                      </div>
+                      <button
+                        onClick={() => cancelScheduled(s.id)}
+                        aria-label="Cancel scheduled message"
+                        title="Cancel scheduled message"
+                        className="shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {scheduleNotice && (
+                <div className="flex items-start justify-between gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                  <p className="text-xs text-green-700">✓ {scheduleNotice}</p>
+                  <button onClick={() => setScheduleNotice(null)} className="shrink-0 text-green-400 hover:text-green-600 text-xs font-semibold">✕</button>
+                </div>
+              )}
               {imgPreview && (
                 <div className="relative inline-block">
                   <img src={imgPreview} alt="preview" className="max-h-28 rounded-lg border border-gray-200" />
@@ -1402,14 +1549,68 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
                     className="flex-1 min-w-0 min-h-[84px] max-h-36 border border-gray-300 rounded-lg px-3 py-2 text-sm leading-5 focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none overflow-y-auto"
                   />
-                  <button
-                    onClick={send}
-                    disabled={sending || uploading || (!body.trim() && !imgFile && !audioBlob)}
-                    className="bg-[#E8670A] text-white px-3 sm:px-4 rounded-lg text-xs sm:text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 min-w-[64px] sm:min-w-[76px] min-h-[44px]"
-                  >
-                    {uploading ? '⬆' : sending ? '…' : 'Send'}
-                  </button>
+                  <div className="flex flex-col gap-2 shrink-0">
+                    <button
+                      onClick={send}
+                      disabled={sending || uploading || savingSchedule || (!body.trim() && !imgFile && !audioBlob)}
+                      className="flex-1 bg-[#E8670A] text-white px-3 sm:px-4 rounded-lg text-xs sm:text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 min-w-[76px] sm:min-w-[88px] min-h-[44px]"
+                    >
+                      {uploading ? '⬆' : sending ? '…' : 'Send'}
+                    </button>
+                    <button
+                      onClick={() => setScheduling(s => !s)}
+                      disabled={sending || uploading || savingSchedule}
+                      aria-expanded={scheduling}
+                      title="Schedule this message for later"
+                      className={`flex-1 px-3 sm:px-4 rounded-lg text-xs sm:text-sm font-semibold border disabled:opacity-40 min-w-[76px] sm:min-w-[88px] min-h-[44px] transition-colors ${
+                        scheduling
+                          ? 'bg-orange-50 border-[#E8670A] text-[#E8670A]'
+                          : 'bg-white border-gray-300 text-gray-600 hover:border-[#E8670A] hover:text-[#E8670A]'
+                      }`}
+                    >
+                      🕒 Schedule
+                    </button>
+                  </div>
                 </div>
+                {/* Date/time picker — same two-input (date + time) pattern the
+                    forms scheduling UI uses, no extra date library. */}
+                {scheduling && (
+                  <div className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-3 space-y-2">
+                    <p className="text-xs font-semibold text-gray-700">Send this message later</p>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="date"
+                        value={schedDate}
+                        min={localDateInputValue()}
+                        onChange={e => setSchedDate(e.target.value)}
+                        aria-label="Send date"
+                        className="flex-1 min-w-0 min-h-[44px] border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                      />
+                      <input
+                        type="time"
+                        value={schedTime}
+                        onChange={e => setSchedTime(e.target.value)}
+                        aria-label="Send time"
+                        className="flex-1 min-w-0 min-h-[44px] border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A]"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={scheduleMessage}
+                        disabled={savingSchedule || uploading || !schedDate || !schedTime || (!body.trim() && !imgFile && !audioBlob)}
+                        className="bg-[#E8670A] text-white px-4 rounded-lg text-xs sm:text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-40 min-h-[44px]"
+                      >
+                        {savingSchedule ? 'Scheduling…' : 'Confirm schedule'}
+                      </button>
+                      <button
+                        onClick={() => setScheduling(false)}
+                        className="px-4 rounded-lg text-xs sm:text-sm font-semibold text-gray-600 border border-gray-300 bg-white hover:border-gray-400 min-h-[44px]"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div className="flex items-center gap-2">
                   <button onClick={capturePhoto} disabled={!!audioBlob || recording} title="Take photo" className="shrink-0 min-w-[44px] h-[44px] px-2.5 flex items-center justify-center rounded-lg border border-gray-300 text-gray-500 hover:border-[#E8670A] hover:text-[#E8670A] disabled:opacity-30 transition-colors">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>

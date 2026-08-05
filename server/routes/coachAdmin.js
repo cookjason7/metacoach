@@ -7,6 +7,7 @@ import { isAdminRole, isVaRole, isSuperAdmin, canAccessClient } from '../lib/acc
 import { sendInviteEmail } from '../services/email.js'
 import { getAppBaseUrl } from '../services/appUrl.js'
 import { notifyNewDirectMessage, notifyNewFormDelivery } from '../services/pushService.js'
+import { insertStaffMessage } from '../services/messageDelivery.js'
 import { generateWorkoutPlan, ExerciseLibraryError } from '../services/workoutGenerator.js'
 import { getWorkoutDayNotes } from '../services/workoutDayNotes.js'
 import { insertWorkoutExercise } from '../services/workoutExerciseInsert.js'
@@ -2887,16 +2888,184 @@ router.post('/clients/:id/messages', requireAuth(), async (req, res, next) => {
       }
     }
 
-    const { rows } = await pool.query(`
-      INSERT INTO client_messages
-        (client_id, sender_id, sender_role, message_body, thread_type, visibility, image_url, audio_url, org_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *
-    `, [id, ctx.dbUserId, ctx.role, message_body.trim(), canonicalThreadType, visibility, image_url ?? null, audio_url ?? null, ctx.orgId])
+    // Shared with jobs/messageScheduler.js (see services/messageDelivery.js) so a
+    // scheduled message lands identically to one sent right now — insert + push.
+    const message = await insertStaffMessage({
+      clientId:    id,
+      senderId:    ctx.dbUserId,
+      senderRole:  ctx.role,
+      messageBody: message_body.trim(),
+      threadType:  canonicalThreadType,
+      visibility,
+      imageUrl:    image_url ?? null,
+      audioUrl:    audio_url ?? null,
+      orgId:       ctx.orgId,
+    })
 
-    // Push: notify the client — fire-and-forget
-    notifyNewDirectMessage(id).catch(() => {})
+    res.status(201).json(message)
+  } catch (err) { next(err) }
+})
+
+// ─── Scheduled messages ───────────────────────────────────────────────────────
+// Staff queue a message now, jobs/messageScheduler.js delivers it into
+// client_messages when send_at passes. Nothing here touches how client_messages
+// is read — a scheduled message simply doesn't exist there until it's sent.
+
+// Resolves the thread_type/visibility a staff member is allowed to send on for
+// this client, applying the same gates as POST /clients/:id/messages. Returns
+// { error, status } instead of throwing so both routes read the same way.
+//
+// visibility is always DERIVED here, never taken from the request body: it is
+// what hides an admin_private message from the assigned coach, so letting a
+// caller set it directly would turn a typo — or a crafted request — into a
+// disclosure of a private staff note.
+async function resolveStaffThread(ctx, clientId, threadType) {
+  if (ctx.role === 'coach' && threadType !== 'coach_thread') {
+    return { error: 'Coaches can only send to coach thread', status: 403 }
+  }
+
+  // Canonicalize to coach_thread when this admin is the client's assigned coach,
+  // so sends never re-fragment across the two thread_types. Resolved once, at
+  // schedule time — the job reuses the stored value rather than re-deriving it
+  // against a coach assignment that may have changed in the meantime.
+  const canonicalThreadType = (threadType === 'coach_thread' || threadType === 'admin_private')
+    && await isAdminAssignedCoach(ctx, clientId)
+    ? 'coach_thread'
+    : threadType
+
+  const visibility = (canonicalThreadType === 'admin_private' || canonicalThreadType === 'ai_admin')
+    ? 'client_and_admin_only'
+    : 'client_and_staff'
+
+  if (canonicalThreadType === 'ai_admin') {
+    const { rows } = await pool.query('SELECT coaching_type FROM users WHERE id = $1', [clientId])
+    if (!AI_ADMIN_THREAD_TYPES.includes(rows[0]?.coaching_type)) {
+      return { error: 'ai_admin thread is not available for this client', status: 400 }
+    }
+  }
+
+  return { canonicalThreadType, visibility }
+}
+
+// POST /api/coach-admin/clients/:id/scheduled-messages
+// Body: { message_body, thread_type, send_at, image_url?, audio_url? }
+router.post('/clients/:id/scheduled-messages', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+
+    const { message_body = '', thread_type = 'coach_thread', send_at, image_url, audio_url } = req.body
+    if (!message_body?.trim() && !image_url && !audio_url) {
+      return res.status(400).json({ error: 'message_body, image, or audio required' })
+    }
+
+    if (!send_at) return res.status(400).json({ error: 'send_at is required' })
+    const sendAt = new Date(send_at)
+    if (Number.isNaN(sendAt.getTime())) return res.status(400).json({ error: 'send_at is not a valid date' })
+    // A past send_at would be picked up by the very next job tick, which makes
+    // "schedule" silently behave as "send now" — reject instead of surprising.
+    if (sendAt.getTime() <= Date.now()) return res.status(400).json({ error: 'send_at must be in the future' })
+
+    const resolved = await resolveStaffThread(ctx, id, thread_type)
+    if (resolved.error) return res.status(resolved.status).json({ error: resolved.error })
+
+    const { rows } = await pool.query(`
+      INSERT INTO scheduled_messages
+        (client_id, sender_id, sender_role, message_body, thread_type, visibility, image_url, audio_url, send_at, org_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *
+    `, [
+      id, ctx.dbUserId, ctx.role, message_body.trim(),
+      resolved.canonicalThreadType, resolved.visibility,
+      image_url ?? null, audio_url ?? null, sendAt, ctx.orgId,
+    ])
 
     res.status(201).json(rows[0])
+  } catch (err) { next(err) }
+})
+
+// GET /api/coach-admin/clients/:id/scheduled-messages?thread=&include_history=
+// Pending queue for this client's thread, soonest first. include_history adds a
+// capped tail of already-sent/cancelled rows for context.
+router.get('/clients/:id/scheduled-messages', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+
+    const thread = req.query.thread
+    if ((thread === 'admin_private' || thread === 'ai_admin') && !isAdminRole(ctx.role)) {
+      return res.status(403).json({ error: 'Admin only thread' })
+    }
+
+    // Same merge rule as GET /clients/:id/messages: when this admin is the
+    // assigned coach, coach_thread and admin_private are one conversation.
+    const merged = (thread === 'coach_thread' || thread === 'admin_private')
+      && await isAdminAssignedCoach(ctx, id)
+    const threadTypes = merged
+      ? ['coach_thread', 'admin_private']
+      : thread ? [thread] : (!isAdminRole(ctx.role) ? ['coach_thread'] : null)
+
+    const params = [id]
+    let where = 'WHERE client_id = $1'
+    if (threadTypes) {
+      params.push(threadTypes)
+      where += ` AND thread_type = ANY($${params.length}::text[])`
+    }
+
+    const { rows: pending } = await pool.query(
+      `SELECT * FROM scheduled_messages ${where} AND status = 'pending' ORDER BY send_at ASC`,
+      params,
+    )
+
+    let history = []
+    if (req.query.include_history === 'true') {
+      const { rows } = await pool.query(
+        `SELECT * FROM scheduled_messages ${where} AND status <> 'pending' ORDER BY send_at DESC LIMIT 20`,
+        params,
+      )
+      history = rows
+    }
+
+    res.json({ pending, history })
+  } catch (err) { next(err) }
+})
+
+// DELETE /api/coach-admin/clients/:id/scheduled-messages/:scheduledId
+// Cancels a queued message. Only 'pending' rows can be cancelled — once the job
+// has claimed and delivered one, it's a real message and must be deleted
+// through the normal message-delete route instead.
+router.delete('/clients/:id/scheduled-messages/:scheduledId', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+
+    const scheduledId = parseInt(req.params.scheduledId, 10)
+    if (!Number.isInteger(scheduledId)) return res.status(400).json({ error: 'Invalid scheduled message id' })
+
+    const { rows: [existing] } = await pool.query(
+      'SELECT id, status, thread_type FROM scheduled_messages WHERE id = $1 AND client_id = $2',
+      [scheduledId, id],
+    )
+    if (!existing) return res.status(404).json({ error: 'Scheduled message not found' })
+
+    if ((existing.thread_type === 'admin_private' || existing.thread_type === 'ai_admin') && !isAdminRole(ctx.role)) {
+      return res.status(403).json({ error: 'Admin only thread' })
+    }
+
+    // Conditional UPDATE rather than acting on the SELECT above: the job could
+    // claim this row in between, and losing that race must surface as 409, not
+    // a "cancelled" response for a message the client already received.
+    const { rows: [cancelled] } = await pool.query(
+      `UPDATE scheduled_messages SET status = 'cancelled'
+       WHERE id = $1 AND status = 'pending'
+       RETURNING *`,
+      [scheduledId],
+    )
+    if (!cancelled) return res.status(409).json({ error: 'This message has already been sent' })
+
+    res.json(cancelled)
   } catch (err) { next(err) }
 })
 

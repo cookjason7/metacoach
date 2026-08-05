@@ -45,6 +45,7 @@ import organizationsRouter from './routes/organizations.js'
 import { initPush } from './services/pushService.js'
 import { runInactivityAlert } from './jobs/inactivityAlert.js'
 import { processFormSchedules } from './jobs/formScheduler.js'
+import { processScheduledMessages } from './jobs/messageScheduler.js'
 import { runPostgresBackup, runCloudinaryBackup, getBackupStatus } from './jobs/backup.js'
 import { runHealthSync } from './jobs/healthSync.js'
 
@@ -199,6 +200,12 @@ migrate()
       console.log('[formScheduler] Scheduler started; running at startup and every 5 minutes')
       processFormSchedules()
       setInterval(processFormSchedules, 5 * 60 * 1000)
+      // Scheduled client messages: same cadence as the form scheduler, and behind
+      // the same DISABLE_BACKGROUND_JOBS early-return above (job_lock prevents
+      // duplicate runs across instances)
+      console.log('[messageScheduler] Scheduler started; running at startup and every 5 minutes')
+      processScheduledMessages()
+      setInterval(processScheduledMessages, 5 * 60 * 1000)
       // Postgres backup: daily (job_lock prevents duplicate runs across instances)
       runPostgresBackup()
       setInterval(runPostgresBackup, 24 * 60 * 60 * 1000)

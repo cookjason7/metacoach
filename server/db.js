@@ -2580,6 +2580,58 @@ export async function runMigrations() {
   } catch (err) {
     console.error('[migrations] client_workout_profile setup failed:', err.message)
   }
+
+  // scheduled_messages: staff-composed messages queued to land in a client's
+  // thread at a future time (see jobs/messageScheduler.js and the
+  // /clients/:id/scheduled-messages routes in routes/coachAdmin.js).
+  //
+  // Deliberately a separate table rather than a scheduled_at column on
+  // client_messages: every existing client_messages read (staff thread view,
+  // client thread view, unread counts) would otherwise need an
+  // "AND send_at <= NOW()" guard, and a single missed one leaks an unsent
+  // message into a live thread. Keeping the queue separate means the job only
+  // ever INSERTs into client_messages, and no read path changes at all.
+  //
+  // Same shape as the form_assignments precedent: a pending row, an atomic
+  // status claim by the job, and a pointer (sent_message_id) to what it
+  // produced. One-time sends only — recurrence would be additive here
+  // (assignment_type/recurring_rule columns) without touching client_messages.
+  //
+  // thread_type/visibility are frozen at schedule time, resolved by the same
+  // canonicalization the live send route applies, so a queued message can't
+  // drift into the wrong thread if the client's coach assignment changes later.
+  //
+  // Must run after runMultiTenancyMigration — organizations doesn't exist
+  // before that, and org_id here mirrors client_messages.org_id exactly
+  // (INTEGER REFERENCES organizations(id) ON DELETE CASCADE, per
+  // migrations/001_multi_tenancy.js migrateTableOrgId).
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS scheduled_messages (
+        id              SERIAL PRIMARY KEY,
+        client_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        sender_id       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        sender_role     TEXT NOT NULL,
+        message_body    TEXT NOT NULL,
+        thread_type     TEXT NOT NULL,
+        visibility      TEXT NOT NULL,
+        image_url       TEXT,
+        audio_url       TEXT,
+        send_at         TIMESTAMPTZ NOT NULL,
+        status          TEXT NOT NULL DEFAULT 'pending',
+        sent_at         TIMESTAMPTZ,
+        sent_message_id INTEGER REFERENCES client_messages(id) ON DELETE SET NULL,
+        org_id          INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+        created_at      TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+    // Drives the job's due query: WHERE status = 'pending' AND send_at <= NOW()
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_scheduled_messages_due ON scheduled_messages (send_at, status)`)
+    // Drives the per-thread list shown above the compose box in StaffInbox
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_scheduled_messages_client ON scheduled_messages (client_id, status)`)
+  } catch (err) {
+    console.error('[migrations] scheduled_messages setup failed:', err.message)
+  }
 }
 
 // Resolves the organization an internal user id belongs to. Falls back to 1
