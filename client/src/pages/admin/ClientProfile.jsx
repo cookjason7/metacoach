@@ -5151,7 +5151,6 @@ function MessagingTab({ client, role, meId, getToken }) {
                       onTouchStart={isMine ? () => startLongPress(m.id) : undefined}
                       onTouchEnd={isMine ? cancelLongPress : undefined}
                       onTouchMove={isMine ? cancelLongPress : undefined}
-                      onContextMenu={isMine ? e => { e.preventDefault(); setMenuMsgId(m.id) } : undefined}
                     >
                       {isMine && editingMsgId !== m.id && (
                         <button

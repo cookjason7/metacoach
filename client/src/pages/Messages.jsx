@@ -828,7 +828,6 @@ export default function Messages() {
                             onTouchStart={isMe ? () => startLongPress(m.id) : undefined}
                             onTouchEnd={isMe ? cancelLongPress : undefined}
                             onTouchMove={isMe ? cancelLongPress : undefined}
-                            onContextMenu={isMe ? e => { e.preventDefault(); setMenuMsgId(m.id) } : undefined}
                           >
                             {isMe && editingMsgId !== m.id && (
                               <button
