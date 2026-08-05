@@ -232,6 +232,38 @@ function mergeAssignedCoachRows(rows) {
   return [...passthrough, ...byClient.values()]
 }
 
+// Marks, per client, exactly one row as is_preview_thread — the row whose message body/
+// sender/timestamp should supply the inbox card's preview text AND the thread the card
+// opens into. Recency alone can't decide this: an admin who isn't the client's assigned
+// coach has their own separate admin_private conversation, and the coach messaging more
+// recently shouldn't make the card preview (or its click target) belong to a different
+// conversation than the one that opens (see e28b308, which fixed the click target but
+// left the preview text on the old "most recent wins" logic). Falls back to the most
+// recently active row when the admin has no admin_private messages with this client yet.
+// Coaches only ever have a single coach_thread row per client (enforced upstream), and
+// assigned-coach clients are already collapsed to one row by mergeAssignedCoachRows, so
+// this is a no-op in both those cases — the single row is always the preview row.
+function markPreviewThread(rows, isAdmin) {
+  const byClient = new Map()
+  for (const row of rows) {
+    if (!byClient.has(row.client_id)) byClient.set(row.client_id, [])
+    byClient.get(row.client_id).push(row)
+  }
+  for (const clientRows of byClient.values()) {
+    let previewRow = isAdmin ? clientRows.find(r => r.thread_type === 'admin_private') : null
+    if (!previewRow) {
+      previewRow = clientRows.reduce((best, r) => {
+        if (!best) return r
+        const bestTime = best.last_message_at ? new Date(best.last_message_at).getTime() : -1
+        const rTime = r.last_message_at ? new Date(r.last_message_at).getTime() : -1
+        return rTime > bestTime ? r : best
+      }, null)
+    }
+    for (const row of clientRows) row.is_preview_thread = row === previewRow
+  }
+  return rows
+}
+
 function publicIdFromCloudinaryUrl(url) {
   try {
     const parsed = new URL(url)
@@ -2690,6 +2722,7 @@ router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
     // Merge coach_thread + admin_private for clients whose assigned coach is this admin,
     // then restore the unread/recency ordering the SQL above already established.
     const merged = isAdmin ? mergeAssignedCoachRows(rows) : rows
+    markPreviewThread(merged, isAdmin)
     merged.sort((a, b) => {
       const aUnread = (Number(a.unread) > 0 || a.marked_unread) ? 1 : 0
       const bUnread = (Number(b.unread) > 0 || b.marked_unread) ? 1 : 0
