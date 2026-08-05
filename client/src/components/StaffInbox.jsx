@@ -256,7 +256,16 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
   const [nextBeforeId, setNextBeforeId] = useState(null)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [loadingMsgs,  setLoadingMsgs]  = useState(false)
-  const [body,        setBody]        = useState('')
+  // In-progress compose text per conversation, keyed "clientId:threadType" (same
+  // keying as the reactMsgId/menuMsgId reset effect below) — so switching
+  // conversations naturally shows the right draft instead of leaking text across clients.
+  const [drafts,      setDrafts]      = useState({})
+  const draftKey = selected ? `${selected.clientId}:${selected.threadType}` : null
+  const body = draftKey ? (drafts[draftKey] ?? '') : ''
+  const setBody = (text) => {
+    if (!draftKey) return
+    setDrafts(prev => ({ ...prev, [draftKey]: text }))
+  }
   const [sending,     setSending]     = useState(false)
   const [toast,       setToast]       = useState(null) // { msg: string, type: 'error'|'info' }
   const scrollRef      = useRef(null)
