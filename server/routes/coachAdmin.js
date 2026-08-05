@@ -226,6 +226,7 @@ function mergeAssignedCoachRows(rows) {
       existing.last_message_at = row.last_message_at
       existing.last_message_body = row.last_message_body
       if ('last_sender_role' in row) existing.last_sender_role = row.last_sender_role
+      if ('last_sender_id' in row) existing.last_sender_id = row.last_sender_id
     }
   }
   return [...passthrough, ...byClient.values()]
@@ -2667,7 +2668,10 @@ router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
           ORDER BY created_at DESC LIMIT 1) AS last_message_body,
         (SELECT sender_role FROM client_messages
           WHERE client_id = u.id AND thread_type = m.thread_type AND deleted_at IS NULL
-          ORDER BY created_at DESC LIMIT 1) AS last_sender_role
+          ORDER BY created_at DESC LIMIT 1) AS last_sender_role,
+        (SELECT sender_id FROM client_messages
+          WHERE client_id = u.id AND thread_type = m.thread_type AND deleted_at IS NULL
+          ORDER BY created_at DESC LIMIT 1) AS last_sender_id
       FROM client_messages m
       JOIN users u ON u.id = m.client_id
       LEFT JOIN staff_inbox_states sis

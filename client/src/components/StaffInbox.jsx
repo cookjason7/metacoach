@@ -506,6 +506,7 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
           last_message_at:    row.last_message_at,
           last_message_body:  row.last_message_body,
           last_sender_role:   row.last_sender_role,
+          last_sender_id:     row.last_sender_id,
           latestThreadType:   row.thread_type,
           isAssignedCoach:    row.is_assigned_coach === true,
           threads:            [row],
@@ -518,15 +519,27 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
           existing.last_message_at   = row.last_message_at
           existing.last_message_body = row.last_message_body
           existing.last_sender_role  = row.last_sender_role
+          existing.last_sender_id    = row.last_sender_id
           existing.latestThreadType  = row.thread_type
         }
       }
     }
-    // When the logged-in admin IS the assigned coach, default to coach_thread so
-    // clicking the client card doesn't open the admin_private (Jason) thread first.
+    // Default thread selection, mirroring openClientConversation() (below) and
+    // ClientProfile's MessagingTab: when the logged-in admin IS the assigned coach,
+    // default to coach_thread so clicking the client card doesn't open the
+    // admin_private (Jason) thread first. Otherwise (admin, not the assigned coach)
+    // default to admin_private — not whichever thread happened to have the most
+    // recent message — so the card doesn't silently land the admin on the
+    // read-only coach_thread view when the coach messaged more recently.
     for (const g of map.values()) {
       if (g.isAssignedCoach && g.threads.some(t => t.thread_type === 'coach_thread')) {
         g.latestThreadType = 'coach_thread'
+      } else if (
+        (role === 'admin' || role === 'account_owner') &&
+        !g.isAssignedCoach &&
+        g.threads.some(t => t.thread_type === 'admin_private')
+      ) {
+        g.latestThreadType = 'admin_private'
       }
     }
     const list = [...map.values()]
@@ -540,7 +553,7 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
       return bTime - aTime
     })
     return list
-  }, [inbox])
+  }, [inbox, role])
 
   // Consume a pending focusClientId once inbox data is available: prefer a real
   // match from groupedInbox (correct thread type, name, and coach-assignment),
@@ -998,7 +1011,7 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
                     <p className={`text-xs mt-1 truncate ${
                       isSelected ? 'text-white/80' : hasUnread ? 'text-gray-800 font-medium' : 'text-gray-500'
                     }`}>
-                      {g.last_sender_role !== 'client' && <span className="opacity-60">You: </span>}
+                      {myId != null && g.last_sender_id === myId && <span className="opacity-60">You: </span>}
                       {g.last_message_body}
                     </p>
                   )}
