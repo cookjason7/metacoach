@@ -4,6 +4,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { linkify } from '../utils/linkify'
 import { API_URL } from '../config.js'
 import { useOrgBranding } from '../context/OrgBrandingContext.jsx'
+import { useViewMode } from '../context/ViewModeContext.jsx'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -3798,6 +3799,7 @@ const VALID_URL_TABS = ['vip', 'ai', 'mindset', 'resources']
 export default function Community() {
   const { brandName }                      = useOrgBranding()
   const { getToken }                       = useAuth()
+  const { viewing, viewedClient }          = useViewMode()
   const [searchParams]                     = useSearchParams()
   const navigate                           = useNavigate()
   const [isAdmin,        setIsAdmin]       = useState(false)
@@ -3817,17 +3819,26 @@ export default function Community() {
       const res = await fetch(`${API_URL}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
       if (!res.ok) throw new Error(`Server error ${res.status}`)
       const data = await res.json()
-      const staff = data.role === 'admin' || data.role === 'account_owner' || data.role === 'coach' || data.role === 'staff'
-      // Basic clients have no community access — redirect to dashboard
-      if (!staff && data.coaching_type === 'basic') {
+      // /api/users/me is never view-as aware — it always describes the staff
+      // member themselves. While viewing, force the client branch throughout
+      // (StaffInbox-equivalent admin controls hidden, own-post ownership keyed
+      // off the viewed client's id) so this renders the same read-only
+      // experience a real client would see, using the viewedClient snapshot
+      // captured on "View as this client" for the fields /api/users/me can't give us.
+      const staff = !viewing && (data.role === 'admin' || data.role === 'account_owner' || data.role === 'coach' || data.role === 'staff')
+      const effectiveCoachingType = viewing ? (viewedClient?.coaching_type ?? 'vip') : data.coaching_type
+      // Basic clients have no community access — redirect to dashboard. Applies
+      // during view mode too: if the viewed client is basic-tier, staff should
+      // see exactly what that client would see, including this redirect.
+      if (!staff && effectiveCoachingType === 'basic') {
         navigate('/dashboard', { replace: true })
         return
       }
-      const ch    = normalizeChannel(data.coaching_type)
-      setIsAdmin(data.role === 'admin' || data.role === 'account_owner')
+      const ch = normalizeChannel(effectiveCoachingType)
+      setIsAdmin(!viewing && (data.role === 'admin' || data.role === 'account_owner'))
       setIsStaff(staff)
       setClientChannel(ch)
-      setCurrentUserId(data.id)
+      setCurrentUserId(viewing ? (viewedClient?.id ?? data.id) : data.id)
       // Respect ?tab= URL param (e.g. Brain Mapping sidebar link → ?tab=mindset)
       // Read window.location.search directly to avoid adding searchParams as a
       // callback dependency (which would cause unnecessary re-fetches).
@@ -3848,7 +3859,7 @@ export default function Community() {
         headers: { Authorization: `Bearer ${token}` },
       })
     } catch {}
-  }, [getToken])
+  }, [getToken, viewing, viewedClient])
 
   // Handle sidebar navigation to ?tab=mindset (or any valid tab) while
   // Community is already mounted — React Router won't remount the component,
@@ -3968,24 +3979,31 @@ export default function Community() {
         </div>
       )}
 
-      {/* Group Chat — VIP or AI channel feed */}
-      {(tab === 'vip' || tab === 'ai') && (
-        <HybridTab
-          key={tab}
-          channel={tab}
-          getToken={getToken}
-          isAdmin={isAdmin}
-          isStaff={isStaff}
-          currentUserId={currentUserId}
-          members={members}
-        />
-      )}
+      {/* While viewing is true every write here already 403s server-side
+          (blockWritesInViewMode) — pointer-events-none blocks the click/tap
+          before it fires, so the walkthrough reads as read-only instead of a
+          pile of failed-request errors. Tab switching above stays live since
+          it isn't a write. */}
+      <div className={viewing ? 'pointer-events-none select-none' : undefined}>
+        {/* Group Chat — VIP or AI channel feed */}
+        {(tab === 'vip' || tab === 'ai') && (
+          <HybridTab
+            key={tab}
+            channel={tab}
+            getToken={getToken}
+            isAdmin={isAdmin}
+            isStaff={isStaff}
+            currentUserId={currentUserId}
+            members={members}
+          />
+        )}
 
-      {/* Brain Mapping — accessible via sidebar ?tab=mindset link for all users */}
-      {tab === 'mindset'   && <MindsetTab getToken={getToken} isStaff={isStaff} isAdmin={isAdmin} currentUserId={currentUserId} />}
+        {/* Brain Mapping — accessible via sidebar ?tab=mindset link for all users */}
+        {tab === 'mindset'   && <MindsetTab getToken={getToken} isStaff={isStaff} isAdmin={isAdmin} currentUserId={currentUserId} />}
 
-      {/* Resources — staff tab + URL-accessible for direct links */}
-      {tab === 'resources' && <ResourcesTab getToken={getToken} isStaff={isStaff} />}
+        {/* Resources — staff tab + URL-accessible for direct links */}
+        {tab === 'resources' && <ResourcesTab getToken={getToken} isStaff={isStaff} />}
+      </div>
     </div>
   )
 }

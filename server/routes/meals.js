@@ -2,7 +2,7 @@ import { Router } from 'express'
 import multer from 'multer'
 import Anthropic from '@anthropic-ai/sdk'
 import { v2 as cloudinary } from 'cloudinary'
-import { requireAuth, getAuth } from '@clerk/express'
+import { requireAuth } from '@clerk/express'
 import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
 import { awardAction, checkFullDay, checkProteinGoal } from '../gamification.js'
 import { normalizeMealPayload } from '../mealValidation.js'
@@ -113,7 +113,7 @@ router.post('/analyze', requireAuth(), mealAnalyzeLimit, upload.single('photo'),
   try {
     if (!req.file) return res.status(400).json({ error: 'No photo provided' })
 
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const { rows: userRows } = await pool.query(
       'SELECT program_phase FROM users WHERE id = $1', [dbUserId],
@@ -168,7 +168,7 @@ router.post('/analyze', requireAuth(), mealAnalyzeLimit, upload.single('photo'),
 // POST /api/meals/manual — manual entry, no photo
 router.post('/manual', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const v = normalizeMealPayload(req.body)
     if (!v.ok) return res.status(400).json({ error: v.error })
@@ -197,7 +197,7 @@ router.post('/manual', requireAuth(), async (req, res, next) => {
 // POST /api/meals/text-log — parse natural-language food description and save
 router.post('/text-log', requireAuth(), mealTextLimit, async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const { text, meal_slot, log_date } = req.body
 
@@ -281,7 +281,7 @@ Return only valid JSON, no markdown.`,
 // mode: 'add' (append) | 'replace' (delete target then insert) | absent (409 if target has meals)
 router.post('/copy-day', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const { from_date, to_date, mode } = req.body
 
@@ -352,7 +352,7 @@ router.post('/copy-day', requireAuth(), async (req, res, next) => {
 // mode: 'add' | 'replace' | absent (409 if target slot has meals)
 router.post('/copy-meal', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const { from_date, from_slot, to_date, to_slot, mode } = req.body
 
@@ -423,7 +423,7 @@ router.post('/copy-meal', requireAuth(), async (req, res, next) => {
 // POST /api/meals/:id/copy — re-log a past meal, optionally on a specific date and slot
 router.post('/:id/copy', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const mealId   = parseInt(req.params.id, 10)
     const { date, slot } = req.body
@@ -458,7 +458,7 @@ router.post('/:id/copy', requireAuth(), async (req, res, next) => {
 // POST /api/meals — save photo meal
 router.post('/', requireAuth(), upload.single('photo'), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const v = normalizeMealPayload(req.body)
     if (!v.ok) return res.status(400).json({ error: v.error })
     const d = v.data
@@ -509,7 +509,7 @@ router.post('/', requireAuth(), upload.single('photo'), async (req, res, next) =
 // GET /api/meals/recent?slot=Breakfast&limit=5 — most recently logged unique meals
 router.get('/recent', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const slot  = req.query.slot ?? null
     const limit = Math.min(Math.max(parseInt(req.query.limit ?? '5', 10), 1), 20)
 
@@ -538,7 +538,7 @@ router.get('/recent', requireAuth(), async (req, res, next) => {
 // GET /api/meals/active-dates?start=YYYY-MM-DD&end=YYYY-MM-DD — dates that have meals
 router.get('/active-dates', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const { start, end } = req.query
     if (!start || !end) return res.json([])
     const { rows } = await pool.query(
@@ -565,7 +565,7 @@ router.get('/active-dates', requireAuth(), async (req, res, next) => {
 // GET /api/meals?date=YYYY-MM-DD — meals for a specific date (or all if no date)
 router.get('/', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const { date } = req.query
 
     const baseSelect = `
@@ -615,7 +615,7 @@ router.get('/', requireAuth(), async (req, res, next) => {
 // GET /api/meals/today — daily macro totals (accepts optional ?date=YYYY-MM-DD)
 router.get('/today', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     // Client passes its local date; fall back to server CURRENT_DATE if not provided
     const date = req.query.date ?? new Date().toISOString().slice(0, 10)
 
@@ -643,7 +643,7 @@ router.get('/today', requireAuth(), async (req, res, next) => {
 // PATCH /api/meals/:id — edit a meal
 router.patch('/:id', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const mealId   = parseInt(req.params.id, 10)
 
@@ -693,7 +693,7 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
 // PATCH /:id scalar-field edit instead.
 router.patch('/:id/items', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const mealId   = parseInt(req.params.id, 10)
 
@@ -729,7 +729,7 @@ router.patch('/:id/items', requireAuth(), async (req, res, next) => {
 // DELETE /api/meals/:id
 router.delete('/:id', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const mealId   = parseInt(req.params.id, 10)
 
@@ -750,7 +750,7 @@ router.delete('/:id', requireAuth(), async (req, res, next) => {
 // GET /api/meals/week — this week's daily averages
 router.get('/week', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
 
     const { rows } = await pool.query(
       `SELECT

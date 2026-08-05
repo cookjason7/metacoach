@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 import { useOrgBranding } from '../context/OrgBrandingContext.jsx'
+import { useViewMode } from '../context/ViewModeContext.jsx'
 import BarcodeScannerWidget from '../components/BarcodeScanner.jsx'
 import FoodSourceBadge from '../components/FoodSourceBadge.jsx'
 import MicronutrientGrid from '../components/MicronutrientGrid.jsx'
@@ -1276,6 +1277,7 @@ const EMPTY_FOOD = {
 
 function MyFoodsMode() {
   const { getToken } = useAuth()
+  const { viewing } = useViewMode()
   const [foods,       setFoods]       = useState([])
   const [loading,     setLoading]     = useState(true)
   const [creating,    setCreating]    = useState(false)
@@ -1295,12 +1297,15 @@ function MyFoodsMode() {
       if (foodsRes.ok) setFoods(await foodsRes.json())
       if (meRes.ok) {
         const me = await meRes.json()
-        setIsAdmin(me.role === 'admin')
+        // /api/users/me is never view-as aware — while viewing, this must never
+        // grant the admin-only "make this a global food" toggle to the staff
+        // member's own admin role; a client would never see it either.
+        setIsAdmin(!viewing && me.role === 'admin')
       }
       setLoading(false)
     }
     init()
-  }, [getToken])
+  }, [getToken, viewing])
 
   function set(e) {
     const { name, value, type, checked } = e.target
@@ -1964,6 +1969,7 @@ const TABS = [
 const SLOT_TABS = ['photo', 'barcode', 'manual', 'search', 'recipes']
 
 export default function LogMeal() {
+  const { viewing } = useViewMode()
   const [tab,     setTab]     = useState('photo')
   const [slot,    setSlot]    = useState(getDefaultSlot)
   const [logDate, setLogDate] = useState(() => getLocalDateString())
@@ -2008,12 +2014,17 @@ export default function LogMeal() {
         ))}
       </div>
 
-      {tab === 'photo'   && <PhotoMode   slot={slot} logDate={logDate} />}
-      {tab === 'barcode' && <BarcodeMode slot={slot} logDate={logDate} />}
-      {tab === 'manual'  && <ManualMode  slot={slot} logDate={logDate} />}
-      {tab === 'search'  && <SearchMode  slot={slot} logDate={logDate} />}
-      {tab === 'recipes' && <RecipesMode slot={slot} logDate={logDate} />}
-      {tab === 'myfoods' && <MyFoodsMode />}
+      {/* Every mode here is a logging/write action — inert while viewing (server-side
+          blockWritesInViewMode already 403s them; this just avoids a failed-request
+          error in the UI). */}
+      <div className={viewing ? 'pointer-events-none select-none' : undefined}>
+        {tab === 'photo'   && <PhotoMode   slot={slot} logDate={logDate} />}
+        {tab === 'barcode' && <BarcodeMode slot={slot} logDate={logDate} />}
+        {tab === 'manual'  && <ManualMode  slot={slot} logDate={logDate} />}
+        {tab === 'search'  && <SearchMode  slot={slot} logDate={logDate} />}
+        {tab === 'recipes' && <RecipesMode slot={slot} logDate={logDate} />}
+        {tab === 'myfoods' && <MyFoodsMode />}
+      </div>
     </div>
   )
 }

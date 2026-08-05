@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import multer from 'multer'
 import { v2 as cloudinary } from 'cloudinary'
-import { requireAuth, getAuth } from '@clerk/express'
+import { requireAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 import { photoUploadLimit } from '../middleware/rateLimits.js'
 import { trackEvent } from '../services/usageTracker.js'
@@ -49,7 +49,7 @@ function publicIdFromCloudinaryUrl(url) {
 // Each session: { session_id, session_date, photos: { front, side, back } }
 router.get('/', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId   = await getOrCreateUser(userId)
 
     const { rows } = await pool.query(
@@ -95,7 +95,7 @@ router.get('/', requireAuth(), async (req, res, next) => {
 //                   taken_at_date (optional YYYY-MM-DD, ≤ today) for past-date logging
 router.post('/', requireAuth(), photoUploadLimit, upload.single('photo'), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId   = await getOrCreateUser(userId)
     const { angle, session_id, taken_at_date } = req.body
 
@@ -146,7 +146,7 @@ router.post('/', requireAuth(), photoUploadLimit, upload.single('photo'), async 
 // DELETE /api/progress-photos/:id
 router.delete('/:id', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId   = await getOrCreateUser(userId)
     const id         = parseInt(req.params.id, 10)
 

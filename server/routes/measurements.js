@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { requireAuth, getAuth } from '@clerk/express'
+import { requireAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 
 const router = Router()
@@ -7,7 +7,7 @@ const router = Router()
 // GET /api/measurements — client fetches their own measurements
 router.get('/', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId   = await getOrCreateUser(userId)
     const { rows } = await pool.query(
       `SELECT id, measurement_date, chest, waist, hips, created_at
@@ -23,7 +23,7 @@ router.get('/', requireAuth(), async (req, res, next) => {
 // POST /api/measurements — client adds their own measurement
 router.post('/', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId   = await getOrCreateUser(userId)
     const { measurement_date, chest, waist, hips } = req.body
     const date = measurement_date || new Date().toISOString().slice(0, 10)
@@ -40,7 +40,7 @@ router.post('/', requireAuth(), async (req, res, next) => {
 // PATCH /api/measurements/:id — client edits their own measurement
 router.patch('/:id', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId   = await getOrCreateUser(userId)
     const id         = parseInt(req.params.id, 10)
     const { measurement_date, chest, waist, hips } = req.body
@@ -70,7 +70,7 @@ router.patch('/:id', requireAuth(), async (req, res, next) => {
 // DELETE /api/measurements/:id — client deletes their own measurement
 router.delete('/:id', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId   = await getOrCreateUser(userId)
     const id         = parseInt(req.params.id, 10)
     const { rowCount } = await pool.query(

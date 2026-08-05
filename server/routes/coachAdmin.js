@@ -3,6 +3,7 @@ import { requireAuth, getAuth, clerkClient } from '@clerk/express'
 import { v2 as cloudinary } from 'cloudinary'
 import Anthropic from '@anthropic-ai/sdk'
 import { pool, getOrCreateUser, isAdminEmail, getOrgCoachName } from '../db.js'
+import { isAdminRole, isVaRole, isSuperAdmin, canAccessClient } from '../lib/accessControl.js'
 import { sendInviteEmail } from '../services/email.js'
 import { getAppBaseUrl } from '../services/appUrl.js'
 import { notifyNewDirectMessage, notifyNewFormDelivery } from '../services/pushService.js'
@@ -54,19 +55,6 @@ async function getCurrentStaff(req) {
   }
 }
 
-function isAdminRole(role) {
-  return role === 'admin' || role === 'account_owner'
-}
-
-// 'va' — client onboarding/transition role. Narrow scope: can invite clients,
-// view basic client info, and set coaching_type at invite time. Deliberately
-// NOT included in requireStaff/isAdminRole, so every messaging/notes/workouts/
-// forms/assessment/health/payment/lifecycle route stays 403 for it by default.
-// Only the specific routes gated with requireStaffOrVa (below) are reachable.
-function isVaRole(role) {
-  return role === 'va'
-}
-
 // Kept in sync with the CHECK constraint on message_reactions.reaction_type (server/db.js)
 // and messages.js's REACTION_TYPES — same emoji set as community post_reactions.
 const REACTION_TYPES = ['like', 'love', 'laugh', 'care']
@@ -98,15 +86,6 @@ async function reactionsForMessage(messageId, viewerId) {
     [messageId, viewerId],
   )
   return rows
-}
-
-// Super admin (platform owner accounts in ADMIN_EMAILS, e.g. Jason) bypasses org
-// scoping entirely and sees/manages every org. This is deliberately NOT the same
-// check as isAdminRole()/'admin' role: under multi-tenancy every org gets its own
-// 'admin' user too, so role alone is not enough to grant cross-org access — only
-// the hardcoded platform-owner allowlist should.
-function isSuperAdmin(ctx) {
-  return isAdminEmail(ctx.email)
 }
 
 async function requireStaff(req, res) {
@@ -162,34 +141,6 @@ function basicClientView(row) {
     created_at:           row.created_at ?? null,
     effective_start_date: row.effective_start_date ?? null,
   }
-}
-
-// Returns true if staff member (admin or coach) can access this client.
-// Super admin bypasses org scoping entirely. Everyone else — including org-level
-// 'admin' role staff — must be in the same org as the client; coaches additionally
-// must be that client's assigned coach.
-async function canAccessClient(ctx, clientId) {
-  const { rows } = await pool.query(
-    'SELECT org_id, assigned_coach_id, client_status FROM users WHERE id = $1',
-    [clientId],
-  )
-  if (!rows.length) return false
-  if (isSuperAdmin(ctx)) return true
-  // Unclaimed self-signup: a user who signed up with no matching invite has a
-  // NULL org_id and sits at pending_access (see getOrCreateUser in server/db.js).
-  // They belong to no org yet, so any org's admin/VA may claim them — the
-  // activate route below stamps their own org on. This is not a cross-org hole:
-  // once org_id is set, the normal equality check applies and no other org can
-  // reach them.
-  if (rows[0].org_id == null && rows[0].client_status === 'pending_access') {
-    return isAdminRole(ctx.role) || isVaRole(ctx.role)
-  }
-  if (rows[0].org_id !== ctx.orgId) return false
-  if (isAdminRole(ctx.role)) return true
-  // VA works onboarding across the whole org, not a single coach's roster —
-  // this only ever matters on the requireStaffOrVa routes VA can reach at all.
-  if (isVaRole(ctx.role)) return true
-  return rows[0].assigned_coach_id === ctx.dbUserId
 }
 
 // True when this admin IS the client's assigned coach — coach_thread and admin_private

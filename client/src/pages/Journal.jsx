@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 import { useOrgBranding } from '../context/OrgBrandingContext.jsx'
+import { useViewMode } from '../context/ViewModeContext.jsx'
 import BarcodeScannerWidget from '../components/BarcodeScanner.jsx'
 import FoodSourceBadge from '../components/FoodSourceBadge.jsx'
 import MicronutrientGrid from '../components/MicronutrientGrid.jsx'
@@ -3816,6 +3817,7 @@ export default function Journal() {
   const { getToken } = useAuth()
   const navigate     = useNavigate()
   const location     = useLocation()
+  const { viewing, viewedClient } = useViewMode()
 
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date(); d.setHours(0, 0, 0, 0); return d
@@ -3875,17 +3877,22 @@ export default function Journal() {
     navigate('/journal', { replace: true, state: {} })
   }, [location.state]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load goals once
+  // Load goals once. /api/users/me is never view-as aware (Build A deliberately
+  // excluded it), so while viewing it always returns the staff member's own row —
+  // merge in the same-session snapshot captured on "View as this client" instead.
   useEffect(() => {
     async function loadGoals() {
       try {
         const token = await getToken()
         const res = await fetch(`${API_URL}/api/users/me`, { headers: { Authorization: `Bearer ${token}` } })
-        if (res.ok) setGoals(await res.json())
+        if (res.ok) {
+          const data = await res.json()
+          setGoals(viewing && viewedClient ? { ...data, ...viewedClient } : data)
+        }
       } catch {}
     }
     loadGoals()
-  }, [getToken])
+  }, [getToken, viewing, viewedClient])
 
   // Load water for today only
   useEffect(() => {

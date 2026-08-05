@@ -6,6 +6,7 @@ import { Capacitor } from '@capacitor/core'
 import { syncAppleHealthToday } from '../hooks/useAppleHealth.js'
 import { getLocalDateString } from '../utils/date.js'
 import { useOrgBranding } from '../context/OrgBrandingContext.jsx'
+import { useViewMode } from '../context/ViewModeContext.jsx'
 
 // Client-facing sidebar nav
 const CLIENT_NAV_ITEMS = [
@@ -40,6 +41,23 @@ const VA_NAV_ITEMS = [
   { to: '/settings',  label: 'Settings' },
 ]
 
+// "View as client" nav — shown to staff instead of their own STAFF_NAV_ITEMS
+// while viewing is true. Deliberately narrower than CLIENT_NAV_ITEMS: only the
+// pages this feature actually covers (see ViewModeContext.jsx) — no AI Coach,
+// Progress, or Brain Mapping, none of which were audited for view-as
+// correctness. Workouts has no entry in CLIENT_NAV_ITEMS at all (clients
+// reach it another way today) but is explicitly in scope here, so it's added.
+const VIEW_MODE_NAV_ITEMS = [
+  { to: '/dashboard', label: 'Dashboard' },
+  { to: '/journal',   label: 'Food Log' },
+  { to: '/calendar',  label: 'Calendar' },
+  { to: '/messages',  label: 'Messages' },
+  { to: '/food-list', label: 'Food List' },
+  { to: '/workouts',  label: 'Workouts' },
+  { to: '/community', label: 'Community' },
+  { to: '/settings',  label: 'Settings' },
+]
+
 // Mirrors ADMIN_EMAILS in server/db.js — nav visibility only, the real gate is
 // isAdminEmail() on every /api/organizations route.
 const SUPER_ADMIN_EMAILS = ['jason@lwcvip.com', 'jason@efcfit.com']
@@ -67,6 +85,7 @@ export default function Layout() {
   } catch {}
 
   const { primaryColor, sidebarColor, logoUrl, brandName, aiCoachName, coachTitle } = useOrgBranding()
+  const { viewing, viewedClient, exitViewMode } = useViewMode()
   const { user, isLoaded }        = useUser()
   const { getToken, isSignedIn }  = useAuth()
   const { signOut }        = useClerk()
@@ -365,7 +384,10 @@ export default function Layout() {
     if (isVa) return // va has no messaging access — server would 403 anyway
     try {
       const token = await getToken()
-      const endpoint = isStaff
+      // While viewing is true, this must be the VIEWED CLIENT's own unread count,
+      // not the staff member's inbox — /api/messages/unread-count is view-as aware
+      // (see Build A) and the global fetch patch attaches the header automatically.
+      const endpoint = (isStaff && !viewing)
         ? `${API_URL}/api/coach-admin/messaging/unread-count`
         : `${API_URL}/api/messages/unread-count`
       const res = await fetch(endpoint, {
@@ -375,10 +397,13 @@ export default function Layout() {
       const data = await res.json()
       setMsgUnread(data.unread ?? 0)
     } catch {}
-  }, [getToken, isStaff, isVa])
+  }, [getToken, isStaff, isVa, viewing])
 
   const fetchStaffUnread = useCallback(async () => {
-    if (!isStaff) return
+    // Team Communication is a staff-internal tool, never part of the client
+    // experience — skip it entirely while viewing rather than showing a
+    // count for a nav item that isn't even rendered right now.
+    if (!isStaff || viewing) return
     try {
       const token = await getToken()
       const res   = await fetch(`${API_URL}/api/staff-chat/unread`, {
@@ -388,7 +413,7 @@ export default function Layout() {
       const data = await res.json()
       setStaffUnread(data.total ?? 0)
     } catch {}
-  }, [getToken, isStaff])
+  }, [getToken, isStaff, viewing])
 
   const fetchKatieUnread = useCallback(async () => {
     try {
@@ -848,19 +873,24 @@ export default function Layout() {
 
   // Super-admin gets extra "Usage Analytics", "Workout Builder Test", and
   // "Organizations" nav entries — LWC-internal tools, never shown to org admins.
-  const navItems = isStaff
-    ? isAdmin
-      ? (isOrgAdmin
-          ? orgAdminNavItems
-          : [
-              ...STAFF_NAV_ITEMS,
-              { to: '/admin/usage', label: 'Usage Analytics' },
-              { to: '/admin/katie-corrections', label: `${aiCoachName} Corrections` },
-              { to: '/admin/workout-builder-test', label: 'Workout Builder Test' },
-              ...(isSuperAdmin ? [{ to: '/admin/organizations', label: 'Organizations' }] : []),
-            ])
-      : (isOrgAdmin ? orgAdminNavItems : (isVa ? VA_NAV_ITEMS : STAFF_NAV_ITEMS))
-    : clientNavWithLabels
+  // While viewing is true, staff see the scoped view-mode nav instead of their
+  // own staff nav, regardless of role — this is what makes the sidebar itself
+  // "the actual client UI" the task calls for, not just each page's content.
+  const navItems = viewing
+    ? VIEW_MODE_NAV_ITEMS
+    : isStaff
+      ? isAdmin
+        ? (isOrgAdmin
+            ? orgAdminNavItems
+            : [
+                ...STAFF_NAV_ITEMS,
+                { to: '/admin/usage', label: 'Usage Analytics' },
+                { to: '/admin/katie-corrections', label: `${aiCoachName} Corrections` },
+                { to: '/admin/workout-builder-test', label: 'Workout Builder Test' },
+                ...(isSuperAdmin ? [{ to: '/admin/organizations', label: 'Organizations' }] : []),
+              ])
+        : (isOrgAdmin ? orgAdminNavItems : (isVa ? VA_NAV_ITEMS : STAFF_NAV_ITEMS))
+      : clientNavWithLabels
 
   // Mobile drawer hides items already in the client bottom nav. Matched by
   // route path rather than label text since the "Coach Katie" label text
@@ -870,7 +900,7 @@ export default function Layout() {
     : isNonVipClient
       ? new Set(['/dashboard', '/ai-coach', '/journal', '/community'])
       : new Set(['/dashboard', '/journal', '/messages', '/community', '/calendar'])
-  const mobileNavItems = isStaff ? navItems : navItems.filter(i => !mobileBottomNavPaths.has(i.to))
+  const mobileNavItems = (isStaff && !viewing) ? navItems : navItems.filter(i => !mobileBottomNavPaths.has(i.to))
 
   function buildSidebarContent(items, isMobile = false) { return (
     <>
@@ -985,8 +1015,33 @@ export default function Layout() {
     </>
   ) }
 
+  function handleExitViewMode() {
+    const clientId = viewedClient?.id
+    exitViewMode()
+    navigate(clientId ? `/admin/clients/${clientId}` : '/admin/clients')
+  }
+
   return (
-  <div className="flex h-screen bg-gray-50">
+    <div className="flex flex-col h-screen bg-gray-50">
+
+      {/* Persistent view-mode banner — visible above every page while viewing is
+          true. Read-only is enforced server-side (blockWritesInViewMode); this is
+          purely so staff never forget which identity they're browsing as. */}
+      {viewing && (
+        <div className="shrink-0 z-[90] flex items-center justify-between gap-3 px-4 py-2.5 bg-amber-500 text-white text-sm">
+          <span className="font-medium truncate">
+            👁️ Viewing as {viewedClient?.name ?? 'client'} — read only
+          </span>
+          <button
+            onClick={handleExitViewMode}
+            className="shrink-0 px-3 py-1.5 min-h-[44px] sm:min-h-0 rounded-lg bg-white/20 hover:bg-white/30 font-semibold text-xs transition-colors"
+          >
+            Exit
+          </button>
+        </div>
+      )}
+
+    <div className="flex flex-1 min-h-0">
 
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex w-60 flex-shrink-0 flex-col" style={{ background: 'var(--color-sidebar)' }}>
@@ -1020,19 +1075,25 @@ export default function Layout() {
         <Outlet />
       </main>
 
+    </div>
+
       {/* Mobile bottom nav
             Staff:       Coaching | Clients | Messages | Community
             Basic:       Home | Food Log | Katie | Support
             AI/Hybrid:   Home | Food Log | Katie | Community
             VIP:         Home | Calendar | Food Log | Messages | Community  */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 flex pb-[env(safe-area-inset-bottom)]">
-        {(isVa ? [
+        {/* While viewing is true, isVa/isStaff still reflect the real staff member —
+            skip both branches so this falls through to the VIP-style client bar
+            (isBasicClient/isNonVipClient are also always false for staff, viewing
+            or not, so that's exactly where it lands). */}
+        {((isVa && !viewing) ? [
           // VA bottom nav: onboarding-only scope, no Messages/Community. No
           // pending-foods badge either — that stays a staff-only signal.
           { to: '/dashboard',     label: 'Coaching',  badge: false,             icon: <path strokeLinecap="round" strokeLinejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" /> },
           { to: '/admin/clients', label: 'Clients',   badge: false,             icon: <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /> },
           { to: '/settings',      label: 'Settings',  badge: false,             icon: <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /> },
-        ] : isStaff ? [
+        ] : (isStaff && !viewing) ? [
           // Staff bottom nav
           { to: '/dashboard',     label: 'Coaching',  badge: false,             icon: <path strokeLinecap="round" strokeLinejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" /> },
           { to: '/admin/clients', label: 'Clients',   badge: false,             icon: <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /> },

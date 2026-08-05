@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import multer from 'multer'
 import { v2 as cloudinary } from 'cloudinary'
-import { requireAuth, getAuth } from '@clerk/express'
+import { requireAuth } from '@clerk/express'
 import { pool, getOrCreateUser, isAdminEmail } from '../db.js'
 import { notifyNewCommunityPost } from '../services/pushService.js'
 
@@ -38,7 +38,7 @@ function uploadToCloudinary(buffer) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function checkAdmin(req, res) {
-  const { userId } = getAuth(req)
+  const userId = req.effectiveClerkUserId
   const dbUserId = await getOrCreateUser(userId)
   const { rows } = await pool.query('SELECT role FROM users WHERE id = $1', [dbUserId])
   if (rows[0]?.role !== 'admin') {
@@ -100,7 +100,7 @@ async function getUserContext(userId) {
 // Staff/admin are always allowed through.
 router.use(async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     if (!userId) return next() // unauthenticated — let requireAuth() handle it per-route
     const dbUserId = await getOrCreateUser(userId)
     const { rows } = await pool.query('SELECT role, coaching_type FROM users WHERE id = $1', [dbUserId])
@@ -331,7 +331,7 @@ async function notifyTopLevelCommunityPost({ authorUserId, authorIsStaff, postCh
 
 router.delete('/posts/:id', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const { dbUserId, isStaff } = await getUserContext(userId)
     const postId = parseInt(req.params.id, 10)
     const ctx = { orgId: req.orgId, email: req.internalUser?.email }
@@ -444,7 +444,7 @@ router.get('/members', requireAuth(), async (req, res, next) => {
 
 router.get('/notifications/count', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const ctx = { orgId: req.orgId, email: req.internalUser?.email }
     const bypassOrg = isSuperAdmin(ctx)
@@ -459,7 +459,7 @@ router.get('/notifications/count', requireAuth(), async (req, res, next) => {
 
 router.post('/notifications/read', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const ctx = { orgId: req.orgId, email: req.internalUser?.email }
     const bypassOrg = isSuperAdmin(ctx)
@@ -476,7 +476,7 @@ router.post('/notifications/read', requireAuth(), async (req, res, next) => {
 
 router.get('/posts', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const { dbUserId, isStaff, channel } = await getUserContext(userId)
     const ctx = { orgId: req.orgId, email: req.internalUser?.email }
 
@@ -585,7 +585,7 @@ router.get('/posts/:id/group', requireAuth(), async (req, res, next) => {
 
 router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const { dbUserId, isStaff, channel } = await getUserContext(userId)
     const content   = req.body?.content
     let   category  = req.body?.category ?? 'General Discussion'
@@ -714,7 +714,7 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
 // PATCH /api/community/posts/:id  (own post or admin)
 router.patch('/posts/:id', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const postId   = parseInt(req.params.id, 10)
     const { content, category } = req.body
@@ -777,7 +777,7 @@ router.post('/posts/:id/pin', requireAuth(), async (req, res, next) => {
 // POST /api/community/posts/:id/like  (toggle)
 router.post('/posts/:id/like', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const postId   = parseInt(req.params.id, 10)
     if (await checkPostOrgAccess(req, res, postId) === false) return
@@ -810,7 +810,7 @@ router.get('/posts/:id/likers', requireAuth(), async (req, res, next) => {
   try {
     const postId = parseInt(req.params.id, 10)
     if (await checkPostOrgAccess(req, res, postId) === false) return
-    if (await checkPostGroupAccess(req, res, postId, await getOrCreateUser(getAuth(req).userId)) === false) return
+    if (await checkPostGroupAccess(req, res, postId, await getOrCreateUser(req.effectiveClerkUserId)) === false) return
     const { rows } = await pool.query(
       `SELECT u.id, u.first_name, u.last_name
        FROM post_likes pl
@@ -826,7 +826,7 @@ router.get('/posts/:id/likers', requireAuth(), async (req, res, next) => {
 // GET/POST /api/community/posts/:id/reactions
 router.get('/posts/:id/reactions', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const postId   = parseInt(req.params.id, 10)
     if (await checkPostOrgAccess(req, res, postId) === false) return
@@ -848,7 +848,7 @@ router.get('/posts/:id/reactions', requireAuth(), async (req, res, next) => {
 
 router.post('/posts/:id/reactions', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const postId   = parseInt(req.params.id, 10)
     const { reaction_type } = req.body
@@ -898,7 +898,7 @@ router.get('/posts/:id/reactors', requireAuth(), async (req, res, next) => {
   try {
     const postId = parseInt(req.params.id, 10)
     if (await checkPostOrgAccess(req, res, postId) === false) return
-    if (await checkPostGroupAccess(req, res, postId, await getOrCreateUser(getAuth(req).userId)) === false) return
+    if (await checkPostGroupAccess(req, res, postId, await getOrCreateUser(req.effectiveClerkUserId)) === false) return
     const { rows } = await pool.query(
       `SELECT pr.reaction_type, u.id, u.first_name, u.last_name
        FROM post_reactions pr
@@ -927,7 +927,7 @@ router.get('/posts/:id/reactors', requireAuth(), async (req, res, next) => {
 // parents that fell outside the window.
 router.get('/posts/:id/comments', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const postId   = parseInt(req.params.id, 10)
     if (await checkPostOrgAccess(req, res, postId) === false) return
@@ -958,7 +958,7 @@ router.get('/posts/:id/comments', requireAuth(), async (req, res, next) => {
 
 router.post('/posts/:id/comments', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const postId   = parseInt(req.params.id, 10)
     const { content } = req.body
@@ -1017,7 +1017,7 @@ router.post('/posts/:id/comments', requireAuth(), async (req, res, next) => {
 
 router.get('/posts/:id/poll', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const postId   = parseInt(req.params.id, 10)
     if (await checkPostOrgAccess(req, res, postId) === false) return
@@ -1057,7 +1057,7 @@ router.get('/posts/:id/poll', requireAuth(), async (req, res, next) => {
 
 router.post('/polls/:id/vote', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const pollId   = parseInt(req.params.id, 10)
     const { option_id } = req.body
@@ -1101,7 +1101,7 @@ router.post('/polls/:id/vote', requireAuth(), async (req, res, next) => {
 
 router.get('/comments/:id/reactions', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId  = await getOrCreateUser(userId)
     const commentId = parseInt(req.params.id, 10)
     if (await checkCommentOrgAccess(req, res, commentId) === false) return
@@ -1123,7 +1123,7 @@ router.get('/comments/:id/reactions', requireAuth(), async (req, res, next) => {
 
 router.post('/comments/:id/reactions', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId  = await getOrCreateUser(userId)
     const commentId = parseInt(req.params.id, 10)
     const { reaction_type } = req.body
@@ -1284,7 +1284,7 @@ async function loadOrgGroup(req, res, groupId) {
 // admin who isn't themselves a member of the group they administer.
 router.get('/groups/:id/members', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const groupId  = parseInt(req.params.id, 10)
     if (!await loadOrgGroup(req, res, groupId)) return
@@ -1349,7 +1349,7 @@ router.delete('/groups/:id/members/:userId', requireAuth(), async (req, res, nex
     const targetId = parseInt(req.params.userId, 10)
     if (!await loadOrgGroup(req, res, groupId)) return
 
-    const callerRes = await pool.query('SELECT id FROM users WHERE clerk_user_id = $1', [getAuth(req).userId])
+    const callerRes = await pool.query('SELECT id FROM users WHERE clerk_user_id = $1', [req.effectiveClerkUserId])
     const callerId = callerRes.rows[0]?.id
     if (callerId && callerId === parseInt(req.params.userId)) {
       return res.status(400).json({ error: 'You cannot remove yourself from a group.' })
@@ -1401,7 +1401,7 @@ router.get('/groups/:id/eligible-members', requireAuth(), async (req, res, next)
 // returns nothing and the pill row is empty.
 router.get('/my-groups', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
 
     const { rows: callerRows } = await pool.query('SELECT role, email FROM users WHERE id = $1', [dbUserId])

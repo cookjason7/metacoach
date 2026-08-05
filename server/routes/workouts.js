@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { requireAuth, getAuth } from '@clerk/express'
+import { requireAuth } from '@clerk/express'
 import { pool, getOrCreateUser, isAdminEmail, getOrgCoachName } from '../db.js'
 import { awardAction } from '../gamification.js'
 import { workoutGenLimit } from '../middleware/rateLimits.js'
@@ -25,7 +25,7 @@ function isSuperAdmin(ctx) {
 // POST /api/workouts/generate — AI generates a plan, not saved yet
 router.post('/generate', requireAuth(), workoutGenLimit, async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const { rows } = await pool.query('SELECT first_name FROM users WHERE id = $1', [dbUserId])
     const firstName = rows[0]?.first_name || 'there'
@@ -56,7 +56,7 @@ router.post('/generate', requireAuth(), workoutGenLimit, async (req, res, next) 
 // Optional body field log_date (YYYY-MM-DD, ≤ today) allows past-date logging.
 router.post('/log-activity', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const { activity_type, duration_minutes, notes, log_date } = req.body
     if (!activity_type?.trim()) return res.status(400).json({ error: 'activity_type required' })
@@ -85,7 +85,7 @@ router.post('/log-activity', requireAuth(), async (req, res, next) => {
 // GET /api/workouts — list user's saved programs
 router.get('/', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
 
     const { rows } = await pool.query(
@@ -108,7 +108,7 @@ router.get('/', requireAuth(), async (req, res, next) => {
 // GET /api/workouts/:id — get a single program with all exercises
 router.get('/:id', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const workoutId = parseInt(req.params.id, 10)
 
@@ -152,7 +152,7 @@ router.get('/:id', requireAuth(), async (req, res, next) => {
 // POST /api/workouts — save a generated plan
 router.post('/', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const { program_name, description, days, requested_circuits } = req.body
 
@@ -195,7 +195,7 @@ router.post('/', requireAuth(), async (req, res, next) => {
 // POST /api/workouts/:id/log — record a completed workout
 router.post('/:id/log', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const workoutId = parseInt(req.params.id, 10)
     const { notes } = req.body
@@ -215,7 +215,7 @@ router.post('/:id/log', requireAuth(), async (req, res, next) => {
 // POST /api/workouts/:id/exercises — add an exercise to a workout the user owns
 router.post('/:id/exercises', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId  = await getOrCreateUser(userId)
     const workoutId = parseInt(req.params.id, 10)
     // Verify ownership
@@ -236,7 +236,7 @@ router.post('/:id/exercises', requireAuth(), async (req, res, next) => {
 // PUT /api/workouts/exercises/:id — update an exercise (user must own the parent workout)
 router.put('/exercises/:id', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId  = await getOrCreateUser(userId)
     const exId      = parseInt(req.params.id, 10)
     // Verify ownership through the workout
@@ -264,7 +264,7 @@ router.put('/exercises/:id', requireAuth(), async (req, res, next) => {
 // DELETE /api/workouts/exercises/:id — remove an exercise (user must own the parent workout)
 router.delete('/exercises/:id', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId  = await getOrCreateUser(userId)
     const exId      = parseInt(req.params.id, 10)
     const ctx = { orgId: req.orgId, email: req.internalUser?.email }
@@ -281,7 +281,7 @@ router.delete('/exercises/:id', requireAuth(), async (req, res, next) => {
 // DELETE /api/workouts/:id
 router.delete('/:id', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId = await getOrCreateUser(userId)
     const workoutId = parseInt(req.params.id, 10)
 

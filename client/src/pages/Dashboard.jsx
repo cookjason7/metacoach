@@ -3,6 +3,7 @@ import { useAuth } from '@clerk/clerk-react'
 import { Link } from 'react-router-dom'
 import { API_URL } from '../config.js'
 import { useOrgBranding } from '../context/OrgBrandingContext.jsx'
+import { useViewMode } from '../context/ViewModeContext.jsx'
 import CoachDashboard from './CoachDashboard'
 
 // ── Stage colours ─────────────────────────────────────────────────────────────
@@ -456,6 +457,7 @@ function DatePickerSheet({ selectedDate, minDate, maxDate, onSelect, onClose }) 
 
 export default function Dashboard() {
   const { getToken } = useAuth()
+  const { viewing, viewedClient } = useViewMode()
 
   const todayStr = toLocalDateStr(new Date())
   const minPickerDate = addDays(todayStr, -30)
@@ -493,7 +495,14 @@ export default function Dashboard() {
         if (!r3.ok) throw new Error('Failed to load dashboard data')
 
         if (!cancelled) {
-          setUserProfile(await r3.json())
+          const profile = await r3.json()
+          // /api/users/me is never view-as aware (Build A deliberately excluded
+          // it — see server-side Settings.jsx audit), so it always returns the
+          // STAFF member's own row here, not the viewed client's. Their goal_*
+          // fields would otherwise show empty rings for a client who has real
+          // goals set. viewedClient carries a same-session snapshot captured
+          // when "View as this client" was clicked (see ClientProfile.jsx).
+          setUserProfile(viewing && viewedClient ? { ...profile, ...viewedClient } : profile)
           if (r4.ok) setKatieBanner((await r4.json()).message ?? null)
           if (r5.ok) setGamData(await r5.json())
         }
@@ -565,8 +574,10 @@ export default function Dashboard() {
   const weekdayAbbrev = selectedDateObj.toLocaleDateString('en-US', { weekday: 'short' })
   const numericDate = selectedDateObj.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
 
-  // Staff → coaching dashboard (also covers 'va', a scoped onboarding-only role)
-  if (!loading && (userProfile?.role === 'admin' || userProfile?.role === 'account_owner' || userProfile?.role === 'coach' || userProfile?.role === 'staff' || userProfile?.role === 'va')) {
+  // Staff → coaching dashboard (also covers 'va', a scoped onboarding-only role).
+  // Skipped entirely while viewing — a staff member "viewing as" a client must
+  // see the client dashboard below, not their own coaching view.
+  if (!viewing && !loading && (userProfile?.role === 'admin' || userProfile?.role === 'account_owner' || userProfile?.role === 'coach' || userProfile?.role === 'staff' || userProfile?.role === 'va')) {
     return <CoachDashboard getToken={getToken} userRole={userProfile.role} />
   }
 

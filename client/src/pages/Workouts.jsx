@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { API_URL } from '../config.js'
 import { useOrgBranding } from '../context/OrgBrandingContext.jsx'
+import { useViewMode } from '../context/ViewModeContext.jsx'
 import ExerciseThumb from '../components/ExerciseThumb.jsx'
 import { buildSections, groupLabelFor, GROUP_TYPE_META } from '../utils/workoutGrouping.js'
 
@@ -583,7 +584,7 @@ function ReadOnlySectionBlock({ section }) {
 
 // ── Program Detail — read-only client view ────────────────────────────────────
 
-function ProgramDetail({ program, onBack }) {
+function ProgramDetail({ program, onBack, viewing }) {
   const { getToken } = useAuth()
   const [exercises, setExercises] = useState([])
   const [logs,      setLogs]      = useState([])
@@ -642,12 +643,14 @@ function ProgramDetail({ program, onBack }) {
             <h2 className="text-xl font-bold text-gray-900">{program.name}</h2>
             {program.description && <ProgramDescription text={program.description} />}
           </div>
-          <button
-            onClick={() => setShowLog(true)}
-            className="shrink-0 bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors"
-          >
-            Log Workout
-          </button>
+          {!viewing && (
+            <button
+              onClick={() => setShowLog(true)}
+              className="shrink-0 bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors"
+            >
+              Log Workout
+            </button>
+          )}
         </div>
       </div>
 
@@ -709,7 +712,7 @@ function ProgramDetail({ program, onBack }) {
 
 // ── Program List ──────────────────────────────────────────────────────────────
 
-function ProgramList({ programs, onSelect, onNew }) {
+function ProgramList({ programs, onSelect, onNew, viewing }) {
   const { aiCoachName } = useOrgBranding()
   if (programs.length === 0) {
     return (
@@ -717,13 +720,17 @@ function ProgramList({ programs, onSelect, onNew }) {
         <div className="text-center py-16">
           <p className="text-4xl mb-3">💪</p>
           <p className="text-sm font-semibold text-gray-700 mb-1">No programs yet</p>
-          <p className="text-xs text-gray-400 mb-6">
-            Let {aiCoachName} build you a personalized weekly workout program — your coach can customize it after.
-          </p>
-          <button onClick={onNew}
-            className="bg-[#E8670A] text-white px-6 py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors">
-            Build My Program with {aiCoachName}
-          </button>
+          {!viewing && (
+            <>
+              <p className="text-xs text-gray-400 mb-6">
+                Let {aiCoachName} build you a personalized weekly workout program — your coach can customize it after.
+              </p>
+              <button onClick={onNew}
+                className="bg-[#E8670A] text-white px-6 py-2.5 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors">
+                Build My Program with {aiCoachName}
+              </button>
+            </>
+          )}
         </div>
       </div>
     )
@@ -733,10 +740,12 @@ function ProgramList({ programs, onSelect, onNew }) {
     <div className="max-w-2xl space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-500">{programs.length} saved program{programs.length !== 1 ? 's' : ''}</p>
-        <button onClick={onNew}
-          className="bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors">
-          + New Program
-        </button>
+        {!viewing && (
+          <button onClick={onNew}
+            className="bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors">
+            + New Program
+          </button>
+        )}
       </div>
 
       {programs.map(program => (
@@ -774,6 +783,7 @@ function ProgramList({ programs, onSelect, onNew }) {
 export default function Workouts() {
   const { getToken } = useAuth()
   const { coachTitle } = useOrgBranding()
+  const { viewing } = useViewMode()
   const [view,      setView]      = useState('loading')
   const [programs,  setPrograms]  = useState([])
   const [selected,  setSelected]  = useState(null)
@@ -787,11 +797,13 @@ export default function Workouts() {
       if (!res.ok) return
       const data = await res.json()
       setPrograms(data)
-      setView(data.length > 0 ? 'list' : 'questionnaire')
+      // Never auto-route into the AI-generate flow while viewing — that's a
+      // write, and there's no client to hand a generated plan to anyway.
+      setView(data.length > 0 || viewing ? 'list' : 'questionnaire')
     } catch {
-      setView('questionnaire')
+      if (!viewing) setView('questionnaire')
     }
-  }, [getToken])
+  }, [getToken, viewing])
 
   useEffect(() => { loadPrograms() }, [loadPrograms])
 
@@ -832,6 +844,7 @@ export default function Workouts() {
           programs={programs}
           onSelect={(p) => { setSelected(p); setView('detail') }}
           onNew={() => setView('questionnaire')}
+          viewing={viewing}
         />
       )}
 
@@ -839,6 +852,7 @@ export default function Workouts() {
         <ProgramDetail
           program={selected}
           onBack={() => { setSelected(null); setView('list') }}
+          viewing={viewing}
         />
       )}
     </div>

@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { requireAuth, getAuth } from '@clerk/express'
+import { requireAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
 import { checkWaterGoal } from '../gamification.js'
 
@@ -8,7 +8,7 @@ const router = Router()
 // GET /api/daily-logs/today
 router.get('/today', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const { date } = req.query
 
     const { rows } = await pool.query(
@@ -34,7 +34,7 @@ router.get('/today', requireAuth(), async (req, res, next) => {
 // GET /api/daily-logs/week — this week's averages
 router.get('/week', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
 
     const { rows } = await pool.query(
       `SELECT
@@ -57,7 +57,7 @@ router.get('/week', requireAuth(), async (req, res, next) => {
 // GET /api/daily-logs/progress?range=30d|90d|6m|custom&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
 router.get('/progress', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const dbUserId   = await getOrCreateUser(userId)
     const rangeParam = ['7d', '30d', '90d', 'custom'].includes(req.query.range) ? req.query.range : '7d'
     const validDate = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)
@@ -216,7 +216,7 @@ router.get('/progress', requireAuth(), async (req, res, next) => {
 // Optional body field log_date (YYYY-MM-DD, ≤ today) allows past-date logging.
 router.post('/', requireAuth(), async (req, res, next) => {
   try {
-    const { userId } = getAuth(req)
+    const userId = req.effectiveClerkUserId
     const body      = req.body
     const dbUserId  = await getOrCreateUser(userId)
 

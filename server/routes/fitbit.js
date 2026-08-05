@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { requireAuth, getAuth } from '@clerk/express'
+import { requireAuth } from '@clerk/express'
 import crypto from 'crypto'
 import { pool, getOrCreateUser } from '../db.js'
 import { syncUser, exchangeToken, fetchGoogleAccountEmail, OAUTH_SCOPES } from '../services/googleHealthSync.js'
@@ -107,8 +107,7 @@ function addSeconds(seconds) {
 }
 
 async function currentDbUserId(req) {
-  const { userId } = getAuth(req)
-  return getOrCreateUser(userId)
+  return getOrCreateUser(req.effectiveClerkUserId)
 }
 
 async function createGoogleHealthOAuthUrl(req) {
