@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@clerk/clerk-react'
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
 import { Capacitor } from '@capacitor/core'
@@ -254,6 +254,7 @@ function VoiceMessagePlayer({ audioUrl, isMine }) {
 export default function Messages() {
   const { getToken } = useAuth()
   const location = useLocation()
+  const navigate = useNavigate()
   const [deepLinkClientId, setDeepLinkClientId] = useState(null)
   const [isStaff,     setIsStaff]     = useState(null) // null = loading
   const [staffRole,   setStaffRole]   = useState(null) // 'admin' | 'coach' | null
@@ -1039,6 +1040,20 @@ export default function Messages() {
                     </div>
                   </div>
                 )}
+
+                {/* Back — mobile only, returns to whatever screen the client actually came
+                    from (bottom nav, a notification deep-link, a "Message your coach" button
+                    elsewhere, etc.), not a hardcoded destination. Matches StaffInbox.jsx's
+                    "Back to Messages" button position (below the reply box). Desktop always
+                    shows the thread list alongside plus the persistent sidebar nav, so — same
+                    as StaffInbox's own md:hidden/lg:hidden back controls — there's no need for
+                    an in-content back control there. */}
+                <button
+                  onClick={() => navigate(-1)}
+                  className="md:hidden shrink-0 w-full py-3 text-xs font-medium text-gray-400 hover:text-gray-600 border-t border-gray-100 bg-white transition-colors min-h-[44px]"
+                >
+                  ← Back
+                </button>
               </>
             ) : (
               <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
