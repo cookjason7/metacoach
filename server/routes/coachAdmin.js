@@ -3117,6 +3117,52 @@ router.patch('/messaging/states/:clientId/:threadType', requireAuth(), async (re
   } catch (err) { next(err) }
 })
 
+// PATCH /api/coach-admin/messaging/states/:clientId
+// Client-level archive/unarchive: the inbox UI shows one card per client, but
+// staff_inbox_states is keyed per (staff_id, client_id, thread_type) — a client with
+// both a coach_thread and an admin_private row only got one archived when the toggle
+// acted on just the open conversation, leaving the client visible in Active via the
+// other thread. This upserts `archived` across every thread_type this staff member can
+// see for this client (role-gated the same way as GET /clients/:id/thread-types), so
+// "archive this client" and "restore this client" move all of their threads together.
+// Body: { archived: boolean }
+router.patch('/messaging/states/:clientId', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const clientId = parseInt(req.params.clientId, 10)
+    if (!await canAccessClient(ctx, clientId)) return res.status(403).json({ error: 'Forbidden' })
+
+    const { archived } = req.body
+    if (typeof archived !== 'boolean') return res.status(400).json({ error: 'archived (boolean) required' })
+
+    // Coaches only ever see coach_thread; admins see all three. Mirrors GET /clients/:id/thread-types.
+    const allowedTypes = isAdminRole(ctx.role)
+      ? ['admin_private', 'coach_thread', 'ai_admin']
+      : ['coach_thread']
+
+    // Only thread types that actually have messages — archiving one with no messages
+    // yet would create an orphan staff_inbox_states row with nothing behind it.
+    const { rows } = await pool.query(
+      `SELECT DISTINCT thread_type FROM client_messages
+       WHERE client_id = $1 AND thread_type = ANY($2::text[]) AND deleted_at IS NULL`,
+      [clientId, allowedTypes],
+    )
+    const threadTypes = rows.map(r => r.thread_type)
+    if (threadTypes.length === 0) return res.json({ ok: true, thread_types: [] })
+
+    await pool.query(`
+      INSERT INTO staff_inbox_states (staff_id, client_id, thread_type, archived, archived_at)
+      SELECT $1, $2, t, $3, ${archived ? 'NOW()' : 'NULL'}
+      FROM UNNEST($4::text[]) AS t
+      ON CONFLICT (staff_id, client_id, thread_type) DO UPDATE SET
+        archived = EXCLUDED.archived,
+        archived_at = EXCLUDED.archived_at
+    `, [ctx.dbUserId, clientId, archived, threadTypes])
+
+    res.json({ ok: true, thread_types: threadTypes })
+  } catch (err) { next(err) }
+})
+
 // GET /api/coach-admin/clients/:id/thread-types
 // Returns all thread types with message counts for this client, ignoring archive state.
 // Used by the UI to show thread tabs regardless of which inbox view (active/archived) is open.

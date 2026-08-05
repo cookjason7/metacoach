@@ -389,11 +389,27 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
     }
   }
 
+  // Client-level variant: archives/restores every thread_type this staff member can see
+  // for the client in one call, so a client with both a coach_thread and admin_private
+  // row moves between Active/Archived as a whole instead of leaving one thread behind.
+  async function patchClientInboxState(clientId, patch) {
+    const token = await getToken()
+    const res = await fetch(`${API_URL}/api/coach-admin/messaging/states/${clientId}`, {
+      method:  'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body:    JSON.stringify(patch),
+    })
+    if (!res.ok) {
+      const { error } = await res.json().catch(() => ({}))
+      throw new Error(error || `Request failed (${res.status})`)
+    }
+  }
+
   async function archiveConversation() {
     if (!selected) return
     setActionError(null)
     try {
-      await patchInboxState(selected.clientId, selected.threadType, { archived: true })
+      await patchClientInboxState(selected.clientId, { archived: true })
       selectedRef.current = null
       setSelected(null)
       await fetchInbox()
@@ -406,7 +422,7 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
     if (!selected) return
     setActionError(null)
     try {
-      await patchInboxState(selected.clientId, selected.threadType, { archived: false })
+      await patchClientInboxState(selected.clientId, { archived: false })
       selectedRef.current = null
       setSelected(null)
       await fetchInbox()
