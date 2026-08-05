@@ -148,9 +148,22 @@ export default function FoodList() {
       </div>
 
       {/* Pro Tip */}
-      <p className="text-sm italic text-center" style={{ color: '#E8670A' }}>
+      <p className="text-sm italic text-center mb-6" style={{ color: '#E8670A' }}>
         "You are not a bad cook — you are just not using enough seasoning on your food."
       </p>
+
+      {/* Printable Food List */}
+      <div className="text-center">
+        <a
+          href="https://drive.google.com/file/d/1EGWScDT8_8w-Rx9IFtKRwPUy3NTAE1BJ/view?usp=drive_link"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm font-semibold underline"
+          style={{ color: '#E8670A' }}
+        >
+          Printable Food List
+        </a>
+      </div>
     </div>
   )
 }
