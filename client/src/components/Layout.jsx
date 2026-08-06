@@ -100,6 +100,11 @@ export default function Layout() {
   const [coachingType, setCoachingType] = useState(null) // 'vip' | 'hybrid' | 'basic' (legacy: 'ai' ≡ 'hybrid') — null until loaded
   const [bloodworkEnabled, setBloodworkEnabled] = useState(false) // per-client flag from /api/users/me
   const [notifCount,   setNotifCount]   = useState(0)
+  const [notifOpen,    setNotifOpen]    = useState(false)
+  const [notifItems,   setNotifItems]   = useState([])
+  const [notifLoading, setNotifLoading] = useState(false)
+  const [notifAnchor,  setNotifAnchor]  = useState(null) // {top, left} — see toggleNotifDropdown
+  const notifDropdownRef = useRef(null)
   const [katieUnread,  setKatieUnread]  = useState(0)
   const [msgUnread,    setMsgUnread]    = useState(0)
   const [staffUnread,  setStaffUnread]  = useState(0)
@@ -379,6 +384,72 @@ export default function Layout() {
       setNotifCount(data.count ?? 0)
     } catch {}
   }, [getToken])
+
+  // Desktop-only sidebar bell dropdown (native push has its own working deep-link
+  // path via pushService.js's notifyNewCommunityPost — this just closes the gap
+  // for the in-app click, which previously only had a count, not individual rows
+  // to build a /community?post_id= link from).
+  const fetchNotifList = useCallback(async () => {
+    setNotifLoading(true)
+    try {
+      const token = await getToken()
+      const res   = await fetch(`${API_URL}/api/community/notifications`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      setNotifItems(data.notifications ?? [])
+    } catch {} finally {
+      setNotifLoading(false)
+    }
+  }, [getToken])
+
+  const toggleNotifDropdown = useCallback(() => {
+    if (!notifOpen) {
+      // Fixed positioning anchored to the item's live screen rect — the sidebar
+      // <nav> has overflow-y-auto, which per spec forces overflow-x to clip too,
+      // so an absolutely-positioned panel escaping the sidebar's width would be
+      // cut off at its right edge. Fixed positioning sidesteps that entirely.
+      const rect = notifDropdownRef.current?.getBoundingClientRect()
+      if (rect) setNotifAnchor({ top: rect.top, left: rect.right })
+      fetchNotifList()
+    }
+    setNotifOpen(prev => !prev)
+  }, [notifOpen, fetchNotifList])
+
+  const handleNotifClick = useCallback(async (n) => {
+    setNotifOpen(false)
+    setSidebarOpen(false)
+    navigate(`/community?post_id=${n.post_id}`)
+    setNotifCount(0)
+    try {
+      const token = await getToken()
+      await fetch(`${API_URL}/api/community/notifications/read`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    } catch {}
+  }, [getToken, navigate])
+
+  // Click-outside to close, same convention as any other popover in this file.
+  // Also closes on scroll — the anchor rect is captured once on open, so letting
+  // the sidebar (or page) scroll would otherwise leave the fixed-position panel
+  // visually detached from the item it points at.
+  useEffect(() => {
+    if (!notifOpen) return
+    function handleDocClick(e) {
+      if (notifDropdownRef.current && !notifDropdownRef.current.contains(e.target)) {
+        setNotifOpen(false)
+      }
+    }
+    function handleScroll() { setNotifOpen(false) }
+    document.addEventListener('mousedown', handleDocClick)
+    document.addEventListener('scroll', handleScroll, true)
+    return () => {
+      document.removeEventListener('mousedown', handleDocClick)
+      document.removeEventListener('scroll', handleScroll, true)
+    }
+  }, [notifOpen])
 
   const fetchMsgUnread = useCallback(async () => {
     if (isVa) return // va has no messaging access — server would 403 anyway
@@ -915,19 +986,28 @@ export default function Layout() {
 
       {/* Nav */}
       <nav className="flex-1 min-h-0 overflow-y-auto px-3 space-y-0.5">
-        {items.map(({ to, href, label, matchPath, matchSearch }) =>
-          href ? (
-            <a
-              key={href}
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => setSidebarOpen(false)}
-              className="flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-white/70 hover:bg-white/10 hover:text-white"
-            >
-              {label}
-            </a>
-          ) : (
+        {items.map(({ to, href, label, matchPath, matchSearch }) => {
+          if (href) {
+            return (
+              <a
+                key={href}
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setSidebarOpen(false)}
+                className="flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-white/70 hover:bg-white/10 hover:text-white"
+              >
+                {label}
+              </a>
+            )
+          }
+
+          // Bell dropdown only replaces the plain badge dot on the real desktop
+          // sidebar — mobile drawer and native push both already have a working
+          // (or out-of-scope) path and are left exactly as before.
+          const isCommunityDesktop = label === 'Community' && !isMobile
+
+          const navLink = (
             <NavLink
               key={to}
               to={to}
@@ -952,7 +1032,22 @@ export default function Layout() {
             >
               {label}
               {label === 'Community' && notifCount > 0 && (
-                <span className="ml-auto w-2 h-2 bg-red-500 rounded-full" />
+                isCommunityDesktop ? (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${notifCount} unread community notification${notifCount === 1 ? '' : 's'}`}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleNotifDropdown() }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggleNotifDropdown() }
+                    }}
+                    className="ml-auto flex items-center justify-center w-4 h-4 rounded-full bg-red-500 hover:bg-red-600 transition-colors cursor-pointer"
+                  >
+                    <span className="w-2 h-2 bg-white rounded-full" />
+                  </span>
+                ) : (
+                  <span className="ml-auto w-2 h-2 bg-red-500 rounded-full" />
+                )
               )}
               {to === '/ai-coach' && katieUnread > 0 && (
                 <span className="ml-auto flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-white text-[10px] font-bold px-1" style={{ background: 'var(--color-accent)' }}>
@@ -971,7 +1066,52 @@ export default function Layout() {
               )}
             </NavLink>
           )
-        )}
+
+          if (!isCommunityDesktop) return navLink
+
+          return (
+            <div key={to} ref={notifDropdownRef}>
+              {navLink}
+              {notifOpen && notifAnchor && (
+                <div
+                  className="fixed w-80 max-h-[28rem] overflow-y-auto rounded-lg shadow-xl bg-white border border-gray-200 z-50 text-sm"
+                  style={{ top: notifAnchor.top, left: notifAnchor.left + 8 }}
+                >
+                  <div className="px-4 py-2.5 border-b border-gray-100 font-semibold text-gray-700">
+                    Community notifications
+                  </div>
+                  {notifLoading ? (
+                    <div className="px-4 py-6 text-center text-gray-400">Loading…</div>
+                  ) : notifItems.length === 0 ? (
+                    <div className="px-4 py-6 text-center text-gray-400">No unread notifications</div>
+                  ) : (
+                    notifItems.map((n) => (
+                      <button
+                        key={n.id}
+                        type="button"
+                        onClick={() => handleNotifClick(n)}
+                        className="w-full text-left px-4 py-3 border-b border-gray-100 last:border-b-0 hover:bg-gray-50 transition-colors"
+                      >
+                        <p className="text-gray-800 line-clamp-2">{n.label}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {new Date(n.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                        </p>
+                      </button>
+                    ))
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => { setNotifOpen(false); navigate('/community') }}
+                    className="w-full text-center px-4 py-2.5 text-xs font-medium hover:bg-gray-50 transition-colors"
+                    style={{ color: 'var(--color-accent)' }}
+                  >
+                    View all in Community
+                  </button>
+                </div>
+              )}
+            </div>
+          )
+        })}
       </nav>
 
       {/* User */}

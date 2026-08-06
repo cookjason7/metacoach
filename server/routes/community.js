@@ -472,6 +472,52 @@ router.post('/notifications/read', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// Individual unread community notifications for the sidebar bell dropdown — the
+// count endpoint above only gives a number, this gives enough per-row context
+// (post_id + a rendered label) to deep-link to /community?post_id=X. Scoped to
+// the post-bearing notification types; other types (e.g. coachAdmin's
+// title/message-based rows) share this table but have no post to link to.
+router.get('/notifications', requireAuth(), async (req, res, next) => {
+  try {
+    const userId = req.effectiveClerkUserId
+    const dbUserId = await getOrCreateUser(userId)
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+    const bypassOrg = isSuperAdmin(ctx)
+    const orgFilter = bypassOrg ? '' : ` AND n.org_id = $2`
+    const { rows } = await pool.query(
+      `SELECT n.id, n.type, n.post_id, n.created_at,
+              u.first_name AS from_first_name,
+              cp.content AS post_content
+       FROM notifications n
+       LEFT JOIN users u ON u.id = n.from_user_id
+       LEFT JOIN community_posts cp ON cp.id = n.post_id
+       WHERE n.user_id = $1 AND n.read = FALSE
+         AND n.post_id IS NOT NULL AND n.type IN ('mention', 'new_post', 'comment')${orgFilter}
+       ORDER BY n.created_at DESC
+       LIMIT 20`,
+      bypassOrg ? [dbUserId] : [dbUserId, ctx.orgId],
+    )
+    const notifications = rows.map(r => {
+      const from = r.from_first_name ?? 'Someone'
+      const verb = r.type === 'mention'
+        ? 'mentioned you in a post'
+        : r.type === 'comment'
+          ? 'commented on your post'
+          : 'posted in Community'
+      const raw = (r.post_content ?? '').trim()
+      const snippet = raw.length > 80 ? `${raw.slice(0, 80)}…` : raw
+      return {
+        id:         r.id,
+        type:       r.type,
+        post_id:    r.post_id,
+        created_at: r.created_at,
+        label:      `${from} ${verb}${snippet ? `: "${snippet}"` : ''}`,
+      }
+    })
+    res.json({ notifications })
+  } catch (err) { next(err) }
+})
+
 // ── Posts ─────────────────────────────────────────────────────────────────────
 
 router.get('/posts', requireAuth(), async (req, res, next) => {
