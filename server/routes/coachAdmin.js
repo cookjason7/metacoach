@@ -17,6 +17,7 @@ import {
   updateHabitCalendarEvent,
   deleteHabitCalendarEvent,
 } from '../services/googleCalendarSync.js'
+import { habitOccursOn, VALID_HABIT_FREQ } from '../utils/habitSchedule.js'
 
 const router = Router()
 const anthropic = new Anthropic()
@@ -2298,6 +2299,9 @@ router.post('/clients/:id/habits', requireAuth(), async (req, res, next) => {
     if (!habit_name?.trim() || !start_date) {
       return res.status(400).json({ error: 'habit_name and start_date required' })
     }
+    if (!VALID_HABIT_FREQ.includes(frequency)) {
+      return res.status(400).json({ error: `Invalid frequency: ${frequency}` })
+    }
     const VALID_IC = ['food_tracking', 'hydration', 'movement', 'mindset', 'check_ins', 'progress']
     if (identity_category && !VALID_IC.includes(identity_category)) {
       return res.status(400).json({ error: 'Invalid identity_category' })
@@ -2350,6 +2354,10 @@ router.patch('/habits/:habitId', requireAuth(), async (req, res, next) => {
       habit_name, habit_type, target_value, unit,
       frequency, start_date, end_date, days_of_week, notes, active, identity_category,
     } = req.body
+    // PATCH is partial — an omitted frequency keeps the stored one (COALESCE below).
+    if (frequency != null && !VALID_HABIT_FREQ.includes(frequency)) {
+      return res.status(400).json({ error: `Invalid frequency: ${frequency}` })
+    }
     const VALID_IC = ['food_tracking', 'hydration', 'movement', 'mindset', 'check_ins', 'progress']
     if (identity_category && !VALID_IC.includes(identity_category)) {
       return res.status(400).json({ error: 'Invalid identity_category' })
@@ -2479,15 +2487,12 @@ router.get('/clients/:id/habits/calendar', requireAuth(), async (req, res, next)
       const hEndISO   = toISODate(habit.end_date)
       const habitStart = new Date(`${hStartISO}T00:00:00`)
       const habitEnd   = hEndISO ? new Date(`${hEndISO}T00:00:00`) : end
-      const allowed = habit.days_of_week
-        ? habit.days_of_week.split(',').map(s => parseInt(s, 10))
-        : null
-
       const iterStart = new Date(Math.max(start.getTime(), habitStart.getTime()))
       const iterEnd   = new Date(Math.min(end.getTime(), habitEnd.getTime()))
       for (let d = new Date(iterStart); d <= iterEnd; d.setDate(d.getDate() + 1)) {
-        if (habit.frequency === 'specific_days' && allowed && !allowed.includes(d.getDay())) continue
-        if (habit.frequency === 'weekly' && d.getDay() !== habitStart.getDay()) continue
+        // Which days inside the window the habit lands on is decided by the
+        // shared rule module — see server/utils/habitSchedule.js.
+        if (!habitOccursOn(habit, d)) continue
 
         const key = toISODate(d)
         if (!calendar[key]) calendar[key] = []
@@ -4799,6 +4804,9 @@ function scheduleISODate(v) {
   return String(v).slice(0, 10)
 }
 
+// Workout scheduling is a separate system from habits — habit frequencies live
+// in VALID_HABIT_FREQ (server/utils/habitSchedule.js) and include 'biweekly'
+// and 'monthly', which the workout expander below does NOT understand.
 const VALID_WORKOUT_FREQ = ['daily', 'weekly', 'specific_days']
 
 // Expand coach_assigned_workouts rows into per-day calendar instances over the

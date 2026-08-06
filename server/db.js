@@ -1055,7 +1055,11 @@ export async function migrate() {
       habit_type          TEXT NOT NULL DEFAULT 'boolean',    -- 'boolean' | 'numeric' | 'completion'
       target_value        NUMERIC(10,2),
       unit                TEXT,
-      frequency           TEXT NOT NULL DEFAULT 'daily',      -- 'daily' | 'weekly' | 'specific_days'
+      -- 'daily' | 'weekly' | 'specific_days' | 'biweekly' | 'monthly'
+      -- Deliberately plain TEXT with no CHECK: the allowlist is enforced in the
+      -- API layer (VALID_HABIT_FREQ) and the expansion rules live in
+      -- server/utils/habitSchedule.js — see habitOccursOn().
+      frequency           TEXT NOT NULL DEFAULT 'daily',
       start_date          DATE NOT NULL,
       end_date            DATE,
       days_of_week        TEXT,                                -- comma-separated 0-6 (Sun=0)

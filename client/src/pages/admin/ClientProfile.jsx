@@ -1967,6 +1967,29 @@ const HABIT_LIBRARY = [
 
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 
+// Human-readable frequency labels for the assigned-habit list. Falls back to the
+// raw stored value so an unexpected frequency is visible rather than blank.
+const FREQUENCY_LABELS = {
+  daily:         'Daily',
+  weekly:        'Weekly',
+  specific_days: 'Specific days',
+  biweekly:      'Every other week',
+  monthly:       'Monthly',
+}
+function frequencyLabel(f) {
+  return FREQUENCY_LABELS[f] ?? f
+}
+
+// Whole days between two local-midnight dates, DST-safe (compares UTC noon).
+function daysBetween(a, b) {
+  const ua = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())
+  const ub = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate())
+  return Math.round((ub - ua) / 86400000)
+}
+
+// Coach-side month-grid preview. MIRRORS server/utils/habitSchedule.js
+// habitOccursOn() — this runs in the browser and can't import from the server
+// bundle, so any rule change there must be repeated here.
 function habitActiveOnDay(h, date) {
   if (!h.active) return false
   const hStart = new Date(`${String(h.start_date).slice(0,10)}T00:00:00`)
@@ -1974,12 +1997,27 @@ function habitActiveOnDay(h, date) {
   if (date < hStart) return false
   if (hEnd && date > hEnd) return false
   const dDow = date.getDay()
-  if (h.frequency === 'specific_days') {
-    const allowed = (h.days_of_week ?? '').split(',').map(s => parseInt(s, 10))
-    return allowed.includes(dDow)
+  switch (h.frequency) {
+    case 'daily':
+      return true
+    case 'specific_days': {
+      const allowed = (h.days_of_week ?? '').split(',').map(s => parseInt(s, 10))
+      return allowed.includes(dDow)
+    }
+    case 'weekly':
+      return dDow === hStart.getDay()
+    case 'biweekly':
+      return dDow === hStart.getDay() && Math.floor(daysBetween(hStart, date) / 7) % 2 === 0
+    case 'monthly': {
+      // Clamp so a habit anchored to the 29th-31st still lands once in every
+      // month, on that month's final day.
+      const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
+      return date.getDate() === Math.min(hStart.getDate(), lastDay)
+    }
+    default:
+      console.warn('[ClientProfile] habit', h.id, 'has unrecognized frequency', h.frequency, '— treating as daily')
+      return true
   }
-  if (h.frequency === 'weekly') return dDow === hStart.getDay()
-  return true
 }
 
 // Build a full-month grid for the coach calendar preview (habits + scheduled workouts).
@@ -2416,10 +2454,12 @@ function CalendarTab({ clientId, getToken }) {
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Frequency</label>
             <select value={form.frequency} onChange={e => setForm(f => ({ ...f, frequency: e.target.value }))}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+              className="w-full min-h-[44px] border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
               <option value="daily">Daily</option>
               <option value="specific_days">Specific days of week</option>
               <option value="weekly">Weekly</option>
+              <option value="biweekly">Every other week</option>
+              <option value="monthly">Monthly</option>
             </select>
           </div>
           {form.frequency === 'specific_days' && (
@@ -2525,10 +2565,12 @@ function CalendarTab({ clientId, getToken }) {
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Frequency</label>
                     <select value={editForm.frequency} onChange={e => setEditForm(f => ({ ...f, frequency: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white">
+                      className="w-full min-h-[44px] border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white">
                       <option value="daily">Daily</option>
                       <option value="specific_days">Specific days</option>
                       <option value="weekly">Weekly</option>
+                      <option value="biweekly">Every other week</option>
+                      <option value="monthly">Monthly</option>
                     </select>
                   </div>
                   {editForm.frequency === 'specific_days' && (
@@ -2577,7 +2619,7 @@ function CalendarTab({ clientId, getToken }) {
                   <div className="min-w-0">
                     <p className="font-semibold text-gray-900 text-sm">{h.habit_name}</p>
                     <p className="text-xs text-gray-500 mt-0.5">
-                      {h.target_value ? `${h.target_value} ${h.unit ?? ''} · ` : ''}{h.frequency}
+                      {h.target_value ? `${h.target_value} ${h.unit ?? ''} · ` : ''}{frequencyLabel(h.frequency)}
                       {h.days_of_week && ` (${h.days_of_week.split(',').map(d => DAYS[d]).join(', ')})`}
                     </p>
                     <p className="text-xs text-gray-400 mt-0.5">
