@@ -1353,11 +1353,14 @@ router.get('/groups/:id/members', requireAuth(), async (req, res, next) => {
     const allowed = await isGroupMember(groupId, dbUserId, req.orgId) || await isOrgOwnerOrAdmin(req)
     if (!allowed) return res.status(403).json({ error: 'Not a member of this group' })
 
+    // client_status only gates clients — staff rows carry their own lifecycle
+    // column, so filtering them on it would hide every coach from the roster.
     const { rows } = await pool.query(
       `SELECT gm.user_id, u.first_name, u.last_name, u.email, u.role, gm.created_at AS added_at
        FROM group_members gm
        JOIN users u ON u.id = gm.user_id
        WHERE gm.group_id = $1 AND gm.org_id = $2
+         AND (u.role != 'client' OR COALESCE(u.client_status, 'active') = 'active')
        ORDER BY u.first_name ASC NULLS LAST`,
       [groupId, req.orgId],
     )
