@@ -2629,6 +2629,12 @@ export async function runMigrations() {
   } catch (err) {
     console.error('[migrations] scheduled_messages setup failed:', err.message)
   }
+
+  // Single cursor replacing per-post community unread tracking. NULL means
+  // "never explicitly visited Community since this shipped" — the count query
+  // falls back to the user's own created_at so existing users don't see their
+  // entire posting history as unread on first load.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS community_last_read_at TIMESTAMPTZ`)
 }
 
 // Resolves the organization an internal user id belongs to. Falls back to 1
