@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { requireAuth } from '@clerk/express'
 import { pool, getOrCreateUser } from '../db.js'
+import { habitOccursOn } from '../utils/habitSchedule.js'
 
 const router = Router()
 
@@ -30,10 +31,11 @@ function toISODate(v) {
 }
 
 // Helper: expand habit assignments into per-day instances for [start, end].
-// Respects frequency:
-//   'daily'          — every day in the habit's date range
-//   'specific_days'  — only days listed in days_of_week (CSV of 0-6, Sun=0)
-//   'weekly'         — same weekday as habit.start_date
+// This function owns the date WINDOW (habit start/end clipped to the requested
+// range); which days inside that window the habit actually falls on is decided
+// by habitOccursOn() in server/utils/habitSchedule.js — the single source of
+// truth for every frequency ('daily' | 'weekly' | 'specific_days' | 'biweekly'
+// | 'monthly').
 function expandCalendar(habits, completions, startDate, endDate) {
   const compMap = {}
   for (const c of completions) {
@@ -51,15 +53,10 @@ function expandCalendar(habits, completions, startDate, endDate) {
     const hStart = new Date(`${hStartISO}T00:00:00`)
     const hEnd   = hEndISO ? new Date(`${hEndISO}T00:00:00`) : winEnd
 
-    const allowed = habit.days_of_week
-      ? habit.days_of_week.split(',').map(s => parseInt(s, 10)).filter(n => !Number.isNaN(n))
-      : null
-
     const iterStart = new Date(Math.max(winStart.getTime(), hStart.getTime()))
     const iterEnd   = new Date(Math.min(winEnd.getTime(), hEnd.getTime()))
     for (let d = new Date(iterStart); d <= iterEnd; d.setDate(d.getDate() + 1)) {
-      if (habit.frequency === 'specific_days' && allowed && !allowed.includes(d.getDay())) continue
-      if (habit.frequency === 'weekly' && d.getDay() !== hStart.getDay()) continue
+      if (!habitOccursOn(habit, d)) continue
       const key = toISODate(d)
       if (!calendar[key]) calendar[key] = []
       // Normalize habit dates in the response so the client can rely on them

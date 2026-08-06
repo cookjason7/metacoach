@@ -317,10 +317,17 @@ function toRruleUtcStamp(ms) {
 /**
  * Build the RRULE for a habit, or null for a one-off event.
  *
- * frequency:
+ * frequency (must stay in step with server/utils/habitSchedule.js — Google
+ * expands these rules on the client's phone, so any disagreement shows up as
+ * the app and their calendar scheduling the same habit on different days):
  *   'daily'         → every day
  *   'weekly'        → weekly on start_date's weekday (implied by DTSTART)
  *   'specific_days' → weekly on days_of_week
+ *   'biweekly'      → every other week on start_date's weekday
+ *   'monthly'       → monthly on start_date's day-of-month. Google SKIPS months
+ *                     that lack the day (BYMONTHDAY=31 → no February occurrence)
+ *                     where habitOccursOn() clamps to the last day instead; the
+ *                     app stays authoritative for completion, this is a mirror.
  *
  * end_date, if present, becomes UNTIL (inclusive). RFC 5545 §3.3.10 requires
  * UNTIL to match DTSTART's value type: now that DTSTART is a date-time with a
@@ -337,8 +344,18 @@ function buildRecurrence(habit) {
     ? `;UNTIL=${toRruleUtcStamp(zonedWallTimeToUtcMs(endDate, '23:59:59', EVENT_TIME_ZONE))}`
     : ''
 
-  if (frequency === 'daily')  return [`RRULE:FREQ=DAILY${until}`]
-  if (frequency === 'weekly') return [`RRULE:FREQ=WEEKLY${until}`]
+  if (frequency === 'daily')    return [`RRULE:FREQ=DAILY${until}`]
+  if (frequency === 'weekly')   return [`RRULE:FREQ=WEEKLY${until}`]
+  if (frequency === 'biweekly') return [`RRULE:FREQ=WEEKLY;INTERVAL=2${until}`]
+
+  if (frequency === 'monthly') {
+    // DTSTART already carries the anchor date; BYMONTHDAY makes the intent
+    // explicit rather than leaving it implied.
+    const startISO = toISODate(habit.start_date)
+    const dayOfMonth = startISO ? Number(startISO.slice(8, 10)) : NaN
+    if (!dayOfMonth) return [`RRULE:FREQ=MONTHLY${until}`]
+    return [`RRULE:FREQ=MONTHLY;BYMONTHDAY=${dayOfMonth}${until}`]
+  }
 
   if (frequency === 'specific_days') {
     // Guard the empty string explicitly: ''.split(',') is [''], and Number('')
@@ -353,7 +370,11 @@ function buildRecurrence(habit) {
     return [`RRULE:FREQ=WEEKLY;BYDAY=${days.join(',')}${until}`]
   }
 
-  return null
+  // Unrecognized frequency: mirror habitOccursOn()'s fallback (daily) rather
+  // than silently degrading the event to a one-off, which would leave the
+  // client's calendar disagreeing with the app.
+  console.warn('[googleCalendarSync] habit', habit.id, 'has unrecognized frequency', frequency, '— treating as daily')
+  return [`RRULE:FREQ=DAILY${until}`]
 }
 
 /**
