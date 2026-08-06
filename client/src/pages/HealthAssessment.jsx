@@ -1208,13 +1208,29 @@ export default function HealthAssessment() {
               </div>
 
               <div className="text-left">
-                {/* Video placeholder — swap this div's contents for an <iframe>/<video> embed when the real walkthrough is ready */}
-                <div className="bg-gray-50 border border-gray-200 rounded-xl aspect-video flex items-center justify-center">
-                  <div className="w-14 h-14 rounded-full bg-white shadow flex items-center justify-center">
-                    <Play className="w-6 h-6 text-[#E8670A] fill-[#E8670A] ml-0.5" />
+                {coachingType === 'hybrid' || coachingType === 'ai' ? (
+                  <div className="relative w-full max-w-xl mx-auto aspect-video rounded-xl overflow-hidden">
+                    <iframe
+                      className="absolute inset-0 w-full h-full"
+                      src="https://www.youtube.com/embed/NRdQ1R5MqW4?si=6csLhSZrLZ8cmiC4"
+                      title="YouTube video player"
+                      frameBorder="0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      referrerPolicy="strict-origin-when-cross-origin"
+                      allowFullScreen
+                    />
                   </div>
-                </div>
-                <p className="text-xs text-gray-400 text-center mt-2">{coachTitle} walkthrough video — coming soon</p>
+                ) : (
+                  <>
+                    {/* Video placeholder — swap this div's contents for an <iframe>/<video> embed when the real walkthrough is ready */}
+                    <div className="bg-gray-50 border border-gray-200 rounded-xl aspect-video flex items-center justify-center">
+                      <div className="w-14 h-14 rounded-full bg-white shadow flex items-center justify-center">
+                        <Play className="w-6 h-6 text-[#E8670A] fill-[#E8670A] ml-0.5" />
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-400 text-center mt-2">{coachTitle} walkthrough video — coming soon</p>
+                  </>
+                )}
               </div>
 
               <button
