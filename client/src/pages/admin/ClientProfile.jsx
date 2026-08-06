@@ -1967,6 +1967,10 @@ const HABIT_LIBRARY = [
 
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 
+// Duration dropdown options for habit assignment — 1 to 52 weeks. An empty
+// string ('') means "No end date" and maps to a null end_date.
+const WEEKS_OPTIONS = Array.from({ length: 52 }, (_, i) => i + 1)
+
 // Human-readable frequency labels for the assigned-habit list. Falls back to the
 // raw stored value so an unexpected frequency is visible rather than blank.
 const FREQUENCY_LABELS = {
@@ -2100,7 +2104,7 @@ function CalendarTab({ clientId, getToken }) {
   const [form, setForm] = useState({
     habit_name: '', habit_type: 'boolean', target_value: '', unit: '',
     frequency: 'daily', start_date: localDateStr(),
-    end_date: '', days_of_week: '', notes: '', identity_category: '',
+    weeks: '', days_of_week: '', notes: '', identity_category: '',
   })
   const [compCalendar, setCompCalendar] = useState(null)
   const [compLoading, setCompLoading] = useState(false)
@@ -2176,7 +2180,7 @@ function CalendarTab({ clientId, getToken }) {
       unit:              p.unit ?? '',
       frequency:         'daily',
       start_date:        localDateStr(),
-      end_date:          '',
+      weeks:             '',
       days_of_week:      '',
       notes:             '',
       identity_category: p.identity_category ?? '',
@@ -2205,7 +2209,7 @@ function CalendarTab({ clientId, getToken }) {
         body: JSON.stringify({
           ...form,
           target_value:      form.target_value !== '' ? Number(form.target_value) : null,
-          end_date:          form.end_date || null,
+          weeks:             form.weeks !== '' ? Number(form.weeks) : null,
           days_of_week:      form.frequency === 'specific_days' ? (form.days_of_week || null) : null,
           identity_category: form.identity_category || null,
         }),
@@ -2217,7 +2221,7 @@ function CalendarTab({ clientId, getToken }) {
       setForm({
         habit_name: '', habit_type: 'boolean', target_value: '', unit: '',
         frequency: 'daily', start_date: localDateStr(),
-        end_date: '', days_of_week: '', notes: '', identity_category: '',
+        weeks: '', days_of_week: '', notes: '', identity_category: '',
       })
       setShowForm(false)
       await load()
@@ -2239,6 +2243,18 @@ function CalendarTab({ clientId, getToken }) {
 
   function startEdit(h) {
     setEditingId(h.id)
+    // Back-calculate weeks from the stored start/end dates so the dropdown
+    // shows the currently-stored duration. Rounds to the nearest week for
+    // legacy rows whose end_date wasn't set via an exact N*7-day offset
+    // (e.g. hand-edited or pre-dropdown data) — clamped to at least 1 week
+    // so a same-day or sub-week gap doesn't round down to "No end date".
+    let weeks = ''
+    if (h.end_date) {
+      const start = new Date(`${String(h.start_date).slice(0, 10)}T00:00:00`)
+      const end   = new Date(`${String(h.end_date).slice(0, 10)}T00:00:00`)
+      const days  = Math.round((end - start) / 86400000)
+      weeks = String(Math.min(52, Math.max(1, Math.round(days / 7))))
+    }
     setEditForm({
       habit_name:   h.habit_name,
       habit_type:   (h.habit_type === 'completion' ? 'boolean' : h.habit_type) ?? 'boolean',
@@ -2246,7 +2262,7 @@ function CalendarTab({ clientId, getToken }) {
       unit:         h.unit ?? '',
       frequency:    h.frequency ?? 'daily',
       start_date:   String(h.start_date).slice(0, 10),
-      end_date:     h.end_date ? String(h.end_date).slice(0, 10) : '',
+      weeks,
       notes:        h.notes ?? '',
       days_of_week: h.days_of_week ?? '',
     })
@@ -2264,7 +2280,7 @@ function CalendarTab({ clientId, getToken }) {
         unit:         editForm.unit || undefined,
         frequency:    editForm.frequency || undefined,
         start_date:   editForm.start_date || undefined,
-        end_date:     editForm.end_date || null,
+        weeks:        editForm.weeks !== '' ? Number(editForm.weeks) : null,
         notes:        editForm.notes.trim() || null,
         days_of_week: editForm.frequency === 'specific_days' ? (editForm.days_of_week || null) : null,
       }),
@@ -2485,9 +2501,14 @@ function CalendarTab({ clientId, getToken }) {
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">End date (optional)</label>
-              <input type="date" value={form.end_date} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <label className="block text-xs font-medium text-gray-600 mb-1">Duration</label>
+              <select value={form.weeks} onChange={e => setForm(f => ({ ...f, weeks: e.target.value }))}
+                className="w-full min-h-[44px] border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+                <option value="">No end date</option>
+                {WEEKS_OPTIONS.map(w => (
+                  <option key={w} value={w}>{w} {w === 1 ? 'week' : 'weeks'}</option>
+                ))}
+              </select>
             </div>
           </div>
           <div>
@@ -2596,9 +2617,14 @@ function CalendarTab({ clientId, getToken }) {
                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">End date (clear = ongoing)</label>
-                      <input type="date" value={editForm.end_date} onChange={e => setEditForm(f => ({ ...f, end_date: e.target.value }))}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Duration (No end date = ongoing)</label>
+                      <select value={editForm.weeks} onChange={e => setEditForm(f => ({ ...f, weeks: e.target.value }))}
+                        className="w-full min-h-[44px] border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+                        <option value="">No end date</option>
+                        {WEEKS_OPTIONS.map(w => (
+                          <option key={w} value={w}>{w} {w === 1 ? 'week' : 'weeks'}</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                   <div>
