@@ -636,6 +636,9 @@ router.get('/posts', requireAuth(), async (req, res, next) => {
          EXISTS(
            SELECT 1 FROM post_likes WHERE post_id = cp.id AND user_id = $1
          ) AS liked_by_me,
+         EXISTS(
+           SELECT 1 FROM saved_posts WHERE post_id = cp.id AND user_id = $1
+         ) AS saved_by_me,
          (
            SELECT COUNT(*) >= 5
            FROM post_reactions pr2
@@ -662,6 +665,64 @@ router.get('/posts', requireAuth(), async (req, res, next) => {
       hasMore,
       nextBeforeId: hasMore ? rows[rows.length - 1].id : null,
     })
+  } catch (err) { next(err) }
+})
+
+// GET /api/community/posts/saved — the caller's saved (bookmarked) posts, most
+// recently saved first. Same row shape/joins as the main feed (GET /posts) so
+// PostCard renders them identically. Org-scoped like the main feed, except for
+// the super admin: checkPostSaveAccess below lets them save posts in any org,
+// so their saved list is left unfiltered to match.
+router.get('/posts/saved', requireAuth(), async (req, res, next) => {
+  try {
+    const dbUserId = await getOrCreateUser(req.effectiveClerkUserId)
+    const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+
+    const qParams = [dbUserId]
+    let orgFilter = ''
+    if (!isSuperAdmin(ctx)) {
+      qParams.push(ctx.orgId)
+      orgFilter = ' AND cp.org_id = $2'
+    }
+
+    const { rows } = await pool.query(
+      `SELECT
+         cp.id,
+         cp.user_id,
+         cp.content,
+         cp.photo_url,
+         cp.created_at,
+         cp.category,
+         cp.channel,
+         cp.pinned,
+         cp.group_id,
+         u.first_name,
+         COUNT(DISTINCT pl.id)::int AS like_count,
+         COUNT(DISTINCT pc.id)::int AS comment_count,
+         EXISTS(
+           SELECT 1 FROM post_likes WHERE post_id = cp.id AND user_id = $1
+         ) AS liked_by_me,
+         TRUE AS saved_by_me,
+         (
+           SELECT COUNT(*) >= 5
+           FROM post_reactions pr2
+           WHERE pr2.post_id = cp.id
+             AND pr2.created_at > NOW() - INTERVAL '24 hours'
+         ) AS hot,
+         EXISTS(SELECT 1 FROM community_polls WHERE post_id = cp.id) AS has_poll,
+         sp.created_at AS saved_at
+       FROM saved_posts sp
+       JOIN community_posts cp ON cp.id = sp.post_id
+       JOIN users u ON u.id = cp.user_id
+       LEFT JOIN post_likes    pl ON pl.post_id = cp.id
+       LEFT JOIN post_comments pc ON pc.post_id = cp.id
+       WHERE sp.user_id = $1${orgFilter}
+       GROUP BY cp.id, u.first_name, sp.created_at
+       ORDER BY sp.created_at DESC`,
+      qParams,
+    )
+
+    res.json({ posts: rows })
   } catch (err) { next(err) }
 })
 
@@ -806,6 +867,7 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
       like_count:    0,
       comment_count: 0,
       liked_by_me:   false,
+      saved_by_me:   false,
       hot:           false,
       has_poll:      !!(pollQuestion?.trim() && JSON.parse(req.body?.poll_options ?? '[]').filter(o => o?.trim()).length >= 2),
     })
@@ -921,6 +983,50 @@ router.get('/posts/:id/likers', requireAuth(), async (req, res, next) => {
       [postId],
     )
     res.json(rows)
+  } catch (err) { next(err) }
+})
+
+// Save/unsave (bookmark) gate. Like checkPostOrgAccess, but the platform super
+// admin may save posts outside their own org — mirrors the staff-moderation
+// bypass on DELETE /posts/:id rather than the read-only sub-resource gate,
+// since bookmarking is a personal action, not org-scoped content access.
+async function checkPostSaveAccess(req, res, postId) {
+  const ctx = { orgId: req.orgId, email: req.internalUser?.email }
+  const { rows } = await pool.query('SELECT org_id FROM community_posts WHERE id = $1', [postId])
+  if (!rows.length) { res.status(404).json({ error: 'Not found' }); return false }
+  if (rows[0].org_id !== ctx.orgId && !isSuperAdmin(ctx)) {
+    res.status(404).json({ error: 'Not found' })
+    return false
+  }
+  return true
+}
+
+// POST /api/community/posts/:id/save — bookmark a post. Idempotent (ON
+// CONFLICT DO NOTHING) so a double-tap from an optimistic UI never errors.
+router.post('/posts/:id/save', requireAuth(), async (req, res, next) => {
+  try {
+    const dbUserId = await getOrCreateUser(req.effectiveClerkUserId)
+    const postId   = parseInt(req.params.id, 10)
+    if (await checkPostSaveAccess(req, res, postId) === false) return
+    if (await checkPostGroupAccess(req, res, postId, dbUserId) === false) return
+
+    await pool.query(
+      'INSERT INTO saved_posts (user_id, post_id) VALUES ($1, $2) ON CONFLICT (user_id, post_id) DO NOTHING',
+      [dbUserId, postId],
+    )
+    res.json({ saved: true })
+  } catch (err) { next(err) }
+})
+
+// DELETE /api/community/posts/:id/save — remove a bookmark. No org check
+// needed: the delete is scoped to the caller's own saved_posts row by user_id,
+// so it can't affect (or leak the existence of) another user's bookmark.
+router.delete('/posts/:id/save', requireAuth(), async (req, res, next) => {
+  try {
+    const dbUserId = await getOrCreateUser(req.effectiveClerkUserId)
+    const postId   = parseInt(req.params.id, 10)
+    await pool.query('DELETE FROM saved_posts WHERE user_id = $1 AND post_id = $2', [dbUserId, postId])
+    res.json({ saved: false })
   } catch (err) { next(err) }
 })
 

@@ -180,6 +180,16 @@ export async function migrate() {
     )
   `)
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS saved_posts (
+      id         SERIAL PRIMARY KEY,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      post_id    INTEGER NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(user_id, post_id)
+    )
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_saved_posts_user ON saved_posts (user_id)`)
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS post_comments (
       id         SERIAL PRIMARY KEY,
       post_id    INTEGER NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,

@@ -433,7 +433,7 @@ function CommentItem({ comment, getToken, isAdmin, onDelete, isReply = false, on
 
 // ── PostCard ──────────────────────────────────────────────────────────────────
 
-function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate, getToken, isAdmin, isStaff, currentUserId, categories = CATEGORIES, highlighted = false }) {
+function PostCard({ post, onLike, onToggleSave, onCommentSubmit, onDeletePost, onPin, onUpdate, getToken, isAdmin, isStaff, currentUserId, categories = CATEGORIES, highlighted = false }) {
   const [expanded,       setExpanded]       = useState(false)
   const [comments,       setComments]       = useState(null)
   const [loadingComments,setLoadingComments]= useState(false)
@@ -789,6 +789,24 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
             <span>💬</span>
             <span>{localCount}</span>
           </button>
+          <button
+            onClick={() => onToggleSave(post.id, !post.saved_by_me)}
+            aria-label={post.saved_by_me ? 'Remove bookmark' : 'Save post'}
+            aria-pressed={post.saved_by_me}
+            title={post.saved_by_me ? 'Saved' : 'Save for later'}
+            className="ml-auto min-w-[44px] min-h-[44px] flex items-center justify-center shrink-0 transition-colors text-gray-400 hover:text-gray-600"
+            style={post.saved_by_me ? { color: 'var(--color-accent)' } : undefined}
+          >
+            {post.saved_by_me ? (
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 3a1 1 0 0 0-1 1v17l7-4.5 7 4.5V4a1 1 0 0 0-1-1H6z" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 3a1 1 0 0 0-1 1v17l7-4.5 7 4.5V4a1 1 0 0 0-1-1H6z" />
+              </svg>
+            )}
+          </button>
         </div>
 
         {/* Comments */}
@@ -1086,6 +1104,10 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
   const [activeGroupId,   setActiveGroupId] = useState(null)        // null until myGroups loads, then always a real group id
   const [deepLinkGroupId, setDeepLinkGroupId] = useState(undefined) // undefined = unresolved, null = no group (unavailable), number = group id
   const [deepLinkError,   setDeepLinkError]   = useState(null)
+  const [savedView,       setSavedView]       = useState(false) // Saved pill toggled on — feed swaps to GET /posts/saved instead of the active group
+  const [savedPosts,      setSavedPosts]      = useState([])
+  const [savedLoading,    setSavedLoading]    = useState(false)
+  const [savedError,      setSavedError]      = useState(null)
 
   const activeGroup = myGroups.find(g => g.id === activeGroupId) ?? myGroups[0] ?? null
   const groupParam  = activeGroup ? String(activeGroup.id) : null
@@ -1244,6 +1266,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
   }, [searchParams, posts, loading, deepLinkGroupId, deepLinkError])
 
   const visiblePosts = posts.filter(p => !search.trim() || p.content.toLowerCase().includes(search.toLowerCase()))
+  const visibleSavedPosts = savedPosts.filter(p => !search.trim() || p.content.toLowerCase().includes(search.toLowerCase()))
 
   function handlePhotoSelect(file) {
     if (!file || !file.type.startsWith('image/')) return
@@ -1293,12 +1316,36 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
     finally { setPosting(false) }
   }
 
+  const loadSavedPosts = useCallback(async () => {
+    setSavedLoading(true)
+    setSavedError(null)
+    try {
+      const token = await getToken()
+      const res   = await fetch(`${API_URL}/api/community/posts/saved`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error(`Server error ${res.status}`)
+      const data = await res.json()
+      setSavedPosts(data.posts ?? [])
+    } catch (err) {
+      setSavedError(err.message)
+    } finally {
+      setSavedLoading(false)
+    }
+  }, [getToken])
+
+  useEffect(() => {
+    if (savedView) loadSavedPosts()
+  }, [savedView, loadSavedPosts])
+
   const toggleLike = useCallback(async (postId) => {
-    setPosts(prev => prev.map(p => {
+    const flip = arr => arr.map(p => {
       if (p.id !== postId) return p
       const liked = !p.liked_by_me
       return { ...p, liked_by_me: liked, like_count: p.like_count + (liked ? 1 : -1) }
-    }))
+    })
+    setPosts(flip)
+    setSavedPosts(flip)
     try {
       const token = await getToken()
       const res   = await fetch(`${API_URL}/api/community/posts/${postId}/like`, {
@@ -1306,17 +1353,38 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
       })
       if (!res.ok) throw new Error()
       const data = await res.json()
-      setPosts(prev => prev.map(p =>
+      const apply = arr => arr.map(p =>
         p.id === postId ? { ...p, liked_by_me: data.liked, like_count: data.like_count } : p
-      ))
+      )
+      setPosts(apply)
+      setSavedPosts(apply)
     } catch {
-      setPosts(prev => prev.map(p => {
-        if (p.id !== postId) return p
-        const liked = !p.liked_by_me
-        return { ...p, liked_by_me: liked, like_count: p.like_count + (liked ? 1 : -1) }
-      }))
+      setPosts(flip)
+      setSavedPosts(flip)
     }
   }, [getToken])
+
+  // Optimistic bookmark toggle — mirrors toggleLike above. Applied to both the
+  // active group feed and the Saved list so a save/unsave stays in sync
+  // regardless of which one the user is currently looking at; unsaving while
+  // viewing the Saved tab also drops the post from that list immediately
+  // (it belongs there only while it's the source of truth, on next fetch).
+  const toggleSave = useCallback(async (postId, nextSaved) => {
+    const applyFlag = arr => arr.map(p => p.id === postId ? { ...p, saved_by_me: nextSaved } : p)
+    setPosts(applyFlag)
+    setSavedPosts(prev => nextSaved ? applyFlag(prev) : prev.filter(p => p.id !== postId))
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/community/posts/${postId}/save`, {
+        method: nextSaved ? 'POST' : 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error()
+    } catch {
+      setPosts(arr => arr.map(p => p.id === postId ? { ...p, saved_by_me: !nextSaved } : p))
+      if (savedView) loadSavedPosts()
+    }
+  }, [getToken, savedView, loadSavedPosts])
 
   const deletePost = useCallback(async (postId) => {
     if (!window.confirm('Delete this post? This cannot be undone.')) return
@@ -1325,7 +1393,10 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
       const res = await fetch(`${API_URL}/api/community/posts/${postId}`, {
         method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
       })
-      if (res.ok) setPosts(prev => prev.filter(p => p.id !== postId))
+      if (res.ok) {
+        setPosts(prev => prev.filter(p => p.id !== postId))
+        setSavedPosts(prev => prev.filter(p => p.id !== postId))
+      }
     } catch {}
   }, [getToken])
 
@@ -1341,12 +1412,14 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
           const updated = prev.map(p => ({ ...p, pinned: p.id === postId ? pinned : (pinned ? false : p.pinned) }))
           return [...updated.filter(p => p.pinned), ...updated.filter(p => !p.pinned)]
         })
+        setSavedPosts(prev => prev.map(p => ({ ...p, pinned: p.id === postId ? pinned : (pinned ? false : p.pinned) })))
       }
     } catch {}
   }, [getToken])
 
   const updatePost = useCallback((data) => {
     setPosts(prev => prev.map(p => p.id === data.id ? { ...p, ...data } : p))
+    setSavedPosts(prev => prev.map(p => p.id === data.id ? { ...p, ...data } : p))
   }, [])
 
   const submitComment = useCallback(async (postId, content, parentCommentId = null) => {
@@ -1413,6 +1486,20 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
                 </button>
               )
             })}
+            <button
+              type="button"
+              onClick={() => setSavedView(v => !v)}
+              aria-current={savedView ? 'true' : undefined}
+              className={`min-h-[44px] px-4 rounded-full text-sm font-medium whitespace-nowrap shrink-0 transition-colors inline-flex items-center gap-1.5 ${
+                savedView
+                  ? 'text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+              style={savedView ? { background: 'var(--color-accent)' } : undefined}
+            >
+              <span aria-hidden="true">🔖</span>
+              Saved
+            </button>
           </div>
         </div>
 
@@ -1434,7 +1521,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
           </div>
         )}
 
-        {isAdmin && (
+        {isAdmin && !savedView && (
           <div className="flex items-center mb-3">
             <button
               type="button"
@@ -1451,7 +1538,79 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
           </div>
         )}
 
-        {!myGroupsLoaded ? (
+        {savedView ? (
+          <>
+          {/* Search */}
+          <div className="relative mb-3">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">🔍</span>
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search saved posts…"
+              className="w-full border border-gray-200 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none bg-white"
+              onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--color-accent)' }}
+              onBlur={e => { e.currentTarget.style.boxShadow = 'none' }}
+            />
+          </div>
+
+          {savedError && !savedLoading && (
+            <div className="bg-red-50 border border-red-200 rounded-2xl px-5 py-8 text-center mb-4">
+              <p className="text-2xl mb-2">⚠️</p>
+              <p className="text-sm font-semibold text-gray-700 mb-1">Could not load saved posts</p>
+              <p className="text-xs text-gray-500 mb-4">There was a problem connecting to the community. Check your connection and try again.</p>
+              <button
+                onClick={loadSavedPosts}
+                className="inline-flex items-center gap-1.5 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-colors"
+                style={{ background: 'var(--color-accent)' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-accent-hover)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'var(--color-accent)' }}
+              >
+                Try again
+              </button>
+            </div>
+          )}
+          {savedLoading && <p className="text-sm text-gray-400 text-center py-16">Loading…</p>}
+
+          {!savedLoading && !savedError && visibleSavedPosts.length === 0 && (
+            <div className="text-center py-16">
+              {savedPosts.length === 0 ? (
+                <>
+                  <p className="text-2xl mb-3">🔖</p>
+                  <p className="text-sm font-semibold text-gray-700 mb-1">No saved posts yet</p>
+                  <p className="text-sm text-gray-400">Tap the bookmark icon on a post to save it for later.</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-2xl mb-3">🔍</p>
+                  <p className="text-sm font-semibold text-gray-700 mb-1">No posts match</p>
+                  <p className="text-sm text-gray-400">Try a different search.</p>
+                </>
+              )}
+            </div>
+          )}
+
+          <div className="space-y-3">
+            {visibleSavedPosts.map(post => (
+              <PostCard
+                key={post.id}
+                post={post}
+                onLike={toggleLike}
+                onToggleSave={toggleSave}
+                onCommentSubmit={submitComment}
+                onDeletePost={deletePost}
+                onPin={pinPost}
+                onUpdate={updatePost}
+                getToken={getToken}
+                isAdmin={isAdmin}
+                isStaff={isStaff}
+                currentUserId={currentUserId}
+                categories={groupNames}
+              />
+            ))}
+          </div>
+          </>
+        ) : !myGroupsLoaded ? (
           <p className="text-sm text-gray-400 text-center py-16">Loading…</p>
         ) : myGroups.length === 0 ? (
           <div className="text-center py-16">
@@ -1582,6 +1741,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
               key={post.id}
               post={post}
               onLike={toggleLike}
+              onToggleSave={toggleSave}
               onCommentSubmit={submitComment}
               onDeletePost={deletePost}
               onPin={pinPost}
