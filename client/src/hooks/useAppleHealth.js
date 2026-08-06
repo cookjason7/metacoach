@@ -39,15 +39,41 @@ function yesterdayStart() {
 // States that count as actual sleep (excludes inBed and awake)
 const ASLEEP_STATES = new Set(['asleep', 'rem', 'deep', 'light'])
 
+// Highest plausible single-night sleep total. iPhone, Apple Watch, and
+// third-party sleep apps can each write their own overlapping "asleep"
+// samples into HealthKit for the same night — summing raw durations without
+// merging those overlaps can produce impossible totals (e.g. 21h). This is a
+// last-resort backstop after interval merging, not the primary fix.
+const MAX_SLEEP_MINUTES = 16 * 60
+
 function sleepMinutesFromSamples(samples) {
-  return Math.round(
-    samples
-      .filter(s => ASLEEP_STATES.has(s.sleepState))
-      .reduce((total, s) => {
-        const mins = (new Date(s.endDate) - new Date(s.startDate)) / 60_000
-        return total + (mins > 0 ? mins : 0)
-      }, 0)
-  )
+  const intervals = samples
+    .filter(s => ASLEEP_STATES.has(s.sleepState))
+    .map(s => ({ start: new Date(s.startDate).getTime(), end: new Date(s.endDate).getTime() }))
+    .filter(iv => iv.end > iv.start)
+    .sort((a, b) => a.start - b.start)
+
+  // Merge overlapping/adjacent intervals into a non-overlapping timeline so
+  // time logged by multiple sources for the same night isn't double-counted.
+  const merged = []
+  for (const iv of intervals) {
+    const last = merged[merged.length - 1]
+    if (last && iv.start <= last.end) {
+      last.end = Math.max(last.end, iv.end)
+    } else {
+      merged.push({ ...iv })
+    }
+  }
+
+  const totalMinutes = merged.reduce((total, iv) => total + (iv.end - iv.start) / 60_000, 0)
+  const rounded = Math.round(totalMinutes)
+
+  if (rounded > MAX_SLEEP_MINUTES) {
+    console.warn('[AppleHealth] merged sleep total exceeded plausible max — clamping:', rounded, 'minutes ->', MAX_SLEEP_MINUTES) // DEBUG: remove before App Store
+    return MAX_SLEEP_MINUTES
+  }
+
+  return rounded
 }
 
 // ─── exports ─────────────────────────────────────────────────────────────────
