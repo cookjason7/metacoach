@@ -2275,19 +2275,21 @@ export async function runMigrations() {
     // existing org (including LWC/org_id 1) keeps today's behavior unchanged;
     // new orgs that want a blank slate can flip this off per-org.
     await pool.query(`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS auto_create_default_groups BOOLEAN NOT NULL DEFAULT TRUE`)
-    // Seed every org with the two categories the app used to hardcode, so
-    // existing behavior (and existing posts' category labels) is unchanged
-    // for orgs that haven't customized anything yet. WHERE NOT EXISTS makes
-    // this idempotent — only orgs with zero rows ever get seeded. Gated by
-    // auto_create_default_groups so orgs that opt out never get these two
-    // groups auto-created on startup.
+    // Seed every new org with a single starter group. This used to seed two
+    // ('General Discussion' + 'Non-Scale Victories') mirroring the old
+    // hardcoded list; NSV is now a *category* (community_categories below),
+    // not a separate feed, so new orgs start with one group and build their
+    // own tag list. WHERE NOT EXISTS makes this idempotent — only orgs with
+    // zero rows ever get seeded, so every org that already exists (org 1,
+    // Test Gym/org 2, …) is untouched by the trim. Gated by
+    // auto_create_default_groups so orgs that opt out never get this
+    // group auto-created on startup.
     await pool.query(`
       INSERT INTO community_groups (org_id, name, description, type, display_order)
       SELECT o.id, g.name, g.description, 'public', g.ord
       FROM organizations o
       CROSS JOIN (VALUES
-        ('General Discussion',  'Everyday check-ins and conversation', 0),
-        ('Non-Scale Victories', 'Wins that aren''t on the scale',       1)
+        ('General Discussion',  'Everyday check-ins and conversation', 0)
       ) AS g(name, description, ord)
       WHERE NOT EXISTS (SELECT 1 FROM community_groups cg WHERE cg.org_id = o.id)
         AND o.auto_create_default_groups = TRUE
@@ -2457,6 +2459,110 @@ export async function runMigrations() {
     }
   } catch (err) {
     console.error('[migrations] community_posts group_id backfill failed:', err.message)
+  }
+
+  // One-time merge for org 1 (LWC): "Non-Scale Victories" stops being its own
+  // feed and becomes a *category* tag (see community_categories below). Every
+  // NSV member is folded into General Discussion, then the NSV group is
+  // deactivated so it drops out of the pickers. Nothing is deleted — the group
+  // row, its group_members rows, and its posts all stay for history.
+  //
+  // Idempotent two ways: the membership INSERT is a NOT EXISTS anti-join, and
+  // the whole block short-circuits once NSV is already is_active = FALSE, so a
+  // second boot is a no-op. Scoped to org 1 by name lookup (not hardcoded ids)
+  // so it can't fire against another tenant's same-named group.
+  try {
+    const { rows: nsv } = await pool.query(
+      `SELECT id FROM community_groups
+       WHERE org_id = 1 AND name = 'Non-Scale Victories' AND is_active = TRUE`,
+    )
+    const { rows: gen } = await pool.query(
+      `SELECT id FROM community_groups
+       WHERE org_id = 1 AND name = 'General Discussion'`,
+    )
+
+    if (nsv.length && gen.length) {
+      const nsvId = nsv[0].id
+      const genId = gen[0].id
+
+      const { rows: before } = await pool.query(
+        `SELECT
+           (SELECT COUNT(*)::int FROM group_members WHERE group_id = $1) AS nsv_members,
+           (SELECT COUNT(*)::int FROM group_members WHERE group_id = $2) AS gen_members`,
+        [nsvId, genId],
+      )
+
+      const { rowCount: added } = await pool.query(
+        `INSERT INTO group_members (group_id, user_id, org_id, added_by)
+         SELECT $2, gm.user_id, gm.org_id, NULL
+         FROM group_members gm
+         WHERE gm.group_id = $1
+           AND NOT EXISTS (
+             SELECT 1 FROM group_members ex
+             WHERE ex.group_id = $2 AND ex.user_id = gm.user_id
+           )
+         ON CONFLICT (group_id, user_id) DO NOTHING`,
+        [nsvId, genId],
+      )
+
+      await pool.query(
+        `UPDATE community_groups SET is_active = FALSE, updated_at = NOW() WHERE id = $1`,
+        [nsvId],
+      )
+
+      const { rows: after } = await pool.query(
+        `SELECT COUNT(*)::int AS gen_members FROM group_members WHERE group_id = $1`,
+        [genId],
+      )
+
+      console.log(
+        `[migrations] org 1 NSV merge: NSV(${nsvId}) members=${before[0].nsv_members}, ` +
+        `General(${genId}) members ${before[0].gen_members} -> ${after[0].gen_members} ` +
+        `(${added} added); NSV group deactivated`,
+      )
+    }
+  } catch (err) {
+    console.error('[migrations] org 1 NSV group merge failed:', err.message)
+  }
+
+  // community_categories: org-scoped post tags, fully independent of groups.
+  // A group decides *who sees* a post (membership-gated feed); a category is
+  // a display/filter label only and carries no access control whatsoever.
+  // This replaces the old community_posts.category TEXT column, which was
+  // just a mirror of the post's group name and therefore never expressed
+  // anything the group didn't already say. That column is left in place,
+  // untouched, for backward compat on historical posts.
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS community_categories (
+        id            SERIAL PRIMARY KEY,
+        org_id        INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        name          TEXT NOT NULL,
+        display_order INTEGER DEFAULT 0,
+        is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at    TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(org_id, name)
+      )
+    `)
+    // ON DELETE SET NULL — removing a tag must never delete the posts wearing
+    // it, they just become untagged.
+    await pool.query(`
+      ALTER TABLE community_posts
+      ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES community_categories(id) ON DELETE SET NULL
+    `)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_community_categories_org ON community_categories (org_id, is_active)`)
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_community_posts_category ON community_posts (category_id)`)
+
+    // Org 1 only: NSV survives the group merge above as a tag. Every other org
+    // starts with an empty tag list and creates its own — no cross-org seed.
+    await pool.query(`
+      INSERT INTO community_categories (org_id, name, display_order)
+      SELECT 1, 'NSV', 0
+      WHERE EXISTS (SELECT 1 FROM organizations WHERE id = 1)
+      ON CONFLICT (org_id, name) DO NOTHING
+    `)
+  } catch (err) {
+    console.error('[migrations] community_categories setup failed:', err.message)
   }
 
   // One-time backfill: orgs that predate the owner_user_id column (or whose

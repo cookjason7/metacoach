@@ -615,8 +615,12 @@ function PostCard({ post, onLike, onToggleSave, onCommentSubmit, onDeletePost, o
     } finally { setSaving(false) }
   }
 
-  const catStyle = post.category
-    ? CATEGORY_STYLES[post.category] ?? 'bg-gray-100 text-gray-600 border-gray-200'
+  // Prefer the real category tag (community_categories). post.category is the
+  // legacy TEXT mirror of the group name — new posts don't write it, so this
+  // only ever falls back for historical rows.
+  const catLabel = post.category_name ?? post.category ?? null
+  const catStyle = catLabel
+    ? CATEGORY_STYLES[catLabel] ?? 'bg-gray-100 text-gray-600 border-gray-200'
     : null
 
   return (
@@ -669,7 +673,7 @@ function PostCard({ post, onLike, onToggleSave, onCommentSubmit, onDeletePost, o
           <div className="flex items-center gap-2 mt-1 pl-12">
             {catStyle && !isEditing && (
               <span className={`text-xs px-2 py-0.5 rounded-full border font-medium shrink-0 max-w-[9rem] truncate ${catStyle}`}>
-                {post.category}
+                {catLabel}
               </span>
             )}
             <p className="text-xs text-gray-400 shrink-0">{timeAgo(post.created_at)}</p>
@@ -1108,9 +1112,21 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
   const [savedPosts,      setSavedPosts]      = useState([])
   const [savedLoading,    setSavedLoading]    = useState(false)
   const [savedError,      setSavedError]      = useState(null)
+  // Categories are org-scoped *tags*, fully independent of groups: they filter
+  // and label, they never decide who can see a post. Three separate pieces of
+  // state on purpose — the tag you're composing with, the tag you're filtering
+  // by, and the org's tag list — so picking a filter never changes what the
+  // composer will post as, and vice versa.
+  const [categories,        setCategories]        = useState([])
+  const [composerCategoryId, setComposerCategoryId] = useState(null) // null = no tag
+  const [filterCategoryId,  setFilterCategoryId]  = useState(null)   // null = "All"
+  const [manageCategoriesOpen, setManageCategoriesOpen] = useState(false)
 
   const activeGroup = myGroups.find(g => g.id === activeGroupId) ?? myGroups[0] ?? null
   const groupParam  = activeGroup ? String(activeGroup.id) : null
+  // Appended to the feed URL, so it's a plain string in the effect deps — an
+  // object/array here would refire the fetch on every render.
+  const categoryParam = filterCategoryId ? `&category_id=${filterCategoryId}` : ''
 
   // Falls back to the old hardcoded list until groups load (or if the fetch
   // fails) so the composer/filter dropdowns are never empty.
@@ -1125,6 +1141,26 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
   }, [getToken])
 
   useEffect(() => { loadGroups() }, [loadGroups])
+
+  const loadCategories = useCallback(async () => {
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/community/categories`, { headers: { Authorization: `Bearer ${token}` } })
+      if (res.ok) {
+        const data = await res.json()
+        setCategories(Array.isArray(data) ? data : [])
+      }
+    } catch {}
+  }, [getToken])
+
+  useEffect(() => { loadCategories() }, [loadCategories])
+
+  // Drop a selection that no longer exists (tag deactivated while the page was
+  // open) rather than sending a dead id the server would 400 on.
+  useEffect(() => {
+    if (composerCategoryId && !categories.some(c => c.id === composerCategoryId)) setComposerCategoryId(null)
+    if (filterCategoryId   && !categories.some(c => c.id === filterCategoryId))   setFilterCategoryId(null)
+  }, [categories, composerCategoryId, filterCategoryId])
 
   // Pill row source. Falls back to an empty row on failure rather than
   // fabricating a feed — the "No groups yet" empty state below covers that.
@@ -1172,7 +1208,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
       try {
         const token = await getToken()
         const res   = await fetch(
-          `${API_URL}/api/community/posts?channel=${channel}&group_id=${groupParam}&limit=30`,
+          `${API_URL}/api/community/posts?channel=${channel}&group_id=${groupParam}&limit=30${categoryParam}`,
           { headers: { Authorization: `Bearer ${token}` } },
         )
         if (!res.ok) throw new Error(`Server error ${res.status}`)
@@ -1184,7 +1220,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
       finally { setLoading(false) }
     }
     load()
-  }, [getToken, channel, retryKey, groupParam])
+  }, [getToken, channel, retryKey, groupParam, categoryParam])
 
   // Deep link from a community post push notification: /community?post_id=POST_ID
   // (see notifyNewCommunityPost in server/services/pushService.js and the
@@ -1287,12 +1323,10 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
       const token = await getToken()
       const body  = new FormData()
       body.append('content', newPost.trim())
-      // Every post belongs to a group, so the category label always comes
-      // from the active group. The server re-derives it from group_id anyway;
-      // sending it keeps the optimistic post card correct.
-      body.append('category', activeGroup.name)
       body.append('channel', channel)
       body.append('group_id', String(activeGroup.id))
+      // Optional and independent of the group — a tag, not a destination.
+      if (composerCategoryId) body.append('category_id', String(composerCategoryId))
       if (photo) body.append('photo', photo)
       if (poll?.question?.trim() && poll.options.filter(o => o.trim()).length >= 2) {
         body.append('poll_question', poll.question.trim())
@@ -1311,7 +1345,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
         const unpinned = prev.filter(p => !p.pinned)
         return [...pinned, post, ...unpinned]
       })
-      setNewPost(''); setPoll(null); clearPhoto()
+      setNewPost(''); setPoll(null); clearPhoto(); setComposerCategoryId(null)
     } catch (err) { setError(err.message) }
     finally { setPosting(false) }
   }
@@ -1441,7 +1475,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
     try {
       const token = await getToken()
       const res = await fetch(
-        `${API_URL}/api/community/posts?channel=${channel}&group_id=${groupParam}&limit=30&before_id=${nextBeforeId}`,
+        `${API_URL}/api/community/posts?channel=${channel}&group_id=${groupParam}&limit=30&before_id=${nextBeforeId}${categoryParam}`,
         { headers: { Authorization: `Bearer ${token}` } },
       )
       if (res.ok) {
@@ -1455,7 +1489,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
       }
     } catch {}
     finally { setLoadingOlder(false) }
-  }, [channel, groupParam, nextBeforeId, loadingOlder, getToken])
+  }, [channel, groupParam, categoryParam, nextBeforeId, loadingOlder, getToken])
 
   return (
     <div className="flex flex-col lg:flex-row gap-6 items-start">
@@ -1534,6 +1568,18 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
               </svg>
               Manage Groups
+            </button>
+            <button
+              type="button"
+              onClick={() => setManageCategoriesOpen(true)}
+              className="ml-2 min-h-[44px] inline-flex items-center gap-1.5 border border-gray-200 text-gray-600 px-3 py-2 rounded-lg text-sm font-semibold transition-colors shrink-0"
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent)'; e.currentTarget.style.borderColor = 'var(--color-accent)' }}
+              onMouseLeave={e => { e.currentTarget.style.color = ''; e.currentTarget.style.borderColor = '' }}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              Manage Tags
             </button>
           </div>
         )}
@@ -1639,6 +1685,45 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
           />
         </div>
 
+        {/* Tag filter — independent of the group pills above, and combines with
+            them: the feed is (selected group) AND (selected tag). "All" clears
+            the tag half only. */}
+        {categories.length > 0 && (
+          <div className="-mx-4 px-4 sm:mx-0 sm:px-0 mb-3 overflow-x-auto sm:overflow-x-visible">
+            <div className="flex sm:flex-wrap gap-2 w-max sm:w-auto items-center">
+              <span className="text-xs text-gray-400 shrink-0 pr-1">Tags</span>
+              <button
+                type="button"
+                onClick={() => setFilterCategoryId(null)}
+                aria-current={filterCategoryId === null ? 'true' : undefined}
+                className={`min-h-[44px] px-4 rounded-full text-sm font-medium whitespace-nowrap shrink-0 transition-colors ${
+                  filterCategoryId === null ? 'text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+                style={filterCategoryId === null ? { background: 'var(--color-accent)' } : undefined}
+              >
+                All
+              </button>
+              {categories.map(c => {
+                const active = c.id === filterCategoryId
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setFilterCategoryId(active ? null : c.id)}
+                    aria-current={active ? 'true' : undefined}
+                    className={`min-h-[44px] px-4 rounded-full text-sm font-medium whitespace-nowrap shrink-0 transition-colors ${
+                      active ? 'text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                    style={active ? { background: 'var(--color-accent)' } : undefined}
+                  >
+                    {c.name}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Compose */}
         <form onSubmit={submitPost} className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5 mb-5">
           <MentionInput
@@ -1653,6 +1738,47 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
           <p className="mt-3 text-xs text-gray-500">
             Posting to <span className="font-semibold text-gray-700">{activeGroup?.name}</span>
           </p>
+
+          {/* Tag picker — optional, and separate from the group above. Picking
+              a tag does not change where the post goes. Scrolls horizontally
+              on mobile, wraps on desktop. */}
+          {categories.length > 0 && (
+            <div className="mt-3">
+              <p className="text-xs text-gray-500 mb-1.5">Tag <span className="text-gray-400">(optional)</span></p>
+              <div className="-mx-4 px-4 sm:mx-0 sm:px-0 overflow-x-auto sm:overflow-x-visible">
+                <div className="flex sm:flex-wrap gap-2 w-max sm:w-auto">
+                  <button
+                    type="button"
+                    onClick={() => setComposerCategoryId(null)}
+                    aria-pressed={composerCategoryId === null}
+                    className={`min-h-[44px] px-4 rounded-full text-sm font-medium whitespace-nowrap shrink-0 transition-colors ${
+                      composerCategoryId === null ? 'text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                    style={composerCategoryId === null ? { background: 'var(--color-accent)' } : undefined}
+                  >
+                    No tag
+                  </button>
+                  {categories.map(c => {
+                    const active = c.id === composerCategoryId
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setComposerCategoryId(active ? null : c.id)}
+                        aria-pressed={active}
+                        className={`min-h-[44px] px-4 rounded-full text-sm font-medium whitespace-nowrap shrink-0 transition-colors ${
+                          active ? 'text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                        style={active ? { background: 'var(--color-accent)' } : undefined}
+                      >
+                        {c.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
 
           {poll && <PollCreator poll={poll} onChange={setPoll} />}
 
@@ -1780,6 +1906,147 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
           onGroupsChanged={() => { loadGroups(); loadMyGroups() }}
         />
       )}
+
+      {manageCategoriesOpen && (
+        <ManageCategoriesModal
+          getToken={getToken}
+          onClose={() => setManageCategoriesOpen(false)}
+          onCategoriesChanged={loadCategories}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Tag management (admin/owner only) ─────────────────────────────────────────
+//
+// A sibling modal to ManageGroupsModal rather than a tab inside it: groups and
+// categories are independent systems (membership/visibility vs. label), and
+// ManageGroupsModal already nests two of its own sub-modals (group form, member
+// roster). Folding a third unrelated surface in would mean four modal layers
+// deep on mobile. Every mutation is re-checked server-side by
+// requireOrgAdminOrOwner — the isAdmin gate on the button is convenience only.
+function ManageCategoriesModal({ getToken, onClose, onCategoriesChanged }) {
+  const [categories, setCategories] = useState([])
+  const [loading,    setLoading]    = useState(true)
+  const [error,      setError]      = useState(null)
+  const [newName,    setNewName]    = useState('')
+  const [saving,     setSaving]     = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/community/categories?all=true`, { headers: { Authorization: `Bearer ${token}` } })
+      if (!res.ok) throw new Error(`Server error ${res.status}`)
+      setCategories(await res.json())
+    } catch (e) { setError(e.message) }
+    finally { setLoading(false) }
+  }, [getToken])
+
+  useEffect(() => { load() }, [load])
+
+  async function handleCreate(e) {
+    e.preventDefault()
+    const name = newName.trim()
+    if (!name || saving) return
+    setSaving(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/community/categories`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Save failed') }
+      setNewName('')
+      await load()
+      onCategoriesChanged?.()
+    } catch (e) { alert(e.message) }
+    finally { setSaving(false) }
+  }
+
+  async function setActive(category, is_active) {
+    try {
+      const token = await getToken()
+      // Hide is a soft delete (DELETE), restore flips is_active back (PATCH).
+      const res = await fetch(`${API_URL}/api/community/categories/${category.id}`, is_active
+        ? {
+            method: 'PATCH',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: category.name, is_active: true }),
+          }
+        : { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+      if (!res.ok) throw new Error('Update failed')
+      await load()
+      onCategoriesChanged?.()
+    } catch (e) { alert(e.message) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+          <div>
+            <h2 className="text-base font-bold text-gray-900">Manage Tags</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Labels members can tag posts with, in any group</p>
+          </div>
+          <button onClick={onClose} className="min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-gray-600 text-xl leading-none shrink-0">×</button>
+        </div>
+
+        <div className="px-6 py-4 overflow-y-auto flex-1">
+          <form onSubmit={handleCreate} className="flex flex-col sm:flex-row gap-2 mb-4">
+            <input
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              placeholder="New tag name, e.g. NSV"
+              className="flex-1 min-h-[44px] border border-gray-200 rounded-xl px-4 text-sm focus:outline-none"
+              onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--color-accent)' }}
+              onBlur={e => { e.currentTarget.style.boxShadow = 'none' }}
+            />
+            <button
+              type="submit"
+              disabled={saving || !newName.trim()}
+              className="min-h-[44px] px-5 text-white rounded-xl text-sm font-bold disabled:opacity-50 transition-colors shrink-0"
+              style={{ background: 'var(--color-accent)' }}
+            >
+              {saving ? 'Adding…' : 'Add Tag'}
+            </button>
+          </form>
+
+          {loading && <p className="text-sm text-gray-400 text-center py-8">Loading…</p>}
+          {error   && <p className="text-sm text-red-500 text-center py-4">{error}</p>}
+
+          {!loading && !error && (
+            <div className="space-y-2">
+              {categories.map(c => (
+                <div key={c.id} className={`border rounded-xl p-3 flex items-center justify-between gap-2 ${c.is_active ? 'border-gray-200' : 'border-gray-100 bg-gray-50 opacity-60'}`}>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-gray-900 truncate">{c.name}</span>
+                      {!c.is_active && (
+                        <span className="text-[10px] font-bold uppercase tracking-wide bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded">Hidden</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">{c.post_count} post{c.post_count === 1 ? '' : 's'}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActive(c, !c.is_active)}
+                    className={`min-h-[44px] px-3 text-sm font-semibold shrink-0 ${c.is_active ? 'text-red-500 hover:text-red-600' : 'text-gray-600 hover:text-gray-800'}`}
+                  >
+                    {c.is_active ? 'Hide' : 'Restore'}
+                  </button>
+                </div>
+              ))}
+              {categories.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-8">No tags yet. Add one above.</p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

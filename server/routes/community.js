@@ -113,17 +113,6 @@ router.use(async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-// Whether a client (non-staff) may post into this category. Backed by
-// community_groups so org admins can add/rename/retire categories without a
-// code deploy — 'private' groups are staff-only (e.g. an Announcements group).
-async function isClientPostableCategory(orgId, category) {
-  const { rows } = await pool.query(
-    `SELECT 1 FROM community_groups WHERE org_id = $1 AND name = $2 AND is_active = TRUE AND type = 'public' LIMIT 1`,
-    [orgId, category],
-  )
-  return rows.length > 0
-}
-
 function isAdminRole(role) {
   return role === 'admin' || role === 'account_owner'
 }
@@ -613,6 +602,17 @@ router.get('/posts', requireAuth(), async (req, res, next) => {
       qParams.push(groupId)
       extraWhere += ` AND cp.group_id = $${qParams.length}`
     }
+    // Category (tag) filter — fully independent of the group filter above and
+    // combinable with it. 'all'/absent means no tag filter. Purely a narrowing
+    // of an already-authorized feed; it never widens what the caller can see.
+    const rawCategory = req.query.category_id
+    if (rawCategory !== undefined && rawCategory !== '' && rawCategory !== 'all') {
+      const categoryId = parseInt(rawCategory, 10)
+      if (!Number.isInteger(categoryId)) return res.status(400).json({ error: 'Invalid category_id' })
+      qParams.push(categoryId)
+      extraWhere += ` AND cp.category_id = $${qParams.length}`
+    }
+
     if (beforeId) {
       qParams.push(beforeId)
       extraWhere += ` AND cp.id < $${qParams.length}`
@@ -630,6 +630,8 @@ router.get('/posts', requireAuth(), async (req, res, next) => {
          cp.channel,
          cp.pinned,
          cp.group_id,
+         cp.category_id,
+         cc.name AS category_name,
          u.first_name,
          COUNT(DISTINCT pl.id)::int AS like_count,
          COUNT(DISTINCT pc.id)::int AS comment_count,
@@ -648,10 +650,11 @@ router.get('/posts', requireAuth(), async (req, res, next) => {
          EXISTS(SELECT 1 FROM community_polls WHERE post_id = cp.id) AS has_poll
        FROM community_posts cp
        JOIN users u ON u.id = cp.user_id
+       LEFT JOIN community_categories cc ON cc.id = cp.category_id
        LEFT JOIN post_likes    pl ON pl.post_id = cp.id
        LEFT JOIN post_comments pc ON pc.post_id = cp.id
        WHERE ($2::text IS NULL OR cp.channel = $2)${extraWhere}
-       GROUP BY cp.id, u.first_name
+       GROUP BY cp.id, u.first_name, cc.name
        ORDER BY cp.pinned DESC, cp.created_at DESC
        LIMIT $${qParams.length}`,
       qParams,
@@ -696,6 +699,8 @@ router.get('/posts/saved', requireAuth(), async (req, res, next) => {
          cp.channel,
          cp.pinned,
          cp.group_id,
+         cp.category_id,
+         cc.name AS category_name,
          u.first_name,
          COUNT(DISTINCT pl.id)::int AS like_count,
          COUNT(DISTINCT pc.id)::int AS comment_count,
@@ -714,10 +719,11 @@ router.get('/posts/saved', requireAuth(), async (req, res, next) => {
        FROM saved_posts sp
        JOIN community_posts cp ON cp.id = sp.post_id
        JOIN users u ON u.id = cp.user_id
+       LEFT JOIN community_categories cc ON cc.id = cp.category_id
        LEFT JOIN post_likes    pl ON pl.post_id = cp.id
        LEFT JOIN post_comments pc ON pc.post_id = cp.id
        WHERE sp.user_id = $1${orgFilter}
-       GROUP BY cp.id, u.first_name, sp.created_at
+       GROUP BY cp.id, u.first_name, sp.created_at, cc.name
        ORDER BY sp.created_at DESC`,
       qParams,
     )
@@ -750,13 +756,17 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
     const userId = req.effectiveClerkUserId
     const { dbUserId, isStaff, channel } = await getUserContext(userId)
     const content   = req.body?.content
-    let   category  = req.body?.category ?? 'General Discussion'
 
     if (!content?.trim()) return res.status(400).json({ error: 'Content required' })
 
-    // A group post is membership-gated and takes its category label from the
-    // group itself, so the label can't drift from the group the post lives in.
-    // No group_id => main feed (group_id NULL) and the category rules below.
+    // community_posts.category (TEXT) is legacy: it mirrored the post's group
+    // name and expressed nothing group_id didn't already. New posts leave it
+    // NULL — tagging now lives in community_categories via category_id below.
+    // Old rows keep whatever they were written with.
+    const category = null
+
+    // A group post is membership-gated. No group_id => fall back to the org's
+    // first active group (every post must live in a group).
     const rawGroup = req.body?.group_id
     let groupId = null
     if (rawGroup !== undefined && rawGroup !== null && rawGroup !== '' && rawGroup !== 'main') {
@@ -772,23 +782,31 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
       if (!await isGroupMember(groupId, dbUserId, req.orgId)) {
         return res.status(403).json({ error: 'Not a member of this group' })
       }
-      category = g[0].name
     } else {
       // No group specified — every post must belong to a group, so fall back
       // to the org's first active group rather than leaving group_id NULL.
       const { rows: defaultGroup } = await pool.query(
-        `SELECT id, name FROM community_groups
+        `SELECT id FROM community_groups
          WHERE org_id = $1 AND is_active = TRUE
          ORDER BY display_order ASC, id ASC LIMIT 1`,
         [req.orgId],
       )
-      if (defaultGroup.length) {
-        groupId  = defaultGroup[0].id
-        category = defaultGroup[0].name
-      } else if (!isStaff && !(await isClientPostableCategory(req.orgId, category))) {
-        // Clients may only post into an active, public group in their own org
-        category = 'General Discussion'
-      }
+      if (defaultGroup.length) groupId = defaultGroup[0].id
+    }
+
+    // Optional tag. Display/filter only — it grants and restricts nothing, so
+    // the only check is that it's a live category in the poster's own org
+    // (which also stops a client tagging a post into another tenant's list).
+    const rawCategory = req.body?.category_id
+    let categoryId = null
+    if (rawCategory !== undefined && rawCategory !== null && rawCategory !== '' && rawCategory !== 'none') {
+      categoryId = parseInt(rawCategory, 10)
+      if (!Number.isInteger(categoryId)) return res.status(400).json({ error: 'Invalid category_id' })
+      const { rows: cat } = await pool.query(
+        'SELECT id FROM community_categories WHERE id = $1 AND org_id = $2 AND is_active = TRUE',
+        [categoryId, req.orgId],
+      )
+      if (!cat.length) return res.status(400).json({ error: 'Invalid category' })
     }
 
     // Clients always post into their own channel; staff may specify a channel in body
@@ -803,12 +821,18 @@ router.post('/posts', requireAuth(), upload.single('photo'), async (req, res, ne
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO community_posts (user_id, content, photo_url, category, channel, org_id, group_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, user_id, content, photo_url, created_at, category, channel, pinned, group_id`,
-      [dbUserId, content.trim(), photo_url, category, postChannel, req.orgId, groupId],
+      `INSERT INTO community_posts (user_id, content, photo_url, category, channel, org_id, group_id, category_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, user_id, content, photo_url, created_at, category, channel, pinned, group_id, category_id`,
+      [dbUserId, content.trim(), photo_url, category, postChannel, req.orgId, groupId, categoryId],
     )
     const post = rows[0]
+    if (categoryId) {
+      const { rows: catName } = await pool.query('SELECT name FROM community_categories WHERE id = $1', [categoryId])
+      post.category_name = catName[0]?.name ?? null
+    } else {
+      post.category_name = null
+    }
 
     // Create poll if included
     const pollQuestion = req.body?.poll_question
@@ -1374,6 +1398,93 @@ router.post('/comments/:id/reactions', requireAuth(), async (req, res, next) => 
   } catch (err) { next(err) }
 })
 
+// ── Categories (org-scoped post tags) ─────────────────────────────────────────
+//
+// Deliberately separate from groups. A group answers "who can see this post"
+// and is membership-gated; a category answers "what is this post about" and is
+// a pure display/filter label with no bearing on authorization. Nothing in
+// this section may ever be consulted by an access check.
+
+// GET /api/community/categories — the caller's org's active tags. Admins/owners
+// may pass ?all=true to include deactivated ones for the management panel.
+router.get('/categories', requireAuth(), async (req, res, next) => {
+  try {
+    const wantAll = req.query.all === 'true' && await isOrgOwnerOrAdmin(req)
+    const { rows } = await pool.query(
+      `SELECT cc.id, cc.name, cc.display_order, cc.is_active, cc.created_at,
+              (SELECT COUNT(*)::int FROM community_posts cp WHERE cp.category_id = cc.id) AS post_count
+       FROM community_categories cc
+       WHERE cc.org_id = $1 AND ($2::boolean OR cc.is_active = TRUE)
+       ORDER BY cc.display_order ASC, cc.name ASC`,
+      [req.orgId, wantAll],
+    )
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
+// POST /api/community/categories — create a tag for the caller's org.
+router.post('/categories', requireAuth(), async (req, res, next) => {
+  try {
+    if (!await requireOrgAdminOrOwner(req, res)) return
+    const name = req.body?.name?.trim()
+    if (!name) return res.status(400).json({ error: 'Name is required' })
+
+    const { rows } = await pool.query(
+      `INSERT INTO community_categories (org_id, name, display_order)
+       VALUES ($1, $2, COALESCE((SELECT MAX(display_order) + 1 FROM community_categories WHERE org_id = $1), 0))
+       RETURNING id, name, display_order, is_active, created_at`,
+      [req.orgId, name],
+    )
+    res.status(201).json({ ...rows[0], post_count: 0 })
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'A category with that name already exists.' })
+    next(err)
+  }
+})
+
+// DELETE /api/community/categories/:id — soft delete (deactivate), mirroring
+// DELETE /groups/:id. Tagged posts keep their category_id and keep rendering
+// the label; the tag just stops being offered as a choice, and can be
+// reactivated by re-creating it under the same name.
+router.delete('/categories/:id', requireAuth(), async (req, res, next) => {
+  try {
+    if (!await requireOrgAdminOrOwner(req, res)) return
+    const categoryId = parseInt(req.params.id, 10)
+    if (!Number.isInteger(categoryId)) return res.status(400).json({ error: 'Invalid id' })
+
+    const { rows: cur } = await pool.query('SELECT org_id FROM community_categories WHERE id = $1', [categoryId])
+    if (!cur.length || cur[0].org_id !== req.orgId) return res.status(404).json({ error: 'Not found' })
+
+    await pool.query('UPDATE community_categories SET is_active = FALSE WHERE id = $1', [categoryId])
+    res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
+// PATCH /api/community/categories/:id — rename, or reactivate a deactivated tag.
+router.patch('/categories/:id', requireAuth(), async (req, res, next) => {
+  try {
+    if (!await requireOrgAdminOrOwner(req, res)) return
+    const categoryId = parseInt(req.params.id, 10)
+    if (!Number.isInteger(categoryId)) return res.status(400).json({ error: 'Invalid id' })
+
+    const { rows: cur } = await pool.query('SELECT org_id, name FROM community_categories WHERE id = $1', [categoryId])
+    if (!cur.length || cur[0].org_id !== req.orgId) return res.status(404).json({ error: 'Not found' })
+
+    const name      = req.body?.name?.trim() || cur[0].name
+    const is_active = req.body?.is_active === undefined ? true : !!req.body.is_active
+
+    const { rows } = await pool.query(
+      `UPDATE community_categories SET name = $1, is_active = $2 WHERE id = $3
+       RETURNING id, name, display_order, is_active, created_at`,
+      [name, is_active, categoryId],
+    )
+    res.json(rows[0])
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'A category with that name already exists.' })
+    next(err)
+  }
+})
+
 // ── Groups (org-manageable post categories/channels) ───────────────────────────
 
 // GET /api/community/groups — active groups for the caller's org. Admins/owners
@@ -1382,9 +1493,12 @@ router.get('/groups', requireAuth(), async (req, res, next) => {
   try {
     const wantAll = req.query.all === 'true' && await isOrgOwnerOrAdmin(req)
     const { rows } = await pool.query(
+      // post_count counts by group_id, not by the legacy category name — posts
+      // created after categories were split out from groups no longer write a
+      // category label, so a name match would undercount every new post.
       `SELECT cg.id, cg.name, cg.description, cg.type, cg.display_order, cg.is_active, cg.created_at,
               (SELECT COUNT(*)::int FROM community_posts cp
-               WHERE cp.org_id = cg.org_id AND cp.category = cg.name) AS post_count
+               WHERE cp.org_id = cg.org_id AND cp.group_id = cg.id) AS post_count
        FROM community_groups cg
        WHERE cg.org_id = $1 AND ($2::boolean OR cg.is_active = TRUE)
        ORDER BY cg.display_order ASC, cg.name ASC`,
@@ -1439,12 +1553,10 @@ router.patch('/groups/:id', requireAuth(), async (req, res, next) => {
       [name, description, type, is_active, groupId],
     )
 
-    await pool.query(
-      `UPDATE community_posts
-       SET category = $1
-       WHERE group_id = $2 AND org_id = $3`,
-      [name, groupId, req.orgId],
-    )
+    // Deliberately no longer rewrites community_posts.category on rename.
+    // That column was a mirror of the group name; categories are now their
+    // own org-scoped table (community_categories) and the group name is read
+    // live via group_id. Historical values stay exactly as written.
 
     res.json(rows[0])
   } catch (err) {
