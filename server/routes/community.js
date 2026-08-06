@@ -448,12 +448,27 @@ router.get('/notifications/count', requireAuth(), async (req, res, next) => {
     const dbUserId = await getOrCreateUser(userId)
     const ctx = { orgId: req.orgId, email: req.internalUser?.email }
     const bypassOrg = isSuperAdmin(ctx)
-    const orgFilter = bypassOrg ? '' : ` AND org_id = $2`
+    const orgFilter = bypassOrg ? '' : ` AND cp.org_id = $2`
+    // Single last_read_at cursor per user, replacing per-notification-row counting.
+    // NULL cursor falls back to the user's own created_at (see db.js migration note)
+    // so existing users aren't shown their whole posting history as unread.
     const { rows } = await pool.query(
-      `SELECT COUNT(*)::int AS count FROM notifications WHERE user_id = $1 AND read = FALSE${orgFilter}`,
+      `SELECT COUNT(*)::int AS count
+       FROM community_posts cp
+       WHERE cp.user_id != $1
+         AND cp.created_at > (SELECT COALESCE(community_last_read_at, created_at) FROM users WHERE id = $1)${orgFilter}`,
       bypassOrg ? [dbUserId] : [dbUserId, ctx.orgId],
     )
     res.json({ count: rows[0].count })
+  } catch (err) { next(err) }
+})
+
+router.post('/notifications/mark-community-read', requireAuth(), async (req, res, next) => {
+  try {
+    const userId = req.effectiveClerkUserId
+    const dbUserId = await getOrCreateUser(userId)
+    await pool.query('UPDATE users SET community_last_read_at = NOW() WHERE id = $1', [dbUserId])
+    res.json({ ok: true })
   } catch (err) { next(err) }
 })
 

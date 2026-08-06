@@ -3858,6 +3858,10 @@ export default function Community() {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
+      await fetch(`${API_URL}/api/community/notifications/mark-community-read`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
     } catch {}
   }, [getToken, viewing, viewedClient])
 
