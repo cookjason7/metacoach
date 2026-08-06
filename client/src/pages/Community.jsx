@@ -68,10 +68,32 @@ const CATEGORY_STYLES = {
 
 // ── MentionInput ──────────────────────────────────────────────────────────────
 
-function MentionInput({ value, onChange, members, placeholder, rows = 3, inputClassName, textareaClassName }) {
+function MentionInput({ value, onChange, groupId, placeholder, rows = 3, inputClassName, textareaClassName }) {
+  const { getToken } = useAuth()
   const ref   = useRef(null)
   const [query,  setQuery]  = useState(null)
   const [atPos,  setAtPos]  = useState(0)
+  const [suggestions, setSuggestions] = useState([])
+
+  // Debounced query against the server so results stay scoped to who the
+  // asker can actually see (group roster, not the whole org) — see
+  // GET /community/mention-search.
+  useEffect(() => {
+    if (query === null) { setSuggestions([]); return }
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      try {
+        const token  = await getToken()
+        const params = new URLSearchParams({ q: query })
+        if (groupId) params.set('groupId', String(groupId))
+        const res = await fetch(`${API_URL}/api/community/mention-search?${params}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!cancelled) setSuggestions(res.ok ? await res.json() : [])
+      } catch { if (!cancelled) setSuggestions([]) }
+    }, 250)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [query, groupId, getToken])
 
   function handleChange(e) {
     onChange(e.target.value)
@@ -79,8 +101,13 @@ function MentionInput({ value, onChange, members, placeholder, rows = 3, inputCl
     const cursor = el.selectionStart
     const before = el.value.slice(0, cursor)
     const match  = before.match(/(?<!\w)@([A-Za-z]\w*)$/)
-    if (match) { setQuery(match[1].toLowerCase()); setAtPos(cursor - match[0].length) }
+    if (match) { setQuery(match[1]); setAtPos(cursor - match[0].length) }
     else setQuery(null)
+  }
+
+  function close() {
+    setQuery(null)
+    setSuggestions([])
   }
 
   function pick(name) {
@@ -89,7 +116,7 @@ function MentionInput({ value, onChange, members, placeholder, rows = 3, inputCl
     const before = value.slice(0, atPos)
     const after  = value.slice(cursor)
     onChange(`${before}@${name} ${after}`)
-    setQuery(null)
+    close()
     setTimeout(() => {
       el.focus()
       const pos = atPos + name.length + 2
@@ -97,11 +124,23 @@ function MentionInput({ value, onChange, members, placeholder, rows = 3, inputCl
     }, 0)
   }
 
-  const suggestions = query !== null
-    ? (members ?? []).filter(m => m.first_name?.toLowerCase().startsWith(query)).slice(0, 5)
-    : []
+  // Suggestion buttons preventDefault on mousedown, which keeps focus on the
+  // input so this blur only fires for a genuine click-away — safe to close
+  // unconditionally without racing the pick() above.
+  function handleBlur(e) {
+    e.currentTarget.style.boxShadow = 'none'
+    close()
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Escape' && query !== null) {
+      e.stopPropagation()
+      close()
+    }
+  }
 
   const isTextarea = rows > 1
+  const showDropdown = query !== null && suggestions.length > 0
 
   return (
     <div className="relative w-full">
@@ -111,10 +150,11 @@ function MentionInput({ value, onChange, members, placeholder, rows = 3, inputCl
           rows={rows}
           value={value}
           onChange={handleChange}
+          onKeyDown={handleKeyDown}
           placeholder={placeholder}
           className={textareaClassName}
           onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--color-accent)' }}
-          onBlur={e => { e.currentTarget.style.boxShadow = 'none' }}
+          onBlur={handleBlur}
         />
       ) : (
         <input
@@ -122,13 +162,14 @@ function MentionInput({ value, onChange, members, placeholder, rows = 3, inputCl
           type="text"
           value={value}
           onChange={handleChange}
+          onKeyDown={handleKeyDown}
           placeholder={placeholder}
           className={inputClassName}
           onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--color-accent)' }}
-          onBlur={e => { e.currentTarget.style.boxShadow = 'none' }}
+          onBlur={handleBlur}
         />
       )}
-      {suggestions.length > 0 && (
+      {showDropdown && (
         <div className="absolute bottom-full left-0 mb-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden z-20">
           {suggestions.map(m => (
             <button
@@ -284,7 +325,7 @@ function PollDisplay({ postId, getToken }) {
 // threading is capped at one level, so a reply is never itself replyable.
 // Reactions are keyed off comment.id either way, so a reply reacts as its own
 // comment (comment_reactions.comment_id) with no special-casing.
-function CommentItem({ comment, getToken, isAdmin, onDelete, members, isReply = false, onReplyClick }) {
+function CommentItem({ comment, getToken, isAdmin, onDelete, isReply = false, onReplyClick }) {
   const [reactions, setReactions] = useState({
     like_count:  comment.like_count  ?? 0,
     love_count:  comment.love_count  ?? 0,
@@ -392,7 +433,7 @@ function CommentItem({ comment, getToken, isAdmin, onDelete, members, isReply = 
 
 // ── PostCard ──────────────────────────────────────────────────────────────────
 
-function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate, getToken, isAdmin, isStaff, currentUserId, members, categories = CATEGORIES, highlighted = false }) {
+function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate, getToken, isAdmin, isStaff, currentUserId, categories = CATEGORIES, highlighted = false }) {
   const [expanded,       setExpanded]       = useState(false)
   const [comments,       setComments]       = useState(null)
   const [loadingComments,setLoadingComments]= useState(false)
@@ -761,14 +802,14 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
               <div key={c.id}>
                 <CommentItem
                   comment={c} getToken={getToken} isAdmin={isAdmin}
-                  onDelete={deleteComment} members={members} onReplyClick={openReply}
+                  onDelete={deleteComment} onReplyClick={openReply}
                 />
                 {(replies.length > 0 || replyingTo === c.id) && (
                   <div className="ml-9 pl-3 border-l border-gray-100">
                     {replies.map(r => (
                       <CommentItem
                         key={r.id} comment={r} getToken={getToken} isAdmin={isAdmin}
-                        onDelete={deleteComment} members={members} isReply
+                        onDelete={deleteComment} isReply
                       />
                     ))}
                     {replyingTo === c.id && (
@@ -779,7 +820,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
                           <MentionInput
                             value={replyText}
                             onChange={setReplyText}
-                            members={members}
+                            groupId={post.group_id}
                             placeholder={`Reply to ${c.first_name ?? 'Member'}…`}
                             rows={1}
                             inputClassName="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none"
@@ -810,7 +851,7 @@ function PostCard({ post, onLike, onCommentSubmit, onDeletePost, onPin, onUpdate
               <MentionInput
                 value={commentText}
                 onChange={setCommentText}
-                members={members}
+                groupId={post.group_id}
                 placeholder="Add a comment…"
                 rows={1}
                 inputClassName="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none"
@@ -1021,7 +1062,7 @@ function Leaderboard({ getToken }) {
 
 // ── HybridTab ─────────────────────────────────────────────────────────────────
 
-function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members }) {
+function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId }) {
   const photoInputRef = useRef(null)
   const [posts,          setPosts]         = useState([])
   const [hasMore,        setHasMore]       = useState(false)
@@ -1444,7 +1485,7 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
           <MentionInput
             value={newPost}
             onChange={setNewPost}
-            members={members}
+            groupId={activeGroup?.id}
             placeholder="Share a win, ask a question, or check in with the group…"
             rows={3}
             textareaClassName="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm resize-none focus:outline-none min-h-[96px]"
@@ -1549,7 +1590,6 @@ function HybridTab({ getToken, isAdmin, isStaff, channel, currentUserId, members
               isAdmin={isAdmin}
               isStaff={isStaff}
               currentUserId={currentUserId}
-              members={members}
               categories={groupNames}
               highlighted={post.id === highlightPostId}
             />
@@ -3806,7 +3846,6 @@ export default function Community() {
   const [isStaff,        setIsStaff]       = useState(false)
   const [clientChannel,  setClientChannel] = useState('vip')
   const [currentUserId,  setCurrentUserId] = useState(null)
-  const [members,        setMembers]       = useState([])
   const [tab,            setTab]           = useState(null) // set after user loads
   const [initLoading,    setInitLoading]   = useState(true)
   const [initError,      setInitError]     = useState(false)
@@ -3879,19 +3918,6 @@ export default function Community() {
   useEffect(() => {
     runInit()
   }, [runInit])
-
-  useEffect(() => {
-    async function loadMembers() {
-      try {
-        const token = await getToken()
-        const res = await fetch(`${API_URL}/api/community/members`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (res.ok) setMembers(await res.json())
-      } catch {}
-    }
-    loadMembers()
-  }, [getToken])
 
   // Build tab list:
   //   Staff/admin — full list: both chat channels, Brain Mapping, Resources
@@ -3998,7 +4024,6 @@ export default function Community() {
             isAdmin={isAdmin}
             isStaff={isStaff}
             currentUserId={currentUserId}
-            members={members}
           />
         )}
 

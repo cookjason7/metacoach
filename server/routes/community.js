@@ -440,6 +440,46 @@ router.get('/members', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// GET /members returns the whole org and extra profile fields (used by the
+// directory view) — too broad for an @mention picker. This returns only
+// id + first_name, and when groupId is given, scopes to that group's roster
+// (membership-checked, same as checkPostGroupAccess) so a client composing in
+// a group can't enumerate names of people outside it. first_name is the exact
+// string createMentionNotifications matches on, so whatever the picker
+// inserts is guaranteed to resolve to a real mention.
+router.get('/mention-search', requireAuth(), async (req, res, next) => {
+  try {
+    const dbUserId = await getOrCreateUser(req.effectiveClerkUserId)
+    const q = (req.query.q ?? '').trim()
+    if (!q) return res.json([])
+
+    let groupId = null
+    if (req.query.groupId !== undefined) {
+      groupId = Number(req.query.groupId)
+      if (!Number.isInteger(groupId)) return res.status(400).json({ error: 'Invalid groupId' })
+      if (!await isGroupMember(groupId, dbUserId, req.orgId)) {
+        return res.status(403).json({ error: 'Not a member of this group' })
+      }
+    }
+
+    const params = [`${q}%`, dbUserId, req.orgId]
+    let memberFilter = ''
+    if (groupId !== null) {
+      params.push(groupId)
+      memberFilter = ` AND EXISTS (SELECT 1 FROM group_members gm WHERE gm.user_id = users.id AND gm.group_id = $4)`
+    }
+
+    const { rows } = await pool.query(
+      `SELECT id, first_name FROM users
+       WHERE first_name ILIKE $1 AND id != $2 AND org_id = $3${memberFilter}
+       ORDER BY first_name ASC
+       LIMIT 8`,
+      params,
+    )
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
 // ── Notifications ─────────────────────────────────────────────────────────────
 
 router.get('/notifications/count', requireAuth(), async (req, res, next) => {
