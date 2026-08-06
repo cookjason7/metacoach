@@ -2268,6 +2268,24 @@ router.get('/clients/:id/identity-momentum', requireAuth(), async (req, res, nex
 
 // ─── Habit assignment ─────────────────────────────────────────────────────────
 
+// The coach-facing "Duration" dropdown sends a week count (1-52) or null for
+// "No end date" instead of a raw end_date. This derives end_date server-side
+// so coach_assigned_habits.end_date stays the single stored value every other
+// reader (habitOccursOn, expandCalendar, googleCalendarSync) already expects.
+// Operates on the 'YYYY-MM-DD' string via UTC math so the server's local
+// timezone can't shift the result by a day.
+function addWeeksToDate(startDateStr, weeks) {
+  const [y, m, d] = String(startDateStr).slice(0, 10).split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  dt.setUTCDate(dt.getUTCDate() + weeks * 7)
+  return dt.toISOString().slice(0, 10)
+}
+
+function toISODate(v) {
+  if (v == null) return null
+  return v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10)
+}
+
 // GET /api/coach-admin/clients/:id/habits — list assigned habits
 router.get('/clients/:id/habits', requireAuth(), async (req, res, next) => {
   try {
@@ -2294,7 +2312,7 @@ router.post('/clients/:id/habits', requireAuth(), async (req, res, next) => {
 
     const {
       habit_name, habit_type = 'boolean', target_value, unit,
-      frequency = 'daily', start_date, end_date, days_of_week, notes, identity_category,
+      frequency = 'daily', start_date, weeks, days_of_week, notes, identity_category,
     } = req.body
     if (!habit_name?.trim() || !start_date) {
       return res.status(400).json({ error: 'habit_name and start_date required' })
@@ -2305,6 +2323,18 @@ router.post('/clients/:id/habits', requireAuth(), async (req, res, next) => {
     const VALID_IC = ['food_tracking', 'hydration', 'movement', 'mindset', 'check_ins', 'progress']
     if (identity_category && !VALID_IC.includes(identity_category)) {
       return res.status(400).json({ error: 'Invalid identity_category' })
+    }
+
+    let end_date = null
+    if (weeks != null && weeks !== '') {
+      const weeksNum = Number(weeks)
+      if (!Number.isInteger(weeksNum) || weeksNum < 1 || weeksNum > 52) {
+        return res.status(400).json({ error: 'weeks must be an integer between 1 and 52' })
+      }
+      end_date = addWeeksToDate(start_date, weeksNum)
+      if (end_date < toISODate(start_date)) {
+        return res.status(400).json({ error: 'Computed end date is before start date' })
+      }
     }
 
     const { rows } = await pool.query(`
@@ -2318,7 +2348,7 @@ router.post('/clients/:id/habits', requireAuth(), async (req, res, next) => {
       habit_name.trim(), habit_type,
       target_value != null ? Number(target_value) : null,
       unit?.trim() || null,
-      frequency, start_date, end_date ?? null,
+      frequency, start_date, end_date,
       days_of_week ?? null,
       notes?.trim() || null,
       identity_category ?? null,
@@ -2346,13 +2376,13 @@ router.patch('/habits/:habitId', requireAuth(), async (req, res, next) => {
     const habitId = parseInt(req.params.habitId, 10)
 
     // verify access via the habit's user
-    const { rows: hRows } = await pool.query('SELECT user_id FROM coach_assigned_habits WHERE id = $1', [habitId])
+    const { rows: hRows } = await pool.query('SELECT user_id, start_date, end_date FROM coach_assigned_habits WHERE id = $1', [habitId])
     if (!hRows.length) return res.status(404).json({ error: 'Habit not found' })
     if (!await canAccessClient(ctx, hRows[0].user_id)) return res.status(403).json({ error: 'Forbidden' })
 
     const {
       habit_name, habit_type, target_value, unit,
-      frequency, start_date, end_date, days_of_week, notes, active, identity_category,
+      frequency, start_date, weeks, days_of_week, notes, active, identity_category,
     } = req.body
     // PATCH is partial — an omitted frequency keeps the stored one (COALESCE below).
     if (frequency != null && !VALID_HABIT_FREQ.includes(frequency)) {
@@ -2361,6 +2391,29 @@ router.patch('/habits/:habitId', requireAuth(), async (req, res, next) => {
     const VALID_IC = ['food_tracking', 'hydration', 'movement', 'mindset', 'check_ins', 'progress']
     if (identity_category && !VALID_IC.includes(identity_category)) {
       return res.status(400).json({ error: 'Invalid identity_category' })
+    }
+
+    // weeks is derived server-side into end_date, same as POST. An omitted
+    // `weeks` key (rather than explicit null) leaves the stored end_date
+    // untouched — only the frontend's edit form, which always sends the
+    // field, exercises the recompute path in practice.
+    let end_date
+    if (weeks !== undefined) {
+      if (weeks === null || weeks === '') {
+        end_date = null
+      } else {
+        const weeksNum = Number(weeks)
+        if (!Number.isInteger(weeksNum) || weeksNum < 1 || weeksNum > 52) {
+          return res.status(400).json({ error: 'weeks must be an integer between 1 and 52' })
+        }
+        const effectiveStart = toISODate(start_date) ?? toISODate(hRows[0].start_date)
+        end_date = addWeeksToDate(effectiveStart, weeksNum)
+        if (end_date < effectiveStart) {
+          return res.status(400).json({ error: 'Computed end date is before start date' })
+        }
+      }
+    } else {
+      end_date = toISODate(hRows[0].end_date)
     }
 
     const { rows } = await pool.query(`
@@ -2382,7 +2435,7 @@ router.patch('/habits/:habitId', requireAuth(), async (req, res, next) => {
       habit_name ?? null, habit_type ?? null,
       target_value != null ? Number(target_value) : null,
       unit ?? null, frequency ?? null,
-      start_date ?? null, end_date ?? null, days_of_week ?? null,
+      start_date ?? null, end_date, days_of_week ?? null,
       notes ?? null, active ?? null,
       identity_category ?? null,
       habitId,
