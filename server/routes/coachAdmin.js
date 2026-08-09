@@ -388,6 +388,12 @@ router.get('/dashboard-summary', requireAuth(), async (req, res, next) => {
     if (ctx.role === 'coach') {
       params.push(ctx.dbUserId)
       clientScope += ` AND u.assigned_coach_id = $${params.length}`
+    } else if (isAdminRole(ctx.role)) {
+      const coachId = parseInt(req.query.coachId, 10)
+      if (req.query.coachId && req.query.coachId !== 'all' && Number.isInteger(coachId)) {
+        params.push(coachId)
+        clientScope += ` AND u.assigned_coach_id = $${params.length}`
+      }
     }
 
     const accessibleClients = `
