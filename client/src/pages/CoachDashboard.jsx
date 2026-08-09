@@ -1802,9 +1802,8 @@ export default function CoachDashboard({ getToken, userRole }) {
       try {
         const token   = await getToken()
         const headers = { Authorization: `Bearer ${token}` }
-        const [r1, r3, r4] = await Promise.all([
+        const [r1, r4] = await Promise.all([
           fetch(`${API_URL}/api/coach-admin/clients?status=all`, { headers }),
-          fetch(`${API_URL}/api/coach-admin/dashboard-summary`,  { headers }),
           fetch(`${API_URL}/api/users/me`,                       { headers }),
         ])
         if (!cancelled) {
@@ -1818,7 +1817,6 @@ export default function CoachDashboard({ getToken, userRole }) {
                 .map(c => c.latest_checkin_submission_id)
             ))
           }
-          if (r3.ok) { const d = await r3.json(); setCheckins(d.checkins ?? []); setActivity(d.activity ?? []) }
           if (r4.ok) {
             const d = await r4.json()
             const admin = d.role === 'admin' || d.role === 'account_owner'
@@ -1835,6 +1833,27 @@ export default function CoachDashboard({ getToken, userRole }) {
     load()
     return () => { cancelled = true }
   }, [getToken])
+
+  // ── Load check-ins/activity review queue ─────────────────────────────────────
+  // Re-fetches whenever coachFilter changes so the widget honors "my clients only".
+  useEffect(() => {
+    let cancelled = false
+    async function loadReviewQueue() {
+      try {
+        const token   = await getToken()
+        const headers = { Authorization: `Bearer ${token}` }
+        const qs  = (isAdmin && coachFilter !== 'all') ? `?coachId=${encodeURIComponent(coachFilter)}` : ''
+        const res = await fetch(`${API_URL}/api/coach-admin/dashboard-summary${qs}`, { headers })
+        if (!cancelled && res.ok) {
+          const d = await res.json()
+          setCheckins(d.checkins ?? [])
+          setActivity(d.activity ?? [])
+        }
+      } catch {}
+    }
+    loadReviewQueue()
+    return () => { cancelled = true }
+  }, [getToken, coachFilter, isAdmin])
 
   // ── Load coaches list ────────────────────────────────────────────────────────
   useEffect(() => {
