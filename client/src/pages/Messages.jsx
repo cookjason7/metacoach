@@ -837,7 +837,7 @@ export default function Messages() {
                       <div key={m.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                         <div className={`flex flex-col max-w-[88%] sm:max-w-[80%] ${isMe ? 'items-end' : 'items-start'}`}>
                           <div
-                            className="group relative flex items-end gap-1"
+                            className="group relative flex items-end gap-1 min-w-0 max-w-full"
                             onTouchStart={isMe ? () => startLongPress(m.id) : undefined}
                             onTouchEnd={isMe ? cancelLongPress : undefined}
                             onTouchMove={isMe ? cancelLongPress : undefined}
@@ -912,7 +912,7 @@ export default function Messages() {
                                 </div>
                               </div>
                             ) : (
-                              m.message_body && <p className="text-sm whitespace-pre-wrap"><LinkifiedText text={m.message_body} /></p>
+                              m.message_body && <p className="text-sm whitespace-pre-wrap break-words"><LinkifiedText text={m.message_body} /></p>
                             )}
                             {m.image_url && (
                               <img src={m.image_url} alt="attachment" className="max-w-[240px] rounded-lg mt-1 cursor-pointer" onClick={() => window.open(m.image_url, '_blank')} />
