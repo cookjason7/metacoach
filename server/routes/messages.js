@@ -382,12 +382,15 @@ router.post('/thread/:threadType', requireAuth(), async (req, res, next) => {
       WHERE client_id = $1 AND thread_type = $2 AND archived = TRUE
     `, [ctx.dbUserId, canonicalThread])
 
-    // Push: notify assigned coach (or admins if no coach assigned) — fire-and-forget
+    // Push: coach_thread messages page the assigned coach; admin_private and
+    // ai_admin threads (and a coach_thread with no coach assigned yet) page
+    // admin instead — an admin should never be paged for a coach_thread
+    // that's addressed to someone else. Fire-and-forget.
     pool.query(
       `SELECT COALESCE(assigned_coach_id, NULL) AS coach_id FROM users WHERE id = $1`,
       [ctx.dbUserId],
     ).then(async ({ rows: [u] }) => {
-      if (u?.coach_id) {
+      if (canonicalThread === 'coach_thread' && u?.coach_id) {
         await notifyNewDirectMessage(u.coach_id, ctx.dbUserId).catch(() => {})
       } else {
         // Notify admins in this client's own org only — a client with no assigned
