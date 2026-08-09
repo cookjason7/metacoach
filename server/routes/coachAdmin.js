@@ -2746,7 +2746,13 @@ router.get('/messaging/inbox', requireAuth(), async (req, res, next) => {
 })
 
 // GET /api/coach-admin/messaging/unread-count — total unread client messages across
-// accessible conversations (nav badge). Mirrors the scoping in messaging/inbox above.
+// accessible conversations (nav badge / "new message" alert). Deliberately NOT the
+// same scoping as messaging/inbox above: the inbox's per-thread unread badges stay
+// visible to admin across every thread so they can still find and read anything
+// later, but this alert-style count should only page admin for threads actually
+// addressed to them — admin_private/ai_admin always are, coach_thread only when
+// admin is that client's actual assigned coach. Mirrors the push routing in
+// routes/messages.js.
 router.get('/messaging/unread-count', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireStaff(req, res); if (!ctx) return
@@ -2758,6 +2764,8 @@ router.get('/messaging/unread-count', requireAuth(), async (req, res, next) => {
       + ` AND m.thread_type IN ('admin_private', 'coach_thread', 'ai_admin')`
     if (!isAdmin) {
       extraWhere += ` AND u.assigned_coach_id = $1 AND m.thread_type = 'coach_thread'`
+    } else {
+      extraWhere += ` AND (m.thread_type != 'coach_thread' OR u.assigned_coach_id = $1)`
     }
     if (!isSuperAdmin(ctx)) {
       params.push(ctx.orgId)
