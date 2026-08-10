@@ -3473,15 +3473,40 @@ router.get('/clients/:id/katie-history', requireAuth(), async (req, res, next) =
 
 // GET /api/coach-admin/clients/:id/checkins — staff views client's check-in history
 // Admin sees all clients; assigned coach sees their own clients only (enforced by canAccessClient)
+// Reads from the forms engine (form_submissions), not the legacy weekly_checkins table —
+// clients now submit check-ins as form templates, and weekly_checkins is no longer written
+// to (see server/routes/coach.js). form_templates has no dedicated check-in type/category
+// column, so this uses the same title ILIKE match already used for this purpose in
+// dashboard-summary above.
 router.get('/clients/:id/checkins', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireStaff(req, res); if (!ctx) return
     const id = parseInt(req.params.id, 10)
     if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
-    const { rows } = await pool.query(
-      'SELECT * FROM weekly_checkins WHERE user_id = $1 ORDER BY week_start DESC',
-      [id],
-    )
+    const { rows } = await pool.query(`
+      SELECT
+        fs.id, fs.template_id, fs.version_id, fs.user_id,
+        fs.answers, fs.submitted_at, fs.updated_at,
+        fs.reviewed_at, fs.reviewed_by, fs.coach_note, fs.due_at, fs.is_late,
+        fs.completed_at, fs.completed_by,
+        fs.ai_feedback, fs.ai_feedback_generated_at, fs.ai_feedback_generated_by,
+        ft.title  AS form_title,
+        ft.status AS form_status,
+        fv.version_num,
+        fv.schema AS version_schema,
+        reviewer.first_name    AS reviewed_by_name,
+        completer.first_name   AS completed_by_name,
+        ai_generator.first_name AS ai_feedback_generated_by_name
+      FROM form_submissions fs
+      JOIN form_templates ft ON ft.id = fs.template_id
+      JOIN form_versions  fv ON fv.id = fs.version_id
+      LEFT JOIN users reviewer     ON reviewer.id     = fs.reviewed_by
+      LEFT JOIN users completer    ON completer.id    = fs.completed_by
+      LEFT JOIN users ai_generator ON ai_generator.id = fs.ai_feedback_generated_by
+      WHERE fs.user_id = $1
+        AND ft.title ILIKE '%check%in%'
+      ORDER BY fs.submitted_at DESC
+    `, [id])
     res.json(rows)
   } catch (err) { next(err) }
 })
