@@ -3525,6 +3525,10 @@ router.get('/clients/:id/assessment', requireAuth(), async (req, res, next) => {
 })
 
 // PATCH /api/coach-admin/clients/:id/assessment — admin/coach can edit assessment
+// Upserts rather than plain UPDATE: the Health History section in ClientProfile.jsx
+// renders (and can now be edited) even for clients with no health_assessments row
+// yet, so a plain UPDATE would silently no-op for them. ON CONFLICT (user_id) covers
+// that — health_assessments.user_id is UNIQUE (server/db.js).
 router.patch('/clients/:id/assessment', requireAuth(), async (req, res, next) => {
   try {
     const ctx = await requireStaff(req, res); if (!ctx) return
@@ -3539,20 +3543,43 @@ router.patch('/clients/:id/assessment', requireAuth(), async (req, res, next) =>
       'stress_management', 'sleep_quality', 'daily_water', 'alcohol_weekdays', 'alcohol_weekends',
       'happiness_level', 'confidence_level', 'activity_level',
     ]
-    const setClauses = []
-    const params = []
+    const cols = ['user_id']
+    const params = [id]
     for (const f of fields) {
       if (req.body[f] !== undefined) {
+        cols.push(f)
         params.push(req.body[f])
-        setClauses.push(`${f} = $${params.length}`)
       }
     }
-    if (!setClauses.length) return res.json({ ok: true })
-    params.push(id)
+
+    // identity_traits lives on health_assessments as JSONB and is mirrored onto
+    // users.identity_anchors (TEXT[]) for display everywhere else in the app —
+    // see healthAssessment.js's onboarding sync. An admin edit here overrides
+    // unconditionally, unlike that onboarding backfill which only fills empty anchors.
+    const editingTraits = Array.isArray(req.body.identity_traits)
+    if (editingTraits) {
+      cols.push('identity_traits')
+      params.push(JSON.stringify(req.body.identity_traits))
+    }
+
+    if (cols.length === 1) return res.json({ ok: true })
+
+    const placeholders = cols.map((c, i) => c === 'identity_traits' ? `$${i + 1}::jsonb` : `$${i + 1}`)
+    const updateSet = cols.slice(1).map(c => `${c} = EXCLUDED.${c}`).join(', ')
     const { rows } = await pool.query(`
-      UPDATE health_assessments SET ${setClauses.join(', ')}, updated_at = NOW()
-      WHERE user_id = $${params.length} RETURNING *
+      INSERT INTO health_assessments (${cols.join(', ')})
+      VALUES (${placeholders.join(', ')})
+      ON CONFLICT (user_id) DO UPDATE SET ${updateSet}, updated_at = NOW()
+      RETURNING *
     `, params)
+
+    if (editingTraits) {
+      await pool.query(
+        `UPDATE users SET identity_anchors = ARRAY(SELECT jsonb_array_elements_text($1::jsonb)) WHERE id = $2`,
+        [JSON.stringify(req.body.identity_traits), id],
+      )
+    }
+
     res.json(rows[0] ?? null)
   } catch (err) { next(err) }
 })

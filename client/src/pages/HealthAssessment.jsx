@@ -43,7 +43,9 @@ const ACTIVITY_CARDS = [
 
 // ── Life Warrior identity traits ─────────────────────────────────────────────
 // Curated 8 — premium, concise, gender-neutral. User selects exactly 2.
-const IDENTITY_TRAITS = [
+// Exported so staff-facing views (e.g. ClientProfile.jsx's admin edit form) can
+// offer the exact same trait list rather than duplicating it out of sync.
+export const IDENTITY_TRAITS = [
   "Shows up when it's hard.",
   'Keeps small promises daily.',
   'Acts on imperfect plans.',
