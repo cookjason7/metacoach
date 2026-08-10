@@ -252,7 +252,7 @@ export async function sendInviteEmail({ to, firstName, inviteUrl }) {
               </tr>
             </table>
             <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.6;">
-              This invite expires in 24 hours. If the button doesn't work, copy this link:<br>
+              This invite expires in 72 hours. If the button doesn't work, copy this link:<br>
               <a href="${inviteUrl}" style="color:#f97316;word-break:break-all;">${inviteUrl}</a>
             </p>
           </td>
@@ -270,7 +270,7 @@ export async function sendInviteEmail({ to, firstName, inviteUrl }) {
 </body>
 </html>`
 
-  const text = `Welcome to WarriorFIT AI, ${firstName}!\n\nYou've been personally invited to join as a coaching client.\n\nSet up your account here:\n${inviteUrl}\n\nThis invite expires in 24 hours.`
+  const text = `Welcome to WarriorFIT AI, ${firstName}!\n\nYou've been personally invited to join as a coaching client.\n\nSet up your account here:\n${inviteUrl}\n\nThis invite expires in 72 hours.`
 
   try {
     const { error } = await resend.emails.send({
