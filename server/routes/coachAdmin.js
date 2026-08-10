@@ -122,6 +122,17 @@ async function requireStaffOrVa(req, res) {
   return ctx
 }
 
+// Admin or VA only — excludes plain 'coach'/'staff'. Client invites are restricted
+// to this set so coaches can no longer add clients on their own.
+async function requireAdminOrVa(req, res) {
+  const ctx = await getCurrentStaff(req)
+  if (!isAdminRole(ctx.role) && !isVaRole(ctx.role)) {
+    res.status(403).json({ error: 'Admin only' })
+    return null
+  }
+  return ctx
+}
+
 // Reduces a full client row down to what a 'va' account may see: identity +
 // coaching type/status + onboarding confirmation signals. Excludes payment,
 // coach assignment, adherence/engagement, and health-assessment detail.
@@ -769,7 +780,7 @@ router.post('/staff/invite', requireAuth(), async (req, res, next) => {
 
 router.post('/clients/invite', requireAuth(), async (req, res, next) => {
   try {
-    const ctx = await requireStaffOrVa(req, res); if (!ctx) return
+    const ctx = await requireAdminOrVa(req, res); if (!ctx) return
 
     const { first_name, last_name, email, phone, assigned_coach_id, coaching_type, notes } = req.body
 

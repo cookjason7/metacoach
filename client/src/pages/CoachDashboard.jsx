@@ -1787,7 +1787,7 @@ export default function CoachDashboard({ getToken, userRole }) {
 
   // ── Auto-open invite on ?invite=1 ───────────────────────────────────────────
   useEffect(() => {
-    if (searchParams.get('invite') === '1') {
+    if (searchParams.get('invite') === '1' && (isAdmin || isVa)) {
       setInviteOpen(true)
       const p = new URLSearchParams(searchParams)
       p.delete('invite')
@@ -2085,12 +2085,14 @@ export default function CoachDashboard({ getToken, userRole }) {
             {dataLoading ? 'Loading clients...' : `${filteredClients.length} shown · ${activeClients.length} active`}
           </p>
         </div>
-        <button
-          onClick={() => setInviteOpen(true)}
-          className="shrink-0 bg-[#E8670A] text-white px-3 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors min-h-[40px]"
-        >
-          + Add Client
-        </button>
+        {(isAdmin || isVa) && (
+          <button
+            onClick={() => setInviteOpen(true)}
+            className="shrink-0 bg-[#E8670A] text-white px-3 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors min-h-[40px]"
+          >
+            + Add Client
+          </button>
+        )}
       </div>
 
       {/* Invite modal */}
@@ -2152,12 +2154,14 @@ export default function CoachDashboard({ getToken, userRole }) {
               </p>
               <p className="text-[11px] text-purple-600 mt-0.5">Invited but not yet signed up</p>
             </div>
-            <button
-              onClick={() => setInviteOpen(true)}
-              className="text-xs font-semibold text-purple-700 hover:text-purple-900 border border-purple-200 rounded-lg px-3 py-1.5 hover:bg-purple-100 transition-colors"
-            >
-              + New Invite
-            </button>
+            {(isAdmin || isVa) && (
+              <button
+                onClick={() => setInviteOpen(true)}
+                className="text-xs font-semibold text-purple-700 hover:text-purple-900 border border-purple-200 rounded-lg px-3 py-1.5 hover:bg-purple-100 transition-colors"
+              >
+                + New Invite
+              </button>
+            )}
           </div>
           {pendingLoading ? (
             <p className="text-xs text-purple-400 px-4 py-3">Loading…</p>
