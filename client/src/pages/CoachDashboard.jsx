@@ -2719,17 +2719,21 @@ export default function CoachDashboard({ getToken, userRole }) {
         <AdminToolsPanel clients={clients} getToken={getToken} />
       )}
 
-      {/* Recent Activity — stacks below tabs on screens narrower than 2xl */}
-      <div className="2xl:hidden pt-2">
-        <RecentActivityRail loading={dataLoading} activity={activity} />
-      </div>
+      {/* Recent Activity — admin only; stacks below tabs on screens narrower than 2xl */}
+      {isAdmin && (
+        <div className="2xl:hidden pt-2">
+          <RecentActivityRail loading={dataLoading} activity={activity} />
+        </div>
+      )}
 
       </div>{/* ── end main column ── */}
 
-      {/* ── Right rail: Recent Activity (2xl+ only) ── */}
-      <aside className="hidden 2xl:flex flex-col w-64 flex-shrink-0 self-start sticky top-4 gap-0">
-        <RecentActivityRail loading={dataLoading} activity={activity} />
-      </aside>
+      {/* ── Right rail: Recent Activity (2xl+ only, admin only) ── */}
+      {isAdmin && (
+        <aside className="hidden 2xl:flex flex-col w-64 flex-shrink-0 self-start sticky top-4 gap-0">
+          <RecentActivityRail loading={dataLoading} activity={activity} />
+        </aside>
+      )}
 
       </div>{/* ── end flex body ── */}
 
