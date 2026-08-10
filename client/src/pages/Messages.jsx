@@ -273,6 +273,8 @@ export default function Messages() {
   const [loadingMsgs, setLoadingMsgs] = useState(false)
   const [sending,     setSending]     = useState(false)
   const scrollRef      = useRef(null)
+  const bottomRef      = useRef(null) // sentinel after the last message — scrollIntoView works regardless of which ancestor is the actual scrolling container (this panel's own overflow-y-auto, or the page itself on mobile)
+  const msgCountRef    = useRef(0)
   const didPrependRef  = useRef(false)
   const didAutoOpenRef = useRef(false)
   const fileInputRef   = useRef(null)  // camera
@@ -475,9 +477,11 @@ export default function Messages() {
     })
     if (res.ok) {
       const data = await res.json()
-      setMessages(data.messages ?? [])
+      const msgs = data.messages ?? []
+      setMessages(msgs)
       setHasMore(data.hasMore ?? false)
       setNextBeforeId(data.nextBeforeId ?? null)
+      msgCountRef.current = msgs.length
     }
     setLoadingMsgs(false)
   }, [active, getToken])
@@ -523,6 +527,7 @@ export default function Messages() {
           if (newOnes.length === 0) return prev
           const merged = [...prev, ...newOnes]
           merged.sort((a, b) => a.id - b.id)
+          msgCountRef.current = merged.length
           return merged
         })
         setHasMore(data.hasMore ?? false)
@@ -536,7 +541,9 @@ export default function Messages() {
 
   useEffect(() => {
     if (didPrependRef.current) { didPrependRef.current = false; return }
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    if (messages.length > 0 && messages.length >= msgCountRef.current) {
+      bottomRef.current?.scrollIntoView({ block: 'end' })
+    }
   }, [messages])
 
   async function send() {
@@ -891,7 +898,7 @@ export default function Messages() {
                                   autoFocus
                                   value={editText}
                                   onChange={e => setEditText(e.target.value)}
-                                  className="w-full min-w-[200px] text-sm text-gray-800 rounded-lg px-2 py-1.5 bg-white/95"
+                                  className="w-full min-w-[200px] text-base sm:text-sm text-gray-800 rounded-lg px-2 py-1.5 bg-white/95"
                                   rows={2}
                                 />
                                 <div className="flex items-center gap-2 justify-end">
@@ -964,6 +971,7 @@ export default function Messages() {
                       </div>
                     )
                   })}
+                  <div ref={bottomRef} />
                 </div>
 
                 {/* Reply box — hidden while viewing, not just disabled: server-side
@@ -1018,7 +1026,7 @@ export default function Messages() {
                           placeholder="Type a message…"
                           rows={3}
                           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-                          className="flex-1 min-w-0 min-h-[84px] max-h-36 border border-gray-300 rounded-lg px-3 py-2 text-sm leading-5 focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none overflow-y-auto"
+                          className="flex-1 min-w-0 min-h-[84px] max-h-36 border border-gray-300 rounded-lg px-3 py-2 text-base sm:text-sm leading-5 focus:outline-none focus:ring-2 focus:ring-[#E8670A] resize-none overflow-y-auto"
                         />
                         <button
                           onClick={send}
