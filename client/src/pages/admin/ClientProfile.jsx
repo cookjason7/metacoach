@@ -3131,8 +3131,6 @@ function ProgressTab({ clientId, clientName, getToken, role }) {
     : overallWtChange > 0 ? 'text-red-500'
     : 'text-gray-900'
 
-  const wc = s.weight_change
-  const wtColor = wc == null ? 'text-gray-900' : wc < 0 ? 'text-emerald-600' : wc > 0 ? 'text-red-500' : 'text-gray-900'
   const rangeLabel = range === 'custom'
     ? `${effectiveStart} to ${effectiveEnd}`
     : range.charAt(0).toUpperCase() + range.slice(1)
@@ -3340,12 +3338,6 @@ function ProgressTab({ clientId, clientName, getToken, role }) {
           )}
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <SummaryCard
-              label="Weight change"
-              value={wc != null ? `${wc > 0 ? '+' : ''}${wc} lbs` : '—'}
-              sub={rangeLabel}
-              color={wtColor}
-            />
             <SummaryCard
               label="Avg calories"
               value={s.avg_calories ? `${Number(s.avg_calories).toLocaleString()} kcal` : '—'}
