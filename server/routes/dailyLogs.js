@@ -92,6 +92,7 @@ router.get('/progress', requireAuth(), async (req, res, next) => {
              ORDER BY logged_date DESC LIMIT 1) AS weight_current,
           (SELECT goal_calories    FROM users WHERE id=$1) AS goal_calories,
           (SELECT goal_protein     FROM users WHERE id=$1) AS goal_protein,
+          (SELECT goal_carbs       FROM users WHERE id=$1) AS goal_carbs,
           (SELECT starting_weight_lbs FROM users WHERE id=$1) AS starting_weight_lbs,
           (SELECT ROUND(AVG(dc)) FROM
              (SELECT SUM(calories) dc FROM meals WHERE user_id=$1
@@ -99,6 +100,9 @@ router.get('/progress', requireAuth(), async (req, res, next) => {
           (SELECT ROUND(AVG(dp)::numeric,1) FROM
              (SELECT SUM(protein) dp FROM meals WHERE user_id=$1
                 AND ${md} BETWEEN $2::date AND $3::date GROUP BY ${md}) t) AS avg_protein,
+          (SELECT ROUND(AVG(dcb)::numeric,1) FROM
+             (SELECT SUM(carbs) dcb FROM meals WHERE user_id=$1
+                AND ${md} BETWEEN $2::date AND $3::date GROUP BY ${md}) t) AS avg_carbs,
           (SELECT ROUND(AVG(steps)) FROM daily_logs WHERE user_id=$1
              AND steps IS NOT NULL AND logged_date BETWEEN $2::date AND $3::date) AS avg_steps,
           (SELECT ROUND(AVG(water_oz)::numeric,1) FROM daily_logs WHERE user_id=$1
@@ -143,6 +147,7 @@ router.get('/progress', requireAuth(), async (req, res, next) => {
         SELECT ${md} AS date,
           ROUND(SUM(calories)) AS calories,
           ROUND(SUM(protein)::numeric,1) AS protein,
+          ROUND(SUM(carbs)::numeric,1) AS carbs,
           ROUND(COALESCE(SUM((micronutrients->>'sodium_mg')::numeric),0)) AS sodium_mg
         FROM meals WHERE user_id=$1 AND ${md} BETWEEN $2::date AND $3::date
         GROUP BY ${md} ORDER BY ${md}
