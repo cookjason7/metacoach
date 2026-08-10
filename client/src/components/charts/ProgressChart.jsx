@@ -291,8 +291,8 @@ export function ChartCard({
         <>
           {!data2 && (
             <div className="flex justify-between text-[10px] text-gray-400 mb-0.5">
-              <span>{fmtVal ? fmtVal(Math.min(...values)) : fmtNum(Math.min(...values))}</span>
-              <span>{fmtVal ? fmtVal(Math.max(...values)) : fmtNum(Math.max(...values))}</span>
+              <span>{fmtVal ? fmtVal(values[0]) : fmtNum(values[0])}</span>
+              <span>{fmtVal ? fmtVal(values[values.length - 1]) : fmtNum(values[values.length - 1])}</span>
             </div>
           )}
           <Sparkline data={chartData} data2={chartData2} goalValue={goalValue} color={color} color2={color2} />
