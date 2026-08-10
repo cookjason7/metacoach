@@ -2564,15 +2564,19 @@ export default function CoachDashboard({ getToken, userRole }) {
                                 className="mr-1 align-middle"
                                 onClick={e => { e.stopPropagation(); setMessageClient({ id: c.id, name: clientName(c) }) }}
                               />
-                              {c.client_status === 'deactivated' ? (
-                                <button onClick={e => reactivateClient(e, c.id)}
-                                  className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold mr-2">Reactivate</button>
-                              ) : (
-                                <button onClick={e => deactivateClient(e, c.id)}
-                                  className="text-xs text-gray-500 hover:text-gray-700 font-medium mr-2">Deactivate</button>
+                              {isAdmin && (
+                                <>
+                                  {c.client_status === 'deactivated' ? (
+                                    <button onClick={e => reactivateClient(e, c.id)}
+                                      className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold mr-2">Reactivate</button>
+                                  ) : (
+                                    <button onClick={e => deactivateClient(e, c.id)}
+                                      className="text-xs text-gray-500 hover:text-gray-700 font-medium mr-2">Deactivate</button>
+                                  )}
+                                  <button onClick={e => deleteClient(e, c.id, c.first_name ?? 'this client')}
+                                    className="text-xs text-red-400 hover:text-red-600 font-medium">Delete</button>
+                                </>
                               )}
-                              <button onClick={e => deleteClient(e, c.id, c.first_name ?? 'this client')}
-                                className="text-xs text-red-400 hover:text-red-600 font-medium">Delete</button>
                             </>
                           )}
                         </td>
@@ -2691,12 +2695,16 @@ export default function CoachDashboard({ getToken, userRole }) {
                               className="min-w-[44px] min-h-[44px]"
                               onClick={e => { e.stopPropagation(); setMessageClient({ id: c.id, name: clientName(c) }) }}
                             />
-                            {c.client_status === 'deactivated'
-                              ? <button type="button" onClick={e => reactivateClient(e, c.id)} className="text-[11px] text-emerald-600 hover:text-emerald-700 font-semibold min-h-[44px] px-1">Reactivate</button>
-                              : <button type="button" onClick={e => deactivateClient(e, c.id)} className="text-[11px] text-gray-500 hover:text-gray-700 font-medium min-h-[44px] px-1">Deactivate</button>
-                            }
-                            <button type="button" onClick={e => deleteClient(e, c.id, c.first_name ?? 'this client')}
-                              className="text-[11px] text-red-400 hover:text-red-600 font-medium min-h-[44px] px-1">Delete</button>
+                            {isAdmin && (
+                              <>
+                                {c.client_status === 'deactivated'
+                                  ? <button type="button" onClick={e => reactivateClient(e, c.id)} className="text-[11px] text-emerald-600 hover:text-emerald-700 font-semibold min-h-[44px] px-1">Reactivate</button>
+                                  : <button type="button" onClick={e => deactivateClient(e, c.id)} className="text-[11px] text-gray-500 hover:text-gray-700 font-medium min-h-[44px] px-1">Deactivate</button>
+                                }
+                                <button type="button" onClick={e => deleteClient(e, c.id, c.first_name ?? 'this client')}
+                                  className="text-[11px] text-red-400 hover:text-red-600 font-medium min-h-[44px] px-1">Delete</button>
+                              </>
+                            )}
                           </div>
                         )}
                       </div>
