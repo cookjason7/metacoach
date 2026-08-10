@@ -771,7 +771,9 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
         const fresh = data.messages ?? []
         setMessages(prev => {
           const ids = new Set(prev.map(m => m.id))
-          const merged = [...prev, ...fresh.filter(m => !ids.has(m.id))]
+          const newOnes = fresh.filter(m => !ids.has(m.id))
+          if (newOnes.length === 0) return prev
+          const merged = [...prev, ...newOnes]
           merged.sort((a, b) => a.id - b.id)
           msgCountRef.current = merged.length
           return merged
