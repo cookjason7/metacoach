@@ -4472,7 +4472,7 @@ function PinnedFormPanel({ submission, getToken, onUnpin, onChange }) {
           ✕
         </button>
       </div>
-      <div className="p-4 overflow-y-auto">
+      <div className="flex-1 min-h-0 p-4 overflow-y-auto">
         <FormSubmissionDetail sub={submission} getToken={getToken} onChange={onChange} />
       </div>
     </div>
