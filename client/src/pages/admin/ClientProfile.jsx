@@ -3589,13 +3589,14 @@ function ProgressTab({ clientId, clientName, getToken, role }) {
                 </p>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-xs min-w-[860px]">
+                <table className="w-full text-xs min-w-[920px]">
                   <thead>
                     <tr className="bg-gray-50 text-gray-500 text-[10px] uppercase tracking-wide">
                       <th className="px-3 py-2 text-left font-semibold sticky left-0 bg-gray-50">Period</th>
                       <th className="px-2 py-2 text-right font-semibold">Weight</th>
                       <th className="px-2 py-2 text-right font-semibold">Calories</th>
                       <th className="px-2 py-2 text-right font-semibold">Protein</th>
+                      <th className="px-2 py-2 text-right font-semibold">Carbs</th>
                       <th className="px-2 py-2 text-right font-semibold">Fats</th>
                       <th className="px-2 py-2 text-right font-semibold">Fiber</th>
                       <th className="px-2 py-2 text-right font-semibold">Sodium</th>
@@ -3631,6 +3632,7 @@ function ProgressTab({ clientId, clientName, getToken, role }) {
                           </td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums font-medium">{r.calories  ? Number(r.calories).toLocaleString()          : '—'}</td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.protein   ? `${r.protein}g`                                         : '—'}</td>
+                          <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.carbs     ? `${r.carbs}g`                                           : '—'}</td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.fat       ? `${r.fat}g`                                             : '—'}</td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.fiber     ? `${r.fiber}g`                                           : '—'}</td>
                           <td className="px-2 py-2 text-right text-gray-600 tabular-nums">{r.sodium_mg ? `${Number(r.sodium_mg).toLocaleString()}mg`             : '—'}</td>
