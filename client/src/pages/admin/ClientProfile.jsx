@@ -11,7 +11,7 @@ import LinkifiedText from '../../components/LinkifiedText.jsx'
 import ExerciseThumb from '../../components/ExerciseThumb.jsx'
 import { Sparkline, ChartCard } from '../../components/charts/ProgressChart.jsx'
 import { SECTION_PRESETS, buildGroups, sectionOrderFor, groupLabelFor, GROUP_TYPE_META } from '../../utils/workoutGrouping.js'
-import { SLEEP_HOURS_OPTIONS, WATER_OPTIONS } from '../HealthAssessment.jsx'
+import { SLEEP_HOURS_OPTIONS, WATER_OPTIONS, IDENTITY_TRAITS } from '../HealthAssessment.jsx'
 
 // Display-only: "Day 1" -> "Day 1 Workout". Sequential day labels are the stored
 // identifier (used to match exercises/schedules); this never touches that value.
@@ -145,6 +145,14 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
   const [saveError, setSaveError] = useState(null)
   const [activating, setActivating] = useState(false)
   const [activateError, setActivateError] = useState(null)
+
+  // ── Health History (Goals & Identity / Health & Limitations / Lifestyle) edit ──
+  const [assessmentEditing, setAssessmentEditing]     = useState(false)
+  const [assessmentForm, setAssessmentForm]           = useState(null)
+  const [assessmentSaving, setAssessmentSaving]       = useState(false)
+  const [assessmentSaved, setAssessmentSaved]         = useState(false)
+  const [assessmentSaveError, setAssessmentSaveError] = useState(null)
+
   const startDateInitial =
     client.start_date ? String(client.start_date).slice(0, 10) :
     client.effective_start_date ? String(client.effective_start_date).slice(0, 10) : ''
@@ -239,6 +247,121 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
       setActivateError(err.message)
     } finally {
       setActivating(false)
+    }
+  }
+
+  // Snapshot of the client's current Health History answers, in the same string-
+  // typed shape the form inputs bind to. Rebuilt fresh at edit-start (not memoized)
+  // so it always reflects the latest `client` prop, and reused as the "before" side
+  // of the diff in saveAssessment() so only actually-changed fields get PATCHed.
+  function buildAssessmentForm() {
+    return {
+      goals_6_months:       client.assessment_goals_6_months       ?? '',
+      identity_traits:      client.identity_anchors ?? [],
+      injuries_limitations: client.assessment_injuries_limitations ?? '',
+      supplements:          client.assessment_supplements          ?? '',
+      occupation:           client.assessment_occupation           ?? '',
+      num_kids:             client.assessment_num_kids          != null ? String(client.assessment_num_kids)          : '',
+      energy_level:         client.assessment_energy_level      != null ? String(client.assessment_energy_level)      : '',
+      sleep_hours:          client.assessment_sleep_hours          ?? '',
+      sleep_quality:        client.assessment_sleep_quality     != null ? String(client.assessment_sleep_quality)     : '',
+      stress_management:    client.assessment_stress_management != null ? String(client.assessment_stress_management) : '',
+      daily_water:          client.assessment_daily_water          ?? '',
+      alcohol_weekdays:     client.assessment_alcohol_weekdays  != null ? String(client.assessment_alcohol_weekdays)  : '',
+      alcohol_weekends:     client.assessment_alcohol_weekends  != null ? String(client.assessment_alcohol_weekends)  : '',
+      happiness_level:      client.assessment_happiness_level   != null ? String(client.assessment_happiness_level)   : '',
+      confidence_level:     client.assessment_confidence_level  != null ? String(client.assessment_confidence_level)  : '',
+    }
+  }
+
+  function startAssessmentEdit() {
+    setAssessmentForm(buildAssessmentForm())
+    setAssessmentSaveError(null)
+    setAssessmentEditing(true)
+  }
+
+  function cancelAssessmentEdit() {
+    setAssessmentEditing(false)
+    setAssessmentForm(null)
+    setAssessmentSaveError(null)
+  }
+
+  function setAssessmentField(key, value) {
+    setAssessmentForm(f => ({ ...f, [key]: value }))
+  }
+
+  function toggleIdentityTrait(trait) {
+    setAssessmentForm(f => {
+      if (f.identity_traits.includes(trait)) {
+        return { ...f, identity_traits: f.identity_traits.filter(t => t !== trait) }
+      }
+      if (f.identity_traits.length >= 2) return f
+      return { ...f, identity_traits: [...f.identity_traits, trait] }
+    })
+  }
+
+  // Fields whose column is INTEGER — everything else in ASSESSMENT_FIELD_GROUPS
+  // (identity_traits handled separately below) is TEXT and sent as-is.
+  const ASSESSMENT_NUMERIC_FIELDS = [
+    'num_kids', 'energy_level', 'sleep_quality', 'stress_management',
+    'alcohol_weekdays', 'alcohol_weekends', 'happiness_level', 'confidence_level',
+  ]
+
+  async function saveAssessment() {
+    const initial = buildAssessmentForm()
+    const payload = {}
+
+    const initialTraits = [...initial.identity_traits].sort()
+    const formTraits     = [...assessmentForm.identity_traits].sort()
+    if (JSON.stringify(initialTraits) !== JSON.stringify(formTraits)) {
+      payload.identity_traits = assessmentForm.identity_traits
+    }
+
+    for (const key of Object.keys(assessmentForm)) {
+      if (key === 'identity_traits') continue
+      if (assessmentForm[key] === initial[key]) continue
+      if (ASSESSMENT_NUMERIC_FIELDS.includes(key)) {
+        payload[key] = assessmentForm[key] === '' ? null : Number(assessmentForm[key])
+      } else {
+        payload[key] = assessmentForm[key] === '' ? null : assessmentForm[key]
+      }
+    }
+
+    if (!Object.keys(payload).length) {
+      setAssessmentEditing(false)
+      setAssessmentForm(null)
+      return
+    }
+
+    setAssessmentSaving(true)
+    setAssessmentSaveError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/${client.id}/assessment`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error ?? `Server ${res.status}`)
+      }
+
+      const updates = {}
+      for (const key of Object.keys(payload)) {
+        if (key === 'identity_traits') { updates.identity_anchors = payload.identity_traits; continue }
+        updates[`assessment_${key}`] = payload[key]
+      }
+      onUpdate(updates)
+
+      setAssessmentEditing(false)
+      setAssessmentForm(null)
+      setAssessmentSaved(true)
+      setTimeout(() => setAssessmentSaved(false), 2500)
+    } catch (err) {
+      setAssessmentSaveError(err.message)
+    } finally {
+      setAssessmentSaving(false)
     }
   }
 
@@ -387,9 +510,35 @@ function OverviewTab({ client, role, getToken, onUpdate }) {
                 <InfoRow label="Client status"   value={(() => { const s = client.client_status ?? 'active'; return s.charAt(0).toUpperCase() + s.slice(1) })()} />
                 <InfoRow label="Role"            value={client.role} />
               </div>
-              <InfoSection title="Goals & Identity" fields={goalsFields} />
-              <InfoSection title="Health & Limitations" fields={healthFields} />
-              <InfoSection title="Lifestyle" fields={lifestyleFields} />
+              {role === 'admin' && !assessmentEditing && (
+                <div className="flex justify-end mt-3">
+                  <button
+                    type="button"
+                    onClick={startAssessmentEdit}
+                    className="text-xs text-[#E8670A] hover:text-[#c45e09] font-medium"
+                  >
+                    Edit Health History
+                  </button>
+                </div>
+              )}
+              {assessmentEditing ? (
+                <AssessmentEditForm
+                  form={assessmentForm}
+                  onFieldChange={setAssessmentField}
+                  onToggleTrait={toggleIdentityTrait}
+                  onSave={saveAssessment}
+                  onCancel={cancelAssessmentEdit}
+                  saving={assessmentSaving}
+                  saveError={assessmentSaveError}
+                />
+              ) : (
+                <>
+                  <InfoSection title="Goals & Identity" fields={goalsFields} />
+                  <InfoSection title="Health & Limitations" fields={healthFields} />
+                  <InfoSection title="Lifestyle" fields={lifestyleFields} />
+                  {assessmentSaved && <p className="text-xs font-medium text-emerald-600 mt-2">Saved.</p>}
+                </>
+              )}
               </>
             )
           })()
@@ -816,6 +965,180 @@ function InfoSection({ title, fields }) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// Low/high anchor labels for the 1-5 rating fields, matching the RatingSelect
+// captions on the client-facing HealthAssessment.jsx form exactly.
+const RATING_LABELS = {
+  energy_level:      { low: 'Exhausted',    high: 'Energized' },
+  sleep_quality:      { low: 'Restless',    high: 'Refreshing' },
+  stress_management:  { low: 'Overwhelmed', high: 'Very well' },
+  happiness_level:    { low: 'Struggling',  high: 'Thriving' },
+  confidence_level:   { low: 'Very low',    high: 'Very high' },
+}
+
+// Editable counterpart to goalsFields/healthFields/lifestyleFields above — same
+// three topic groups and question text, but with input type metadata so
+// AssessmentEditForm knows how to render each one. Option-set/rating fields use
+// the exact same value sets as the client-facing onboarding form (SLEEP_HOURS_OPTIONS,
+// WATER_OPTIONS, IDENTITY_TRAITS, 1-5 ratings) so admin edits stay consistent with it.
+const ASSESSMENT_FIELD_GROUPS = [
+  {
+    title: 'Goals & Identity',
+    fields: [
+      { key: 'goals_6_months',  label: 'Your #1 goal in the next 6 months', type: 'textarea' },
+      { key: 'identity_traits', label: "Choose 2 traits that feel most true to who you're becoming.", type: 'traits' },
+    ],
+  },
+  {
+    title: 'Health & Limitations',
+    fields: [
+      { key: 'injuries_limitations', label: 'Injuries or physical limitations', type: 'textarea' },
+      { key: 'supplements',          label: 'Current supplements',              type: 'textarea' },
+    ],
+  },
+  {
+    title: 'Lifestyle',
+    fields: [
+      { key: 'occupation',        label: 'Occupation',                                      type: 'text' },
+      { key: 'num_kids',          label: 'Number of kids',                                  type: 'number' },
+      { key: 'energy_level',      label: 'How would you rate your typical energy level?',   type: 'rating' },
+      { key: 'sleep_hours',       label: 'How many hours of sleep do you get most nights?', type: 'options', options: SLEEP_HOURS_OPTIONS },
+      { key: 'sleep_quality',     label: 'Rate your sleep quality',                         type: 'rating' },
+      { key: 'stress_management', label: 'How well do you manage stress?',                  type: 'rating' },
+      { key: 'daily_water',       label: 'How much water do you drink daily?',              type: 'options', options: WATER_OPTIONS },
+      { key: 'alcohol_weekdays',  label: 'Alcoholic drinks per weekday',                     type: 'number' },
+      { key: 'alcohol_weekends',  label: 'Alcoholic drinks per weekend day',                 type: 'number' },
+      { key: 'happiness_level',   label: 'Rate your overall happiness',                      type: 'rating' },
+      { key: 'confidence_level',  label: 'Rate your self-confidence',                        type: 'rating' },
+    ],
+  },
+]
+
+// Admin-only edit form for the Goals & Identity / Health & Limitations / Lifestyle
+// InfoSections above. Renders every field from ASSESSMENT_FIELD_GROUPS as a bound
+// input; the parent (OverviewTab) owns the form state and diffs/saves it via PATCH
+// /api/coach-admin/clients/:id/assessment.
+function AssessmentEditForm({ form, onFieldChange, onToggleTrait, onSave, onCancel, saving, saveError }) {
+  return (
+    <div className="border border-gray-200 rounded-lg overflow-hidden mt-3">
+      <div className="px-3 py-2.5 bg-gray-50">
+        <p className="text-xs font-semibold text-gray-700">Edit Health History</p>
+      </div>
+      <div className="p-3 space-y-4">
+        {ASSESSMENT_FIELD_GROUPS.map(group => (
+          <div key={group.title}>
+            <p className="text-xs font-semibold text-gray-500 mb-2">{group.title}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {group.fields.map(f => (
+                <div key={f.key} className={f.type === 'textarea' || f.type === 'traits' ? 'sm:col-span-2' : ''}>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{f.label}</label>
+
+                  {f.type === 'textarea' && (
+                    <textarea
+                      value={form[f.key]}
+                      onChange={e => onFieldChange(f.key, e.target.value)}
+                      rows={3}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none"
+                    />
+                  )}
+
+                  {f.type === 'text' && (
+                    <input
+                      type="text"
+                      value={form[f.key]}
+                      onChange={e => onFieldChange(f.key, e.target.value)}
+                      className="w-full min-h-[44px] border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    />
+                  )}
+
+                  {f.type === 'number' && (
+                    <input
+                      type="number" min="0" step="1"
+                      value={form[f.key]}
+                      onChange={e => onFieldChange(f.key, e.target.value)}
+                      className="w-full min-h-[44px] border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    />
+                  )}
+
+                  {f.type === 'rating' && (
+                    <>
+                      <select
+                        value={form[f.key]}
+                        onChange={e => onFieldChange(f.key, e.target.value)}
+                        className="w-full min-h-[44px] border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                      >
+                        <option value="">—</option>
+                        {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n}</option>)}
+                      </select>
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        {RATING_LABELS[f.key].low} (1) — {RATING_LABELS[f.key].high} (5)
+                      </p>
+                    </>
+                  )}
+
+                  {f.type === 'options' && (
+                    <select
+                      value={form[f.key]}
+                      onChange={e => onFieldChange(f.key, e.target.value)}
+                      className="w-full min-h-[44px] border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                    >
+                      <option value="">—</option>
+                      {f.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  )}
+
+                  {f.type === 'traits' && (
+                    <div className="flex flex-wrap gap-2">
+                      {IDENTITY_TRAITS.map(trait => {
+                        const selected = form.identity_traits.includes(trait)
+                        const disabled = !selected && form.identity_traits.length >= 2
+                        return (
+                          <button
+                            key={trait}
+                            type="button"
+                            onClick={() => onToggleTrait(trait)}
+                            disabled={disabled}
+                            className={`text-xs px-3 py-2 min-h-[44px] rounded-lg border text-left transition-colors ${
+                              selected
+                                ? 'bg-[#1e2a3a] border-[#1e2a3a] text-white'
+                                : disabled
+                                ? 'bg-gray-50 border-gray-200 text-gray-300 cursor-not-allowed'
+                                : 'bg-white border-gray-300 text-gray-700 hover:border-[#E8670A]'
+                            }`}
+                          >
+                            {trait}
+                          </button>
+                        )
+                      })}
+                      <p className="text-[10px] text-gray-400 w-full mt-1">{form.identity_traits.length}/2 selected</p>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={onSave}
+            disabled={saving}
+            className="bg-[#E8670A] text-white px-5 py-2 min-h-[44px] rounded-lg text-xs font-semibold hover:bg-[#c45e09] disabled:opacity-60"
+          >
+            {saving ? 'Saving...' : 'Save changes'}
+          </button>
+          <button
+            onClick={onCancel}
+            disabled={saving}
+            className="text-xs text-gray-500 px-3 py-2 min-h-[44px] disabled:opacity-60"
+          >
+            Cancel
+          </button>
+        </div>
+        {saveError && <p className="text-xs text-red-500">{saveError}</p>}
+      </div>
     </div>
   )
 }
