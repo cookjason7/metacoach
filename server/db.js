@@ -1429,15 +1429,15 @@ export async function migrate() {
       invited_by            INTEGER REFERENCES users(id) ON DELETE SET NULL,
       coaching_type         TEXT NOT NULL DEFAULT 'vip',
       created_at            TIMESTAMPTZ DEFAULT NOW(),
-      expires_at            TIMESTAMPTZ DEFAULT NOW() + INTERVAL '24 hours',
+      expires_at            TIMESTAMPTZ DEFAULT NOW() + INTERVAL '72 hours',
       accepted_at           TIMESTAMPTZ,
       accepted_by_user_id   INTEGER REFERENCES users(id) ON DELETE SET NULL
     )
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_invites_email ON client_invites (LOWER(email))`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_invites_token ON client_invites (token)`)
-  // Migration: shorten invite expiry from 30 days to 24 hours (idempotent)
-  await pool.query(`ALTER TABLE client_invites ALTER COLUMN expires_at SET DEFAULT NOW() + INTERVAL '24 hours'`)
+  // Migration: extend invite expiry from 24 hours to 72 hours (idempotent)
+  await pool.query(`ALTER TABLE client_invites ALTER COLUMN expires_at SET DEFAULT NOW() + INTERVAL '72 hours'`)
   // org_id: which org this client is being invited INTO — moved below
   // runMigrations() — see the block after that call. Depends on both
   // organizations(id) (the FK target) and users.org_id (read in the backfill's
@@ -1460,13 +1460,17 @@ export async function migrate() {
       role                TEXT NOT NULL DEFAULT 'coach' CHECK (role IN ('coach', 'admin')),
       invited_by          INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at          TIMESTAMPTZ DEFAULT NOW(),
-      expires_at          TIMESTAMPTZ DEFAULT NOW() + INTERVAL '24 hours',
+      expires_at          TIMESTAMPTZ DEFAULT NOW() + INTERVAL '72 hours',
       accepted_at         TIMESTAMPTZ,
       accepted_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
     )
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_staff_invites_email ON staff_invites (LOWER(email))`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_staff_invites_token ON staff_invites (token)`)
+  // Migration: extend invite expiry from 24 hours to 72 hours (idempotent) —
+  // mirrors the client_invites migration above; CREATE TABLE IF NOT EXISTS is a
+  // no-op on installations where staff_invites already exists.
+  await pool.query(`ALTER TABLE staff_invites ALTER COLUMN expires_at SET DEFAULT NOW() + INTERVAL '72 hours'`)
   // Widen staff_invites.role CHECK to add 'va' — client onboarding/transition
   // staff role, scoped narrowly in server/routes/coachAdmin.js.
   await pool.query(`
