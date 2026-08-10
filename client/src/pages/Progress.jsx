@@ -454,6 +454,7 @@ export default function Progress() {
   function renderDetail() {
     const caloriesSeries = data?.macro_series?.map(d => ({ date: d.date, value: d.calories }))
     const proteinSeries  = data?.macro_series?.map(d => ({ date: d.date, value: d.protein  }))
+    const carbsSeries    = data?.macro_series?.map(d => ({ date: d.date, value: d.carbs    }))
 
     switch (selectedMetric) {
       case 'weight':
@@ -507,6 +508,14 @@ export default function Progress() {
             fmtVal={v => `${v}g`}
             rangeStart={effectiveStart} rangeEnd={effectiveEnd} />
         )
+      case 'carbs':
+        return (
+          <ChartCard title="Carbs (g)" data={carbsSeries}
+            goalValue={s.goal_carbs || null}
+            goalLabel={s.goal_carbs ? `${s.goal_carbs}g` : null}
+            fmtVal={v => `${v}g`}
+            rangeStart={effectiveStart} rangeEnd={effectiveEnd} />
+        )
       case 'water':
         return <ChartCard title="Water (oz)" data={data?.water_series} fmtVal={v => `${v} oz`}
           rangeStart={effectiveStart} rangeEnd={effectiveEnd} quickLogMetric="water" />
@@ -549,7 +558,7 @@ export default function Progress() {
 
   const DETAIL_LABELS = {
     weight: 'Weight', steps: 'Steps', calories_burned: 'Calories Burned', sleep: 'Sleep',
-    calories: 'Calories', protein: 'Protein', water: 'Water',
+    calories: 'Calories', protein: 'Protein', carbs: 'Carbs', water: 'Water',
     activity: 'Activity', measurements: 'Measurements', photos: 'Progress Photos',
   }
 
@@ -647,6 +656,12 @@ export default function Progress() {
                   value={s.avg_protein != null ? `${s.avg_protein}g` : null}
                   sub={s.goal_protein ? `Goal: ${s.goal_protein}g` : 'avg / day'}
                   onClick={() => setSelectedMetric('protein')}
+                />
+                <MetricCard
+                  label="Carbs"
+                  value={s.avg_carbs != null ? `${s.avg_carbs}g` : null}
+                  sub={s.goal_carbs ? `Goal: ${s.goal_carbs}g` : 'avg / day'}
+                  onClick={() => setSelectedMetric('carbs')}
                 />
                 <MetricCard
                   label="Water"

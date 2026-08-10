@@ -3164,6 +3164,7 @@ function ProgressTab({ clientId, clientName, getToken, role }) {
   // Progress page uses for its calories/protein detail cards).
   const caloriesSeries = mac.map(d => ({ date: d.date, value: d.calories }))
   const proteinSeries  = mac.map(d => ({ date: d.date, value: d.protein }))
+  const carbsSeries    = mac.map(d => ({ date: d.date, value: d.carbs }))
 
   async function deleteProgressPhoto(photoId) {
     if (!window.confirm('Delete this progress photo? This cannot be undone.')) return
@@ -3369,6 +3370,9 @@ function ProgressTab({ clientId, clientName, getToken, role }) {
             <ChartCard title="Daily Steps" data={stp} fmtVal={v => Number(v).toLocaleString()}
               rangeStart={effectiveStart} rangeEnd={effectiveEnd} dense={isDailyRange} />
             <ChartCard title="Sleep (hrs)" data={slpHrs} color="#6366f1" fmtVal={v => `${v}h`}
+              rangeStart={effectiveStart} rangeEnd={effectiveEnd} dense={isDailyRange} />
+            <ChartCard title="Carbs (g)" data={carbsSeries} color="#f59e0b" fmtVal={v => `${v}g`}
+              goalValue={goalCarbs} goalLabel={goalCarbs ? `${goalCarbs}g` : null}
               rangeStart={effectiveStart} rangeEnd={effectiveEnd} dense={isDailyRange} />
             <ChartCard title="Water (oz)" data={wat} fmtVal={v => `${v} oz`}
               rangeStart={effectiveStart} rangeEnd={effectiveEnd} dense={isDailyRange} className="sm:col-span-2" />
