@@ -1971,6 +1971,72 @@ router.get('/clients/:id/meals', requireAuth(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// GET /api/coach-admin/clients/:id/custom-foods — custom foods a coach/admin has
+// created on this client's behalf (plus global foods, same shape as customFoods.js)
+router.get('/clients/:id/custom-foods', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+
+    const { rows } = await pool.query(
+      `SELECT * FROM custom_foods
+       WHERE is_global = TRUE OR user_id = $1
+       ORDER BY is_global DESC, food_name ASC`,
+      [id],
+    )
+    res.json(rows)
+  } catch (err) { next(err) }
+})
+
+// POST /api/coach-admin/clients/:id/custom-foods — coach/admin creates a custom
+// food on behalf of a client. Same field set/validation as customFoods.js's own
+// POST /, but the row is attributed to the client (user_id) while tracking who
+// actually created it (created_by, is_coach_food) and skips the client review
+// queue since a staff member is creating it directly.
+router.post('/clients/:id/custom-foods', requireAuth(), async (req, res, next) => {
+  try {
+    const ctx = await requireStaff(req, res); if (!ctx) return
+    const id = parseInt(req.params.id, 10)
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid id' })
+    if (!await canAccessClient(ctx, id)) return res.status(403).json({ error: 'Forbidden' })
+
+    const {
+      food_name, calories_per_serving, protein, carbs, fat, fiber,
+      sugar, sodium_mg, serving_size, serving_unit, barcode,
+    } = req.body
+
+    if (!food_name?.trim()) return res.status(400).json({ error: 'Food name required' })
+
+    const cleanBarcode = barcode?.toString().replace(/\D/g, '').trim() || null
+
+    const { rows } = await pool.query(
+      `INSERT INTO custom_foods
+         (user_id, is_global, food_name, calories_per_serving, protein, carbs, fat, fiber, sugar, sodium_mg, serving_size, serving_unit, barcode, review_status, org_id, created_by, is_coach_food)
+       VALUES ($1, FALSE, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'approved', $13, $14, TRUE)
+       RETURNING *`,
+      [
+        id,
+        food_name.trim(),
+        calories_per_serving ?? null,
+        protein   ?? null,
+        carbs     ?? null,
+        fat       ?? null,
+        fiber     ?? null,
+        sugar     ?? null,
+        sodium_mg ?? null,
+        serving_size  ?? 100,
+        serving_unit  ?? 'g',
+        cleanBarcode,
+        ctx.orgId,
+        ctx.dbUserId,
+      ],
+    )
+    res.status(201).json(rows[0])
+  } catch (err) { next(err) }
+})
+
 // POST /api/coach-admin/clients/:id/meal-comments — coach leaves a comment on a meal
 router.post('/clients/:id/meal-comments', requireAuth(), async (req, res, next) => {
   try {
