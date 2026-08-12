@@ -2186,7 +2186,10 @@ function NutritionTab({ client, clientId, getToken, onUpdate }) {
       {/* 5. Food Log */}
       <FoodLogSection clientId={clientId} date={date} getToken={getToken} />
 
-      {/* 6. 7-Day Averages */}
+      {/* 6. Custom Foods */}
+      <CustomFoodsSection clientId={clientId} getToken={getToken} />
+
+      {/* 7. 7-Day Averages */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <h3 className="text-sm font-semibold text-gray-900 mb-3">7-Day Averages</h3>
         {loading ? <p className="text-xs text-gray-400">Loading…</p> : (
@@ -2202,6 +2205,170 @@ function NutritionTab({ client, clientId, getToken, onUpdate }) {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// ─── Custom Foods (coach/admin creates a food on the client's behalf) ─────────
+
+const EMPTY_CLIENT_FOOD = {
+  food_name: '', calories_per_serving: '', protein: '', carbs: '', fat: '', fiber: '',
+  sugar: '', sodium_mg: '', serving_size: '100', serving_unit: 'g',
+}
+
+function CustomFoodsSection({ clientId, getToken }) {
+  const [foods,    setFoods]    = useState([])
+  const [loading,  setLoading]  = useState(true)
+  const [creating, setCreating] = useState(false)
+  const [form,     setForm]     = useState({ ...EMPTY_CLIENT_FOOD })
+  const [saving,   setSaving]   = useState(false)
+  const [error,    setError]    = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      try {
+        const token = await getToken()
+        const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/custom-foods`,
+          { headers: { Authorization: `Bearer ${token}` } })
+        if (!cancelled) setFoods(res.ok ? await res.json() : [])
+      } catch { if (!cancelled) setFoods([]) }
+      finally { if (!cancelled) setLoading(false) }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [clientId, getToken])
+
+  function set(e) {
+    const { name, value } = e.target
+    setForm(f => ({ ...f, [name]: value }))
+  }
+
+  async function save(e) {
+    e.preventDefault()
+    if (!form.food_name.trim() || saving) return
+    setSaving(true)
+    setError(null)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API_URL}/api/coach-admin/clients/${clientId}/custom-foods`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          food_name:            form.food_name.trim(),
+          calories_per_serving: form.calories_per_serving !== '' ? Number(form.calories_per_serving) : null,
+          protein:   form.protein   !== '' ? Number(form.protein)   : null,
+          carbs:     form.carbs     !== '' ? Number(form.carbs)     : null,
+          fat:       form.fat       !== '' ? Number(form.fat)       : null,
+          fiber:     form.fiber     !== '' ? Number(form.fiber)     : null,
+          sugar:     form.sugar     !== '' ? Number(form.sugar)     : null,
+          sodium_mg: form.sodium_mg !== '' ? Number(form.sodium_mg) : null,
+          serving_size: form.serving_size !== '' ? Number(form.serving_size) : 100,
+          serving_unit: form.serving_unit || 'g',
+        }),
+      })
+      if (!res.ok) {
+        const { error: msg } = await res.json().catch(() => ({}))
+        throw new Error(msg || 'Failed to save')
+      }
+      const food = await res.json()
+      setFoods(prev => [food, ...prev])
+      setForm({ ...EMPTY_CLIENT_FOOD })
+      setCreating(false)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#E8670A] min-h-11'
+  const tinyInput = 'w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#E8670A] min-h-11'
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-gray-900">Custom Foods</h3>
+        <button
+          onClick={() => setCreating(c => !c)}
+          className="bg-[#E8670A] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] transition-colors min-h-11"
+        >
+          {creating ? 'Cancel' : '+ Add Food'}
+        </button>
+      </div>
+
+      {creating && (
+        <form onSubmit={save} className="border border-gray-200 rounded-xl p-4 space-y-4 mb-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Food Name *</label>
+            <input type="text" name="food_name" value={form.food_name} onChange={set} placeholder="e.g. Client's homemade protein shake" className={inputCls} required />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Serving Size</label>
+              <input type="number" name="serving_size" value={form.serving_size} onChange={set} min="0" className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Serving Unit</label>
+              <input type="text" name="serving_unit" value={form.serving_unit} onChange={set} placeholder="g, oz, cup…" className={inputCls} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            {[['Calories', 'calories_per_serving', '250'], ['Protein (g)', 'protein', '20'], ['Carbs (g)', 'carbs', '30'],
+              ['Fat (g)', 'fat', '8'], ['Fiber (g)', 'fiber', '2'], ['Sugar (g)', 'sugar', '0'],
+              ['Sodium (mg)', 'sodium_mg', '0']].map(([lbl, nm, ph]) => (
+              <div key={nm}>
+                <label className="block text-xs font-medium text-gray-600 mb-1">{lbl}</label>
+                <input type="number" name={nm} value={form[nm]} onChange={set} min="0" placeholder={ph} className={tinyInput} />
+              </div>
+            ))}
+          </div>
+
+          {error && <p className="text-xs text-red-500">{error}</p>}
+
+          <button
+            type="submit"
+            disabled={saving || !form.food_name.trim()}
+            className="bg-[#E8670A] text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-[#c45e09] disabled:opacity-60 transition-colors min-h-11"
+          >
+            {saving ? 'Saving…' : 'Save Food'}
+          </button>
+        </form>
+      )}
+
+      {loading ? (
+        <p className="text-xs text-gray-400">Loading…</p>
+      ) : foods.length === 0 && !creating ? (
+        <p className="text-xs text-gray-400 py-2">No custom foods added for this client yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {foods.map(food => (
+            <div key={food.id} className="border border-gray-100 rounded-lg p-3 flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-gray-900 truncate">{food.food_name}</p>
+                  {food.is_global && (
+                    <span className="text-[10px] bg-orange-50 text-[#E8670A] px-1.5 py-0.5 rounded border border-orange-100 shrink-0">Global</span>
+                  )}
+                  {food.is_coach_food && !food.is_global && (
+                    <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 shrink-0">Coach added</span>
+                  )}
+                </div>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Per {food.serving_size ?? 100}{food.serving_unit ?? 'g'}:
+                  {food.calories_per_serving != null && <> <span className="font-medium text-gray-600">{Math.round(food.calories_per_serving)}</span> cal</>}
+                  {food.protein != null && <> · <span className="font-medium">{food.protein}g</span> P</>}
+                  {food.carbs   != null && <> · <span className="font-medium">{food.carbs}g</span> C</>}
+                  {food.fat     != null && <> · <span className="font-medium">{food.fat}g</span> F</>}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
