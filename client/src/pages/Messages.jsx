@@ -276,6 +276,8 @@ export default function Messages() {
   const bottomRef      = useRef(null) // sentinel after the last message — scrollIntoView works regardless of which ancestor is the actual scrolling container (this panel's own overflow-y-auto, or the page itself on mobile)
   const msgCountRef    = useRef(0)
   const didPrependRef  = useRef(false)
+  const forceScrollRef = useRef(false) // set true right before a fresh thread load lands — jump to bottom unconditionally, ignoring scroll position (there's nothing to be "near the bottom" of yet)
+  const didSendRef     = useRef(false) // set true right before appending the message *I* just sent — always follow my own message to the bottom, even if I'd scrolled up to read history while typing
   const didAutoOpenRef = useRef(false)
   const fileInputRef   = useRef(null)  // camera
   const galleryInputRef = useRef(null) // gallery/files
@@ -478,10 +480,10 @@ export default function Messages() {
     if (res.ok) {
       const data = await res.json()
       const msgs = data.messages ?? []
+      forceScrollRef.current = true
       setMessages(msgs)
       setHasMore(data.hasMore ?? false)
       setNextBeforeId(data.nextBeforeId ?? null)
-      msgCountRef.current = msgs.length
     }
     setLoadingMsgs(false)
   }, [active, getToken])
@@ -527,7 +529,6 @@ export default function Messages() {
           if (newOnes.length === 0) return prev
           const merged = [...prev, ...newOnes]
           merged.sort((a, b) => a.id - b.id)
-          msgCountRef.current = merged.length
           return merged
         })
         setHasMore(data.hasMore ?? false)
@@ -539,9 +540,41 @@ export default function Messages() {
     return () => clearInterval(id)
   }, [active, getToken, loadThreads])
 
+  // Heuristic for "is the user already looking at the bottom of the thread": if
+  // scrollRef is itself the scrolling ancestor (desktop/lg, bounded panel) and is
+  // scrolled within `threshold` of its end, or — when the panel isn't independently
+  // scrollable (mobile, where the page itself is the scrolling ancestor) — the
+  // bottom sentinel is within `threshold` of the bottom of the visible viewport.
+  function isNearBottom(threshold = 100) {
+    const el = scrollRef.current
+    if (el && el.scrollHeight > el.clientHeight + 4) {
+      return el.scrollTop + el.clientHeight >= el.scrollHeight - threshold
+    }
+    const sentinel = bottomRef.current
+    if (!sentinel) return true
+    const rect = sentinel.getBoundingClientRect()
+    return rect.top <= (window.innerHeight || document.documentElement.clientHeight) + threshold
+  }
+
+  // Auto-scroll-to-bottom must not fire on every [messages] change — a 20s poll tick,
+  // a reaction toggle, an edit save, or a read-receipt update all replace `messages`
+  // too, none of which mean "jump the reader to the bottom." Only do that when the
+  // message count genuinely grew (a real new message, not same-length map()) AND
+  // either the user was already near the bottom, or the growth is my own just-sent
+  // message — plus the unconditional cases: a fresh thread just loaded (forceScrollRef)
+  // or older history was prepended, which must NOT scroll (didPrependRef).
   useEffect(() => {
-    if (didPrependRef.current) { didPrependRef.current = false; return }
-    if (messages.length > 0 && messages.length >= msgCountRef.current) {
+    if (didPrependRef.current) { didPrependRef.current = false; msgCountRef.current = messages.length; return }
+
+    const grew  = messages.length > msgCountRef.current
+    const force = forceScrollRef.current
+    const mine  = didSendRef.current
+    msgCountRef.current = messages.length
+    forceScrollRef.current = false
+    didSendRef.current = false
+
+    if (!force && !grew) return
+    if (force || mine || isNearBottom()) {
       bottomRef.current?.scrollIntoView({ block: 'end' })
     }
   }, [messages])
@@ -562,6 +595,7 @@ export default function Messages() {
       })
       if (res.ok) {
         const msg = await res.json()
+        didSendRef.current = true
         setMessages(m => [...m, msg])
         setBody(''); clearImage(); clearAudio()
         loadThreads()
