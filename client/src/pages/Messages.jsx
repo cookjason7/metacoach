@@ -825,8 +825,15 @@ export default function Messages() {
             })}
           </div>
 
-          {/* Conversation pane — full-width on mobile when active */}
-          <div className={`flex-1 min-w-0 flex-col bg-white border border-gray-200 rounded-xl overflow-hidden ${active ? 'flex' : 'hidden lg:flex'}`}>
+          {/* Conversation pane — full-width on mobile when active. overflow is visible
+              below lg so the message list (just inside) isn't trapped by this pane's own
+              bounds: below lg it drops its internal max-h/scroll too, so the page is the
+              single scrolling ancestor instead of a fixed-height inner container sized off
+              100vh — iOS Safari doesn't shrink 100vh for the on-screen keyboard, so a
+              bounded box here made scrollIntoView land behind the keyboard instead of at
+              the true bottom. At lg+ the pane is bounded (overflow-hidden) as before, same
+              as StaffInbox.jsx's matching split — see 1ea4c4e. */}
+          <div className={`flex-1 min-w-0 flex-col bg-white border border-gray-200 rounded-xl overflow-visible lg:overflow-hidden ${active ? 'flex' : 'hidden lg:flex'}`}>
             {active && displayMeta ? (
               <>
                 {/* Header */}
@@ -853,8 +860,11 @@ export default function Messages() {
                   </div>
                 </div>
 
-                {/* Messages */}
-                <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 sm:p-4 bg-gray-50 space-y-3 max-h-[calc(100vh-23rem)] lg:max-h-[500px]">
+                {/* Messages. Below lg, no max-h/internal scroll — the list grows in normal
+                    flow so the page (Layout's <main>) is the sole scrolling ancestor. At lg+
+                    the pane is bounded (overflow-hidden, see above) so the list scrolls
+                    internally within its own 500px cap as before. */}
+                <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 sm:p-4 bg-gray-50 space-y-3 lg:max-h-[500px]">
                   {hasMore && !loadingMsgs && (
                     <div className="text-center pb-1">
                       <button
