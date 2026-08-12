@@ -295,6 +295,7 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
   const msgCountRef    = useRef(0)
   const forceScrollRef = useRef(false) // set true right before a fresh conversation load lands — jump to bottom unconditionally, ignoring scroll position
   const didSendRef     = useRef(false) // set true right before appending the message *I* just sent — always follow my own message to the bottom
+  const didPrependRef  = useRef(false) // set true right before loadOlder() prepends history — must NOT scroll to bottom (that would undo the scroll-up)
   const fileInputRef     = useRef(null)  // camera
   const galleryInputRef  = useRef(null)  // gallery/files
   const [imgPreview,  setImgPreview]  = useState(null)
@@ -739,6 +740,7 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
       )
       if (res.ok) {
         const data = await res.json()
+        didPrependRef.current = true
         setMessages(prev => [...(data.messages ?? []), ...prev])
         setHasMore(data.hasMore ?? false)
         setNextBeforeId(data.nextBeforeId ?? null)
@@ -861,9 +863,13 @@ export default function StaffInbox({ getToken, role, focusClientId = null, focus
   // too, none of which mean "jump the reader to the bottom." Only do that when the
   // message count genuinely grew (a real new message, not same-length map()) AND
   // either the staff member was already near the bottom, or the growth is their own
-  // just-sent message — plus the unconditional case: a fresh conversation just loaded
-  // (forceScrollRef).
+  // just-sent message — plus the unconditional cases: a fresh conversation just loaded
+  // (forceScrollRef), or older history was prepended by loadOlder(), which must NOT
+  // scroll (didPrependRef) — otherwise scrolling up to load history immediately
+  // snapped back down to the bottom.
   useEffect(() => {
+    if (didPrependRef.current) { didPrependRef.current = false; msgCountRef.current = messages.length; return }
+
     const grew  = messages.length > msgCountRef.current
     const force = forceScrollRef.current
     const mine  = didSendRef.current
