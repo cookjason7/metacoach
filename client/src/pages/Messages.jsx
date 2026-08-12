@@ -579,6 +579,48 @@ export default function Messages() {
     }
   }, [messages])
 
+  // Track "was the user at the bottom" continuously (not just when messages change),
+  // so the iOS keyboard effect below knows the answer as of right before the
+  // viewport shrank rather than after — checking isNearBottom() after the shrink
+  // would measure against the already-smaller viewport.
+  const wasNearBottomRef = useRef(true)
+  useEffect(() => {
+    function track() { wasNearBottomRef.current = isNearBottom() }
+    track()
+    const el = scrollRef.current
+    el?.addEventListener('scroll', track, { passive: true })
+    window.addEventListener('scroll', track, { passive: true })
+    return () => {
+      el?.removeEventListener('scroll', track)
+      window.removeEventListener('scroll', track)
+    }
+  }, [active])
+
+  // iOS Safari's on-screen keyboard shrinks window.visualViewport (not the layout
+  // viewport window.innerHeight/100vh), and it does this entirely outside app
+  // control — there's no fighting the browser's own focused-input scroll. This just
+  // makes sure our own bottom sentinel agrees with the same effective viewport once
+  // the keyboard is up, by re-running scrollIntoView after a genuine shrink, and
+  // only when the user was already reading the latest message before it opened.
+  useEffect(() => {
+    const vv = window.visualViewport
+    let prevHeight = vv ? vv.height : window.innerHeight
+    function onViewportResize() {
+      const heightNow = vv ? vv.height : window.innerHeight
+      const shrank = heightNow < prevHeight - 40 // ignore small fluctuations (e.g. address bar show/hide)
+      prevHeight = heightNow
+      if (shrank && wasNearBottomRef.current) {
+        requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ block: 'end' }))
+      }
+    }
+    if (vv) {
+      vv.addEventListener('resize', onViewportResize)
+      return () => vv.removeEventListener('resize', onViewportResize)
+    }
+    window.addEventListener('resize', onViewportResize)
+    return () => window.removeEventListener('resize', onViewportResize)
+  }, [])
+
   async function send() {
     if (!body.trim() && !imgFile && !audioBlob) return
     if (sending || uploading) return
