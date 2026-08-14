@@ -4,6 +4,7 @@ node_modules/
 server/env
 *.local.txt
 backups/*.json.gz
+server/scripts/export-output/
 client/.env.android
 
 # Capacitor Android build artifacts (project files are committed)
