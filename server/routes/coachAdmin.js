@@ -3249,6 +3249,15 @@ router.post('/messages/bulk', requireAuth(), async (req, res, next) => {
       return res.status(403).json({ error: 'Coaches can only send to coach thread' })
     }
 
+    // Unlike the single-send route, a bulk broadcast is deliberately NOT re-canonicalized
+    // per recipient via isAdminAssignedCoach: a broadcast is one admin announcement fanned
+    // out to many clients, not a 1:1 coach message, so it must land on the same thread_type
+    // for every recipient regardless of which clients the sending admin happens to coach.
+    // (Previously this re-canonicalized to coach_thread for clients where the admin WAS the
+    // assigned coach, silently reproducing the original "attributed to a coach" bug for that
+    // subset — see the group-message thread_type fix.) thread_type is therefore fixed once,
+    // outside the loop, and visibility is derived from that same final value so the two
+    // columns can never disagree on a written row.
     const visibility = effectiveThreadType === 'admin_private' ? 'client_and_admin_only' : 'client_and_staff'
     const trimmedBody = message_body.trim()
 
@@ -3262,18 +3271,12 @@ router.post('/messages/bulk', requireAuth(), async (req, res, next) => {
           failed.push({ client_id: clientId, error: 'Forbidden' })
           continue
         }
-        // Canonicalize to coach_thread when this admin is the client's assigned coach, so
-        // sends never re-fragment across the two thread_types (see isAdminAssignedCoach).
-        const canonicalThreadType = (effectiveThreadType === 'coach_thread' || effectiveThreadType === 'admin_private')
-          && await isAdminAssignedCoach(ctx, clientId)
-          ? 'coach_thread'
-          : effectiveThreadType
 
         await pool.query(`
           INSERT INTO client_messages
             (client_id, sender_id, sender_role, message_body, thread_type, visibility, org_id)
           VALUES ($1, $2, $3, $4, $5, $6, $7)
-        `, [clientId, ctx.dbUserId, ctx.role, trimmedBody, canonicalThreadType, visibility, ctx.orgId])
+        `, [clientId, ctx.dbUserId, ctx.role, trimmedBody, effectiveThreadType, visibility, ctx.orgId])
 
         notifyNewDirectMessage(clientId).catch(() => {})
         sent++
