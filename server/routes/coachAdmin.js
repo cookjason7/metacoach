@@ -3236,7 +3236,15 @@ router.post('/messages/bulk', requireAuth(), async (req, res, next) => {
     const requestedThreadType = ['coach_thread', 'admin_private', 'coach_client'].includes(thread_type)
       ? thread_type
       : 'coach_thread'
-    const effectiveThreadType = requestedThreadType === 'coach_client' ? 'coach_thread' : requestedThreadType
+    // 'coach_client' (the default when the caller doesn't specify) previously
+    // resolved unconditionally to 'coach_thread' — an admin broadcasting with
+    // no thread_type picked landed every message as if a coach had sent it,
+    // even though sender_role/sender_id below always correctly recorded the
+    // real sender. Resolve the unspecified case from the sender's own role
+    // instead, same as the single-send route's per-role default.
+    const effectiveThreadType = requestedThreadType === 'coach_client'
+      ? (isAdminRole(ctx.role) ? 'admin_private' : 'coach_thread')
+      : requestedThreadType
     if (ctx.role === 'coach' && effectiveThreadType !== 'coach_thread') {
       return res.status(403).json({ error: 'Coaches can only send to coach thread' })
     }
